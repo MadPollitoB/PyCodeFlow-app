@@ -464,7 +464,7 @@ function forwardRunnerEvent(info, event) {
     const s = session.students[info.targetStudentId];
     if (!s || s.removed) return;
     if (event.type === "stdout" || event.type === "stderr") {
-      if (session.mode === "class" && (session.classWorkspaceMode || "shared") === "personal") {
+      if (info.workspace === "personal") {
         s.personalOutput += event.data;
         if (s.socketId) io.to(s.socketId).emit("run_output", { audience: "student", output: s.personalOutput });
       } else {
@@ -500,13 +500,14 @@ function forwardRunnerEvent(info, event) {
   }
 }
 
-async function startPythonRun({ session, code, targetStudentId = null, audience = "student" }) {
+async function startPythonRun({ session, code, targetStudentId = null, audience = "student", workspace = null }) {
   const { runId } = await runnerStart(code);
   const info = {
     runId,
     sessionCode: session.code,
     targetStudentId,
     audience,
+    workspace,
     after: 0
   };
   activeRuns.set(runId, info);
@@ -700,9 +701,13 @@ socket.on("code_update", ({ codeText, workspace } = {}) => {
       for (const s of getActiveStudents(session)) {
         s.personalCanRun = s.classCanRun !== false;
         s.personalCanEdit = s.classCanEdit !== false;
+        if (s.socketId) io.to(s.socketId).emit("force_workspace", { workspace: "personal", panel: "code" });
       }
       setStatus(session, "Individuele werkfase gestart", "warning");
     } else {
+      for (const s of getActiveStudents(session)) {
+        if (s.socketId) io.to(s.socketId).emit("force_workspace", { workspace: "shared", panel: "code" });
+      }
       setStatus(session, "Terug naar klascode", "success");
     }
     for (const s of getActiveStudents(session)) emitStudentState(session, s);
@@ -741,8 +746,8 @@ socket.on("code_update", ({ codeText, workspace } = {}) => {
     const allEnabled = field === "run" ? students.every(s => s.classCanRun !== false) : students.every(s => s.classCanEdit !== false);
     const newValue = !allEnabled;
     for (const s of students) {
-      if (field === "run") s.classCanRun = newValue;
-      if (field === "code") s.classCanEdit = newValue;
+      if (field === "run") { s.classCanRun = newValue; s.personalCanRun = newValue; }
+      if (field === "code") { s.classCanEdit = newValue; s.personalCanEdit = newValue; }
       emitStudentState(session, s);
     }
     setStatus(session, `${field === "run" ? "Run" : "Code"} voor iedereen ${newValue ? "aan" : "uit"}`, "info");
@@ -849,7 +854,7 @@ socket.on("code_update", ({ codeText, workspace } = {}) => {
       const s = session.students[ctx.studentId];
       if (!s || s.removed) return;
       const requestedWorkspace = session.mode === "class"
-        ? (workspace === "personal" ? "personal" : "shared")
+        ? (workspace === "personal" ? "personal" : (workspace === "shared" ? "shared" : (session.classWorkspaceMode || "shared")))
         : "personal";
       const studentCanRun = session.mode === "class"
         ? (requestedWorkspace === "shared" ? (s.classCanRun !== false) : (s.personalCanRun !== false))
@@ -886,7 +891,8 @@ socket.on("code_update", ({ codeText, workspace } = {}) => {
         session,
         code: effectiveCode,
         targetStudentId: s.id,
-        audience: "student"
+        audience: "student",
+        workspace: requestedWorkspace
       });
       s.runId = runId;
       if (s.socketId) io.to(s.socketId).emit("switch_to_output", { audience: "student" });

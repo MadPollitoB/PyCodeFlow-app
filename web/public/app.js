@@ -12,6 +12,16 @@
   };
 
   let studentWorkspaceState = { mode: "class", activeWorkspace: "shared", selectedTab: "shared", sharedCode: "", personalCode: "", classCanRun: true, classCanEdit: true, personalCanRun: true, personalCanEdit: true, editorAssist: true, output: "" };
+  let studentVisiblePanel = 'code';
+
+  function saveStudentLocalDraft() {
+    const editor = editorStore.student;
+    if (!editor) return;
+    const visible = getStudentVisibleWorkspace(studentWorkspaceState);
+    if (visible === 'personal') {
+      studentWorkspaceState.localPersonalCode = editor.getValue();
+    }
+  }
 
   function qs(id) { return document.getElementById(id); }
   function setLS(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
@@ -85,6 +95,7 @@
   }
 
   function setTab(owner, tab) {
+    if (owner === 'student') studentVisiblePanel = tab;
     const codePanel = qs(`${owner}-code-panel`);
     const outputPanel = qs(`${owner}-output-panel`);
     const inputWrap = qs(`${owner}-runtime-input-wrap`);
@@ -210,6 +221,11 @@
           if (visible === 'personal') {
             studentWorkspaceState.localPersonalCode = editorStore[owner].getValue();
           }
+          socket.emit('code_update', {
+            codeText: editorStore[owner].getValue(),
+            workspace: visible
+          });
+          return;
         }
         socket.emit('code_update', { codeText: editorStore[owner].getValue() });
       });
@@ -510,8 +526,8 @@ function updateStudentRunAvailability(data = studentWorkspaceState) {
     // Examenmodus: altijd personal workspace
     runDisabled = !(data.personalCanRun !== false);
   } else if (activeWorkspace === 'personal') {
-    // Individuele werkfase actief: run enkel op personal tab
-    runDisabled = visible !== 'personal' || !(data.personalCanRun !== false);
+    // Individuele werkfase actief: run moet stabiel beschikbaar blijven
+    runDisabled = !(data.personalCanRun !== false);
   } else {
     // Gedeelde modus: run enkel op shared tab (personal tab is readonly preview)
     if (visible === 'shared') {
@@ -604,6 +620,7 @@ async function applyStudentEditorFromState() {
     socket.emit('student_reconnect', { code, studentId });
 
     qs('student-run-btn')?.addEventListener('click', () => {
+      saveStudentLocalDraft();
       const visibleWorkspace = getStudentVisibleWorkspace(studentWorkspaceState);
       socket.emit('run_request', {
         codeText: getEditorValue('student'),
@@ -612,6 +629,7 @@ async function applyStudentEditorFromState() {
     });
     document.querySelectorAll('[data-owner="student"][data-tab]').forEach(btn => btn.addEventListener('click', async () => {
       if (btn.classList.contains('tab-disabled')) return;
+      saveStudentLocalDraft();
       if (btn.dataset.tab === 'output') {
         setTab('student', 'output');
         return;
@@ -635,21 +653,19 @@ async function applyStudentEditorFromState() {
 
 
 async function applyStudentState(data) {
+  saveStudentLocalDraft();
   qs('student-session-code').textContent = data.session.code;
   qs('student-mode').textContent = data.mode === 'exam' ? 'Examenmodus' : 'Klasmodus';
   setAssistBadge(qs('student-editor-assist'), data.editorAssist);
+  const previousActiveWorkspace = studentWorkspaceState.activeWorkspace || 'shared';
+  const nextActiveWorkspace = data.activeWorkspace || (data.mode === 'exam' ? 'personal' : 'shared');
+  const switchedBackToShared = previousActiveWorkspace === 'personal' && nextActiveWorkspace === 'shared';
   // Controleer of de server een nieuwe versie van personalCode stuurt
   // (via revision number) — zo ja, wis lokale versie
   const prevRevision = studentWorkspaceState.personalCodeRevision || 0;
   const newRevision = data.personalCodeRevision || 0;
   const serverHasNewerPersonalCode = newRevision > prevRevision
     || data.personalCodeSourceSocketId !== studentWorkspaceState.personalCodeSourceSocketId;
-
-  const previousActiveWorkspace = studentWorkspaceState.activeWorkspace || 'shared';
-  const nextActiveWorkspace = data.activeWorkspace || (data.mode === 'exam' ? 'personal' : 'shared');
-  const forceBackToSharedCode = data.mode !== 'exam'
-    && previousActiveWorkspace === 'personal'
-    && nextActiveWorkspace === 'shared';
 
   studentWorkspaceState = {
     mode: data.mode,
@@ -658,7 +674,7 @@ async function applyStudentState(data) {
       ? 'personal'
       : (nextActiveWorkspace === 'personal'
           ? 'personal'
-          : (forceBackToSharedCode ? 'shared' : (studentWorkspaceState.selectedTab || 'shared'))),
+          : 'shared'),
     sharedCode: data.sharedCode || data.code || '',
     personalCode: data.personalCode || (data.mode === 'exam' ? data.code || '' : ''),
     personalCodeRevision: newRevision,
@@ -682,8 +698,10 @@ async function applyStudentState(data) {
             ? 'Je bekijkt je individuele werkblad in alleen-lezen modus. Run is tijdelijk niet beschikbaar.'
             : 'Dit is gedeelde live code. Iedereen volgt dezelfde editor.'));
   await applyStudentEditorFromState();
-  if (forceBackToSharedCode) {
+  if (switchedBackToShared || nextActiveWorkspace === 'personal' || data.mode === 'exam') {
     setTab('student', 'code');
+  } else {
+    setTab('student', studentVisiblePanel || 'code');
   }
   updateAnnouncement('student', data.announcement || '');
   updateStudentRunAvailability(studentWorkspaceState);
@@ -700,6 +718,7 @@ async function applyStudentState(data) {
     });
     socket.on('run_output', ({ audience, output }) => {
       if (audience === 'student' || audience === 'teacher-all') {
+        saveStudentLocalDraft();
         qs('student-output-panel').textContent = output;
         // Bewaar lokaal zodat tab-wissel de output niet wist
         studentWorkspaceState.localOutput = output;
@@ -708,6 +727,7 @@ async function applyStudentState(data) {
     });
     socket.on('switch_to_output', ({ audience }) => {
       if (audience === 'student' || audience === 'teacher-all') {
+        saveStudentLocalDraft();
         // Nieuwe run gestart: wis vorige lokale output
         studentWorkspaceState.localOutput = '';
         setTab('student', 'output');
@@ -724,6 +744,16 @@ async function applyStudentState(data) {
       const panel = qs('student-output-panel');
       if (panel) panel.textContent = message || '⏳ Wachten op uitvoerslot...';
       setTab('student', 'output');
+    });
+    socket.on('force_workspace', async ({ workspace, panel } = {}) => {
+      saveStudentLocalDraft();
+      if (workspace === 'personal' || workspace === 'shared') {
+        studentWorkspaceState.activeWorkspace = workspace;
+        studentWorkspaceState.selectedTab = workspace === 'personal' ? 'personal' : 'shared';
+      }
+      await applyStudentEditorFromState();
+      setTab('student', panel === 'output' ? 'output' : 'code');
+      updateStudentRunAvailability(studentWorkspaceState);
     });
     socket.on('force_landing', () => {
       localStorage.removeItem('studentState');
