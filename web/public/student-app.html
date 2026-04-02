@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="nl"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Leerling</title>
+<link rel="stylesheet" href="/styles.css"/>
+<link rel="icon" href="assets/favicon.png" type="image/png">
+</head><body>
+<div class="topbar"><div class="topbar-inner">
+  <div class="logo-group"><img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/><span>PyCodeFlow</span></div>
+  <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a></div>
+</div></div>
+<div class="page">
+
+<div class="card screen">
+  <div class="row" style="justify-content:space-between; align-items:flex-start;">
+    <div>
+      <h1>Leerling applicatie</h1>
+      <p class="muted" id="student-subtitle">Werk in je sessie.</p>
+    </div>
+    <div class="badges">
+      <span class="badge" id="student-session-code">----</span>
+      <span class="badge" id="student-mode">Klasmodus</span>
+      <span class="badge" id="student-editor-assist">Codehulp aan</span>
+    </div>
+  </div>
+
+
+  <div id="student-announcement-card" class="card announcement-card hidden" style="margin-top:20px;">
+    <div class="announcement-title">Opdracht van de leerkracht</div>
+    <div id="student-announcement-text" class="announcement-text"></div>
+  </div>
+
+  <div class="card editor-shell" style="margin-top:20px;">
+    <div class="tabs">
+      <button class="tab-btn active" id="student-shared-tab-btn" data-tab="shared" data-owner="student">Klascode</button>
+      <button class="tab-btn" id="student-personal-tab-btn" data-tab="personal" data-owner="student">Mijn werkblad</button>
+      <button class="tab-btn" id="student-output-tab-btn" data-tab="output" data-owner="student">Output</button>
+    </div>
+    <div class="editor-toolbar">
+      <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+      <div class="toolbar-spacer"></div>
+      <button class="btn btn-soft small" id="student-run-btn">Run</button>
+    </div>
+    <div id="student-code-panel" class="editor-frame-wrap">
+      <div class="editor-frame">
+        <div id="student-line-numbers" class="custom-gutter"></div>
+        <div id="student-editor" class="monaco-editor-host"></div>
+      </div>
+    </div>
+    <pre id="student-output-panel" class="output-panel hidden"></pre>
+    <div id="student-runtime-input-wrap" class="runtime-input-wrap hidden">
+      <input id="student-runtime-input" placeholder="Input unavailable" disabled/>
+      <button class="btn btn-soft" id="student-send-input-btn" disabled>Stuur input</button>
+    </div>
+  </div>
+</div>
+</div><script src="/socket.io/socket.io.js"></script><script src="/monaco/min/vs/loader.js"></script><script src="/app.js"></script></body></html>

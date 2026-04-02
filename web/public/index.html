@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="nl"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PyCodeFlow</title>
+<link rel="stylesheet" href="/styles.css"/>
+<link rel="icon" href="assets/favicon.png" type="image/png">
+</head><body>
+<div class="topbar"><div class="topbar-inner">
+  <div class="logo-group"><img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/><span>PyCodeFlow</span></div>
+ <!-- <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a></div>-->
+</div></div>
+<div class="page">
+
+<div class="card hero">
+  <div class="hero-left hero-panel">
+    <img src="/assets/atheneum-hoboken-logo.png" class="logo-large" alt="Atheneum Hoboken logo"/>
+    <h1>PyCodeFlow</h1>
+    <!--<p class="brand-subtitle">Geïnspireerd door de visuele stijl van Atheneum Hoboken.</p>-->
+    <p>Werk samen live aan Python-code in de klas, of start een examenmodus waarin elke leerling individueel werkt terwijl de leerkracht live kan meekijken.</p>
+    <div class="hero-actions">
+      <button class="btn btn-primary" id="go-student-start">Begin</button>
+    </div>
+    <div style="margin-top:10px"></div>
+    <div class="hero-actions">
+      <button class="btn btn-muted small" id="go-teacher-sessions">Leerkrachtenplatform</button>
+    </div>
+  </div>
+  <div class="hero-right hero-panel">
+    <div class="mock-toolbar"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span></div>
+    <div class="mock-editor">
+<strong># KLASMODUS
+# ---------</strong>
+# In deze modus werkt de hele klas <b>samen in één editor</b>.
+# De leerkracht kan live code aanpassen en iedereen ziet dit meteen.
+# Je kan hier meestal zelf ook mee typen (als dit toegelaten is).
+
+# De leerkracht kan tijdelijk overschakelen naar <b>zelfstandige modus</b>:
+# Dan krijg je een eigen werkblad om individueel te oefenen.
+
+<strong># EXAMENMODUS
+# -----------</strong>
+# In deze modus heeft elke <b>leerling een eigen editor</b>.
+# Je werkt volledig zelfstandig.
+# De leerkracht kan <b>live meekijken</b>, maar niet ingrijpen.
+    </div>
+  </div>
+</div>
+</div><script src="/socket.io/socket.io.js"></script><script src="/app.js"></script></body></html>

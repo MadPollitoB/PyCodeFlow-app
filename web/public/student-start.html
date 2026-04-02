@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="nl"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Leerling starten</title>
+<link rel="stylesheet" href="/styles.css"/>
+<link rel="icon" href="assets/favicon.png" type="image/png">
+</head><body>
+<div class="topbar"><div class="topbar-inner">
+  <div class="logo-group"><img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/><span>PyCodeFlow</span></div>
+  <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a></div>
+</div></div>
+<div class="page">
+
+<div class="card screen" style="max-width:760px; margin:0 auto;">
+  <h1>Deelnemen aan sessie</h1>
+  <p class="muted">Vul je naam en de sessiecode in.</p>
+  <div class="panel" style="margin-top:24px;">
+    <div class="input-group">
+      <label for="student-name">Naam</label>
+      <input id="student-name" placeholder="Emma"/>
+    </div>
+    <div class="input-group">
+      <label for="student-code">Sessiecode</label>
+      <input id="student-code" placeholder="AB12CD"/>
+    </div>
+    <div class="row">
+      <button class="btn btn-primary" id="student-join-btn">Deelnemen</button>
+    </div>
+    <div id="student-start-error" class="muted" style="margin-top:12px;"></div>
+  </div>
+</div>
+</div><script src="/socket.io/socket.io.js"></script><script src="/app.js"></script></body></html>

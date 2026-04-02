@@ -1,0 +1,25 @@
+# =========================
+# PyCodeFlow environment
+# =========================
+
+# true  = lokaal testen op laptop, zonder Cloudflare Tunnel
+# false = servermodus op de UGREEN, met Cloudflare Tunnel
+TEST_MODE=false
+
+# teacher variables
+POC_BASIC_AUTH_ENABLED=true
+POC_BASIC_USER=ClaesAdmin
+POC_BASIC_PASS=hyrpug-batsac-pakfY6
+POC_BASIC_AUTH_REALM=PyCodeFlow POC
+
+# Alleen nodig als TEST_MODE=false
+CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoiOTgyOWQ0ODk1YWRhYWNiMDI4MDBjYjI2NTY1YmUyNjgiLCJ0IjoiNmIyNDk1ZjUtZWY1NS00YmNhLWJlYzEtN2E0ZTA4YmUxYmQ3IiwicyI6Ik5qSTJNMlZqTlRjdE56ZGtPQzAwTkdFd0xXSTRNR010TVRrNU9EUXhPR0ZpTldGaCJ9
+
+# Optioneel
+NODE_ENV=production
+
+# App-versie
+APP_VERSION_YEAR=2026
+APP_VERSION_MAJOR=1
+APP_VERSION_MINOR=23
+APP_VERSION_BUILD=4

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="nl"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Leerkrachtenplatform</title>
+<link rel="stylesheet" href="/styles.css?v=blockfix1"/>
+</head><body>
+<div class="topbar"><div class="topbar-inner">
+  <div class="logo-group"><img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/><span>PyCodeFlow</span></div>
+  <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a></div>
+</div></div>
+<div class="page">
+
+<div class="card screen">
+  <h1>Leerkrachtenplatform</h1>
+  <p class="muted">Maak een nieuwe sessie aan of open een lopende sessie.</p>
+  <div class="grid-2" style="margin-top:24px;">
+    <div class="panel">
+      <h2>Nieuwe sessie</h2>
+      <div class="input-group">
+        <label for="session-name">Naam van sessie</label>
+        <input id="session-name" placeholder="Bijv. Python oefening 1"/>
+      </div>
+      <label>Sessietype</label>
+      <div class="mode-cards">
+        <button class="mode-card active" data-mode-select="class" type="button">
+          <strong>Klasmodus</strong><br/><span class="muted">Iedereen volgt dezelfde code live.</span>
+        </button>
+        <button class="mode-card" data-mode-select="exam" type="button">
+          <strong>Examenmodus</strong><br/><span class="muted">Elke leerling werkt apart; leerkracht kan live meekijken.</span>
+        </button>
+      </div>
+
+      <div class="input-group" style="margin-top:18px;">
+        <label class="checkbox-row" for="editor-assist-enabled">
+          <input id="editor-assist-enabled" type="checkbox" checked />
+          <span>
+            <strong>Codehulp inschakelen</strong><br/>
+            <span class="muted">Toont syntaxkleuren en woord/suggestiehulp. Zet dit uit voor examens zonder hints.</span>
+          </span>
+        </label>
+      </div>
+
+      <div class="badges">
+        <span class="badge" id="selected-mode-badge">Klasmodus</span>
+        <span class="badge" id="selected-assist-badge">Codehulp aan</span>
+      </div>
+      <div class="row" style="margin-top:18px;">
+        <button class="btn btn-primary" id="create-session-btn">Sessie maken</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Lopende sessies</h2>
+      <div class="inline-note">Klik op <strong>Open</strong> om terug naar een sessie te gaan.</div>
+      <div class="session-list" id="session-list"></div>
+    </div>
+  </div>
+</div>
+</div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=blockfix1"></script></body></html>

@@ -1,0 +1,770 @@
+(() => {
+  const socket = io();
+  const page = location.pathname.split('/').pop() || 'index.html';
+  let selectedMode = 'class';
+  let selectedEditorAssist = true;
+
+  const editorStore = {
+    teacher: null,
+    student: null,
+    teacherApplyingRemote: false,
+    studentApplyingRemote: false
+  };
+
+  let studentWorkspaceState = { mode: "class", activeWorkspace: "shared", selectedTab: "shared", sharedCode: "", personalCode: "", classCanRun: true, classCanEdit: true, personalCanRun: true, personalCanEdit: true, editorAssist: true, output: "" };
+
+  function qs(id) { return document.getElementById(id); }
+  function setLS(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+  function getLS(key, fallback = null) {
+    try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; } catch { return fallback; }
+  }
+  function go(url) { location.href = url; }
+  function escapeHtml(str = '') {
+    return str.replace(/[&<>"']/g, s => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[s]));
+  }
+
+  function setStatusBox(el, text, type = 'info') {
+    if (!el) return;
+    el.textContent = text;
+    el.className = `status-box status-${type}`;
+  }
+
+  function updateAnnouncement(prefix, text) {
+    const card = qs(`${prefix}-announcement-card`);
+    const body = qs(`${prefix}-announcement-text`);
+    if (!card || !body) return;
+    const value = (text || '').trim();
+    body.textContent = value;
+    card.classList.toggle('hidden', !value);
+  }
+
+  function layoutEditor(owner, resetView = false) {
+    const editor = editorStore[owner];
+    const host = qs(`${owner}-editor`);
+    if (!editor || !host) return;
+    const applyLayout = () => {
+      editor.layout({ width: host.clientWidth, height: host.clientHeight });
+      syncCustomGutter(owner);
+      if (resetView) {
+        editor.setScrollTop(0);
+        editor.setScrollLeft(0);
+        editor.revealPosition({ lineNumber: 1, column: 1 });
+      }
+    };
+    applyLayout();
+    requestAnimationFrame(applyLayout);
+    setTimeout(applyLayout, 0);
+    setTimeout(applyLayout, 60);
+  }
+
+
+
+  function gutterEl(owner) { return qs(`${owner}-line-numbers`); }
+
+  function renderCustomGutter(owner) {
+    const editor = editorStore[owner];
+    const gutter = gutterEl(owner);
+    if (!editor || !gutter) return;
+    const model = editor.getModel();
+    if (!model) return;
+    const lineCount = model.getLineCount();
+    const current = editor.getPosition()?.lineNumber || 1;
+    let html = '';
+    for (let i = 1; i <= lineCount; i++) {
+      html += `<div class="gutter-line${i === current ? ' active' : ''}">${i}</div>`;
+    }
+    gutter.innerHTML = html;
+    gutter.scrollTop = editor.getScrollTop();
+  }
+
+  function syncCustomGutter(owner) {
+    const editor = editorStore[owner];
+    const gutter = gutterEl(owner);
+    if (!editor || !gutter) return;
+    gutter.scrollTop = editor.getScrollTop();
+  }
+
+  function setTab(owner, tab) {
+    const codePanel = qs(`${owner}-code-panel`);
+    const outputPanel = qs(`${owner}-output-panel`);
+    const inputWrap = qs(`${owner}-runtime-input-wrap`);
+    document.querySelectorAll(`[data-owner="${owner}"][data-tab]`).forEach(btn => {
+      let active = btn.dataset.tab === tab;
+      if (owner === 'student' && tab === 'code') {
+        const workspaceTab = (studentWorkspaceState.mode === 'exam')
+          ? 'personal'
+          : ((studentWorkspaceState.activeWorkspace || 'shared') === 'personal'
+              ? 'personal'
+              : (studentWorkspaceState.selectedTab || 'shared'));
+        active = btn.dataset.tab === workspaceTab;
+      }
+      btn.classList.toggle('active', active);
+    });
+    codePanel?.classList.toggle('hidden', tab !== 'code');
+    outputPanel?.classList.toggle('hidden', tab !== 'output');
+    inputWrap?.classList.toggle('hidden', tab !== 'output');
+    if (tab === 'code') layoutEditor(owner);
+  }
+
+  function enableInput(prefix) {
+    const input = qs(`${prefix}-runtime-input`);
+    const btn = qs(`${prefix}-send-input-btn`);
+    if (!input || !btn) return;
+    input.disabled = false;
+    btn.disabled = false;
+    input.placeholder = 'Typ je antwoord...';
+    input.focus();
+  }
+
+  function disableInput(prefix) {
+    const input = qs(`${prefix}-runtime-input`);
+    const btn = qs(`${prefix}-send-input-btn`);
+    if (!input || !btn) return;
+    input.disabled = true;
+    btn.disabled = true;
+    input.value = '';
+    input.placeholder = 'Input unavailable';
+  }
+
+  function monacoOptions(assist, readOnly = false) {
+    return {
+      language: 'python',
+      theme: 'pycodeflow-dark',
+      automaticLayout: false,
+      minimap: { enabled: false },
+      fontSize: 18,
+      lineHeight: 30,
+      lineNumbers: 'off',
+      lineNumbersMinChars: 0,
+      lineDecorationsWidth: 0,
+      glyphMargin: false,
+      folding: false,
+      overviewRulerLanes: 0,
+      overviewRulerBorder: false,
+      fixedOverflowWidgets: true,
+      renderLineHighlight: 'line',
+      scrollbar: {
+        verticalScrollbarSize: 10,
+        horizontalScrollbarSize: 10,
+        useShadows: false,
+        alwaysConsumeMouseWheel: false
+      },
+      roundedSelection: false,
+      scrollBeyondLastLine: false,
+      readOnly,
+      quickSuggestions: assist,
+      suggestOnTriggerCharacters: assist,
+      wordBasedSuggestions: assist ? 'currentDocument' : 'off',
+      snippetSuggestions: assist ? 'inline' : 'none',
+      parameterHints: { enabled: assist },
+      tabCompletion: assist ? 'on' : 'off',
+      acceptSuggestionOnEnter: assist ? 'on' : 'off'
+    };
+  }
+
+  let monacoThemeReady = false;
+
+  function ensureMonacoTheme(monaco) {
+    if (monacoThemeReady) return;
+    monaco.editor.defineTheme('pycodeflow-dark', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [],
+      colors: {
+        'editor.background': '#1e1e1e',
+        'editorLineNumber.foreground': '#9fb3c8',
+        'editorLineNumber.activeForeground': '#ffffff',
+        'editorGutter.background': '#071737',
+        'editor.lineHighlightBackground': '#23272e',
+        'editor.lineHighlightBorder': '#23272e'
+      }
+    });
+    monacoThemeReady = true;
+  }
+
+  function loadMonaco() {
+    if (window.monaco && window.monaco.editor) return Promise.resolve(window.monaco);
+    return new Promise((resolve, reject) => {
+      if (!window.require) return reject(new Error('Monaco loader niet gevonden'));
+      window.require.config({ paths: { vs: '/monaco/min/vs' } });
+      window.require(['vs/editor/editor.main'], () => resolve(window.monaco), reject);
+    });
+  }
+
+  async function ensureEditor(owner, initialValue = '', assist = true, readOnly = false) {
+    const host = qs(`${owner}-editor`);
+    if (!host) return null;
+    const monaco = await loadMonaco();
+    ensureMonacoTheme(monaco);
+    if (!editorStore[owner]) {
+      editorStore[owner] = monaco.editor.create(host, {
+        value: initialValue,
+        ...monacoOptions(assist, readOnly)
+      });
+      editorStore[owner].onDidChangeModelContent(() => {
+        renderCustomGutter(owner);
+        if (editorStore[`${owner}ApplyingRemote`]) return;
+        // Bewaar personal code lokaal als leerling op personal tab zit
+        if (owner === 'student') {
+          const visible = getStudentVisibleWorkspace(studentWorkspaceState);
+          if (visible === 'personal') {
+            studentWorkspaceState.localPersonalCode = editorStore[owner].getValue();
+          }
+        }
+        socket.emit('code_update', { codeText: editorStore[owner].getValue() });
+      });
+      editorStore[owner].onDidScrollChange(() => syncCustomGutter(owner));
+      editorStore[owner].onDidChangeCursorPosition(() => renderCustomGutter(owner));
+      window.addEventListener('resize', () => layoutEditor(owner));
+      layoutEditor(owner, true);
+      renderCustomGutter(owner);
+    } else {
+      updateEditorConfig(owner, { assist, readOnly });
+      if (editorStore[owner].getValue() !== initialValue) {
+        setEditorValue(owner, initialValue);
+      }
+    }
+    return editorStore[owner];
+  }
+
+  function updateEditorConfig(owner, { assist, readOnly }) {
+    const editor = editorStore[owner];
+    if (!editor) return;
+    editor.updateOptions(monacoOptions(assist, readOnly));
+    layoutEditor(owner);
+    renderCustomGutter(owner);
+  }
+
+  function setEditorValue(owner, value, resetView = false) {
+    const editor = editorStore[owner];
+    if (!editor) return;
+    const flag = `${owner}ApplyingRemote`;
+    editorStore[flag] = true;
+    const model = editor.getModel();
+    if (model && model.getValue() !== value) {
+      model.setValue(value);
+    }
+    layoutEditor(owner, resetView);
+    renderCustomGutter(owner);
+    editorStore[flag] = false;
+  }
+
+  function getEditorValue(owner) {
+    return editorStore[owner]?.getValue() || '';
+  }
+
+  function setAssistBadge(el, enabled) {
+    if (!el) return;
+    el.textContent = enabled ? 'Codehulp aan' : 'Codehulp uit';
+  }
+
+  function updateCreateAssistBadge() {
+    const badge = qs('selected-assist-badge');
+    if (badge) setAssistBadge(badge, selectedEditorAssist);
+  }
+
+  async function toggleSessionBlock(code) {
+    await fetch(`/api/sessions/${encodeURIComponent(code)}/block-toggle`, { method: 'POST' });
+    await loadSessions();
+  }
+
+  async function deleteSession(code) {
+    await fetch(`/api/sessions/${encodeURIComponent(code)}`, { method: 'DELETE' });
+    const current = getLS('teacherSessionCode');
+    if (current === code) localStorage.removeItem('teacherSessionCode');
+    await loadSessions();
+  }
+
+  function renderSessions(list) {
+    const host = qs('session-list');
+    if (!host) return;
+    if (!list.length) {
+      host.innerHTML = `<div class="student-item"><strong>Nog geen lopende sessies</strong><div class="muted">Maak eerst een sessie aan.</div></div>`;
+      return;
+    }
+    host.innerHTML = list.map(s => `
+      <div class="session-row">
+        <div class="session-row-main">
+          <div class="session-title-row">
+            <strong class="session-title">${escapeHtml(s.name)}</strong>
+            <span class="badge ${s.status === 'geblokkeerd' ? 'badge-warn' : 'badge-success'}">${s.status}</span>
+          </div>
+          <div class="session-meta-grid">
+            <div><span class="session-meta-label">Type</span><span class="session-meta-value">${s.mode === 'exam' ? 'Examenmodus' : 'Klasmodus'}</span></div>
+            <div><span class="session-meta-label">Leerlingen</span><span class="session-meta-value">${s.studentCount}</span></div>
+            <div><span class="session-meta-label">Code</span><span class="session-meta-value">${s.code}</span></div>
+            <div><span class="session-meta-label">Codehulp</span><span class="session-meta-value">${s.editorAssist ? 'Aan' : 'Uit'}</span></div>
+          </div>
+        </div>
+        <div class="session-row-actions">
+          <button class="btn btn-soft small" type="button" data-open-session="${s.code}">Open</button>
+          <button class="btn ${s.status === 'geblokkeerd' ? 'btn-success' : 'btn-muted'} small" type="button" data-toggle-session="${s.code}">${s.status === 'geblokkeerd' ? 'Starten' : 'Blokkeren'}</button>
+          <button class="btn btn-danger small" type="button" data-delete-session="${s.code}">Verwijderen</button>
+        </div>
+      </div>
+    `).join('');
+    host.querySelectorAll('[data-open-session]').forEach(btn => btn.addEventListener('click', () => {
+      setLS('teacherSessionCode', btn.dataset.openSession);
+      go('/teacher-app.html');
+    }));
+    host.querySelectorAll('[data-toggle-session]').forEach(btn => btn.addEventListener('click', async () => {
+      await toggleSessionBlock(btn.dataset.toggleSession);
+    }));
+    host.querySelectorAll('[data-delete-session]').forEach(btn => btn.addEventListener('click', async () => {
+      await deleteSession(btn.dataset.deleteSession);
+    }));
+  }
+
+  async function loadSessions() {
+    const r = await fetch('/api/sessions');
+    renderSessions(await r.json());
+  }
+
+  if (page === 'index.html' || page === 'landing.html' || page === '') {
+    qs('go-student-start')?.addEventListener('click', () => go('/student-start.html'));
+    qs('go-teacher-sessions')?.addEventListener('click', () => go('/teacher-sessions.html'));
+  }
+
+  if (page === 'teacher-sessions.html') {
+    loadSessions();
+    const checkbox = qs('editor-assist-enabled');
+    checkbox?.addEventListener('change', () => {
+      selectedEditorAssist = checkbox.checked;
+      updateCreateAssistBadge();
+    });
+    document.querySelectorAll('[data-mode-select]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectedMode = btn.dataset.modeSelect;
+        document.querySelectorAll('[data-mode-select]').forEach(b => b.classList.toggle('active', b === btn));
+        qs('selected-mode-badge').textContent = selectedMode === 'exam' ? 'Examenmodus' : 'Klasmodus';
+        if (checkbox) {
+          checkbox.checked = selectedMode === 'class';
+          selectedEditorAssist = checkbox.checked;
+          updateCreateAssistBadge();
+        }
+      });
+    });
+    updateCreateAssistBadge();
+    qs('create-session-btn')?.addEventListener('click', () => {
+      socket.emit('teacher_create_session', {
+        name: qs('session-name').value.trim() || 'Nieuwe sessie',
+        mode: selectedMode,
+        editorAssist: selectedEditorAssist
+      });
+    });
+    socket.on('session_created', ({ code }) => {
+      setLS('teacherSessionCode', code);
+      go('/teacher-app.html');
+    });
+  }
+
+  if (page === 'student-start.html') {
+    qs('student-join-btn')?.addEventListener('click', () => {
+      socket.emit('student_join', {
+        name: qs('student-name').value.trim() || 'Leerling',
+        code: qs('student-code').value.trim().toUpperCase()
+      });
+    });
+    socket.on('student_state', data => {
+      setLS('studentSessionCode', data.session.code);
+      setLS('studentId', data.student.id);
+      setLS('studentName', data.student.name);
+      setLS('studentState', data);
+      go('/student-app.html');
+    });
+    socket.on('error_message', msg => {
+      const el = qs('student-start-error');
+      if (el) el.textContent = msg;
+    });
+  }
+
+  if (page === 'teacher-app.html') {
+    const code = getLS('teacherSessionCode');
+    if (!code) go('/teacher-sessions.html');
+    socket.emit('teacher_join_session', { code });
+
+    document.querySelectorAll('[data-owner="teacher"][data-tab]').forEach(btn => btn.addEventListener('click', () => setTab('teacher', btn.dataset.tab)));
+    qs('teacher-run-btn')?.addEventListener('click', () => {
+      socket.emit('run_request', {
+        codeText: getEditorValue('teacher'),
+        workspace: 'shared'
+      });
+    });
+    qs('toggle-run-all-btn')?.addEventListener('click', () => socket.emit('teacher_toggle_all', { field: 'run' }));
+    qs('teacher-toggle-workspace-btn')?.addEventListener('click', () => socket.emit('teacher_toggle_class_workspace')); 
+    qs('toggle-code-all-btn')?.addEventListener('click', () => socket.emit('teacher_toggle_all', { field: 'code' }));
+    qs('teacher-close-session-btn')?.addEventListener('click', () => socket.emit('teacher_close_session'));
+    qs('teacher-announcement-send-btn')?.addEventListener('click', () => {
+      socket.emit('teacher_send_announcement', { text: qs('teacher-announcement-input').value });
+    });
+    qs('teacher-announcement-clear-btn')?.addEventListener('click', () => {
+      qs('teacher-announcement-input').value = '';
+      socket.emit('teacher_send_announcement', { text: '' });
+    });
+    qs('teacher-send-input-btn')?.addEventListener('click', () => {
+      socket.emit('runtime_input', { value: qs('teacher-runtime-input').value });
+      disableInput('teacher');
+    });
+    qs('teacher-runtime-input')?.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        qs('teacher-send-input-btn').click();
+      }
+    });
+    disableInput('teacher');
+
+    socket.on('teacher_session_data', async data => {
+      ['teacher-session-code','teacher-session-code-top'].forEach(id=>{ const el = qs(id); if (el) el.textContent = data.session.code; });
+      qs('teacher-session-mode').textContent = data.session.mode === 'exam' ? 'Examenmodus' : 'Klasmodus';
+      setAssistBadge(qs('teacher-editor-assist'), data.session.editorAssist);
+      qs('teacher-student-count').textContent = `${data.students.filter(s => s.online).length} online`;
+      qs('teacher-workspace-mode').textContent = data.session.mode === 'class' ? ((data.session.classWorkspaceMode || 'shared') === 'personal' ? 'Individueel werk actief' : 'Klascode actief') : 'Individueel';
+      const toggleBtn = qs('teacher-toggle-workspace-btn');
+      if (toggleBtn) {
+        toggleBtn.classList.toggle('hidden', data.session.mode !== 'class');
+        toggleBtn.textContent = (data.session.classWorkspaceMode || 'shared') === 'personal' ? 'Terug naar klasmodus' : 'Start individuele werkfase';
+      }
+      qs('teacher-run-btn').disabled = data.session.mode === 'class' && (data.session.classWorkspaceMode || 'shared') === 'personal';
+      qs('teacher-view-label').textContent = data.view.mode === 'exam'
+        ? (data.view.selectedStudentName ? `Live control: ${data.view.selectedStudentName}` : 'Kies een leerling voor Live control')
+        : 'Gedeelde sessie';
+      await ensureEditor('teacher', data.view.code || '', data.session.editorAssist, data.view.readOnly);
+      updateEditorConfig('teacher', { assist: data.session.editorAssist, readOnly: data.view.readOnly });
+      if (getEditorValue('teacher') !== (data.view.code || '')) setEditorValue('teacher', data.view.code || '', true);
+      else layoutEditor('teacher');
+      qs('teacher-output-panel').textContent = data.view.output || '';
+      qs('teacher-announcement-input') && (qs('teacher-announcement-input').value = data.announcement || '');
+      updateAnnouncement('teacher', data.announcement || '');
+      setStatusBox(qs('teacher-status-box'), data.statusText, data.statusType);
+      qs('toggle-run-all-btn').textContent = data.allRunEnabled ? 'Run all uit' : 'Run all aan';
+      qs('toggle-code-all-btn').textContent = data.allCodeEnabled ? 'Code all uit' : 'Code all aan';
+
+      const host = qs('teacher-student-list');
+      host.innerHTML = data.students.map(s => `
+        <div class="student-item">
+          <div class="student-head">
+            <div><strong>${escapeHtml(s.name)}</strong><br/><span class="muted">${s.online ? 'online' : 'offline'}</span></div>
+            ${data.session.mode === 'exam' ? `<button class=\"btn btn-soft small\" data-live-control=\"${s.id}\">Live control</button>` : ``}
+          </div>
+          <div class="row">
+            <button class="btn ${s.canRun ? 'btn-success' : 'btn-danger'} small" data-toggle-student="${s.id}" data-field="run">${s.canRun ? 'Run aan' : 'Run uit'}</button>
+            <button class="btn ${s.canEdit ? 'btn-success' : 'btn-danger'} small" data-toggle-student="${s.id}" data-field="code">${s.canEdit ? 'Code aan' : 'Code uit'}</button>
+            <button class="btn btn-muted small" data-remove-student="${s.id}">Verwijderen</button>
+          </div>
+        </div>
+      `).join('');
+      host.querySelectorAll('[data-toggle-student]').forEach(btn => btn.addEventListener('click', () => {
+        socket.emit('teacher_toggle_student', { studentId: btn.dataset.toggleStudent, field: btn.dataset.field });
+      }));
+      host.querySelectorAll('[data-remove-student]').forEach(btn => btn.addEventListener('click', () => {
+        socket.emit('teacher_remove_student', { studentId: btn.dataset.removeStudent });
+      }));
+      host.querySelectorAll('[data-live-control]').forEach(btn => btn.addEventListener('click', () => {
+        socket.emit('teacher_select_student', { studentId: btn.dataset.liveControl });
+        qs('teacher-output-panel').textContent = '';
+        setTab('teacher', 'code');
+        layoutEditor('teacher', true);
+      }));
+    });
+
+    socket.on('run_output', ({ audience, output }) => {
+      if (audience === 'teacher-all') {
+        qs('teacher-output-panel').textContent = output;
+        setTab('teacher', 'output');
+      }
+    });
+    socket.on('input_request', ({ audience }) => {
+      if (audience === 'teacher-all') enableInput('teacher');
+    });
+    socket.on('run_end', ({ audience }) => {
+      if (audience === 'teacher-all') disableInput('teacher');
+    });
+    socket.on('teacher_preview_reset', () => {
+      qs('teacher-output-panel').textContent = '';
+      setTab('teacher', 'output');
+      disableInput('teacher');
+    });
+    socket.on('teacher_preview_output', ({ output, append }) => {
+      qs('teacher-output-panel').textContent = append ? qs('teacher-output-panel').textContent + output : output;
+      setTab('teacher', 'output');
+    });
+    socket.on('teacher_preview_input_request', () => enableInput('teacher'));
+    socket.on('teacher_preview_end', () => disableInput('teacher'));
+  }
+
+
+function getStudentVisibleWorkspace(data = studentWorkspaceState) {
+  if (data.mode === 'exam') return 'personal';
+  if ((data.activeWorkspace || 'shared') === 'personal') return 'personal';
+  return data.selectedTab || 'shared';
+}
+
+
+function updateStudentRunAvailability(data = studentWorkspaceState) {
+  const btn = qs('student-run-btn');
+  if (!btn) return;
+  const visible = getStudentVisibleWorkspace(data);
+  const activeWorkspace = data.activeWorkspace || 'shared';
+  let runDisabled = true;
+  if (data.mode === 'exam') {
+    // Examenmodus: altijd personal workspace
+    runDisabled = !(data.personalCanRun !== false);
+  } else if (activeWorkspace === 'personal') {
+    // Individuele werkfase actief: run enkel op personal tab
+    runDisabled = visible !== 'personal' || !(data.personalCanRun !== false);
+  } else {
+    // Gedeelde modus: run enkel op shared tab (personal tab is readonly preview)
+    if (visible === 'shared') {
+      runDisabled = !(data.classCanRun !== false);
+    } else if (visible === 'personal') {
+      // Leerling kijkt naar personal tab in shared modus = readonly, geen run
+      runDisabled = true;
+    } else {
+      runDisabled = true;
+    }
+  }
+  btn.disabled = runDisabled;
+}
+
+function refreshStudentWorkspaceUi(data) {
+  const sharedBtn = qs('student-shared-tab-btn');
+  const personalBtn = qs('student-personal-tab-btn');
+  if (!sharedBtn || !personalBtn) return;
+  const isExam = data.mode === 'exam';
+  const active = data.activeWorkspace || (isExam ? 'personal' : 'shared');
+  const visible = getStudentVisibleWorkspace(data);
+  if (isExam) {
+    sharedBtn.classList.add('hidden');
+    personalBtn.textContent = 'Code';
+    personalBtn.classList.remove('tab-disabled');
+    personalBtn.classList.add('active');
+  } else {
+    sharedBtn.classList.remove('hidden');
+    personalBtn.textContent = 'Mijn werkblad';
+    sharedBtn.classList.toggle('active', visible === 'shared');
+    personalBtn.classList.toggle('active', visible === 'personal');
+    if (active === 'personal') {
+      sharedBtn.classList.add('tab-disabled');
+      personalBtn.classList.remove('tab-disabled');
+    } else {
+      sharedBtn.classList.remove('tab-disabled');
+      personalBtn.classList.remove('tab-disabled');
+    }
+  }
+}
+
+async function applyStudentEditorFromState() {
+  const data = studentWorkspaceState;
+  const visible = getStudentVisibleWorkspace(data);
+  const activeWorkspace = data.activeWorkspace || (data.mode === 'exam' ? 'personal' : 'shared');
+
+  // Bepaal de code die getoond wordt
+  let codeText;
+  if (visible === 'shared') {
+    codeText = data.sharedCode || '';
+  } else {
+    // Personal tab: gebruik lokaal bewaarde versie als die er is
+    // (voorkomt dat server-update de editor leegmaakt tijdens typen)
+    codeText = studentWorkspaceState.localPersonalCode !== undefined
+      ? studentWorkspaceState.localPersonalCode
+      : (data.personalCode || '');
+  }
+
+  // Bepaal readOnly correct per situatie
+  let readOnly = false;
+  if (data.mode === 'exam') {
+    readOnly = !(data.personalCanEdit !== false);
+  } else if (activeWorkspace === 'personal') {
+    // Individuele werkfase: personal is editable, shared niet
+    readOnly = visible !== 'personal';
+  } else {
+    // Shared modus: shared editable indien classCanEdit, personal is readonly preview
+    readOnly = visible === 'shared' ? !(data.classCanEdit !== false) : true;
+  }
+
+  await ensureEditor('student', codeText, data.editorAssist, readOnly);
+  updateEditorConfig('student', { assist: data.editorAssist, readOnly });
+  if (getEditorValue('student') !== codeText) setEditorValue('student', codeText, false);
+  else layoutEditor('student');
+
+  // Gebruik lokaal bewaarde output als die er is, anders server-state
+  const outputToShow = studentWorkspaceState.localOutput !== undefined
+    ? studentWorkspaceState.localOutput
+    : (data.output || '');
+  qs('student-output-panel').textContent = outputToShow;
+  refreshStudentWorkspaceUi(data);
+  updateStudentRunAvailability(data);
+}
+
+  if (page === 'student-app.html') {
+    const state = getLS('studentState');
+    if (!state) go('/student-start.html');
+    const code = getLS('studentSessionCode');
+    const studentId = getLS('studentId');
+    socket.emit('student_reconnect', { code, studentId });
+
+    qs('student-run-btn')?.addEventListener('click', () => {
+      const visibleWorkspace = getStudentVisibleWorkspace(studentWorkspaceState);
+      socket.emit('run_request', {
+        codeText: getEditorValue('student'),
+        workspace: visibleWorkspace
+      });
+    });
+    document.querySelectorAll('[data-owner="student"][data-tab]').forEach(btn => btn.addEventListener('click', async () => {
+      if (btn.classList.contains('tab-disabled')) return;
+      if (btn.dataset.tab === 'output') {
+        setTab('student', 'output');
+        return;
+      }
+      studentWorkspaceState.selectedTab = btn.dataset.tab;
+      await applyStudentEditorFromState();
+      updateStudentRunAvailability(studentWorkspaceState);
+      setTab('student', 'code');
+    }));
+    qs('student-send-input-btn')?.addEventListener('click', () => {
+      socket.emit('runtime_input', { value: qs('student-runtime-input').value });
+      disableInput('student');
+    });
+    qs('student-runtime-input')?.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        qs('student-send-input-btn').click();
+      }
+    });
+    disableInput('student');
+
+
+async function applyStudentState(data) {
+  qs('student-session-code').textContent = data.session.code;
+  qs('student-mode').textContent = data.mode === 'exam' ? 'Examenmodus' : 'Klasmodus';
+  setAssistBadge(qs('student-editor-assist'), data.editorAssist);
+  // Controleer of de server een nieuwe versie van personalCode stuurt
+  // (via revision number) — zo ja, wis lokale versie
+  const prevRevision = studentWorkspaceState.personalCodeRevision || 0;
+  const newRevision = data.personalCodeRevision || 0;
+  const serverHasNewerPersonalCode = newRevision > prevRevision
+    || data.personalCodeSourceSocketId !== studentWorkspaceState.personalCodeSourceSocketId;
+
+  studentWorkspaceState = {
+    mode: data.mode,
+    activeWorkspace: data.activeWorkspace || (data.mode === 'exam' ? 'personal' : 'shared'),
+    selectedTab: data.mode === 'exam' ? 'personal' : ((data.activeWorkspace || 'shared') === 'personal' ? 'personal' : (studentWorkspaceState.selectedTab || 'shared')),
+    sharedCode: data.sharedCode || data.code || '',
+    personalCode: data.personalCode || (data.mode === 'exam' ? data.code || '' : ''),
+    personalCodeRevision: newRevision,
+    personalCodeSourceSocketId: data.personalCodeSourceSocketId || null,
+    classCanRun: data.student.classCanRun !== false,
+    classCanEdit: data.student.classCanEdit !== false,
+    personalCanRun: data.student.personalCanRun !== false,
+    personalCanEdit: data.student.personalCanEdit !== false,
+    editorAssist: data.editorAssist,
+    output: data.output || '',
+    // Bewaar lokale output en personalCode tenzij server een nieuwere versie heeft
+    localOutput: studentWorkspaceState.localOutput,
+    localPersonalCode: serverHasNewerPersonalCode ? undefined : studentWorkspaceState.localPersonalCode,
+  };
+  const visibleWorkspace = getStudentVisibleWorkspace(studentWorkspaceState);
+  qs('student-subtitle').textContent = data.mode === 'exam'
+    ? 'Je werkt in je eigen editor. Andere leerlingen zien jouw code niet.'
+    : (studentWorkspaceState.activeWorkspace === 'personal'
+        ? 'Je werkt tijdelijk op je eigen werkblad. Klascode is tijdelijk niet beschikbaar.'
+        : (visibleWorkspace === 'personal'
+            ? 'Je bekijkt je individuele werkblad in alleen-lezen modus. Run is tijdelijk niet beschikbaar.'
+            : 'Dit is gedeelde live code. Iedereen volgt dezelfde editor.'));
+  await applyStudentEditorFromState();
+  updateAnnouncement('student', data.announcement || '');
+  updateStudentRunAvailability(studentWorkspaceState);
+}
+
+    if (state) applyStudentState(state);
+
+    socket.on('student_state', async data => {
+      setLS('studentState', data);
+      setLS('studentSessionCode', data.session.code);
+      setLS('studentId', data.student.id);
+      setLS('studentName', data.student.name);
+      await applyStudentState(data);
+    });
+    socket.on('run_output', ({ audience, output }) => {
+      if (audience === 'student' || audience === 'teacher-all') {
+        qs('student-output-panel').textContent = output;
+        // Bewaar lokaal zodat tab-wissel de output niet wist
+        studentWorkspaceState.localOutput = output;
+        if (audience === 'teacher-all') setTab('student', 'output');
+      }
+    });
+    socket.on('switch_to_output', ({ audience }) => {
+      if (audience === 'student' || audience === 'teacher-all') {
+        // Nieuwe run gestart: wis vorige lokale output
+        studentWorkspaceState.localOutput = '';
+        setTab('student', 'output');
+      }
+    });
+    socket.on('input_request', ({ audience }) => {
+      if (audience === 'student') enableInput('student');
+    });
+    socket.on('run_end', ({ audience }) => {
+      if (audience === 'student' || audience === 'teacher-all') disableInput('student');
+    });
+    // ⏳ Wachtrij: toon positie in het output-paneel
+    socket.on('run_queued', ({ position, message }) => {
+      const panel = qs('student-output-panel');
+      if (panel) panel.textContent = message || '⏳ Wachten op uitvoerslot...';
+      setTab('student', 'output');
+    });
+    socket.on('force_landing', () => {
+      localStorage.removeItem('studentState');
+      localStorage.removeItem('studentSessionCode');
+      localStorage.removeItem('studentId');
+      localStorage.removeItem('studentName');
+      go('/index.html');
+    });
+  }
+
+  socket.on('force_landing', () => go('/index.html'));
+  socket.on('teacher_go_sessions', () => {
+    localStorage.removeItem('teacherSessionCode');
+    go('/teacher-sessions.html');
+  });
+
+  socket.on('error_message', msg => {
+    const teacherStatus = qs('teacher-status-box');
+    if (teacherStatus) {
+      setStatusBox(teacherStatus, msg, 'error');
+      return;
+    }
+    const studentBanner = qs('student-subtitle');
+    if (studentBanner) {
+      studentBanner.textContent = msg;
+      return;
+    }
+    const studentStartError = qs('student-start-error');
+    if (studentStartError) studentStartError.textContent = msg;
+  });
+
+  async function injectFooter() {
+  if (document.querySelector('.footer-note')) return;
+
+  let versionText = '';
+  try {
+    const res = await fetch('/api/version');
+    const data = await res.json();
+    if (data && data.version) {
+      versionText = ` • v${data.version}`;
+    }
+  } catch (e) {
+    console.warn('Versie kon niet geladen worden');
+  }
+
+  const footer = document.createElement('div');
+  footer.className = 'footer-note';
+  footer.innerHTML = `
+    © 2026 PyCodeFlow — ontwikkeld door B. Claes<br/>
+    GO! Atheneum Hoboken — alle rechten voorbehouden${versionText}
+  `;
+
+  document.body.appendChild(footer);
+}
+
+window.addEventListener('DOMContentLoaded', injectFooter);
+})();

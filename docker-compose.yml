@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  web:
+    build: ./web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    depends_on:
+      - runner
+    networks:
+      - pycodeflow
+      - runner_internal
+
+  runner:
+    build: ./runner
+    restart: unless-stopped
+    env_file:
+      - .env
+
+    # 🔒 Geen externe netwerktoegang voor de runner,
+    # maar wel bereikbaar vanuit de webcontainer via een intern Docker-netwerk.
+    networks:
+      - runner_internal
+
+    # 🔒 Security
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid,nodev
+      - /work:size=64m,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 1.0
+
+networks:
+  pycodeflow:
+    driver: bridge
+  runner_internal:
+    driver: bridge
+    internal: true

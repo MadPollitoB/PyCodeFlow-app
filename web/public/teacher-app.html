@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="nl"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Leerkracht</title>
+<link rel="stylesheet" href="/styles.css"/>
+<link rel="icon" href="assets/favicon.png" type="image/png">
+</head><body>
+<div class="topbar"><div class="topbar-inner">
+  <div class="logo-group"><img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/><span>PyCodeFlow</span></div>
+  <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a></div>
+</div></div>
+<div class="page">
+
+<div class="card screen">
+  <div class="row" style="justify-content:space-between; align-items:flex-start;">
+    <div>
+      <h1>Leerkrachtenplatform</h1>
+      <p class="muted">Klasmodus deelt code live. Examenmodus toont per leerling een aparte editor via Live control.</p>
+    </div>
+	<div class="session-code-row">
+    <span class="badge session-code-badge">
+      Sessiecode 
+      <strong id="teacher-session-code-top">----</strong>
+    </span>
+  </div>
+
+
+    <div class="top-actions">
+      <!--<span class="badge">Sessiecode <strong id="teacher-session-code-top">----</strong></span>-->
+      <a href="/teacher-sessions.html" class="btn btn-muted">Sessieoverzicht</a>
+      <button class="btn btn-muted" id="teacher-toggle-workspace-btn">Start individuele werkfase</button>
+      <!--<button class="btn btn-primary" id="teacher-run-btn">Run als leerkracht</button> -->
+    </div>
+  </div>
+
+  <div class="card announcement-compose" style="margin-top:20px;">
+    <div class="announcement-compose-grid">
+      <div>
+        <label class="announcement-label" for="teacher-announcement-input">Opdracht voor leerlingen</label>
+        <textarea id="teacher-announcement-input" class="announcement-textarea" placeholder="Bijv. Maak oefening 3 zelfstandig en gebruik een for-lus."></textarea>
+      </div>
+      <div class="announcement-actions">
+        <button class="btn btn-primary" id="teacher-announcement-send-btn">Sturen</button>
+        <button class="btn btn-muted" id="teacher-announcement-clear-btn">Wissen</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="teacher-announcement-card" class="card announcement-card hidden" style="margin-top:20px;">
+    <div class="announcement-title">Huidige opdracht voor leerlingen</div>
+    <div id="teacher-announcement-text" class="announcement-text"></div>
+  </div>
+
+
+  <div class="workspace" style="margin-top:20px;">
+    <div class="card editor-shell">
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="code" data-owner="teacher">Code</button>
+        <button class="tab-btn" data-tab="output" data-owner="teacher">Output</button>
+      </div>
+      <div class="editor-toolbar">
+        <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+        <div class="toolbar-spacer"></div>
+        <span id="teacher-view-label">Gedeelde sessie</span>
+        <button class="btn btn-soft small" id="teacher-run-btn">Run</button>
+      </div>
+      <div id="teacher-code-panel" class="editor-frame-wrap">
+        <div class="editor-frame">
+          <div id="teacher-line-numbers" class="custom-gutter"></div>
+          <div id="teacher-editor" class="monaco-editor-host"></div>
+        </div>
+      </div>
+      <pre id="teacher-output-panel" class="output-panel hidden"></pre>
+      <div id="teacher-runtime-input-wrap" class="runtime-input-wrap hidden">
+        <input id="teacher-runtime-input" placeholder="Input unavailable" disabled/>
+        <button class="btn btn-soft" id="teacher-send-input-btn" disabled>Stuur input</button>
+      </div>
+    </div>
+
+    <div class="sidebar">
+      <div class="panel">
+        <h2>Leerlingen</h2>
+        <p class="muted" id="teacher-student-count">0 online</p>
+        <div class="row">
+          <button class="btn btn-soft" id="toggle-run-all-btn">Run all uit</button>
+          <button class="btn btn-soft" id="toggle-code-all-btn">Code all uit</button>
+        </div>
+        <div id="teacher-student-list" class="student-list" style="margin-top:16px;"></div>
+      </div>
+      <div class="panel">
+        <h2>Status</h2>
+        <div id="teacher-status-box" class="status-box status-info">Sessie actief</div>
+      </div>
+      <div class="panel">
+        <h2>Sessie</h2>
+        <div class="badges">
+          <span class="badge" id="teacher-session-code">----</span>
+          <span class="badge" id="teacher-session-mode">Klasmodus</span>
+          <span class="badge" id="teacher-editor-assist">Codehulp aan</span>
+          <span class="badge" id="teacher-workspace-mode">Klascode actief</span>
+        </div>
+        <div class="row" style="margin-top:16px;">
+          <button class="btn btn-danger" id="teacher-close-session-btn">Sessie afsluiten</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div><script src="/socket.io/socket.io.js"></script><script src="/monaco/min/vs/loader.js"></script><script src="/app.js"></script></body></html>
