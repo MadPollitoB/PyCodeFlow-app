@@ -699,8 +699,10 @@ socket.on("code_update", ({ codeText, workspace } = {}) => {
     session.classWorkspaceMode = (session.classWorkspaceMode || "shared") === "shared" ? "personal" : "shared";
     if (session.classWorkspaceMode === "personal") {
       for (const s of getActiveStudents(session)) {
-        s.personalCanRun = s.classCanRun !== false;
-        s.personalCanEdit = s.classCanEdit !== false;
+        // Individuele werkfase heeft eigen permissies en mag niet afhangen
+        // van de leerkracht-toggle voor de gedeelde klascode.
+        s.personalCanRun = true;
+        s.personalCanEdit = true;
         if (s.socketId) io.to(s.socketId).emit("force_workspace", { workspace: "personal", panel: "code" });
       }
       setStatus(session, "Individuele werkfase gestart", "warning");
@@ -725,12 +727,10 @@ socket.on("code_update", ({ codeText, workspace } = {}) => {
     if (field === "run") {
       const newValue = !(s.classCanRun !== false);
       s.classCanRun = newValue;
-      s.personalCanRun = newValue;
     }
     if (field === "code") {
       const newValue = !(s.classCanEdit !== false);
       s.classCanEdit = newValue;
-      s.personalCanEdit = newValue;
     }
     emitStudentState(session, s);
     setStatus(session, `Permissie aangepast voor ${s.name}`, "info");
@@ -746,8 +746,8 @@ socket.on("code_update", ({ codeText, workspace } = {}) => {
     const allEnabled = field === "run" ? students.every(s => s.classCanRun !== false) : students.every(s => s.classCanEdit !== false);
     const newValue = !allEnabled;
     for (const s of students) {
-      if (field === "run") { s.classCanRun = newValue; s.personalCanRun = newValue; }
-      if (field === "code") { s.classCanEdit = newValue; s.personalCanEdit = newValue; }
+      if (field === "run") { s.classCanRun = newValue; }
+      if (field === "code") { s.classCanEdit = newValue; }
       emitStudentState(session, s);
     }
     setStatus(session, `${field === "run" ? "Run" : "Code"} voor iedereen ${newValue ? "aan" : "uit"}`, "info");
