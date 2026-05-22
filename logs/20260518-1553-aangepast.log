@@ -1,0 +1,33 @@
+════════════════════════════════════════════════════════════════════════
+PyCodeFlow Stresstest Log
+Versie     : 2026.2.6.3
+Test type  : aangepast
+Gestart    : 2026-05-18T15:53:49.877Z
+Host RAM   : 26384MB vrij / 31871MB totaal
+Load avg   : 0.53 / 0.34 / 0.26
+════════════════════════════════════════════════════════════════════════
+[2026-05-18 15:53:48.172] [INFO] === Stresstest gestart: aangepast ===
+[2026-05-18 15:53:48.173] [INFO] Systeem: 26424MB vrij RAM, load 0.53
+[2026-05-18 15:53:48.173] [INFO] --- Aangepaste test: 15 runs, 4×14 sessies ---
+[2026-05-18 15:53:48.173] [INFO] Start runner capaciteitstest: 15 gelijktijdige runs
+[2026-05-18 15:53:48.862] [OK] Capaciteit: 15/15 OK | gem 576ms | max 675ms | totaal 684ms
+[2026-05-18 15:53:48.865] [INFO] Runner na test — actief: 0, wachtrij: 0
+[2026-05-18 15:53:48.866] [INFO] Multi-sessie test: 4 sessies × 14 runs
+[2026-05-18 15:53:48.866] [INFO] Wegwerpsessie aangemaakt: T78FD4
+[2026-05-18 15:53:48.866] [INFO] Wegwerpsessie aangemaakt: C5S29E
+[2026-05-18 15:53:48.866] [INFO] Wegwerpsessie aangemaakt: 2XLFXR
+[2026-05-18 15:53:48.866] [INFO] Wegwerpsessie aangemaakt: R4LL9F
+[2026-05-18 15:53:49.877] [INFO] Wegwerpsessie verwijderd: T78FD4
+[2026-05-18 15:53:49.877] [INFO] Wegwerpsessie verwijderd: C5S29E
+[2026-05-18 15:53:49.877] [INFO] Wegwerpsessie verwijderd: 2XLFXR
+[2026-05-18 15:53:49.877] [INFO] Wegwerpsessie verwijderd: R4LL9F
+[2026-05-18 15:53:49.877] [OK] Multi-sessie: 56/56 OK in 1011ms
+[2026-05-18 15:53:49.877] [OK] Cleanup: OK
+[2026-05-18 15:53:49.877] [OK] === Klaar: 4/4 OK (100%) in 1.7s ===
+────────────────────────────────────────────────────────────────────────
+SAMENVATTING
+────────────────────────────────────────────────────────────────────────
+Resultaat  : 4/4 checks geslaagd (100%)
+Duur       : 1.7s
+Oordeel    : ✅ GESLAAGD
+════════════════════════════════════════════════════════════════════════

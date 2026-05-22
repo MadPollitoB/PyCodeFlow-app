@@ -2,8 +2,20 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Leerling starten</title>
-<link rel="stylesheet" href="/styles.css"/>
+<link rel="stylesheet" href="/styles.css?v=freesession1"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
+<style>
+  .btn-divider {
+    display: flex; align-items: center; gap: 12px;
+    margin: 18px 0 4px; color: var(--muted); font-size: 0.85rem;
+  }
+  .btn-divider::before, .btn-divider::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+  .free-note {
+    font-size: 0.85rem; color: var(--muted); margin-top: 8px;
+  }
+</style>
 </head><body>
 <div class="topbar"><div class="topbar-inner">
   <div class="logo-group"><img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/><span>PyCodeFlow</span></div>
@@ -12,21 +24,30 @@
 <div class="page">
 
 <div class="card screen" style="max-width:760px; margin:0 auto;">
-  <h1>Deelnemen aan sessie</h1>
-  <p class="muted">Vul je naam en de sessiecode in.</p>
+  <h1>Deelnemen</h1>
+  <p class="muted">Vul je naam en klas in. Zonder naam kan je niet deelnemen.</p>
   <div class="panel" style="margin-top:24px;">
     <div class="input-group">
       <label for="student-name">Naam</label>
-      <input id="student-name" placeholder="Emma"/>
+      <input id="student-name" placeholder="vb.: Emma" autocomplete="off"/>
     </div>
     <div class="input-group">
-      <label for="student-code">Sessiecode</label>
-      <input id="student-code" placeholder="AB12CD"/>
+      <label for="student-class">Klas</label>
+      <input id="student-class" placeholder="vb.: 3A" autocomplete="off"/>
     </div>
-    <div class="row">
+    <div class="input-group" id="code-group">
+      <label for="student-code">Sessiecode</label>
+      <input id="student-code" placeholder="vb.: AB12CD" autocomplete="off"/>
+    </div>
+    <div class="row" style="gap:10px; flex-wrap:wrap;">
       <button class="btn btn-primary" id="student-join-btn">Deelnemen</button>
     </div>
+    <div class="btn-divider">of</div>
+    <div class="row">
+      <button class="btn btn-soft" id="student-free-btn">Vrij oefenen</button>
+    </div>
+    <p class="free-note">Vrij oefenen vereist geen sessiecode. Je naam en klas worden wel bijgehouden.</p>
     <div id="student-start-error" class="muted" style="margin-top:12px;"></div>
   </div>
 </div>
-</div><script src="/socket.io/socket.io.js"></script><script src="/app.js"></script></body></html>
+</div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=freesession1"></script></body></html>

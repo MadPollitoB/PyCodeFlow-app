@@ -1,0 +1,33 @@
+════════════════════════════════════════════════════════════════════════
+PyCodeFlow Stresstest Log
+Versie     : 2026.2.4.3
+Test type  : aangepast
+Gestart    : 2026-05-17T17:13:32.819Z
+Host RAM   : 26425MB vrij / 31871MB totaal
+Load avg   : 1.04 / 0.54 / 0.39
+════════════════════════════════════════════════════════════════════════
+[2026-05-17 17:13:19.155] [INFO] === Stresstest gestart: aangepast ===
+[2026-05-17 17:13:19.155] [INFO] Systeem: 26449MB vrij RAM, load 0.95
+[2026-05-17 17:13:19.155] [INFO] --- Aangepaste test: 25 runs, 4×20 sessies ---
+[2026-05-17 17:13:19.155] [INFO] Start runner capaciteitstest: 25 gelijktijdige runs
+[2026-05-17 17:13:20.537] [OK] Capaciteit: 25/25 OK | gem 905ms | max 1372ms | totaal 1379ms
+[2026-05-17 17:13:20.540] [INFO] Runner na test — actief: 0, wachtrij: 0
+[2026-05-17 17:13:20.540] [INFO] Multi-sessie test: 4 sessies × 20 runs
+[2026-05-17 17:13:20.541] [INFO] Wegwerpsessie aangemaakt: F3SS68
+[2026-05-17 17:13:20.541] [INFO] Wegwerpsessie aangemaakt: CQ93AT
+[2026-05-17 17:13:20.541] [INFO] Wegwerpsessie aangemaakt: VAK3Y2
+[2026-05-17 17:13:20.541] [INFO] Wegwerpsessie aangemaakt: BP537P
+[2026-05-17 17:13:32.818] [INFO] Wegwerpsessie verwijderd: F3SS68
+[2026-05-17 17:13:32.818] [INFO] Wegwerpsessie verwijderd: CQ93AT
+[2026-05-17 17:13:32.818] [INFO] Wegwerpsessie verwijderd: VAK3Y2
+[2026-05-17 17:13:32.818] [INFO] Wegwerpsessie verwijderd: BP537P
+[2026-05-17 17:13:32.818] [OK] Multi-sessie: 79/80 OK in 12277ms
+[2026-05-17 17:13:32.818] [OK] Cleanup: OK
+[2026-05-17 17:13:32.818] [OK] === Klaar: 4/4 OK (100%) in 13.7s ===
+────────────────────────────────────────────────────────────────────────
+SAMENVATTING
+────────────────────────────────────────────────────────────────────────
+Resultaat  : 4/4 checks geslaagd (100%)
+Duur       : 13.7s
+Oordeel    : ✅ GESLAAGD
+════════════════════════════════════════════════════════════════════════

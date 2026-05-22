@@ -4,11 +4,142 @@
 <title>Leerkracht</title>
 <link rel="stylesheet" href="/styles.css"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
+<style>
+  .runner-health-bar-track {
+    height: 12px;
+    background: var(--primary-soft);
+    border-radius: 99px;
+    overflow: hidden;
+    margin: 8px 0 6px;
+  }
+  .runner-health-bar-fill {
+    height: 100%;
+    border-radius: 99px;
+    background: var(--primary);
+    transition: width 0.5s ease, background 0.5s ease;
+    width: 0%;
+  }
+  .runner-health-bar-fill.warn   { background: var(--gold); }
+  .runner-health-bar-fill.danger { background: var(--accent); }
+  /* Hand opsteken badge */
+  .tab-badge-hand {
+    background: #fef9c3;
+    color: #713f12;
+    animation: pulse-badge 1s infinite;
+  }
+  .btn-warn {
+    background: var(--gold);
+    color: #713f12;
+    border: none;
+  }
+  .btn-warn:hover { background: #d97706; color: white; }
+
+  /* Aankondigingen chip-grid */
+  #announcement-history-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-height: 80px;
+    overflow-y: auto;
+  }
+  .announcement-chip {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--primary);
+    background: var(--primary-soft);
+    border: 1px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .announcement-chip:hover {
+    background: #d0d9f5;
+    border-color: var(--primary);
+  }
+
+  /* Annotaties */
+  .annotation-panel {
+    margin-top: 12px;
+    padding: 12px 14px;
+    background: var(--surface-soft);
+    border: 1.5px solid var(--border);
+    border-radius: 14px;
+  }
+  .annotation-panel label {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    display: block;
+    margin-bottom: 4px;
+  }
+  .annotation-panel input, .annotation-panel textarea, .annotation-panel select {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.88rem;
+    margin-bottom: 8px;
+    color: var(--text);
+    background: var(--surface);
+  }
+
+  /* Tab-detectie badges */
+  .tab-badge {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 8px;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+  .tab-badge-danger {
+    background: var(--error-bg);
+    color: var(--error-fg);
+    animation: pulse-badge 1.5s infinite;
+  }
+  .tab-badge-warn {
+    background: var(--warn-bg);
+    color: var(--warn-fg);
+  }
+  .tab-badge-warn-high {
+    background: #fde68a;
+    color: #92400e;
+    font-weight: 800;
+  }
+  .student-item-alert {
+    border: 1.5px solid var(--accent) !important;
+    background: var(--error-bg) !important;
+  }
+  .student-item-hand {
+    border: 1.5px solid var(--gold) !important;
+    background: var(--warn-bg) !important;
+  }
+  .tab-badge-done {
+    background: var(--success-bg);
+    color: var(--success-fg);
+    font-weight: 800;
+  }
+  .student-item-done {
+    border: 1.5px solid #22c55e !important;
+  }
+  @keyframes pulse-badge {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+</style>
 </head><body>
 <div class="topbar"><div class="topbar-inner">
   <div class="logo-group"><img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/><span>PyCodeFlow</span></div>
-  <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a></div>
-</div></div>
+  <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a><a href="/api/teacher-logout" class="btn btn-muted small">Afmelden</a></div>
+<button class="dark-toggle" id="dark-mode-toggle" title="Wissel donker/licht thema">🌙</button></div></div>
 <div class="page">
 
 <div class="card screen">
@@ -17,19 +148,16 @@
       <h1>Leerkrachtenplatform</h1>
       <p class="muted">Klasmodus deelt code live. Examenmodus toont per leerling een aparte editor via Live control.</p>
     </div>
-	<div class="session-code-row">
-    <span class="badge session-code-badge">
-      Sessiecode 
-      <strong id="teacher-session-code-top">----</strong>
-    </span>
-  </div>
-
+    <div class="session-code-row">
+      <span class="badge session-code-badge">
+        Sessiecode
+        <strong id="teacher-session-code-top">----</strong>
+      </span>
+    </div>
 
     <div class="top-actions">
-      <!--<span class="badge">Sessiecode <strong id="teacher-session-code-top">----</strong></span>-->
       <a href="/teacher-sessions.html" class="btn btn-muted">Sessieoverzicht</a>
       <button class="btn btn-muted" id="teacher-toggle-workspace-btn">Start individuele werkfase</button>
-      <!--<button class="btn btn-primary" id="teacher-run-btn">Run als leerkracht</button> -->
     </div>
   </div>
 
@@ -43,6 +171,10 @@
         <button class="btn btn-primary" id="teacher-announcement-send-btn">Sturen</button>
         <button class="btn btn-muted" id="teacher-announcement-clear-btn">Wissen</button>
       </div>
+      <div id="announcement-history-wrap" class="hidden" style="margin-top:8px;">
+        <div style="font-size:0.78rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Vorige aankondigingen</div>
+        <div id="announcement-history-list"></div>
+      </div>
     </div>
   </div>
 
@@ -50,7 +182,6 @@
     <div class="announcement-title">Huidige opdracht voor leerlingen</div>
     <div id="teacher-announcement-text" class="announcement-text"></div>
   </div>
-
 
   <div class="workspace" style="margin-top:20px;">
     <div class="card editor-shell">
@@ -62,6 +193,9 @@
         <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
         <div class="toolbar-spacer"></div>
         <span id="teacher-view-label">Gedeelde sessie</span>
+        <button class="btn btn-muted small" id="teacher-clear-snippet-btn" title="Verwijder het code-voorbeeld bij alle leerlingen" style="display:none;">✕ Voorbeeld</button>
+        <button class="btn btn-soft small" id="teacher-send-snippet-btn" title="Stuur huidige code als leesvoorbeeld naar alle leerlingen (leerlingen zien extra tabblad)">📎 Voorbeeld</button>
+        <button class="btn btn-soft small" id="teacher-annotation-btn" title="Voeg een annotatie toe op een regelbereik">📌 Annoteer</button>
         <button class="btn btn-soft small" id="teacher-run-btn">Run</button>
       </div>
       <div id="teacher-code-panel" class="editor-frame-wrap">
@@ -80,16 +214,34 @@
     <div class="sidebar">
       <div class="panel">
         <h2>Leerlingen</h2>
+        <div style="margin-bottom:10px;">
+          <input id="student-filter-input" type="text" placeholder="Zoek leerling…"
+            style="width:100%; padding:7px 12px; border:1.5px solid var(--border); border-radius:10px; font-size:0.88rem; color:var(--text); background:var(--surface-soft); outline:none;"/>
+        </div>
         <p class="muted" id="teacher-student-count">0 online</p>
-        <div class="row">
-          <button class="btn btn-soft" id="toggle-run-all-btn">Run all uit</button>
-          <button class="btn btn-soft" id="toggle-code-all-btn">Code all uit</button>
+        <div class="row" style="flex-wrap:wrap; gap:6px;">
+          <button class="btn btn-soft small" id="toggle-run-all-btn">Run all uit</button>
+          <button class="btn btn-soft small" id="toggle-code-all-btn">Code all uit</button>
+          <button class="btn btn-muted small" id="teacher-reset-all-done-btn" title="Zet alle Klaar-statussen terug naar bezig">↺ Klaar resetten</button>
         </div>
         <div id="teacher-student-list" class="student-list" style="margin-top:16px;"></div>
       </div>
       <div class="panel">
         <h2>Status</h2>
         <div id="teacher-status-box" class="status-box status-info">Sessie actief</div>
+      </div>
+      <div class="panel">
+        <h2>Systeem</h2>
+        <p class="muted" style="font-size:0.85rem;">Wachtrij-druk van de Python runner.</p>
+        <div class="runner-health-bar-track">
+          <div class="runner-health-bar-fill" id="teacher-runner-bar"></div>
+        </div>
+        <div id="teacher-monitor-note" class="status-box status-info" style="margin-top:8px; font-size:0.82rem;">Laden…</div>
+        <div style="margin-top:12px;">
+          <a href="/monitoring.html" target="_blank" class="btn btn-soft small" style="width:100%; text-align:center;">
+            Systeembeheer openen →
+          </a>
+        </div>
       </div>
       <div class="panel">
         <h2>Sessie</h2>
@@ -99,11 +251,50 @@
           <span class="badge" id="teacher-editor-assist">Codehulp aan</span>
           <span class="badge" id="teacher-workspace-mode">Klascode actief</span>
         </div>
-        <div class="row" style="margin-top:16px;">
-          <button class="btn btn-danger" id="teacher-close-session-btn">Sessie afsluiten</button>
+        <div style="margin-top:16px; padding:12px; background:var(--surface-soft); border-radius:14px; border:1px solid var(--border);">
+          <div style="font-size:0.78rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">⏱ Countdown timer</div>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <input id="teacher-timer-input" type="number" min="1" max="90" value="10"
+              style="width:64px; padding:6px 10px; border:1.5px solid var(--border); border-radius:8px; font-size:0.9rem;"/>
+            <span style="font-size:0.82rem; color:var(--muted);">min</span>
+            <button class="btn btn-soft small" id="teacher-timer-start-btn">Start</button>
+            <button class="btn btn-muted small" id="teacher-timer-stop-btn">Stop</button>
+            <strong id="teacher-timer-display" style="font-size:1.1rem; min-width:40px;">—</strong>
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px; flex-wrap:wrap; gap:6px;">
+          <button class="btn btn-soft small" id="teacher-export-btn">⬇ Export</button>
+          <button class="btn btn-danger small" id="teacher-close-session-btn">Sessie afsluiten</button>
         </div>
       </div>
     </div>
   </div>
 </div>
-</div><script src="/socket.io/socket.io.js"></script><script src="/monaco/min/vs/loader.js"></script><script src="/app.js"></script></body></html>
+</div>
+<!-- Annotatie panel (floating) -->
+<div id="teacher-annotation-panel" class="hidden" style="position:fixed; bottom:24px; right:24px; z-index:1000; width:300px; background:var(--surface); border:1.5px solid var(--border); border-radius:18px; box-shadow:var(--shadow); padding:18px 20px;">
+  <div style="font-weight:800; font-size:0.95rem; margin-bottom:12px; color:var(--text);">📌 Annotatie toevoegen</div>
+  <div style="display:flex; gap:8px; margin-bottom:8px;">
+    <div style="flex:1;"><label style="font-size:0.75rem;color:var(--muted);display:block;margin-bottom:3px;">Startregel</label><input type="number" id="annotation-start-line" min="1" value="1" style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:0.88rem;color:var(--text);background:var(--surface-soft);"/></div>
+    <div style="flex:1;"><label style="font-size:0.75rem;color:var(--muted);display:block;margin-bottom:3px;">Eindregel</label><input type="number" id="annotation-end-line" min="1" value="1" style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:0.88rem;color:var(--text);background:var(--surface-soft);"/></div>
+  </div>
+  <label style="font-size:0.75rem;color:var(--muted);display:block;margin-bottom:3px;">Kleur</label>
+  <select id="annotation-color" style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:0.88rem;color:var(--text);background:var(--surface-soft);margin-bottom:8px;">
+    <option value="yellow">🟡 Geel</option>
+    <option value="blue">🔵 Blauw</option>
+    <option value="green">🟢 Groen</option>
+    <option value="red">🔴 Rood</option>
+  </select>
+  <label style="font-size:0.75rem;color:var(--muted);display:block;margin-bottom:3px;">Bericht</label>
+  <textarea id="annotation-message" rows="2" placeholder="Kijk eens naar deze regels..." style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:0.88rem;resize:none;color:var(--text);background:var(--surface-soft);margin-bottom:8px;"></textarea>
+  <div style="display:flex;gap:8px;">
+    <button class="btn btn-primary small" id="teacher-send-annotation-btn" style="flex:1;">📌 Verstuur</button>
+    <button class="btn btn-muted small" id="teacher-clear-annotations-btn">✕ Wis alle</button>
+  </div>
+  <button class="btn btn-muted small" style="margin-top:8px;width:100%;" onclick="document.getElementById('teacher-annotation-panel').classList.add('hidden')">Sluiten</button>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/monaco/min/vs/loader.js"></script>
+<script src="/app.js?v=monitorfix2"></script>
+</body></html>

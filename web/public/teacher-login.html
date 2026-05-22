@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Leerkrachtenplatform — Aanmelden</title>
+<link rel="stylesheet" href="/styles.css?v=blockfix2"/>
+<style>
+  /* Volledig scherm overlay — blokkeert alles erachter */
+  .login-overlay {
+    position: fixed;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(35,58,99,0.55) 0%, rgba(51,78,162,0.40) 100%);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 24px;
+  }
+
+  /* Het login-card zelf */
+  .login-card {
+    background: #fff;
+    border-radius: 28px;
+    box-shadow: 0 24px 64px rgba(35,58,99,0.22), 0 2px 8px rgba(35,58,99,0.08);
+    padding: 48px 44px 40px;
+    width: 100%;
+    max-width: 420px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    animation: slideUp 0.25s cubic-bezier(.22,.68,0,1.2) both;
+  }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(28px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0)    scale(1);    }
+  }
+
+  .login-logo {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    margin-bottom: 20px;
+    background: var(--primary-soft);
+  }
+
+  .login-card h1 {
+    font-size: 1.35rem;
+    color: var(--text);
+    margin: 0 0 4px;
+    text-align: center;
+    font-weight: 800;
+  }
+
+  .login-card .login-sub {
+    color: var(--muted);
+    font-size: 0.92rem;
+    margin-bottom: 32px;
+    text-align: center;
+  }
+
+  .login-fields {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 22px;
+  }
+
+  .login-fields label {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--muted);
+    display: block;
+    margin-bottom: 5px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  .login-fields input {
+    width: 100%;
+    padding: 12px 16px;
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    font-size: 1rem;
+    color: var(--text);
+    background: var(--surface-soft);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .login-fields input:focus {
+    border-color: var(--primary);
+    background: #fff;
+  }
+
+  .login-btn {
+    width: 100%;
+    padding: 13px;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: 14px;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+    letter-spacing: 0.01em;
+  }
+
+  .login-btn:hover:not(:disabled) { background: #253d8a; }
+  .login-btn:active:not(:disabled) { transform: scale(0.98); }
+  .login-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .login-error {
+    width: 100%;
+    margin-top: 14px;
+    padding: 11px 16px;
+    background: var(--error-bg);
+    color: var(--error-fg);
+    border-radius: 11px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-align: center;
+    display: none;
+  }
+
+  .login-error.visible { display: block; }
+
+  .login-blocked {
+    width: 100%;
+    margin-top: 14px;
+    padding: 11px 16px;
+    background: var(--warn-bg);
+    color: var(--warn-fg);
+    border-radius: 11px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-align: center;
+    display: none;
+  }
+
+  .login-blocked.visible { display: block; }
+
+  .login-back {
+    margin-top: 18px;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  .login-back a {
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .login-back a:hover { text-decoration: underline; }
+
+  /* Subtiele achtergrondpagina zichtbaar achter overlay */
+  .bg-page {
+    position: fixed;
+    inset: 0;
+    background: linear-gradient(180deg, #f7f8fb 0%, #fefefe 100%);
+    z-index: 0;
+  }
+</style>
+</head>
+<body>
+<!-- Achtergrond zodat het niet leeg is achter de overlay -->
+<div class="bg-page"></div>
+
+<div class="login-overlay" id="login-overlay" role="dialog" aria-modal="true" aria-labelledby="login-title">
+  <div class="login-card">
+    <img src="/assets/logo.svg" class="login-logo" alt="PyCodeFlow logo"/>
+    <h1 id="login-title">Leerkrachtenplatform</h1>
+    <p class="login-sub">Meld je aan om sessies te beheren.</p>
+
+    <div class="login-fields">
+      <div>
+        <label for="login-user">Gebruikersnaam</label>
+        <input
+          type="text"
+          id="login-user"
+          name="username"
+          autocomplete="username"
+          placeholder="Gebruikersnaam"
+          spellcheck="false"
+          autofocus
+        />
+      </div>
+      <div>
+        <label for="login-pass">Wachtwoord</label>
+        <input
+          type="password"
+          id="login-pass"
+          name="password"
+          autocomplete="current-password"
+          placeholder="••••••••"
+        />
+      </div>
+    </div>
+
+    <button class="login-btn" id="login-btn" type="button">Aanmelden</button>
+
+    <div class="login-error" id="login-error">Gebruikersnaam of wachtwoord onjuist.</div>
+    <div class="login-blocked" id="login-blocked">Te veel mislukte pogingen. Probeer later opnieuw.</div>
+
+    <p class="login-back"><a href="/index.html">← Terug naar startpagina</a></p>
+  </div>
+</div>
+
+<script>
+  (function () {
+    // Lees de redirect-bestemming uit de query string (?next=/teacher-sessions.html)
+    const params = new URLSearchParams(location.search);
+    const next = params.get('next') || '/teacher-sessions.html';
+
+    const userInput = document.getElementById('login-user');
+    const passInput = document.getElementById('login-pass');
+    const btn       = document.getElementById('login-btn');
+    const errBox    = document.getElementById('login-error');
+    const blockBox  = document.getElementById('login-blocked');
+
+    function showError(msg) {
+      errBox.textContent = msg || 'Gebruikersnaam of wachtwoord onjuist.';
+      errBox.classList.add('visible');
+      blockBox.classList.remove('visible');
+      passInput.value = '';
+      passInput.focus();
+    }
+
+    function showBlocked(retryAfter) {
+      const sec = parseInt(retryAfter, 10);
+      const msg = sec > 0
+        ? `Te veel mislukte pogingen. Probeer opnieuw over ${Math.ceil(sec / 60)} minuut(en).`
+        : 'Te veel mislukte pogingen. Probeer later opnieuw.';
+      blockBox.textContent = msg;
+      blockBox.classList.add('visible');
+      errBox.classList.remove('visible');
+      btn.disabled = true;
+      if (sec > 0) {
+        setTimeout(() => { btn.disabled = false; blockBox.classList.remove('visible'); }, sec * 1000);
+      }
+    }
+
+    async function doLogin() {
+      const username = userInput.value.trim();
+      const password = passInput.value;
+      if (!username || !password) {
+        showError('Vul gebruikersnaam en wachtwoord in.');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Aanmelden…';
+      errBox.classList.remove('visible');
+      blockBox.classList.remove('visible');
+
+      try {
+        const res = await fetch('/api/teacher-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+          credentials: 'same-origin',
+        });
+
+        if (res.ok) {
+          // Cookie is gezet door de server — navigeer door naar de bestemming
+          location.href = next;
+          return;
+        }
+
+        if (res.status === 429) {
+          const retryAfter = res.headers.get('Retry-After') || '0';
+          showBlocked(retryAfter);
+        } else {
+          showError();
+        }
+      } catch (err) {
+        showError('Verbindingsfout. Controleer je netwerk.');
+      }
+
+      btn.disabled = false;
+      btn.textContent = 'Aanmelden';
+    }
+
+    btn.addEventListener('click', doLogin);
+    [userInput, passInput].forEach(el =>
+      el.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); })
+    );
+  })();
+</script>
+</body>
+</html>

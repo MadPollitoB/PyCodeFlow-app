@@ -1,0 +1,29 @@
+════════════════════════════════════════════════════════════════════════
+PyCodeFlow Stresstest Log
+Versie     : 2026.1.39.0
+Test type  : gezondheidscheck
+Gestart    : 2026-05-16T20:55:46.498Z
+Host RAM   : 27259MB vrij / 31871MB totaal
+Load avg   : 0.64 / 0.51 / 0.38
+════════════════════════════════════════════════════════════════════════
+[2026-05-16 20:55:46.164] [INFO] === Stresstest gestart: gezondheidscheck ===
+[2026-05-16 20:55:46.164] [INFO] Systeem: 27259MB vrij RAM, load 0.64
+[2026-05-16 20:55:46.164] [INFO] --- Gezondheidscheck ---
+[2026-05-16 20:55:46.164] [INFO] Controleer runner /health endpoint...
+[2026-05-16 20:55:46.168] [OK] Runner health: OK
+[2026-05-16 20:55:46.168] [INFO] Controleer /api/version...
+[2026-05-16 20:55:46.168] [OK] Web API OK — versie 2026.1.39.0
+[2026-05-16 20:55:46.168] [INFO] Start test-run: print("OK")...
+[2026-05-16 20:55:46.497] [OK] Basis run: OK (328ms)
+[2026-05-16 20:55:46.497] [INFO] RUN_RATE_LIMIT_MS = 3000ms (verwacht ≥ 1000ms)
+[2026-05-16 20:55:46.498] [OK] Rate limit: 3000ms
+[2026-05-16 20:55:46.498] [OK] Host RAM: 27259MB vrij van 31871MB
+[2026-05-16 20:55:46.498] [OK] Actieve sessies: 0
+[2026-05-16 20:55:46.498] [OK] === Klaar: 6/6 OK (100%) in 0.3s ===
+────────────────────────────────────────────────────────────────────────
+SAMENVATTING
+────────────────────────────────────────────────────────────────────────
+Resultaat  : 6/6 checks geslaagd (100%)
+Duur       : 0.3s
+Oordeel    : ✅ GESLAAGD
+════════════════════════════════════════════════════════════════════════

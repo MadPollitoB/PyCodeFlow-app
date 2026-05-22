@@ -1,0 +1,58 @@
+{
+  "templates": [
+    {
+      "id": "hello-world",
+      "name": "Hello World",
+      "description": "Eerste Python programma",
+      "code": "print(\"Hallo, wereld!\")\nnaam = input(\"Wat is je naam? \")\nprint(f\"Welkom, {naam}!\")\n"
+    },
+    {
+      "id": "for-lus",
+      "name": "For-lus",
+      "description": "Itereren met een for-lus",
+      "code": "# For-lus voorbeeld\nfor i in range(1, 11):\n    print(f\"{i}: {'*' * i}\")\n\nprint(\"\\nOpdracht: pas de range aan!\")\n"
+    },
+    {
+      "id": "while-lus",
+      "name": "While-lus",
+      "description": "Conditie-gebaseerde herhaling",
+      "code": "# While-lus voorbeeld\nteller = 0\nwhile teller < 5:\n    print(f\"Teller: {teller}\")\n    teller += 1\n\nprint(\"Klaar!\")\n"
+    },
+    {
+      "id": "lijsten",
+      "name": "Lijsten",
+      "description": "Werken met Python lijsten",
+      "code": "# Lijsten in Python\nfruit = [\"appel\", \"banaan\", \"kers\", \"druif\"]\n\nprint(\"Alle fruit:\")\nfor f in fruit:\n    print(f\"  - {f}\")\n\nprint(f\"\\nAantal: {len(fruit)}\")\nprint(f\"Eerste: {fruit[0]}\")\nprint(f\"Laatste: {fruit[-1]}\")\n\nfruit.append(\"mango\")\nprint(f\"\\nNa toevoegen: {fruit}\")\n"
+    },
+    {
+      "id": "functies",
+      "name": "Functies",
+      "description": "Functies definiëren en aanroepen",
+      "code": "# Functies in Python\ndef begroet(naam, leeftijd):\n    return f\"Hallo {naam}, je bent {leeftijd} jaar oud!\"\n\ndef kwadraat(n):\n    return n ** 2\n\n# Aanroepen\nprint(begroet(\"Emma\", 16))\nprint(begroet(\"Liam\", 17))\n\nfor getal in range(1, 6):\n    print(f\"{getal}² = {kwadraat(getal)}\")\n"
+    },
+    {
+      "id": "if-else",
+      "name": "If/else beslissingen",
+      "description": "Conditionele logica",
+      "code": "# If/else in Python\nscore = int(input(\"Geef je score (0-100): \"))\n\nif score >= 90:\n    resultaat = \"A — Uitstekend!\"\nelif score >= 75:\n    resultaat = \"B — Goed!\"\nelif score >= 60:\n    resultaat = \"C — Voldoende\"\nelif score >= 50:\n    resultaat = \"D — Net geslaagd\"\nelse:\n    resultaat = \"F — Niet geslaagd\"\n\nprint(f\"Score {score}: {resultaat}\")\n"
+    },
+    {
+      "id": "dictionary",
+      "name": "Dictionary",
+      "description": "Sleutel-waarde paren",
+      "code": "# Dictionary in Python\nleerling = {\n    \"naam\": \"Emma\",\n    \"klas\": \"6A\",\n    \"vakken\": [\"Python\", \"Wiskunde\", \"Nederlands\"],\n    \"gemiddelde\": 78.5\n}\n\nprint(f\"Naam: {leerling['naam']}\")\nprint(f\"Klas: {leerling['klas']}\")\nprint(f\"Gemiddelde: {leerling['gemiddelde']}\")\nprint(\"Vakken:\")\nfor vak in leerling[\"vakken\"]:\n    print(f\"  - {vak}\")\n"
+    },
+    {
+      "id": "klassen",
+      "name": "Klassen (OOP)",
+      "description": "Object-georiënteerd programmeren",
+      "code": "# Klassen in Python\nclass Dier:\n    def __init__(self, naam, soort):\n        self.naam = naam\n        self.soort = soort\n\n    def stel_voor(self):\n        return f\"Ik ben {self.naam}, een {self.soort}.\"\n\n    def geluid(self):\n        return \"...\"\n\nclass Hond(Dier):\n    def geluid(self):\n        return \"Woef!\"\n\nclass Kat(Dier):\n    def geluid(self):\n        return \"Miauw!\"\n\n# Gebruik\nhond = Hond(\"Rex\", \"hond\")\nkat = Kat(\"Mimi\", \"kat\")\n\nfor dier in [hond, kat]:\n    print(dier.stel_voor())\n    print(f\"Geluid: {dier.geluid()}\")\n    print()\n"
+    },
+    {
+      "id": "leeg",
+      "name": "Leeg werkblad",
+      "description": "Start met een lege editor",
+      "code": "# Schrijf hier je Python code\n"
+    }
+  ]
+}

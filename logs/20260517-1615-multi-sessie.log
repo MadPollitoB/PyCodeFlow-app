@@ -1,0 +1,32 @@
+════════════════════════════════════════════════════════════════════════
+PyCodeFlow Stresstest Log
+Versie     : 2026.2.4.2
+Test type  : multi-sessie
+Gestart    : 2026-05-17T16:15:56.052Z
+Host RAM   : 26251MB vrij / 31871MB totaal
+Load avg   : 0.61 / 0.46 / 0.41
+════════════════════════════════════════════════════════════════════════
+[2026-05-17 16:15:43.655] [INFO] === Stresstest gestart: multi-sessie ===
+[2026-05-17 16:15:43.656] [INFO] Systeem: 26363MB vrij RAM, load 0.18
+[2026-05-17 16:15:43.656] [INFO] --- Multi-sessie (5×20) ---
+[2026-05-17 16:15:43.656] [INFO] Multi-sessie test: 5 sessies × 20 runs
+[2026-05-17 16:15:43.657] [INFO] Wegwerpsessie aangemaakt: D7MADK
+[2026-05-17 16:15:43.657] [INFO] Wegwerpsessie aangemaakt: AFRYRQ
+[2026-05-17 16:15:43.657] [INFO] Wegwerpsessie aangemaakt: LZ4TC5
+[2026-05-17 16:15:43.657] [INFO] Wegwerpsessie aangemaakt: PSJFRX
+[2026-05-17 16:15:43.657] [INFO] Wegwerpsessie aangemaakt: NPSZJN
+[2026-05-17 16:15:56.051] [INFO] Wegwerpsessie verwijderd: D7MADK
+[2026-05-17 16:15:56.051] [INFO] Wegwerpsessie verwijderd: AFRYRQ
+[2026-05-17 16:15:56.051] [INFO] Wegwerpsessie verwijderd: LZ4TC5
+[2026-05-17 16:15:56.051] [INFO] Wegwerpsessie verwijderd: PSJFRX
+[2026-05-17 16:15:56.051] [INFO] Wegwerpsessie verwijderd: NPSZJN
+[2026-05-17 16:15:56.051] [OK] Multi-sessie: 96/100 OK in 12393ms
+[2026-05-17 16:15:56.051] [OK] Cleanup: OK
+[2026-05-17 16:15:56.052] [OK] === Klaar: 2/2 OK (100%) in 12.4s ===
+────────────────────────────────────────────────────────────────────────
+SAMENVATTING
+────────────────────────────────────────────────────────────────────────
+Resultaat  : 2/2 checks geslaagd (100%)
+Duur       : 12.4s
+Oordeel    : ✅ GESLAAGD
+════════════════════════════════════════════════════════════════════════

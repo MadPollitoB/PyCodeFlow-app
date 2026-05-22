@@ -2,12 +2,24 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Leerkrachtenplatform</title>
-<link rel="stylesheet" href="/styles.css?v=blockfix1"/>
+<link rel="stylesheet" href="/styles.css?v=freesession1"/>
+<style>
+  .free-session-panel { margin-top: 32px; }
+  .free-student-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .free-student-item {
+    display: flex; justify-content: space-between; align-items: center;
+    background: white; border: 1px solid var(--border); border-radius: 14px;
+    padding: 10px 16px; gap: 12px;
+  }
+  .free-student-meta { font-size: 0.85rem; color: var(--muted); }
+  .free-empty { color: var(--muted); font-size: 0.9rem; padding: 12px 0; }
+  .free-count-badge { font-size: 0.8rem; }
+</style>
 </head><body>
 <div class="topbar"><div class="topbar-inner">
   <div class="logo-group"><img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/><span>PyCodeFlow</span></div>
-  <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a></div>
-</div></div>
+  <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a><a href="/monitoring.html" class="btn btn-soft small">Systeembeheer</a><a href="/api/teacher-logout" class="btn btn-muted small">Afmelden</a></div>
+<button class="dark-toggle" id="dark-mode-toggle" title="Wissel donker/licht thema">🌙</button></div></div>
 <div class="page">
 
 <div class="card screen">
@@ -30,6 +42,14 @@
         </button>
       </div>
 
+      <div class="input-group" style="margin-top:16px;">
+        <label for="template-select">Starttemplate</label>
+        <select id="template-select" style="width:100%; padding:9px 12px; border:1.5px solid var(--border); border-radius:10px; font-size:0.9rem; color:var(--text); background:var(--surface-soft);">
+          <option value="">— Geen template —</option>
+        </select>
+        <div id="template-preview" style="display:none; margin-top:8px; padding:10px 12px; background:#1e1e1e; color:#d4d4d4; font-family:Consolas,monospace; font-size:0.82rem; white-space:pre; overflow:auto; max-height:120px; border-radius:10px; line-height:1.5;"></div>
+      </div>
+
       <div class="input-group" style="margin-top:18px;">
         <label class="checkbox-row" for="editor-assist-enabled">
           <input id="editor-assist-enabled" type="checkbox" checked />
@@ -49,10 +69,31 @@
       </div>
     </div>
     <div class="panel">
-      <h2>Lopende sessies</h2>
-      <div class="inline-note">Klik op <strong>Open</strong> om terug naar een sessie te gaan.</div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <h2 style="margin:0;">Lopende sessies</h2>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:0.78rem; color:var(--muted);" id="sessions-last-updated"></span>
+          <button class="btn btn-soft small" id="sessions-refresh-btn" title="Vernieuwen">↻</button>
+        </div>
+      </div>
+      <div class="inline-note">Klik op <strong>Open</strong> om te bewerken, of <strong>Waarnemen</strong> om read-only mee te kijken.</div>
       <div class="session-list" id="session-list"></div>
     </div>
   </div>
+
+  <!-- Vrije sessie sectie -->
+  <div class="free-session-panel panel" style="margin-top:32px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+      <div>
+        <h2 style="margin:0 0 4px;">Vrije sessie</h2>
+        <p class="muted" style="margin:0; font-size:0.9rem;">Leerlingen die momenteel vrij oefenen, zonder sessiecode.</p>
+      </div>
+      <span class="badge free-count-badge" id="free-session-count">0 actief</span>
+    </div>
+    <div class="free-student-list" id="free-student-list">
+      <div class="free-empty">Niemand is momenteel aan het vrij oefenen.</div>
+    </div>
+  </div>
+
 </div>
-</div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=blockfix1"></script></body></html>
+</div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=freesession1"></script></body></html>

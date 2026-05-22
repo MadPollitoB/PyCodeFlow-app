@@ -1,0 +1,27 @@
+════════════════════════════════════════════════════════════════════════
+PyCodeFlow Stresstest Log
+Versie     : 2026.2.7.6
+Test type  : runner-api
+Gestart    : 2026-05-21T08:59:49.416Z
+Host RAM   : 26204MB vrij / 31871MB totaal
+Load avg   : 0.21 / 0.28 / 0.27
+════════════════════════════════════════════════════════════════════════
+[2026-05-21 08:59:48.779] [INFO] === Stresstest gestart: runner-api ===
+[2026-05-21 08:59:48.779] [INFO] Systeem: 26206MB vrij RAM, load 0.21
+[2026-05-21 08:59:48.779] [INFO] --- Runner API integratietest ---
+[2026-05-21 08:59:48.780] [INFO] Runner API integratietest: start → events → input → end cyclus
+[2026-05-21 08:59:49.100] [PASS] Basis run: OK (output: antwoord=42
+
+
+===== Compiler klaar met runnen ====)
+[2026-05-21 08:59:49.104] [PASS] Syntax check fout gedetecteerd op regel 1: OK
+[2026-05-21 08:59:49.412] [PASS] Cancel actieve run: OK
+[2026-05-21 08:59:49.416] [PASS] Health endpoint velden: OK
+[2026-05-21 08:59:49.416] [OK] === Klaar: 4/4 OK (100%) in 0.6s ===
+────────────────────────────────────────────────────────────────────────
+SAMENVATTING
+────────────────────────────────────────────────────────────────────────
+Resultaat  : 4/4 checks geslaagd (100%)
+Duur       : 0.6s
+Oordeel    : ✅ GESLAAGD
+════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,28 @@
+════════════════════════════════════════════════════════════════════════
+PyCodeFlow Stresstest Log
+Versie     : 2026.1.39.0
+Test type  : multi-sessie
+Gestart    : 2026-05-16T20:56:45.393Z
+Host RAM   : 27230MB vrij / 31871MB totaal
+Load avg   : 0.53 / 0.49 / 0.38
+════════════════════════════════════════════════════════════════════════
+[2026-05-16 20:56:44.777] [INFO] === Stresstest gestart: multi-sessie ===
+[2026-05-16 20:56:44.778] [INFO] Systeem: 27228MB vrij RAM, load 0.53
+[2026-05-16 20:56:44.778] [INFO] --- Multi-sessie (3×10) ---
+[2026-05-16 20:56:44.778] [INFO] Multi-sessie test: 3 sessies × 10 runs
+[2026-05-16 20:56:44.779] [INFO] Wegwerpsessie aangemaakt: SA9VNF
+[2026-05-16 20:56:44.779] [INFO] Wegwerpsessie aangemaakt: B6FHJ8
+[2026-05-16 20:56:44.779] [INFO] Wegwerpsessie aangemaakt: UQ4G3X
+[2026-05-16 20:56:45.392] [INFO] Wegwerpsessie verwijderd: SA9VNF
+[2026-05-16 20:56:45.392] [INFO] Wegwerpsessie verwijderd: B6FHJ8
+[2026-05-16 20:56:45.392] [INFO] Wegwerpsessie verwijderd: UQ4G3X
+[2026-05-16 20:56:45.392] [OK] Multi-sessie: 30/30 OK in 613ms
+[2026-05-16 20:56:45.393] [OK] Cleanup: OK
+[2026-05-16 20:56:45.393] [OK] === Klaar: 2/2 OK (100%) in 0.6s ===
+────────────────────────────────────────────────────────────────────────
+SAMENVATTING
+────────────────────────────────────────────────────────────────────────
+Resultaat  : 2/2 checks geslaagd (100%)
+Duur       : 0.6s
+Oordeel    : ✅ GESLAAGD
+════════════════════════════════════════════════════════════════════════

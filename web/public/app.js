@@ -4,22 +4,83 @@
   let selectedMode = 'class';
   let selectedEditorAssist = true;
 
+  // ── Centrale API fetch wrapper met CSRF-token ────────────────────────────
+  let _csrfToken = null;
+  async function getCSRFToken() {
+    if (_csrfToken) return _csrfToken;
+    try {
+      const r = await fetch('/api/csrf-token');
+      if (r.ok) { const d = await r.json(); _csrfToken = d.token; }
+    } catch {}
+    return _csrfToken || '';
+  }
+  async function apiFetch(url, options = {}) {
+    const token = await getCSRFToken();
+    return fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'X-CSRF-Token': token } : {}),
+        ...(options.headers || {}),
+      },
+    });
+  }
+
+  // ── Dark mode initialisatie ─────────────────────────────────────────────────
+  (function initDarkMode() {
+    const saved = localStorage.getItem('pycodeflow_theme') || 'light';
+    if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    // Monaco thema wordt later ingesteld via setEditorTheme()
+
+    document.addEventListener('click', e => {
+      if (!e.target.closest('#dark-mode-toggle')) return;
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      const newTheme = isDark ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', newTheme);
+      localStorage.setItem('pycodeflow_theme', newTheme);
+      e.target.textContent = newTheme === 'dark' ? '☀️' : '🌙';
+      // Update Monaco editors
+      if (window.monaco) {
+        monaco.editor.setTheme(newTheme === 'dark' ? 'vs-dark' : 'vs');
+      }
+    });
+
+    // Zet correct icoon bij pagina laden
+    setTimeout(() => {
+      const btn = document.getElementById('dark-mode-toggle');
+      if (btn) {
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        btn.textContent = isDark ? '☀️' : '🌙';
+      }
+    }, 100);
+  })();
+
   const editorStore = {
     teacher: null,
     student: null,
+    free: null,
     teacherApplyingRemote: false,
-    studentApplyingRemote: false
+    studentApplyingRemote: false,
+    freeApplyingRemote: false
   };
 
   let studentWorkspaceState = { mode: "class", activeWorkspace: "shared", selectedTab: "shared", sharedCode: "", personalCode: "", classCanRun: true, classCanEdit: true, personalCanRun: true, personalCanEdit: true, editorAssist: true, output: "" };
   let studentVisiblePanel = 'code';
 
+  let autosaveIndicatorTimer = null;
   function saveStudentLocalDraft() {
     const editor = editorStore.student;
     if (!editor) return;
     const visible = getStudentVisibleWorkspace(studentWorkspaceState);
     if (visible === 'personal') {
       studentWorkspaceState.localPersonalCode = editor.getValue();
+      // Toon korte "💾 Concept opgeslagen" indicator
+      const indicator = qs('student-autosave-indicator');
+      if (indicator) {
+        indicator.style.opacity = '1';
+        clearTimeout(autosaveIndicatorTimer);
+        autosaveIndicatorTimer = setTimeout(() => { indicator.style.opacity = '0'; }, 2000);
+      }
     }
   }
 
@@ -33,11 +94,74 @@
     return str.replace(/[&<>"']/g, s => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[s]));
   }
 
+
+  function normalizeStudentFieldValue(value, type = 'text') {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const lower = raw.toLowerCase();
+    if (type === 'name') {
+      return raw;
+    }
+    const upper = raw.toUpperCase();
+    return upper;
+  }
+
   function setStatusBox(el, text, type = 'info') {
     if (!el) return;
     el.textContent = text;
     el.className = `status-box status-${type}`;
   }
+
+  function formatMonitorBytes(bytes) {
+    if (bytes == null || Number.isNaN(Number(bytes))) return '-';
+    const mb = Number(bytes) / 1024 / 1024;
+    if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+    return `${mb.toFixed(0)} MB`;
+  }
+
+  async function loadTeacherMonitoring() {
+    try {
+      const res = await fetch('/api/monitoring', { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const r = data.runner || {};
+
+      const activeRuns  = Number(r.activeRuns  ?? 0);
+      const maxRuns     = Number(r.maxRuns     ?? 18);
+      const queuedRuns  = Number(r.queuedRuns  ?? 0);
+      const maxQueue    = Number(r.maxQueue    ?? 90);
+
+      // Wachtrij is het meest relevante signaal voor de leerkracht
+      const queueRatio = maxQueue > 0 ? queuedRuns / maxQueue : 0;
+      const runRatio   = maxRuns  > 0 ? activeRuns  / maxRuns  : 0;
+      // Gebruik de ergste van de twee als balk-waarde
+      const barRatio   = Math.max(queueRatio, runRatio);
+
+      const bar = qs('teacher-runner-bar');
+      if (bar) {
+        bar.style.width = Math.min(100, Math.round(barRatio * 100)) + '%';
+        bar.className = 'runner-health-bar-fill'
+          + (barRatio >= 0.8 ? ' danger' : barRatio >= 0.55 ? ' warn' : '');
+      }
+
+      const note = qs('teacher-monitor-note');
+      if (note) {
+        const danger = queueRatio >= 0.6 || runRatio >= 0.9;
+        const warn   = queueRatio >= 0.35 || runRatio >= 0.75;
+        if (danger) {
+          setStatusBox(note, '⚠️ Zware belasting — open systeembeheer', 'error');
+        } else if (warn) {
+          setStatusBox(note, '⚡ Merkbare belasting — hou het in de gaten', 'warning');
+        } else {
+          setStatusBox(note, '✓ Runner loopt vlot', 'success');
+        }
+      }
+    } catch (err) {
+      const note = qs('teacher-monitor-note');
+      if (note) setStatusBox(note, 'Monitoring niet bereikbaar', 'error');
+    }
+  }
+
 
   function updateAnnouncement(prefix, text) {
     const card = qs(`${prefix}-announcement-card`);
@@ -62,9 +186,14 @@
       }
     };
     applyLayout();
+    // Één rAF-pass om te corrigeren na DOM-repaint (bv. na tab-wissel of panelresize).
+    // Enkel bij resetView een extra setTimeout — anders wordt de scrollpositie
+    // van de leerling onnodig overschreven door de herhaalde layout-calls.
     requestAnimationFrame(applyLayout);
-    setTimeout(applyLayout, 0);
-    setTimeout(applyLayout, 60);
+    if (resetView) {
+      setTimeout(applyLayout, 0);
+      setTimeout(applyLayout, 60);
+    }
   }
 
 
@@ -123,11 +252,19 @@
     if (!input || !btn) return;
     input.disabled = false;
     btn.disabled = false;
+    input.value = '';
     input.placeholder = 'Typ je antwoord...';
-    input.focus();
+    // Focus na korte delay — geeft browser tijd om disabled state te verwerken
+    // Ghost keypresses worden geblokkeerd door de btn.disabled check in keydown handlers
+    setTimeout(() => {
+      if (!input.disabled) input.focus();
+    }, 50);
   }
 
   function disableInput(prefix) {
+    if (prefix === 'free') {
+      const stack = new Error().stack.split('\n').slice(1,3).join(' | ');
+    }
     const input = qs(`${prefix}-runtime-input`);
     const btn = qs(`${prefix}-send-input-btn`);
     if (!input || !btn) return;
@@ -191,6 +328,9 @@
       }
     });
     monacoThemeReady = true;
+    // Zet correct thema op basis van huidige dark/light voorkeur
+    const isDarkNow = document.documentElement.getAttribute('data-theme') === 'dark';
+    monaco.editor.setTheme(isDarkNow ? 'pycodeflow-dark' : 'vs');
   }
 
   function loadMonaco() {
@@ -225,9 +365,18 @@
             codeText: editorStore[owner].getValue(),
             workspace: visible
           });
+          // Syntax check voor leerling (persoonlijk werkblad of gedeeld)
+          scheduleSyntaxCheck('student', '/api/syntax-check-student');
           return;
         }
-        socket.emit('code_update', { codeText: editorStore[owner].getValue() });
+        // Vrije editor stuurt geen code_update naar de server (geen sessie-sync)
+        if (owner === 'free') {
+          scheduleSyntaxCheck('free', '/api/syntax-check-student');
+        } else {
+          socket.emit('code_update', { codeText: editorStore[owner].getValue() });
+          // Syntax check voor leerkracht
+          scheduleSyntaxCheck('teacher', '/api/syntax-check');
+        }
       });
       editorStore[owner].onDidScrollChange(() => syncCustomGutter(owner));
       editorStore[owner].onDidChangeCursorPosition(() => renderCustomGutter(owner));
@@ -258,7 +407,39 @@
     editorStore[flag] = true;
     const model = editor.getModel();
     if (model && model.getValue() !== value) {
-      model.setValue(value);
+      if (resetView) {
+        // Volledige reset: cursor en scroll naar het begin (bv. bij workspace-wissel)
+        model.setValue(value);
+      } else {
+        // Gebruik pushEditOperations i.p.v. setValue:
+        // - cursor blijft op exacte positie (geen reset naar begin)
+        // - undo/redo history blijft intact (Ctrl+Z werkt nog)
+        // - scroll-positie blijft bewaard
+        // Dit is de standaard Monaco-aanpak voor externe code-updates (zoals VS Code bij Git-merges)
+        try {
+          editor.pushUndoStop();
+          model.pushEditOperations(
+            editor.getSelections() || [],
+            [{ range: model.getFullModelRange(), text: value }],
+            () => editor.getSelections() || []
+          );
+          editor.pushUndoStop();
+        } catch {
+          // Fallback naar setValue met cursor-herstel als pushEditOperations faalt
+          const savedPosition = editor.getPosition();
+          const savedScrollTop = editor.getScrollTop();
+          const savedScrollLeft = editor.getScrollLeft();
+          model.setValue(value);
+          if (savedPosition) {
+            const lineCount = model.getLineCount();
+            const safeLine = Math.min(savedPosition.lineNumber, lineCount);
+            const safeCol = Math.min(savedPosition.column, model.getLineMaxColumn(safeLine));
+            editor.setPosition({ lineNumber: safeLine, column: safeCol });
+          }
+          editor.setScrollTop(savedScrollTop);
+          editor.setScrollLeft(savedScrollLeft);
+        }
+      }
     }
     layoutEditor(owner, resetView);
     renderCustomGutter(owner);
@@ -267,6 +448,45 @@
 
   function getEditorValue(owner) {
     return editorStore[owner]?.getValue() || '';
+  }
+
+  // Syntax check: vraagt de server ast.parse() uit te voeren en markeert fouten in Monaco
+  let syntaxCheckTimer = null;
+  async function scheduleSyntaxCheck(owner, endpoint) {
+    clearTimeout(syntaxCheckTimer);
+    syntaxCheckTimer = setTimeout(async () => {
+      const editor = editorStore[owner];
+      if (!editor) return;
+      const code = editor.getValue();
+      if (!code.trim()) {
+        monaco.editor.setModelMarkers(editor.getModel(), 'syntax', []);
+        return;
+      }
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code }),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const model = editor.getModel();
+        if (!model) return;
+        if (data.ok) {
+          monaco.editor.setModelMarkers(model, 'syntax', []);
+        } else if (data.error) {
+          const { line, col, message } = data.error;
+          monaco.editor.setModelMarkers(model, 'syntax', [{
+            severity: monaco.MarkerSeverity.Error,
+            startLineNumber: line || 1,
+            startColumn:     col  || 1,
+            endLineNumber:   line || 1,
+            endColumn:       (col || 1) + 10,
+            message:         message || 'Syntaxfout',
+          }]);
+        }
+      } catch { /* stil falen — runner tijdelijk niet beschikbaar */ }
+    }, 800); // 800ms debounce
   }
 
   function setAssistBadge(el, enabled) {
@@ -314,6 +534,7 @@
         </div>
         <div class="session-row-actions">
           <button class="btn btn-soft small" type="button" data-open-session="${s.code}">Open</button>
+          <button class="btn btn-muted small" type="button" data-observe-session="${s.code}" title="Read-only meekijken">👁 Waarnemen</button>
           <button class="btn ${s.status === 'geblokkeerd' ? 'btn-success' : 'btn-muted'} small" type="button" data-toggle-session="${s.code}">${s.status === 'geblokkeerd' ? 'Starten' : 'Blokkeren'}</button>
           <button class="btn btn-danger small" type="button" data-delete-session="${s.code}">Verwijderen</button>
         </div>
@@ -323,6 +544,11 @@
       setLS('teacherSessionCode', btn.dataset.openSession);
       go('/teacher-app.html');
     }));
+    host.querySelectorAll('[data-observe-session]').forEach(btn => btn.addEventListener('click', () => {
+      setLS('observerSessionCode', btn.dataset.observeSession);
+      setLS('teacherSessionCode', btn.dataset.observeSession);
+      go('/teacher-app.html?observer=1');
+    }));
     host.querySelectorAll('[data-toggle-session]').forEach(btn => btn.addEventListener('click', async () => {
       await toggleSessionBlock(btn.dataset.toggleSession);
     }));
@@ -331,9 +557,278 @@
     }));
   }
 
+  // ── Code history playback ──────────────────────────────────────────────────
+  function showHistoryPlayback(studentName, snapshots) {
+    // Verwijder eventueel bestaand playback modal
+    document.getElementById('history-modal')?.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'history-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;padding:20px;';
+
+    const total = snapshots.length;
+    let current = 0;
+    let playing = false;
+    let playInterval = null;
+
+    modal.innerHTML = `
+      <div style="background:var(--surface);border-radius:20px;box-shadow:var(--shadow);width:100%;max-width:780px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;">
+        <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <strong style="font-size:1rem;">📜 Code-geschiedenis: ${escapeHtml(studentName)}</strong>
+            <div style="font-size:0.8rem;color:var(--muted);margin-top:2px;">${total} snapshots</div>
+          </div>
+          <button onclick="document.getElementById('history-modal').remove()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--muted);">✕</button>
+        </div>
+        <div id="history-code-display" style="flex:1;overflow:auto;padding:16px;background:#1e1e1e;font-family:Consolas,monospace;font-size:0.88rem;color:#d4d4d4;white-space:pre;min-height:200px;max-height:400px;line-height:1.5;"></div>
+        <div style="padding:16px 20px;border-top:1px solid var(--border);">
+          <div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--muted);margin-bottom:6px;">
+            <span id="history-time-label">—</span>
+            <span id="history-pos-label">1 / ${total}</span>
+          </div>
+          <input type="range" id="history-slider" min="0" max="${total - 1}" value="0" style="width:100%;accent-color:var(--primary);margin-bottom:12px;"/>
+          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+            <button id="hist-prev" class="btn btn-muted small">⏮ Vorige</button>
+            <button id="hist-play" class="btn btn-soft small">▶ Afspelen</button>
+            <button id="hist-next" class="btn btn-muted small">Volgende ⏭</button>
+            <select id="hist-speed" style="padding:5px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:0.85rem;">
+              <option value="2000">Langzaam</option>
+              <option value="1000" selected>Normaal</option>
+              <option value="500">Snel</option>
+              <option value="200">Zeer snel</option>
+            </select>
+          </div>
+        </div>
+      </div>`;
+
+    function showSnapshot(idx) {
+      current = Math.max(0, Math.min(total - 1, idx));
+      const snap = snapshots[current];
+      document.getElementById('history-code-display').textContent = snap.code;
+      document.getElementById('history-slider').value = current;
+      document.getElementById('history-pos-label').textContent = `${current + 1} / ${total}`;
+      const dt = new Date(snap.timestamp).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      document.getElementById('history-time-label').textContent = dt;
+    }
+
+    function stopPlay() {
+      playing = false;
+      clearInterval(playInterval);
+      const btn = document.getElementById('hist-play');
+      if (btn) btn.textContent = '▶ Afspelen';
+    }
+
+    function startPlay() {
+      playing = true;
+      const btn = document.getElementById('hist-play');
+      if (btn) btn.textContent = '⏸ Pauzeer';
+      const speed = parseInt(document.getElementById('hist-speed')?.value || '1000');
+      playInterval = setInterval(() => {
+        if (current >= total - 1) { stopPlay(); return; }
+        showSnapshot(current + 1);
+      }, speed);
+    }
+
+    showSnapshot(0);
+    document.body.appendChild(modal);
+
+    document.getElementById('hist-prev').addEventListener('click', () => { stopPlay(); showSnapshot(current - 1); });
+    document.getElementById('hist-next').addEventListener('click', () => { stopPlay(); showSnapshot(current + 1); });
+    document.getElementById('hist-play').addEventListener('click', () => playing ? stopPlay() : startPlay());
+    document.getElementById('history-slider').addEventListener('input', e => { stopPlay(); showSnapshot(parseInt(e.target.value)); });
+    modal.addEventListener('click', e => { if (e.target === modal) { stopPlay(); modal.remove(); } });
+  }
+
+  // ── Herbruikbare student list renderer ────────────────────────────────────
+  // Wordt aangeroepen vanuit teacher_session_data EN vanuit de zoekfilter.
+  function renderStudentList(data) {
+    const host = qs('teacher-student-list');
+    if (!host) return;
+    const isExamMode = data.session.mode === 'exam';
+    const filterTerm = (qs('student-filter-input')?.value || '').toLowerCase().trim();
+    const students = (data.students || []).filter(s =>
+      !filterTerm || s.name.toLowerCase().includes(filterTerm)
+    );
+
+    if (!students.length) {
+      host.innerHTML = filterTerm
+        ? `<div class="muted" style="padding:12px; font-size:0.88rem;">Geen leerlingen gevonden voor "<strong>${escapeHtml(filterTerm)}</strong>".</div>`
+        : `<div class="muted" style="padding:12px; font-size:0.88rem;">Nog geen leerlingen verbonden.</div>`;
+      return;
+    }
+
+    host.innerHTML = students.map(s => {
+      // Klaar-badge
+      const doneBadge = s.isDone
+        ? `<span class="tab-badge tab-badge-done" title="Leerling heeft oefening afgerond">✓ Klaar</span>`
+        : '';
+
+      // Tab-badge (enkel examenmodus)
+      let tabBadge = '';
+      if (isExamMode) {
+        if (s.tabHidden) {
+          tabBadge = `<span class="tab-badge tab-badge-danger" title="Leerling heeft tab verlaten">⚠️ Tab verlaten (${s.tabHiddenCount}×)</span>`;
+        } else if (s.tabHiddenCount > 0) {
+          const durStr = s.tabLastDurationMs ? ` — ${Math.round(s.tabLastDurationMs / 1000)}s` : '';
+          const cls = s.tabHiddenCount >= 3 ? 'tab-badge-warn-high' : 'tab-badge-warn';
+          tabBadge = `<span class="tab-badge ${cls}" title="${s.tabHiddenCount}× tab verlaten">👁 ${s.tabHiddenCount}× weg${durStr}</span>`;
+        }
+      }
+      // Hand-badge
+      const handBadge = s.handRaised
+        ? `<span class="tab-badge tab-badge-hand">✋ Hand op</span>`
+        : '';
+
+      return `
+      <div class="student-item${isExamMode && s.tabHidden ? ' student-item-alert' : ''}${s.handRaised ? ' student-item-hand' : ''}">
+        <div class="student-head">
+          <div>
+            <strong>${escapeHtml(s.name)}</strong>
+            ${doneBadge}${handBadge}${tabBadge}
+            <br/><span class="muted">${s.online ? 'online' : 'offline'}</span>
+          </div>
+        </div>
+        <div class="row" style="flex-wrap:wrap; gap:4px; margin-top:6px;">
+          ${s.isDone ? `<button class="btn btn-muted small" data-reset-done="${s.id}" title="Klaar-status wissen">✓ Reset</button>` : ''}
+          ${s.handRaised ? `<button class="btn btn-warn small" data-lower-hand="${s.id}">✋ Wissen</button>` : ''}
+          <button class="btn btn-muted small" data-show-history="${s.id}" title="Bekijk code-geschiedenis van ${escapeHtml(s.name)}">📜 History</button>
+          ${isExamMode
+            ? `<button class="btn btn-soft small" data-live-control="${s.id}">Live control</button>
+               <button class="btn btn-muted small" data-remove-student="${s.id}">Verwijderen</button>`
+            : `<button class="btn ${s.canRun ? 'btn-success' : 'btn-danger'} small" data-toggle-student="${s.id}" data-field="run">${s.canRun ? 'Run aan' : 'Run uit'}</button>
+               <button class="btn ${s.canEdit ? 'btn-success' : 'btn-danger'} small" data-toggle-student="${s.id}" data-field="code">${s.canEdit ? 'Code aan' : 'Code uit'}</button>
+               <button class="btn btn-muted small" data-remove-student="${s.id}">Verwijderen</button>`
+          }
+        </div>
+      </div>`;
+    }).join('');
+
+    // Event listeners na render
+    host.querySelectorAll('[data-toggle-student]').forEach(btn => btn.addEventListener('click', () =>
+      socket.emit('teacher_toggle_student', { studentId: btn.dataset.toggleStudent, field: btn.dataset.field })
+    ));
+    host.querySelectorAll('[data-remove-student]').forEach(btn => btn.addEventListener('click', () =>
+      socket.emit('teacher_remove_student', { studentId: btn.dataset.removeStudent })
+    ));
+    host.querySelectorAll('[data-reset-done]').forEach(btn => btn.addEventListener('click', () =>
+      socket.emit('teacher_reset_done', { studentId: btn.dataset.resetDone })
+    ));
+    host.querySelectorAll('[data-lower-hand]').forEach(btn => btn.addEventListener('click', () =>
+      socket.emit('teacher_lower_hand', { studentId: btn.dataset.lowerHand })
+    ));
+    host.querySelectorAll('[data-live-control]').forEach(btn => btn.addEventListener('click', () => {
+      socket.emit('teacher_select_student', { studentId: btn.dataset.liveControl });
+      qs('teacher-output-panel').textContent = '';
+      setTab('teacher', 'code');
+      layoutEditor('teacher', true);
+    }));
+    host.querySelectorAll('[data-show-history]').forEach(btn => btn.addEventListener('click', async () => {
+      const sid = btn.dataset.showHistory;
+      const sessionCode = getLS('teacherSessionCode');
+      if (!sessionCode) return;
+      try {
+        const r = await fetch(`/api/sessions/${sessionCode}/history/${sid}`);
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          if (r.status === 404) {
+            alert('Leerling of sessie niet gevonden.');
+          } else if (r.status === 500 && err.error?.includes('no such table')) {
+            alert('Code-geschiedenis nog niet beschikbaar.\nDe server moet opnieuw opgestart worden om de snapshot-tabel aan te maken.\nVoer uit: docker compose restart web');
+          } else {
+            alert(`Fout bij laden history: ${err.error || r.status}`);
+          }
+          return;
+        }
+        const { studentName, snapshots } = await r.json();
+        if (!snapshots || !snapshots.length) {
+          alert(`Nog geen code-snapshots voor ${studentName}.\nSnapshots worden elke 10 seconden opgeslagen na het begin van het typen.`);
+          return;
+        }
+        showHistoryPlayback(studentName, snapshots);
+      } catch(e) { alert(`Netwerkfout bij laden history: ${e.message}`); }
+    }));
+  }
+
+  async function loadTemplates() {
+    try {
+      const r = await fetch('/api/templates');
+      if (!r.ok) return;
+      const { templates } = await r.json();
+      const sel = qs('template-select');
+      if (!sel || !templates) return;
+      templates.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = `${t.name} — ${t.description}`;
+        opt.dataset.code = t.code;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener('change', () => {
+        const selected = sel.options[sel.selectedIndex];
+        const preview = qs('template-preview');
+        if (!preview) return;
+        if (selected.value && selected.dataset.code) {
+          preview.textContent = selected.dataset.code;
+          preview.style.display = 'block';
+        } else {
+          preview.style.display = 'none';
+        }
+      });
+    } catch(e) { /* stil falen */ }
+  }
+
+  async function loadFreeStudents() {
+    try {
+      const r = await fetch('/api/free-students');
+      if (!r.ok) return;
+      const list = await r.json();
+      renderFreeStudents(list);
+    } catch (e) { /* server niet bereikbaar */ }
+  }
+
+  function renderFreeStudents(list) {
+    const host = qs('free-student-list');
+    const countBadge = qs('free-session-count');
+    if (!host) return;
+    if (countBadge) countBadge.textContent = `${list.length} actief`;
+
+    if (!list.length) {
+      host.innerHTML = '<div class="free-empty">Niemand is momenteel aan het vrij oefenen.</div>';
+      return;
+    }
+
+    host.innerHTML = list.map(s => {
+      const joined = new Date(s.joinedAt);
+      const timeStr = joined.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' });
+      return `
+        <div class="free-student-item">
+          <div>
+            <strong>${escapeHtml(s.name)}</strong>
+            <span class="free-student-meta"> — ${escapeHtml(s.className)}</span>
+            <div class="free-student-meta">Gejoind om ${timeStr}</div>
+          </div>
+          <button class="btn btn-danger small" data-kick-free="${escapeHtml(s.id)}" title="Verwijder uit vrije sessie">
+            Verwijderen
+          </button>
+        </div>`;
+    }).join('');
+
+    host.querySelectorAll('[data-kick-free]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        socket.emit('teacher_remove_free_student', { freeId: btn.dataset.kickFree });
+      });
+    });
+  }
+
   async function loadSessions() {
-    const r = await fetch('/api/sessions');
-    renderSessions(await r.json());
+    try {
+      const r = await fetch('/api/sessions');
+      if (!r.ok) return;
+      renderSessions(await r.json());
+      // Update timestamp
+      const ts = qs('sessions-last-updated');
+      if (ts) ts.textContent = new Date().toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch(e) { /* stil falen */ }
   }
 
   if (page === 'index.html' || page === 'landing.html' || page === '') {
@@ -343,6 +838,7 @@
 
   if (page === 'teacher-sessions.html') {
     loadSessions();
+    loadTemplates();
     const checkbox = qs('editor-assist-enabled');
     checkbox?.addEventListener('change', () => {
       selectedEditorAssist = checkbox.checked;
@@ -362,25 +858,107 @@
     });
     updateCreateAssistBadge();
     qs('create-session-btn')?.addEventListener('click', () => {
+      const templateSel = qs('template-select');
+      const templateCode = templateSel?.value
+        ? (templateSel.options[templateSel.selectedIndex]?.dataset?.code || '')
+        : '';
       socket.emit('teacher_create_session', {
         name: qs('session-name').value.trim() || 'Nieuwe sessie',
         mode: selectedMode,
-        editorAssist: selectedEditorAssist
+        editorAssist: selectedEditorAssist,
+        templateCode: templateCode || undefined,
       });
     });
     socket.on('session_created', ({ code }) => {
       setLS('teacherSessionCode', code);
       go('/teacher-app.html');
     });
+
+    // Vrije sessie: laad initieel en abonneer op live updates
+    loadFreeStudents();
+    socket.on('free_students_updated', () => loadFreeStudents());
+
+    // Auto-refresh sessieoverzicht via Socket.IO
+    socket.on('sessions_updated', () => loadSessions());
+
+    // Manuele refresh knop
+    qs('sessions-refresh-btn')?.addEventListener('click', () => {
+      const btn = qs('sessions-refresh-btn');
+      if (btn) { btn.textContent = '↻'; btn.disabled = true; }
+      loadSessions().finally(() => {
+        if (btn) { btn.disabled = false; }
+      });
+    });
   }
 
   if (page === 'student-start.html') {
-    qs('student-join-btn')?.addEventListener('click', () => {
-      socket.emit('student_join', {
-        name: qs('student-name').value.trim() || 'Leerling',
-        code: qs('student-code').value.trim().toUpperCase()
-      });
+    const nameInput = qs('student-name');
+    const codeInput = qs('student-code');
+    if (nameInput) {
+      nameInput.autocomplete = 'off';
+      if (normalizeStudentFieldValue(nameInput.value, 'name') === '') nameInput.value = '';
+    }
+    if (codeInput) {
+      codeInput.autocomplete = 'off';
+      if (normalizeStudentFieldValue(codeInput.value, 'code') === '') codeInput.value = '';
+    }
+
+    const submitStudentJoin = () => {
+      const name = normalizeStudentFieldValue(qs('student-name')?.value, 'name');
+      const code = normalizeStudentFieldValue(qs('student-code')?.value, 'code');
+      const errorEl = qs('student-start-error');
+      if (!name) {
+        if (errorEl) errorEl.textContent = 'Geef eerst je naam in. De placeholder telt niet als naam.';
+        qs('student-name')?.focus();
+        return;
+      }
+      if (!code) {
+        if (errorEl) errorEl.textContent = 'Geef eerst je sessiecode in.';
+        qs('student-code')?.focus();
+        return;
+      }
+      if (errorEl) errorEl.textContent = '';
+      socket.emit('student_join', { name, code });
+    };
+
+    qs('student-join-btn')?.addEventListener('click', submitStudentJoin);
+    qs('student-name')?.addEventListener('keydown', e => {
+      if (e.key === 'Enter') submitStudentJoin();
     });
+    qs('student-code')?.addEventListener('keydown', e => {
+      if (e.key === 'Enter') submitStudentJoin();
+    });
+
+    // Vrij oefenen: geen sessiecode nodig, wel naam en klas
+    const submitFreeJoin = () => {
+      const name = normalizeStudentFieldValue(qs('student-name')?.value, 'name');
+      const className = (qs('student-class')?.value || '').trim();
+      const errorEl = qs('student-start-error');
+      if (!name) {
+        if (errorEl) errorEl.textContent = 'Geef eerst je naam in.';
+        qs('student-name')?.focus();
+        return;
+      }
+      if (!className) {
+        if (errorEl) errorEl.textContent = 'Geef je klas in om vrij te oefenen.';
+        qs('student-class')?.focus();
+        return;
+      }
+      if (errorEl) errorEl.textContent = '';
+      setLS('freeStudentName', name);
+      setLS('freeStudentClass', className);
+      socket.emit('student_join_free', { name, className });
+    };
+
+    qs('student-free-btn')?.addEventListener('click', submitFreeJoin);
+
+    socket.on('free_session_state', data => {
+      setLS('freeStudentName', data.name);
+      setLS('freeStudentClass', data.className);
+      setLS('freeSessionCode', data.code);
+      go('/free-editor.html');
+    });
+
     socket.on('student_state', data => {
       setLS('studentSessionCode', data.session.code);
       setLS('studentId', data.student.id);
@@ -394,22 +972,284 @@
     });
   }
 
+  // ── Vrije editor pagina ────────────────────────────────────────────────────
+  if (page === 'free-editor.html') {
+    const name = getLS('freeStudentName', '');
+    const className = getLS('freeStudentClass', '');
+
+    // Als er geen naam/klas in localStorage staat, terugsturen naar start
+    if (!name || !className) { go('/student-start.html'); return; }
+
+    // Badges invullen
+    const nameBadge = qs('free-name-badge');
+    const classBadge = qs('free-class-badge');
+    if (nameBadge) nameBadge.textContent = name;
+    if (classBadge) classBadge.textContent = className;
+
+    // Herverbinden of nieuw joinen
+    socket.emit('student_join_free', { name, className });
+
+    // Editor initialiseren zodra server bevestigt
+    let _freeRunActive = false; // Track of er een actieve run is
+    socket.on('free_session_state', async data => {
+      const assistBadge = qs('free-editor-assist');
+      if (assistBadge) setAssistBadge(assistBadge, data.editorAssist !== false);
+      await ensureEditor('free', data.code || '', data.editorAssist !== false, false);
+      updateEditorConfig('free', { assist: data.editorAssist !== false, readOnly: false });
+      if (!_freeRunActive) disableInput('free'); // Niet disablen tijdens actieve run
+    });
+
+    // Run-knop
+    qs('free-run-btn')?.addEventListener('click', () => {
+      _freeRunActive = true;
+      const panel = qs('free-output-panel');
+      if (panel) panel.textContent = '';
+      const code = getEditorValue('free');
+      socket.emit('free_run_request', { codeText: code });
+    });
+    // Ctrl+Enter shortcut voor Run (vrije editor)
+    document.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        qs('free-run-btn')?.click();
+      }
+    });
+
+    // Enter in input-veld
+    qs('free-runtime-input')?.addEventListener('input', () => {
+      _freeUserTyped = true; // Gebruiker heeft actief iets getypt of gewist
+    });
+    qs('free-runtime-input')?.addEventListener('keyup', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        freeSendInput(); // _freeUserTyped vereist
+      }
+    });
+    let _freeInputSent = false;
+    let _freeUserTyped = false; // Wordt true zodra gebruiker echt iets typt
+
+    let _freeMouseClick = false; // Wordt true bij echte muisklik op de knop
+
+    function freeSendInput() {
+      if (_freeInputSent) return;
+      const inputEl = qs('free-runtime-input');
+      const btn = qs('free-send-input-btn');
+      if (!inputEl || !btn || btn.disabled) return;
+      // Verzenden enkel als: gebruiker heeft getypt OF bewust met muis geklikt
+      if (!_freeUserTyped && !_freeMouseClick) return;
+      _freeInputSent = true;
+      _freeUserTyped = false;
+      _freeMouseClick = false;
+      const val = inputEl.value;
+      socket.emit('free_runtime_input', { value: val });
+      disableInput('free');
+    }
+
+    // Muis-klik: zet vlag VOOR click event (mousedown komt eerst)
+    qs('free-send-input-btn')?.addEventListener('mousedown', () => { _freeMouseClick = true; });
+    qs('free-send-input-btn')?.addEventListener('click', () => freeSendInput());
+
+    socket.on('free_input_request', () => {
+      _freeInputSent = false;
+      _freeUserTyped = false;
+      enableInput('free');
+    });
+
+    // Tab-knoppen
+    document.querySelectorAll('[data-owner="free"][data-tab]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+        setTab('free', tab);
+        if (tab === 'code') {
+          document.querySelectorAll('[data-owner="free"][data-tab]').forEach(b =>
+            b.classList.toggle('active', b === btn));
+        }
+      });
+    });
+
+    // Output events
+    socket.on('free_run_output', ({ output }) => {
+      const panel = qs('free-output-panel');
+      if (panel) panel.textContent = output;
+      setTab('free', 'output');
+      document.querySelectorAll('[data-owner="free"][data-tab]').forEach(b =>
+        b.classList.toggle('active', b.dataset.tab === 'output'));
+    });
+    socket.on('free_run_queued', ({ position }) => {
+      const panel = qs('free-output-panel');
+      if (panel) panel.textContent = `In wachtrij... (positie ${position})`;
+      setTab('free', 'output');
+    });
+
+
+    // free_run_input_echo: echo zit nu in server-side outputAccum
+    // client-side handler niet nodig (zou dubbele echo veroorzaken)
+    socket.on('free_run_input_echo', () => { /* echo verwerkt via free_run_output */ });
+    socket.on('free_run_end', () => {
+      _freeRunActive = false;
+      disableInput('free');
+    });
+    socket.on('free_run_rate_limited', ({ waitMs }) => {
+      const panel = qs('free-output-panel');
+      if (panel) {
+        panel.textContent = `⏳ Even wachten — je kan opnieuw runnen over ${Math.ceil(waitMs / 1000)} seconde(n).`;
+        setTab('free', 'output');
+        document.querySelectorAll('[data-owner="free"][data-tab]').forEach(b =>
+          b.classList.toggle('active', b.dataset.tab === 'output'));
+      }
+    });
+
+    // Leerkracht heeft deze leerling verwijderd uit de vrije sessie
+    socket.on('force_landing', () => {
+      localStorage.removeItem('freeStudentName');
+      localStorage.removeItem('freeStudentClass');
+      localStorage.removeItem('freeSessionCode');
+      go('/index.html');
+    });
+  }
+
   if (page === 'teacher-app.html') {
     const code = getLS('teacherSessionCode');
     if (!code) go('/teacher-sessions.html');
     socket.emit('teacher_join_session', { code });
 
-    document.querySelectorAll('[data-owner="teacher"][data-tab]').forEach(btn => btn.addEventListener('click', () => setTab('teacher', btn.dataset.tab)));
+    // Tab-klik: wissel paneel en stuur in klasmodus een force_panel naar alle leerlingen
+    document.querySelectorAll('[data-owner="teacher"][data-tab]').forEach(btn => btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab;
+      setTab('teacher', tab);
+      // Fix bug §7: bij klik op Code-tabblad → stuur force_panel naar alle leerlingen
+      if (tab === 'code') socket.emit('teacher_force_panel', { panel: 'code' });
+    }));
+
     qs('teacher-run-btn')?.addEventListener('click', () => {
+      qs('teacher-output-panel').textContent = '';
       socket.emit('run_request', {
         codeText: getEditorValue('teacher'),
         workspace: 'shared'
       });
     });
+    // Ctrl+Enter shortcut voor Run (leerkracht)
+    document.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        qs('teacher-run-btn')?.click();
+      }
+    });
     qs('toggle-run-all-btn')?.addEventListener('click', () => socket.emit('teacher_toggle_all', { field: 'run' }));
-    qs('teacher-toggle-workspace-btn')?.addEventListener('click', () => socket.emit('teacher_toggle_class_workspace')); 
+    qs('teacher-toggle-workspace-btn')?.addEventListener('click', () => socket.emit('teacher_toggle_class_workspace'));
     qs('toggle-code-all-btn')?.addEventListener('click', () => socket.emit('teacher_toggle_all', { field: 'code' }));
     qs('teacher-close-session-btn')?.addEventListener('click', () => socket.emit('teacher_close_session'));
+
+    // Timer/countdown widget
+    qs('teacher-timer-start-btn')?.addEventListener('click', () => {
+      const minutes = parseInt(qs('teacher-timer-input')?.value || '5', 10);
+      if (!minutes || minutes < 1) return;
+      socket.emit('teacher_start_timer', { durationMs: minutes * 60 * 1000 });
+    });
+    qs('teacher-timer-stop-btn')?.addEventListener('click', () => {
+      socket.emit('teacher_stop_timer');
+    });
+    socket.on('timer_update', ({ remainingMs, running }) => {
+      // Alleen verwerken op de teacher-app pagina
+      const display = qs('teacher-timer-display');
+      if (!display) return; // niet op student-pagina
+      if (!running || remainingMs <= 0) {
+        display.textContent = '—';
+        display.style.color = 'var(--text)';
+        return;
+      }
+      const m = Math.floor(remainingMs / 60000);
+      const s = Math.floor((remainingMs % 60000) / 1000);
+      display.textContent = `${m}:${String(s).padStart(2, '0')}`;
+      display.style.color = remainingMs < 60000 ? 'var(--accent)' : 'var(--text)';
+    });
+    qs('teacher-export-btn')?.addEventListener('click', () => {
+      const code = getLS('teacherSessionCode');
+      if (code) window.open(`/api/sessions/${code}/export`, '_blank');
+    });
+
+    // Reset alle klaar-statussen
+    qs('teacher-reset-all-done-btn')?.addEventListener('click', () => {
+      socket.emit('teacher_reset_all_done');
+    });
+
+    // Snippet sturen/wissen
+    // Annotatie panel toggle
+    qs('teacher-annotation-btn')?.addEventListener('click', () => {
+      const panel = qs('teacher-annotation-panel');
+      if (panel) panel.classList.toggle('hidden');
+    });
+    qs('teacher-send-annotation-btn')?.addEventListener('click', () => {
+      const start = parseInt(qs('annotation-start-line')?.value || '1');
+      const end   = parseInt(qs('annotation-end-line')?.value   || start.toString());
+      const msg   = qs('annotation-message')?.value?.trim();
+      const color = qs('annotation-color')?.value || 'yellow';
+      if (!msg) { qs('annotation-message')?.focus(); return; }
+      if (start < 1 || end < start) {
+        alert('Ongeldige regelnummers. Eindregel moet ≥ startregel zijn.');
+        return;
+      }
+      socket.emit('teacher_send_annotation', { startLine: start, endLine: end, message: msg, color });
+      // Toon annotatie ook in de eigen editor van de leerkracht
+      if (window.monaco && editorStore.teacher) {
+        const cssClass = `annotation-highlight-${['yellow','blue','green','red'].includes(color) ? color : 'yellow'}`;
+        const bgColor = { yellow: 'rgba(253,224,71,0.3)', blue: 'rgba(96,165,250,0.3)', green: 'rgba(74,222,128,0.3)', red: 'rgba(248,113,113,0.3)' }[color] || 'rgba(253,224,71,0.3)';
+        const decs = editorStore.teacher.deltaDecorations([], [{
+          range: new window.monaco.Range(start, 1, end, 1),
+          options: {
+            isWholeLine: true,
+            className: cssClass,
+            glyphMarginClassName: 'annotation-glyph',
+            hoverMessage: { value: `**📌 Jouw annotatie:** ${msg}` },
+            overviewRuler: { color: bgColor, position: 1 },
+            after: { content: `   ← 📌 ${msg}`, inlineClassName: 'annotation-inline-msg' },
+            stickiness: 1,
+          },
+        }]);
+        if (!editorStore._annotationDecorations) editorStore._annotationDecorations = [];
+        editorStore._annotationDecorations.push(...decs);
+      }
+      // Feedback: knop groen + reset tekstveld
+      const sendBtn = qs('teacher-send-annotation-btn');
+      if (sendBtn) {
+        sendBtn.textContent = '✓ Verstuurd';
+        sendBtn.style.background = 'var(--success-bg)';
+        setTimeout(() => { sendBtn.textContent = '📌 Verstuur'; sendBtn.style.background = ''; }, 2000);
+      }
+      if (qs('annotation-message')) qs('annotation-message').value = '';
+    });
+
+    qs('teacher-clear-annotations-btn')?.addEventListener('click', () => {
+      socket.emit('teacher_clear_annotations');
+      // Wis eigen Monaco decoraties
+      if (editorStore.teacher && editorStore._annotationDecorations?.length) {
+        editorStore.teacher.deltaDecorations(editorStore._annotationDecorations, []);
+        editorStore._annotationDecorations = [];
+      }
+    });
+
+    qs('teacher-send-snippet-btn')?.addEventListener('click', () => {
+      const code = getEditorValue('teacher');
+      if (!code.trim()) return;
+      socket.emit('teacher_send_snippet', { code });
+      const btn = qs('teacher-send-snippet-btn');
+      if (btn) { btn.textContent = '✓ Verstuurd'; setTimeout(() => { btn.textContent = '📎 Voorbeeld'; }, 2000); }
+      // Toon de wis-knop zodat leerkracht weet er is een actief voorbeeld
+      const clearBtn = qs('teacher-clear-snippet-btn');
+      if (clearBtn) clearBtn.style.display = '';
+    });
+    qs('teacher-clear-snippet-btn')?.addEventListener('click', () => {
+      socket.emit('teacher_clear_snippet');
+      // Verberg wis-knop
+      const clearBtn = qs('teacher-clear-snippet-btn');
+      if (clearBtn) clearBtn.style.display = 'none';
+    });
+
+    // Zoekfilter leerlingenlijst — triggert een herrender van de lijst
+    qs('student-filter-input')?.addEventListener('input', () => {
+      if (window._lastTeacherSessionData) renderStudentList(window._lastTeacherSessionData);
+    });
     qs('teacher-announcement-send-btn')?.addEventListener('click', () => {
       socket.emit('teacher_send_announcement', { text: qs('teacher-announcement-input').value });
     });
@@ -421,26 +1261,38 @@
       socket.emit('runtime_input', { value: qs('teacher-runtime-input').value });
       disableInput('teacher');
     });
-    qs('teacher-runtime-input')?.addEventListener('keydown', e => {
+    qs('teacher-runtime-input')?.addEventListener('keyup', e => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        qs('teacher-send-input-btn').click();
+        const btn = qs('teacher-send-input-btn');
+        if (btn && !btn.disabled) btn.click();
       }
     });
     disableInput('teacher');
+    loadTeacherMonitoring();
+    setInterval(loadTeacherMonitoring, 3000);
 
     socket.on('teacher_session_data', async data => {
+      window._lastTeacherSessionData = data; // voor filter herrender
       ['teacher-session-code','teacher-session-code-top'].forEach(id=>{ const el = qs(id); if (el) el.textContent = data.session.code; });
       qs('teacher-session-mode').textContent = data.session.mode === 'exam' ? 'Examenmodus' : 'Klasmodus';
       setAssistBadge(qs('teacher-editor-assist'), data.session.editorAssist);
-      qs('teacher-student-count').textContent = `${data.students.filter(s => s.online).length} online`;
+      const onlineCount = data.students.filter(s => s.online).length;
+      const doneCount   = data.students.filter(s => s.isDone).length;
+      const handCount   = data.students.filter(s => s.handRaised).length;
+      const tabCount    = data.students.filter(s => s.tabHidden).length;
+      let countParts = [`${onlineCount} online`];
+      if (doneCount > 0) countParts.push(`${doneCount} ✓ klaar`);
+      if (handCount > 0) countParts.push(`${handCount} ✋`);
+      if (tabCount  > 0) countParts.push(`${tabCount} ⚠️ tab weg`);
+      qs('teacher-student-count').textContent = countParts.join(' · ');
       qs('teacher-workspace-mode').textContent = data.session.mode === 'class' ? ((data.session.classWorkspaceMode || 'shared') === 'personal' ? 'Individueel werk actief' : 'Klascode actief') : 'Individueel';
       const toggleBtn = qs('teacher-toggle-workspace-btn');
       if (toggleBtn) {
         toggleBtn.classList.toggle('hidden', data.session.mode !== 'class');
         toggleBtn.textContent = (data.session.classWorkspaceMode || 'shared') === 'personal' ? 'Terug naar klasmodus' : 'Start individuele werkfase';
       }
-      qs('teacher-run-btn').disabled = data.session.mode === 'class' && (data.session.classWorkspaceMode || 'shared') === 'personal';
+      qs('teacher-run-btn').disabled = data.session.mode === 'exam' && !data.view.selectedStudentId;
       qs('teacher-view-label').textContent = data.view.mode === 'exam'
         ? (data.view.selectedStudentName ? `Live control: ${data.view.selectedStudentName}` : 'Kies een leerling voor Live control')
         : 'Gedeelde sessie';
@@ -449,38 +1301,57 @@
       if (getEditorValue('teacher') !== (data.view.code || '')) setEditorValue('teacher', data.view.code || '', true);
       else layoutEditor('teacher');
       qs('teacher-output-panel').textContent = data.view.output || '';
-      qs('teacher-announcement-input') && (qs('teacher-announcement-input').value = data.announcement || '');
-      updateAnnouncement('teacher', data.announcement || '');
-      setStatusBox(qs('teacher-status-box'), data.statusText, data.statusType);
-      qs('toggle-run-all-btn').textContent = data.allRunEnabled ? 'Run all uit' : 'Run all aan';
-      qs('toggle-code-all-btn').textContent = data.allCodeEnabled ? 'Code all uit' : 'Code all aan';
 
-      const host = qs('teacher-student-list');
-      host.innerHTML = data.students.map(s => `
-        <div class="student-item">
-          <div class="student-head">
-            <div><strong>${escapeHtml(s.name)}</strong><br/><span class="muted">${s.online ? 'online' : 'offline'}</span></div>
-            ${data.session.mode === 'exam' ? `<button class=\"btn btn-soft small\" data-live-control=\"${s.id}\">Live control</button>` : ``}
-          </div>
-          <div class="row">
-            <button class="btn ${s.canRun ? 'btn-success' : 'btn-danger'} small" data-toggle-student="${s.id}" data-field="run">${s.canRun ? 'Run aan' : 'Run uit'}</button>
-            <button class="btn ${s.canEdit ? 'btn-success' : 'btn-danger'} small" data-toggle-student="${s.id}" data-field="code">${s.canEdit ? 'Code aan' : 'Code uit'}</button>
-            <button class="btn btn-muted small" data-remove-student="${s.id}">Verwijderen</button>
-          </div>
-        </div>
-      `).join('');
-      host.querySelectorAll('[data-toggle-student]').forEach(btn => btn.addEventListener('click', () => {
-        socket.emit('teacher_toggle_student', { studentId: btn.dataset.toggleStudent, field: btn.dataset.field });
-      }));
-      host.querySelectorAll('[data-remove-student]').forEach(btn => btn.addEventListener('click', () => {
-        socket.emit('teacher_remove_student', { studentId: btn.dataset.removeStudent });
-      }));
-      host.querySelectorAll('[data-live-control]').forEach(btn => btn.addEventListener('click', () => {
-        socket.emit('teacher_select_student', { studentId: btn.dataset.liveControl });
-        qs('teacher-output-panel').textContent = '';
-        setTab('teacher', 'code');
-        layoutEditor('teacher', true);
-      }));
+      // Overschrijf de announcement-input NIET als de leerkracht er op dit moment in typt
+      const announcementInput = qs('teacher-announcement-input');
+      if (announcementInput && document.activeElement !== announcementInput) {
+        announcementInput.value = data.announcement || '';
+      }
+      updateAnnouncement('teacher', data.announcement || '');
+
+      // Aankondigingsgeschiedenis — compact chip-grid
+      const histWrap = qs('announcement-history-wrap');
+      const histHost = qs('announcement-history-list');
+      if (histHost && histWrap) {
+        const history = data.announcementHistory || [];
+        if (history.length > 0) {
+          const historyItems = history.slice().reverse();
+          histHost.innerHTML = historyItems.map((h, i) => `
+            <button class="announcement-chip" data-idx="${i}" title="${escapeHtml(h)}">
+              ${escapeHtml(h.length > 40 ? h.slice(0, 40) + '…' : h)}
+            </button>`).join('');
+          histHost.querySelectorAll('.announcement-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+              const raw = historyItems[parseInt(chip.dataset.idx, 10)];
+              const input = qs('teacher-announcement-input');
+              if (input && raw !== undefined) {
+                input.value = raw;
+                input.focus();
+              }
+            });
+          });
+          histWrap.classList.remove('hidden');
+        } else {
+          histWrap.classList.add('hidden');
+        }
+      }
+
+      setStatusBox(qs('teacher-status-box'), data.statusText, data.statusType);
+      // Run all / Code all zijn niet van toepassing in examenmodus:
+      // leerlingen beheren daar altijd zelf hun run- en bewerkpermissie.
+      const examMode = data.session.mode === 'exam';
+      const runAllBtn = qs('toggle-run-all-btn');
+      const codeAllBtn = qs('toggle-code-all-btn');
+      if (runAllBtn) {
+        runAllBtn.textContent = data.allRunEnabled ? 'Run all uit' : 'Run all aan';
+        runAllBtn.classList.toggle('hidden', examMode);
+      }
+      if (codeAllBtn) {
+        codeAllBtn.textContent = data.allCodeEnabled ? 'Code all uit' : 'Code all aan';
+        codeAllBtn.classList.toggle('hidden', examMode);
+      }
+
+      renderStudentList(data);
     });
 
     socket.on('run_output', ({ audience, output }) => {
@@ -523,17 +1394,13 @@ function updateStudentRunAvailability(data = studentWorkspaceState) {
   const activeWorkspace = data.activeWorkspace || 'shared';
   let runDisabled = true;
   if (data.mode === 'exam') {
-    // Examenmodus: altijd personal workspace
     runDisabled = !(data.personalCanRun !== false);
   } else if (activeWorkspace === 'personal') {
-    // Individuele werkfase actief: run moet stabiel beschikbaar blijven
     runDisabled = !(data.personalCanRun !== false);
   } else {
-    // Gedeelde modus: run enkel op shared tab (personal tab is readonly preview)
     if (visible === 'shared') {
       runDisabled = !(data.classCanRun !== false);
     } else if (visible === 'personal') {
-      // Leerling kijkt naar personal tab in shared modus = readonly, geen run
       runDisabled = true;
     } else {
       runDisabled = true;
@@ -574,42 +1441,66 @@ async function applyStudentEditorFromState() {
   const visible = getStudentVisibleWorkspace(data);
   const activeWorkspace = data.activeWorkspace || (data.mode === 'exam' ? 'personal' : 'shared');
 
-  // Bepaal de code die getoond wordt
   let codeText;
   if (visible === 'shared') {
     codeText = data.sharedCode || '';
   } else {
     // Personal tab: gebruik lokaal bewaarde versie als die er is
-    // (voorkomt dat server-update de editor leegmaakt tijdens typen)
+    // (voorkomt dat server-update de editor reset tijdens typen)
     codeText = studentWorkspaceState.localPersonalCode !== undefined
       ? studentWorkspaceState.localPersonalCode
       : (data.personalCode || '');
   }
 
-  // Bepaal readOnly correct per situatie
   let readOnly = false;
   if (data.mode === 'exam') {
     readOnly = !(data.personalCanEdit !== false);
   } else if (activeWorkspace === 'personal') {
-    // Individuele werkfase: personal is editable, shared niet
     readOnly = visible !== 'personal';
   } else {
-    // Shared modus: shared editable indien classCanEdit, personal is readonly preview
     readOnly = visible === 'shared' ? !(data.classCanEdit !== false) : true;
   }
 
   await ensureEditor('student', codeText, data.editorAssist, readOnly);
   updateEditorConfig('student', { assist: data.editorAssist, readOnly });
-  if (getEditorValue('student') !== codeText) setEditorValue('student', codeText, false);
-  else layoutEditor('student');
 
-  // Gebruik lokaal bewaarde output als die er is, anders server-state
+  // In persoonlijke werkruimte (individuele fase of examenmodus): als de leerling een
+  // lokale draft heeft, is localPersonalCode de bron van waarheid. Skip setValue dan
+  // volledig — de editor bevat al de correcte tekst en een setValue reset de cursor.
+  const studentIsOwningPersonal = (visible !== 'shared')
+    && (studentWorkspaceState.localPersonalCode !== undefined);
+
+  if (studentIsOwningPersonal) {
+    // Geen setValue nodig: lokale draft staat al in de editor.
+    // Enkel layout bijwerken zonder resetView zodat scroll/cursor intact blijft.
+    layoutEditor('student');
+  } else if (getEditorValue('student') !== codeText) {
+    setEditorValue('student', codeText, false);
+  } else {
+    layoutEditor('student');
+  }
+
   const outputToShow = studentWorkspaceState.localOutput !== undefined
     ? studentWorkspaceState.localOutput
     : (data.output || '');
   qs('student-output-panel').textContent = outputToShow;
   refreshStudentWorkspaceUi(data);
   updateStudentRunAvailability(data);
+
+  // Herstel annotaties bij reconnect/join
+  // applyAnnotationToEditor is gedefinieerd in de student-app sectie hieronder,
+  // maar wordt hier aangeroepen via een uitgestelde call zodat Monaco geladen is.
+  if (data.annotations && data.annotations.length > 0) {
+    setTimeout(() => {
+      if (!window.monaco || !editorStore.student) return;
+      const decs = [];
+      for (const ann of data.annotations) {
+        const d = applyAnnotationToEditor(editorStore.student, ann);
+        decs.push(...d);
+      }
+      studentAnnotationDecorations.push(...decs);
+    }, 500); // wacht tot Monaco editor volledig geïnitialiseerd is
+  }
 }
 
   if (page === 'student-app.html') {
@@ -621,51 +1512,122 @@ async function applyStudentEditorFromState() {
 
     qs('student-run-btn')?.addEventListener('click', () => {
       saveStudentLocalDraft();
+      qs('student-output-panel').textContent = '';
       const visibleWorkspace = getStudentVisibleWorkspace(studentWorkspaceState);
       socket.emit('run_request', {
         codeText: getEditorValue('student'),
         workspace: visibleWorkspace
       });
     });
+    // Ctrl+Enter shortcut voor Run (leerling)
+    document.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        qs('student-run-btn')?.click();
+      }
+    });
     document.querySelectorAll('[data-owner="student"][data-tab]').forEach(btn => btn.addEventListener('click', async () => {
       if (btn.classList.contains('tab-disabled')) return;
       saveStudentLocalDraft();
       if (btn.dataset.tab === 'output') {
         setTab('student', 'output');
+        document.querySelectorAll('[data-owner="student"][data-tab]').forEach(b => b.classList.toggle('active', b === btn));
         return;
       }
+      if (btn.dataset.tab === 'snippet') {
+        // Toon snippet paneel, verberg anderen
+        ['student-code-panel','student-output-panel'].forEach(id => qs(id)?.classList.add('hidden'));
+        qs('student-snippet-panel')?.classList.remove('hidden');
+        document.querySelectorAll('[data-owner="student"][data-tab]').forEach(b => b.classList.toggle('active', b === btn));
+        // Wis annotatie-decoraties op snippet-tab (niet relevant)
+        if (editorStore.student && studentAnnotationDecorations.length) {
+          editorStore.student.deltaDecorations(studentAnnotationDecorations, []);
+        }
+        return;
+      }
+      // Verberg snippet paneel bij wisselen naar code tabs
+      qs('student-snippet-panel')?.classList.add('hidden');
+
+      const prevTab = studentWorkspaceState.selectedTab;
       studentWorkspaceState.selectedTab = btn.dataset.tab;
+
+      // Annotaties zijn enkel relevant op het Klascode-tabblad (shared)
+      // Bij wisselen naar personal: wis decoraties zodat ze niet op de persoonlijke code staan
+      // Bij wisselen naar shared: herstel ze vanuit de server-annotaties
+      if (editorStore.student) {
+        if (btn.dataset.tab === 'personal' && studentAnnotationDecorations.length) {
+          // Tijdelijk verbergen - de array bewaren voor herstel
+          editorStore.student.deltaDecorations(studentAnnotationDecorations, []);
+          studentAnnotationDecorations.length = 0;
+        } else if (btn.dataset.tab === 'shared' && !studentAnnotationDecorations.length) {
+          // Herstel vanuit opgeslagen annotaties
+          const savedAnnotations = window._savedAnnotations || [];
+          for (const ann of savedAnnotations) {
+            const decs = applyAnnotationToEditor(editorStore.student, ann);
+            studentAnnotationDecorations.push(...decs);
+          }
+        }
+      }
+
       await applyStudentEditorFromState();
       updateStudentRunAvailability(studentWorkspaceState);
       setTab('student', 'code');
     }));
+    let _studentInputSent = false; // Guard tegen dubbele verzending
     qs('student-send-input-btn')?.addEventListener('click', () => {
-      socket.emit('runtime_input', { value: qs('student-runtime-input').value });
+      if (_studentInputSent) return;
+      const inputEl = qs('student-runtime-input');
+      const val = inputEl ? inputEl.value : '';
+      if (val === '' && inputEl) {
+        inputEl.placeholder = '⚠️ Lege invoer — Python verwacht een waarde';
+        setTimeout(() => { if (inputEl) inputEl.placeholder = 'Typ je antwoord...'; }, 3000);
+      }
+      _studentInputSent = true;
+      socket.emit('runtime_input', { value: val });
       disableInput('student');
     });
-    qs('student-runtime-input')?.addEventListener('keydown', e => {
+    qs('student-runtime-input')?.addEventListener('keyup', e => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        qs('student-send-input-btn').click();
+        e.stopPropagation();
+        const btn = qs('student-send-input-btn');
+        if (btn && !btn.disabled) btn.click();
       }
     });
     disableInput('student');
 
+    // Reset guard bij nieuwe input_request — dit is de correcte volgorde
+    socket.on('input_request', ({ audience }) => {
+      if (audience === 'student') {
+        _studentInputSent = false;
+        enableInput('student');
+      }
+    });
+
 
 async function applyStudentState(data) {
   saveStudentLocalDraft();
+  const studentName = data?.student?.name || getLS('studentName', '') || '-';
+  const nameBadge = qs('student-name-badge');
+  if (nameBadge) nameBadge.textContent = `Naam: ${studentName}`;
   qs('student-session-code').textContent = data.session.code;
   qs('student-mode').textContent = data.mode === 'exam' ? 'Examenmodus' : 'Klasmodus';
   setAssistBadge(qs('student-editor-assist'), data.editorAssist);
   const previousActiveWorkspace = studentWorkspaceState.activeWorkspace || 'shared';
   const nextActiveWorkspace = data.activeWorkspace || (data.mode === 'exam' ? 'personal' : 'shared');
   const switchedBackToShared = previousActiveWorkspace === 'personal' && nextActiveWorkspace === 'shared';
-  // Controleer of de server een nieuwe versie van personalCode stuurt
-  // (via revision number) — zo ja, wis lokale versie
   const prevRevision = studentWorkspaceState.personalCodeRevision || 0;
   const newRevision = data.personalCodeRevision || 0;
-  const serverHasNewerPersonalCode = newRevision > prevRevision
-    || data.personalCodeSourceSocketId !== studentWorkspaceState.personalCodeSourceSocketId;
+  // Bepaal of de server écht nieuwe persoonlijke code heeft die de leerling nog niet kent.
+  // KRITIEK: als personalCodeSourceSocketId de socket van de leerling ZELF is,
+  // dan is de server enkel zijn eigen code aan het echoën — localPersonalCode NOOIT wissen.
+  // Dit was de oorzaak van de cursor-reset: nextRevision() gebruikt Date.now() waardoor
+  // newRevision altijd > prevRevision is, zelfs als de server de eigen code terugstuurt.
+  const serverIsEchoingOwnCode = data.personalCodeSourceSocketId === socket.id;
+  const serverHasNewerPersonalCode = !serverIsEchoingOwnCode && (
+    newRevision > prevRevision
+    || data.personalCodeSourceSocketId !== studentWorkspaceState.personalCodeSourceSocketId
+  );
 
   studentWorkspaceState = {
     mode: data.mode,
@@ -685,7 +1647,6 @@ async function applyStudentState(data) {
     personalCanEdit: data.student.personalCanEdit !== false,
     editorAssist: data.editorAssist,
     output: data.output || '',
-    // Bewaar lokale output en personalCode tenzij server een nieuwere versie heeft
     localOutput: studentWorkspaceState.localOutput,
     localPersonalCode: serverHasNewerPersonalCode ? undefined : studentWorkspaceState.localPersonalCode,
   };
@@ -716,11 +1677,54 @@ async function applyStudentState(data) {
       setLS('studentName', data.student.name);
       await applyStudentState(data);
     });
+
+    // Lichtgewicht event: alleen de opdrachttekst bijwerken, zonder volledige state-reset
+    // Lichtgewicht event: enkel de gedeelde klascode bijwerken, zonder volledige state-reset.
+    // Wordt verstuurd door de server wanneer de leerkracht de gedeelde code aanpast
+    // terwijl de klas in de individuele werkfase zit — zo wordt applyStudentState
+    // (en dus setValue + cursor-reset op de persoonlijke editor) vermeden.
+    socket.on('shared_code_update', ({ sharedCode, sharedCodeRevision, sharedCodeSourceSocketId }) => {
+      const incomingRevision = sharedCodeRevision || 0;
+      const currentRevision = studentWorkspaceState.sharedCodeRevision || 0;
+      if (incomingRevision > currentRevision
+          || sharedCodeSourceSocketId !== studentWorkspaceState.sharedCodeSourceSocketId) {
+        studentWorkspaceState.sharedCode = sharedCode || '';
+        studentWorkspaceState.sharedCodeRevision = incomingRevision;
+        studentWorkspaceState.sharedCodeSourceSocketId = sharedCodeSourceSocketId || null;
+        // Als de leerling toevallig het Klascode-tabblad bekijkt, update dan de editor.
+        // Maar in persoonlijke werkfase is dit tabblad read-only en niet actief — geen cursor-impact.
+        const visible = getStudentVisibleWorkspace(studentWorkspaceState);
+        if (visible === 'shared') {
+          const currentVal = getEditorValue('student');
+          if (currentVal !== (sharedCode || '')) {
+            setEditorValue('student', sharedCode || '', false);
+          }
+        }
+      }
+    });
+
+    socket.on('announcement_update', ({ text }) => {
+      updateAnnouncement('student', text || '');
+    });
+    socket.on('timer_update', ({ remainingMs, running }) => {
+      const display = qs('student-timer-display');
+      if (!display) return; // niet op teacher-pagina
+      if (!running || remainingMs <= 0) {
+        display.style.display = 'none';
+        return;
+      }
+      display.style.display = 'inline-flex';
+      const m = Math.floor(remainingMs / 60000);
+      const s = Math.floor((remainingMs % 60000) / 1000);
+      display.textContent = `⏱ ${m}:${String(s).padStart(2, '0')}`;
+      display.style.color = remainingMs < 60000 ? 'var(--accent)' : 'var(--primary)';
+      display.style.fontWeight = remainingMs < 60000 ? '900' : '800';
+    });
+
     socket.on('run_output', ({ audience, output }) => {
       if (audience === 'student' || audience === 'teacher-all') {
         saveStudentLocalDraft();
         qs('student-output-panel').textContent = output;
-        // Bewaar lokaal zodat tab-wissel de output niet wist
         studentWorkspaceState.localOutput = output;
         if (audience === 'teacher-all') setTab('student', 'output');
       }
@@ -728,19 +1732,56 @@ async function applyStudentState(data) {
     socket.on('switch_to_output', ({ audience }) => {
       if (audience === 'student' || audience === 'teacher-all') {
         saveStudentLocalDraft();
-        // Nieuwe run gestart: wis vorige lokale output
         studentWorkspaceState.localOutput = '';
+        qs('student-output-panel').textContent = '';
         setTab('student', 'output');
       }
     });
-    socket.on('input_request', ({ audience }) => {
-      if (audience === 'student') enableInput('student');
+
+    // Leerkracht klikt Code-tab → alle leerlingen volgen
+    socket.on('force_panel', ({ panel }) => {
+      setTab('student', panel === 'output' ? 'output' : 'code');
     });
-    socket.on('run_end', ({ audience }) => {
-      if (audience === 'student' || audience === 'teacher-all') disableInput('student');
+
+
+
+    // runtime_input_echo: echo zit nu in server-side outputAccum
+    socket.on('runtime_input_echo', () => { /* echo verwerkt via run_output */ });
+
+    socket.on('run_end', ({ audience, reason }) => {
+      if (audience === 'student' || audience === 'teacher-all') {
+        disableInput('student');
+        const panel = qs('student-output-panel');
+        if (panel) {
+          const current = panel.textContent || '';
+          if (!current.trim()) {
+            panel.textContent = '✓ Klaar — geen output.';
+          }
+        }
+      }
     });
-    // ⏳ Wachtrij: toon positie in het output-paneel
+    socket.on('run_rate_limited', ({ waitMs }) => {
+      const panel = qs('student-output-panel');
+      if (panel) {
+        panel.textContent = `⏳ Even wachten — je kan opnieuw runnen over ${Math.ceil(waitMs / 1000)} seconde(n).`;
+        setTab('student', 'output');
+        document.querySelectorAll('[data-owner="student"][data-tab]').forEach(b =>
+          b.classList.toggle('active', b.dataset.tab === 'output'));
+      }
+    });
+    socket.on('run_error', ({ errorType, message, line }) => {
+      const panel = qs('student-output-panel');
+      if (!panel) return;
+      const icons = { cpu_timeout: '⏱', input_timeout: '⏳', disconnect: '🔌', cancelled: '⏹' };
+      const icon = icons[errorType] || '⚠️';
+      const lineInfo = line ? ` (regel ${line})` : '';
+      // Voeg foutbericht toe in rood achter eventuele bestaande output
+      const existingText = panel.textContent || '';
+      panel.innerHTML = (existingText ? existingText.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '<br>' : '') + `<span style="color:#f87171;font-weight:700;">${icon} ${message}${lineInfo}</span>`;
+      setTab('student', 'output');
+    });
     socket.on('run_queued', ({ position, message }) => {
+      studentWorkspaceState.localOutput = '';
       const panel = qs('student-output-panel');
       if (panel) panel.textContent = message || '⏳ Wachten op uitvoerslot...';
       setTab('student', 'output');
@@ -755,6 +1796,159 @@ async function applyStudentState(data) {
       setTab('student', panel === 'output' ? 'output' : 'code');
       updateStudentRunAvailability(studentWorkspaceState);
     });
+    // Klaar-knop
+    let studentIsDone = false;
+    const doneBtn = qs('student-done-btn');
+
+    function setDoneUI(done) {
+      if (!doneBtn) return;
+      doneBtn.textContent = done ? '✓ Klaar!' : '✓ Klaar';
+      doneBtn.classList.toggle('btn-success', done);
+      doneBtn.classList.toggle('btn-muted', !done);
+    }
+
+    doneBtn?.addEventListener('click', () => {
+      studentIsDone = !studentIsDone;
+      socket.emit(studentIsDone ? 'student_mark_done' : 'student_unmark_done');
+      setDoneUI(studentIsDone);
+    });
+
+    socket.on('done_reset_by_teacher', () => {
+      studentIsDone = false;
+      setDoneUI(false);
+    });
+
+    // Hand opsteken — één toggle handler
+    let handIsRaised = false;
+
+    function setHandUI(raised) {
+      const btn = qs('student-raise-hand-btn');
+      if (!btn) return;
+      btn.textContent = raised ? '✋ Hand omlaag' : '✋ Hand opsteken';
+      btn.classList.toggle('btn-warn', raised);
+    }
+
+    qs('student-raise-hand-btn')?.addEventListener('click', () => {
+      handIsRaised = !handIsRaised;
+      socket.emit(handIsRaised ? 'student_raise_hand' : 'student_lower_hand');
+      setHandUI(handIsRaised);
+    });
+
+    socket.on('hand_lowered_by_teacher', () => {
+      handIsRaised = false;
+      setHandUI(false);
+    });
+
+    // Read-only snippet van leerkracht
+    let currentSnippetVersion = 0;
+    // Annotaties van leerkracht — toon als Monaco decoraties
+    const studentAnnotationDecorations = [];
+    const annotationColorMap = {
+      yellow: 'rgba(253,224,71,0.25)',
+      blue:   'rgba(96,165,250,0.25)',
+      green:  'rgba(74,222,128,0.25)',
+      red:    'rgba(248,113,113,0.25)',
+    };
+
+    function applyAnnotationToEditor(editor, ann) {
+      if (!window.monaco || !editor) return [];
+      const { startLine, endLine, message, color, id } = ann;
+      const cssClass = `annotation-highlight-${['yellow','blue','green','red'].includes(color) ? color : 'yellow'}`;
+      const bgColor = annotationColorMap[color] || annotationColorMap.yellow;
+      return editor.deltaDecorations([], [{
+        range: new window.monaco.Range(
+          Math.max(1, startLine),
+          1,
+          Math.max(1, endLine || startLine),
+          1
+        ),
+        options: {
+          isWholeLine: true,
+          className: cssClass,
+          glyphMarginClassName: 'annotation-glyph',
+          hoverMessage: { value: `**📌 Leerkracht:** ${message}` },
+          overviewRuler: { color: bgColor, position: 1 },
+          minimap: { color: bgColor, position: 1 },
+          after: {
+            content: `   ← 📌 ${message}`,
+            inlineClassName: 'annotation-inline-msg',
+          },
+          stickiness: 1, // GrowsOnlyWhenTypingAfter — beweegt mee met code
+        },
+      }]);
+    }
+
+    socket.on('annotation_added', (ann) => {
+      const { startLine, endLine, message } = ann;
+      if (!window.monaco) return;
+      const editor = editorStore.student;
+      if (!editor) return;
+
+      // Bewaar annotatie in window._savedAnnotations voor herstel bij tab-wissel
+      if (!window._savedAnnotations) window._savedAnnotations = [];
+      window._savedAnnotations.push(ann);
+
+      // Enkel tekenen als leerling op Klascode-tabblad staat
+      const currentVisible = getStudentVisibleWorkspace(studentWorkspaceState);
+      if (currentVisible !== 'shared') {
+        // Niet tekenen maar wél bewaren (zie hierboven) + toast
+        const notice = document.createElement('div');
+        notice.textContent = `📌 Leerkracht: regel ${startLine}–${endLine}: ${message}`;
+        notice.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#334ea2;color:#fff;padding:10px 18px;border-radius:12px;font-size:0.88rem;z-index:9999;max-width:90vw;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.2);cursor:pointer;';
+        notice.addEventListener('click', () => {
+          const sharedBtn = document.querySelector('[data-tab="shared"][data-owner="student"]');
+          if (sharedBtn) sharedBtn.click();
+          notice.remove();
+        });
+        document.body.appendChild(notice);
+        setTimeout(() => notice.remove(), 5000);
+        return; // Niet tekenen op personal werkblad
+      }
+
+      const newDecs = applyAnnotationToEditor(editor, ann);
+      studentAnnotationDecorations.push(...newDecs);
+    });
+
+    socket.on('annotations_cleared', () => {
+      const editor = editorStore.student;
+      if (editor && studentAnnotationDecorations.length) {
+        editor.deltaDecorations(studentAnnotationDecorations, []);
+      }
+      studentAnnotationDecorations.length = 0;
+      window._savedAnnotations = []; // ook opgeslagen annotaties wissen
+    });
+
+    socket.on('snippet_update', ({ code, version }) => {
+      if (version <= currentSnippetVersion) return;
+      currentSnippetVersion = version;
+      const tab = qs('student-snippet-tab');
+      const panel = qs('student-snippet-panel');
+      if (!tab) return;
+      if (!code) {
+        tab.classList.add('hidden');
+        if (panel) panel.classList.add('hidden');
+        return;
+      }
+      // Toon de tab
+      tab.classList.remove('hidden');
+      // Vul het paneel met de code (pre-formatted, donker thema via inline style)
+      if (panel) panel.textContent = code;
+      // Markeer de tab als "nieuw" voor 3 seconden
+      tab.style.fontWeight = '800';
+      tab.style.color = 'var(--accent)';
+      setTimeout(() => { tab.style.fontWeight = ''; tab.style.color = ''; }, 3000);
+    });
+
+    // Tab-detectie: stuur event naar server wanneer leerling de tab verlaat/terugkeert
+    // Enkel actief in examenmodus — server filtert op basis van sessie-type
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        socket.emit('student_tab_hidden');
+      } else {
+        socket.emit('student_tab_visible');
+      }
+    });
+
     socket.on('force_landing', () => {
       localStorage.removeItem('studentState');
       localStorage.removeItem('studentSessionCode');

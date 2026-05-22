@@ -1,0 +1,22 @@
+════════════════════════════════════════════════════════════════════════
+PyCodeFlow Stresstest Log
+Versie     : 2026.2.4.2
+Test type  : websocket
+Gestart    : 2026-05-17T16:36:14.122Z
+Host RAM   : 26486MB vrij / 31871MB totaal
+Load avg   : 0.34 / 0.31 / 0.32
+════════════════════════════════════════════════════════════════════════
+[2026-05-17 16:35:59.111] [INFO] === Stresstest gestart: websocket ===
+[2026-05-17 16:35:59.111] [INFO] Systeem: 26491MB vrij RAM, load 0.35
+[2026-05-17 16:35:59.111] [INFO] --- WebSocket belastingstest (10 clients) ---
+[2026-05-17 16:35:59.112] [INFO] WebSocket belastingstest: 10 gelijktijdige clients
+[2026-05-17 16:35:59.112] [INFO] Wegwerpsessie aangemaakt: NGNM4Y
+[2026-05-17 16:36:14.122] [FAIL] 0/10 clients OK | connect p50=55ms p95=62ms | run p50=0ms | uitvallers=10
+[2026-05-17 16:36:14.122] [FAIL] === Klaar: 0/10 OK (0%) in 15.0s ===
+────────────────────────────────────────────────────────────────────────
+SAMENVATTING
+────────────────────────────────────────────────────────────────────────
+Resultaat  : 0/10 checks geslaagd (0%)
+Duur       : 15.0s
+Oordeel    : ❌ GEFAALD
+════════════════════════════════════════════════════════════════════════

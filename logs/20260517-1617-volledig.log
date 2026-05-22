@@ -1,0 +1,76 @@
+════════════════════════════════════════════════════════════════════════
+PyCodeFlow Stresstest Log
+Versie     : 2026.2.4.2
+Test type  : volledig
+Gestart    : 2026-05-17T16:17:48.241Z
+Host RAM   : 26347MB vrij / 31871MB totaal
+Load avg   : 0.52 / 0.47 / 0.42
+════════════════════════════════════════════════════════════════════════
+[2026-05-17 16:17:22.728] [INFO] === Stresstest gestart: volledig ===
+[2026-05-17 16:17:22.728] [INFO] Systeem: 26393MB vrij RAM, load 0.40
+[2026-05-17 16:17:22.728] [INFO] --- Gezondheidscheck ---
+[2026-05-17 16:17:22.729] [INFO] Controleer runner /health endpoint...
+[2026-05-17 16:17:22.732] [OK] Runner health: OK
+[2026-05-17 16:17:22.732] [INFO] Controleer /api/version...
+[2026-05-17 16:17:22.732] [OK] Web API OK — versie 2026.2.4.2
+[2026-05-17 16:17:22.732] [INFO] Start test-run: print("OK")...
+[2026-05-17 16:17:23.055] [OK] Basis run: OK (323ms)
+[2026-05-17 16:17:23.055] [INFO] RUN_RATE_LIMIT_MS = 3000ms (verwacht ≥ 1000ms)
+[2026-05-17 16:17:23.055] [OK] Rate limit: 3000ms
+[2026-05-17 16:17:23.055] [OK] Host RAM: 26389MB vrij van 31871MB
+[2026-05-17 16:17:23.055] [OK] Actieve sessies: 1
+[2026-05-17 16:17:23.055] [INFO] --- Runner capaciteit (19x) ---
+[2026-05-17 16:17:23.056] [INFO] Start runner capaciteitstest: 19 gelijktijdige runs
+[2026-05-17 16:17:23.933] [OK] Capaciteit: 19/19 OK | gem 633ms | max 867ms | totaal 873ms
+[2026-05-17 16:17:23.936] [INFO] Runner na test — actief: 0, wachtrij: 0
+[2026-05-17 16:17:23.936] [INFO] --- Sandbox verificatie ---
+[2026-05-17 16:17:23.937] [INFO] Test: import os
+[2026-05-17 16:17:24.255] [OK] import os: OK (318ms)
+[2026-05-17 16:17:24.255] [INFO] Test: import subprocess
+[2026-05-17 16:17:24.574] [OK] import subprocess: OK (319ms)
+[2026-05-17 16:17:24.574] [INFO] Test: import socket
+[2026-05-17 16:17:24.893] [OK] import socket: OK (319ms)
+[2026-05-17 16:17:24.893] [INFO] Test: import shutil
+[2026-05-17 16:17:25.214] [OK] import shutil: OK (321ms)
+[2026-05-17 16:17:25.215] [INFO] Test: CPU tijdslimiet
+[2026-05-17 16:17:37.223] [OK] CPU tijdslimiet: OK (12008ms)
+[2026-05-17 16:17:37.223] [INFO] Test: Geldige code
+[2026-05-17 16:17:37.540] [OK] Geldige code: OK (317ms)
+[2026-05-17 16:17:37.540] [INFO] Test: Wiskundige operatie
+[2026-05-17 16:17:37.863] [OK] Wiskundige operatie: OK (323ms)
+[2026-05-17 16:17:37.863] [INFO] --- Multi-sessie (4×18) ---
+[2026-05-17 16:17:37.863] [INFO] Multi-sessie test: 4 sessies × 18 runs
+[2026-05-17 16:17:37.863] [INFO] Wegwerpsessie aangemaakt: W2EW68
+[2026-05-17 16:17:37.863] [INFO] Wegwerpsessie aangemaakt: GW67A9
+[2026-05-17 16:17:37.863] [INFO] Wegwerpsessie aangemaakt: AUFNSS
+[2026-05-17 16:17:37.863] [INFO] Wegwerpsessie aangemaakt: 6AHGTC
+[2026-05-17 16:17:39.045] [INFO] Wegwerpsessie verwijderd: W2EW68
+[2026-05-17 16:17:39.045] [INFO] Wegwerpsessie verwijderd: GW67A9
+[2026-05-17 16:17:39.045] [INFO] Wegwerpsessie verwijderd: AUFNSS
+[2026-05-17 16:17:39.045] [INFO] Wegwerpsessie verwijderd: 6AHGTC
+[2026-05-17 16:17:39.045] [OK] Multi-sessie: 72/72 OK in 1181ms
+[2026-05-17 16:17:39.045] [OK] Cleanup: OK
+[2026-05-17 16:17:39.045] [INFO] --- WebSocket belastingstest ---
+[2026-05-17 16:17:39.066] [INFO] WebSocket belastingstest: 15 gelijktijdige clients
+[2026-05-17 16:17:44.075] [FAIL] Kon geen wegwerpsessie aanmaken voor WebSocket test
+[2026-05-17 16:17:44.075] [INFO] --- Rate limit verificatie ---
+[2026-05-17 16:17:44.075] [INFO] Rate limit verificatie: twee snelle run_requests naar dezelfde socket
+[2026-05-17 16:17:48.081] [FAIL] Kon geen wegwerpsessie aanmaken
+[2026-05-17 16:17:48.081] [INFO] --- HTTP endpoint benchmark ---
+[2026-05-17 16:17:48.082] [INFO] HTTP endpoint benchmark (20 verzoeken per endpoint)
+[2026-05-17 16:17:48.130] [PASS] GET /api/monitoring: p50=2ms p95=11ms
+[2026-05-17 16:17:48.165] [PASS] GET /api/sessions: p50=2ms p95=3ms
+[2026-05-17 16:17:48.178] [PASS] GET /health: p50=1ms p95=1ms
+[2026-05-17 16:17:48.240] [PASS] POST /api/syntax-check-student: p50=3ms p95=4ms
+[2026-05-17 16:17:48.241] [OK] === Klaar: 21/23 OK (91%) in 25.5s ===
+────────────────────────────────────────────────────────────────────────
+SAMENVATTING
+────────────────────────────────────────────────────────────────────────
+Resultaat  : 21/23 checks geslaagd (91%)
+Duur       : 25.5s
+Oordeel    : ✅ GESLAAGD
+
+Vergelijking met vorige run:
+Gem. run-duur: 633ms (0% vs 0 min geleden)
+Geslaagde runs: 19 (was 19)
+════════════════════════════════════════════════════════════════════════

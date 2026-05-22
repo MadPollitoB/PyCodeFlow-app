@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="nl"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Vrij oefenen — PyCodeFlow</title>
+<link rel="stylesheet" href="/styles.css?v=freesession1"/>
+<link rel="icon" href="assets/favicon.png" type="image/png">
+</head><body>
+<div class="topbar"><div class="topbar-inner">
+  <div class="logo-group"><img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/><span>PyCodeFlow</span></div>
+  <div class="top-actions">
+    <span class="badge" id="free-name-badge">-</span>
+    <span class="badge" id="free-class-badge">-</span>
+    <a href="/index.html" class="btn btn-muted small">Stoppen</a>
+  </div>
+</div></div>
+<div class="page">
+
+<div class="card screen">
+  <div class="row" style="justify-content:space-between; align-items:flex-start;">
+    <div>
+      <h1>Vrij oefenen</h1>
+      <p class="muted" id="free-subtitle">Je werkt in je eigen editor. Je code is privé.</p>
+    </div>
+    <div class="badges">
+      <span class="badge" id="free-editor-assist">Codehulp aan</span>
+    </div>
+  </div>
+
+  <div class="card editor-shell" style="margin-top:20px;">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="code" data-owner="free">Code</button>
+      <button class="tab-btn" data-tab="output" data-owner="free">Output</button>
+    </div>
+    <div class="editor-toolbar">
+      <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+      <div class="toolbar-spacer"></div>
+      <button class="btn btn-soft small" id="free-run-btn">Run</button>
+    </div>
+    <div id="free-code-panel" class="editor-frame-wrap">
+      <div class="editor-frame">
+        <div id="free-line-numbers" class="custom-gutter"></div>
+        <div id="free-editor" class="monaco-editor-host"></div>
+      </div>
+    </div>
+    <pre id="free-output-panel" class="output-panel hidden"></pre>
+    <div id="free-runtime-input-wrap" class="runtime-input-wrap hidden">
+      <input id="free-runtime-input" placeholder="Typ je input hier" disabled/>
+      <button class="btn btn-soft" id="free-send-input-btn" disabled>Stuur input</button>
+    </div>
+  </div>
+</div>
+</div>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/monaco/min/vs/loader.js"></script>
+<script src="/app.js?v=examfix2"></script>
+</body></html>

@@ -1,0 +1,26 @@
+════════════════════════════════════════════════════════════════════════
+PyCodeFlow Stresstest Log
+Versie     : 2026.1.39.0
+Test type  : runner-capaciteit
+Gestart    : 2026-05-16T20:56:08.766Z
+Host RAM   : 27235MB vrij / 31871MB totaal
+Load avg   : 0.46 / 0.47 / 0.37
+════════════════════════════════════════════════════════════════════════
+[2026-05-16 20:56:07.716] [INFO] === Stresstest gestart: runner-capaciteit ===
+[2026-05-16 20:56:07.716] [INFO] Systeem: 27252MB vrij RAM, load 0.46
+[2026-05-16 20:56:07.716] [INFO] --- Runner capaciteit (25x) ---
+[2026-05-16 20:56:07.716] [INFO] Start runner capaciteitstest: 25 gelijktijdige runs
+[2026-05-16 20:56:08.763] [OK] Capaciteit: 25/25 OK | gem 666ms | max 1031ms | totaal 1043ms
+[2026-05-16 20:56:08.766] [INFO] Runner na test — actief: 0, wachtrij: 0
+[2026-05-16 20:56:08.766] [OK] === Klaar: 2/2 OK (100%) in 1.1s ===
+────────────────────────────────────────────────────────────────────────
+SAMENVATTING
+────────────────────────────────────────────────────────────────────────
+Resultaat  : 2/2 checks geslaagd (100%)
+Duur       : 1.1s
+Oordeel    : ✅ GESLAAGD
+
+Vergelijking met vorige run:
+Gem. run-duur: 666ms (0% vs 0 min geleden)
+Geslaagde runs: 25 (was 25)
+════════════════════════════════════════════════════════════════════════

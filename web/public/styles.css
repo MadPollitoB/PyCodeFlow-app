@@ -19,6 +19,88 @@
   --radius: 24px;
 }
 
+/* ── Monaco annotatie decoraties ────────────────────────────────────────────── */
+/* Deze klassen worden door Monaco gebruikt voor editor decoraties.
+   Ze moeten globaal beschikbaar zijn op elke pagina met een Monaco editor. */
+.annotation-highlight-yellow { background: rgba(253,224,71,0.30) !important; }
+.annotation-highlight-blue   { background: rgba(96,165,250,0.30) !important; }
+.annotation-highlight-green  { background: rgba(74,222,128,0.30) !important; }
+.annotation-highlight-red    { background: rgba(248,113,113,0.30) !important; }
+.annotation-highlight        { background: rgba(253,224,71,0.30) !important; }
+
+.annotation-inline-msg {
+  color: rgba(180,180,180,0.9);
+  font-style: italic;
+  font-size: 0.85em;
+  margin-left: 8px;
+  pointer-events: none;
+}
+
+.annotation-glyph::before {
+  content: '📌';
+  font-size: 12px;
+}
+
+/* ── Dark mode ─────────────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface-soft: #1f2335;
+  --border: #2e3148;
+  --text: #e2e8f0;
+  --muted: #8892a4;
+  --primary: #5b78d4;
+  --primary-soft: #1e2640;
+  --accent: #e25830;
+  --gold: #f4b536;
+  --success-bg: #0d2418;
+  --success-fg: #4ade80;
+  --warn-bg: #1e1500;
+  --warn-fg: #fbbf24;
+  --error-bg: #1e0a0a;
+  --error-fg: #f87171;
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.40);
+}
+
+[data-theme="dark"] body {
+  background: var(--bg);
+}
+
+[data-theme="dark"] .topbar {
+  background: #0d0f1a;
+  border-bottom: 1px solid var(--border);
+}
+
+[data-theme="dark"] input,
+[data-theme="dark"] textarea,
+[data-theme="dark"] select {
+  background: var(--surface-soft) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+[data-theme="dark"] .btn-muted {
+  background: #2e3148;
+  color: var(--text);
+}
+
+[data-theme="dark"] .btn-soft {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.dark-toggle {
+  background: none;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--muted);
+  transition: background 0.15s;
+}
+.dark-toggle:hover { background: var(--primary-soft); color: var(--primary); }
+
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
 body {
