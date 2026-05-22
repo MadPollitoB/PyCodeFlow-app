@@ -381,7 +381,7 @@ code_snapshots (
 | Sprint | Inhoud | Status | Inschatting |
 |---|---|---|---|
 | 1–8 | Zie changelog | ✅ Afgerond | — |
-| 9 | Technische schuld & bugfixes | 🔄 Gepland | ~0.5 dag |
+| 9 | technisch & bugfixes | 🔄 Gepland | ~0.5 dag |
 | 10 | UX verbeteringen vóór migratie | 🔄 Gepland | ~1 dag |
 | 11 | Kleine features & polish | 🔄 Gepland | ~1 dag |
 | 12a | PostgreSQL + Monaco bundelen | 🔄 Gepland | ~2 dagen |
@@ -393,7 +393,7 @@ code_snapshots (
 
 ---
 
-### Sprint 9 — Technische schuld & kritieke bugfixes *(~0.5 dag)*
+### Sprint 9 — technisch & kritieke bugfixes *(~0.5 dag)*
 
 **Impact:** Onzichtbaar voor eindgebruiker. Stabiliteit en correctheid verbeteren.
 **Volgorde:** Eerst uitvoeren — clean codebase voor de grote migratie.
