@@ -101,16 +101,16 @@ Wachtwoorden staan **nooit** in `.env` — altijd in SQLite via de CLI:
 
 ```bash
 # Account aanmaken
-docker compose exec web node scripts/manage-teacher.js add bjorn Wachtwoord123
+docker compose exec web node scripts/manage-teacher.js add admin Wachtwoord123
 
 # Alle accounts tonen
 docker compose exec web node scripts/manage-teacher.js list
 
 # Wachtwoord resetten
-docker compose exec web node scripts/manage-teacher.js reset-password bjorn NieuwWachtwoord
+docker compose exec web node scripts/manage-teacher.js reset-password admin NieuwWachtwoord
 
 # Account verwijderen
-docker compose exec web node scripts/manage-teacher.js delete bjorn
+docker compose exec web node scripts/manage-teacher.js delete admin
 ```
 
 ### 3.4 Update deployen
