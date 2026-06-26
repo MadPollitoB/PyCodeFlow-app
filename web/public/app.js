@@ -1,6 +1,17 @@
 (() => {
   const socket = io();
   const page = location.pathname.split('/').pop() || 'index.html';
+
+  // Sprint 10T: verbindingsstatus indicator
+  function updateConnectionStatus(status) {
+    const dot = document.getElementById('connection-status-dot');
+    if (!dot) return;
+    dot.className = 'connection-dot connection-' + status;
+    dot.title = { connected: 'Verbonden', disconnected: 'Verbinding verbroken', reconnecting: 'Herverbinden...' }[status] || status;
+  }
+  socket.on('connect',      () => updateConnectionStatus('connected'));
+  socket.on('disconnect',   () => updateConnectionStatus('disconnected'));
+  socket.on('reconnecting', () => updateConnectionStatus('reconnecting'));
   let selectedMode = 'class';
   let selectedEditorAssist = true;
 
@@ -26,33 +37,125 @@
     });
   }
 
+  // Sprint 10J: sneltoetsen overlay
+  function toggleShortcutsOverlay() {
+    let overlay = document.getElementById('shortcuts-overlay');
+    if (overlay) { overlay.remove(); return; }
+    overlay = document.createElement('div');
+    overlay.id = 'shortcuts-overlay';
+    overlay.className = 'shortcuts-overlay';
+    overlay.innerHTML = `
+      <div class="shortcuts-modal">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <strong style="font-size:1rem;">⌨️ Sneltoetsen</strong>
+          <button onclick="document.getElementById('shortcuts-overlay').remove()" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--muted);">✕</button>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:0.88rem;">
+          <tr><td style="padding:6px 0;color:var(--muted);">Run code</td><td style="text-align:right;"><kbd>Ctrl+Enter</kbd></td></tr>
+          <tr><td style="padding:6px 0;color:var(--muted);">Editor thema wisselen</td><td style="text-align:right;"><kbd>Ctrl+Shift+T</kbd></td></tr>
+          <tr><td style="padding:6px 0;color:var(--muted);">Interface dark/light</td><td style="text-align:right;"><kbd>Ctrl+Shift+D</kbd></td></tr>
+          <tr><td style="padding:6px 0;color:var(--muted);">Sneltoetsen tonen</td><td style="text-align:right;"><kbd>Ctrl+?</kbd></td></tr>
+          <tr><td style="padding:6px 0;color:var(--muted);">Live control verlaten</td><td style="text-align:right;"><kbd>Escape</kbd></td></tr>
+        </table>
+      </div>`;
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+  }
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === '?') { e.preventDefault(); toggleShortcutsOverlay(); }
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'T') { e.preventDefault(); toggleEditorTheme('teacher'); toggleEditorTheme('free'); toggleEditorTheme('student'); }
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'D') {
+      e.preventDefault();
+      document.getElementById('dark-mode-toggle')?.click();
+    }
+  });
+
+  // ── Editor thema systeem (los van interface dark/light) ──────────────────────
+  // pycodeflow_editor_theme: 'dark' | 'light', standaard 'dark'
+  let _editorTheme = localStorage.getItem('pycodeflow_editor_theme') || 'dark';
+
+  function applyEditorTheme(owner, theme) {
+    const editor = editorStore[owner];
+    if (!editor) return;
+    const monacoTheme = theme === 'light' ? 'vs' : 'pycodeflow-dark';
+    // Enkel die editor-instantie aanpassen
+    editor.updateOptions({ theme: monacoTheme });
+    // Output paneel class
+    const panel = qs(`${owner}-output-panel`);
+    if (panel) {
+      panel.classList.toggle('output-light', theme === 'light');
+      panel.classList.toggle('output-dark',  theme !== 'light');
+    }
+    // Statusbalk thema
+    const statusbar = qs(`${owner}-editor-statusbar`);
+    if (statusbar) {
+      statusbar.classList.toggle('statusbar-light', theme === 'light');
+      statusbar.classList.toggle('statusbar-dark',  theme !== 'light');
+    }
+    // Toggle knop icoon
+    const btn = qs(`${owner}-editor-theme-btn`);
+    if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
+  }
+
+  function toggleEditorTheme(owner) {
+    _editorTheme = _editorTheme === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('pycodeflow_editor_theme', _editorTheme);
+    // Pas toe op alle editors die dezelfde voorkeur delen
+    ['teacher', 'free', 'student'].forEach(o => applyEditorTheme(o, _editorTheme));
+  }
+
+  // Statusbalk updaten op basis van cursor-positie
+  function updateStatusbar(owner, editor, isTeacherOrFree) {
+    const bar = qs(`${owner}-editor-statusbar`);
+    if (!bar) return;
+    const pos = editor.getPosition();
+    const model = editor.getModel();
+    if (!pos || !model) return;
+    const ln = pos.lineNumber;
+    const col = pos.column;
+    const lines = model.getLineCount();
+    if (isTeacherOrFree) {
+      bar.innerHTML = `<span>Ln ${ln}, Kol ${col}</span><span>|</span><span>${lines} regels</span><span>|</span><span>Python</span><span>|</span><span>UTF-8</span><span style="margin-left:auto;">Spaties: 4</span>`;
+    } else {
+      bar.innerHTML = `<span>Ln ${ln}, Kol ${col}</span><span>|</span><span>${lines} regels</span>`;
+    }
+  }
+
+  // ── Editor thema knop icoon bij pageload instellen ────────────────────────
+  document.addEventListener('DOMContentLoaded', () => {
+    // Zet correct icoon op alle editor thema knoppen
+    const isDark = _editorTheme !== 'light';
+    ['teacher', 'free', 'student'].forEach(owner => {
+      const btn = document.getElementById(`${owner}-editor-theme-btn`);
+      if (btn) btn.textContent = isDark ? '☀️' : '🌙';
+    });
+  });
+
   // ── Dark mode initialisatie ─────────────────────────────────────────────────
   (function initDarkMode() {
+    // Interface dark/light mode — enkel de pagina-achtergrond en panelen
     const saved = localStorage.getItem('pycodeflow_theme') || 'light';
     if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-    // Monaco thema wordt later ingesteld via setEditorTheme()
 
-    document.addEventListener('click', e => {
-      if (!e.target.closest('#dark-mode-toggle')) return;
-      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-      const newTheme = isDark ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', newTheme);
-      localStorage.setItem('pycodeflow_theme', newTheme);
-      e.target.textContent = newTheme === 'dark' ? '☀️' : '🌙';
-      // Update Monaco editors
-      if (window.monaco) {
-        monaco.editor.setTheme(newTheme === 'dark' ? 'vs-dark' : 'vs');
-      }
+    function setInterfaceTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('pycodeflow_theme', theme);
+      const btn = document.getElementById('dark-mode-toggle');
+      if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+    }
+
+    // Correcte knop-toestand bij laden
+    document.addEventListener('DOMContentLoaded', () => {
+      const btn = document.getElementById('dark-mode-toggle');
+      if (btn) btn.textContent = saved === 'dark' ? '☀️' : '🌙';
     });
 
-    // Zet correct icoon bij pagina laden
-    setTimeout(() => {
-      const btn = document.getElementById('dark-mode-toggle');
-      if (btn) {
-        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-        btn.textContent = isDark ? '☀️' : '🌙';
-      }
-    }, 100);
+    document.addEventListener('click', e => {
+      const btn = e.target.closest('#dark-mode-toggle');
+      if (!btn) return;
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      setInterfaceTheme(isDark ? 'light' : 'dark');
+    });
   })();
 
   const editorStore = {
@@ -90,6 +193,55 @@
     try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; } catch { return fallback; }
   }
   function go(url) { location.href = url; }
+
+  // Sprint 10M: kopieer naar klembord met feedback
+  function copyToClipboard(text, btnEl) {
+    navigator.clipboard.writeText(text).then(() => {
+      if (btnEl) {
+        const orig = btnEl.textContent;
+        btnEl.textContent = '✓ Gekopieerd!';
+        setTimeout(() => { btnEl.textContent = orig; }, 2000);
+      }
+    }).catch(() => {
+      if (btnEl) { btnEl.textContent = '✕ Mislukt'; setTimeout(() => { btnEl.textContent = '📋'; }, 2000); }
+    });
+  }
+  // Sprint 10U: auto-scroll output paneel
+  const _autoScrollPanels = new Map(); // panelId -> { auto: bool, btn: el }
+
+  function setupAutoScroll(panelId) {
+    const panel = document.getElementById(panelId);
+    if (!panel || _autoScrollPanels.has(panelId)) return;
+    // Maak scroll-knop aan
+    const btn = document.createElement('button');
+    btn.className = 'scroll-to-bottom-btn hidden';
+    btn.textContent = '↓';
+    btn.title = 'Scroll naar het einde';
+    btn.style.cssText = 'position:absolute;bottom:8px;right:16px;z-index:10;padding:4px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:0.9rem;opacity:0.85;';
+    panel.parentElement?.style && (panel.parentElement.style.position = 'relative');
+    panel.parentElement?.appendChild(btn);
+    const state = { auto: true, btn };
+    _autoScrollPanels.set(panelId, state);
+    panel.addEventListener('scroll', () => {
+      const atBottom = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 30;
+      state.auto = atBottom;
+      btn.classList.toggle('hidden', atBottom);
+    });
+    btn.addEventListener('click', () => {
+      panel.scrollTop = panel.scrollHeight;
+      state.auto = true;
+      btn.classList.add('hidden');
+    });
+  }
+
+  function autoScrollOutput(panelId) {
+    const state = _autoScrollPanels.get(panelId);
+    const panel = document.getElementById(panelId);
+    if (panel && (!state || state.auto)) {
+      panel.scrollTop = panel.scrollHeight;
+    }
+  }
+
   function escapeHtml(str = '') {
     return str.replace(/[&<>"']/g, s => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[s]));
   }
@@ -254,17 +406,22 @@
     btn.disabled = false;
     input.value = '';
     input.placeholder = 'Typ je antwoord...';
-    // Focus na korte delay — geeft browser tijd om disabled state te verwerken
-    // Ghost keypresses worden geblokkeerd door de btn.disabled check in keydown handlers
-    setTimeout(() => {
-      if (!input.disabled) input.focus();
-    }, 50);
+    // Sprint 10I: wacht-op-invoer indicator
+    const wrap = qs(`${prefix}-runtime-input-wrap`);
+    if (wrap) wrap.classList.add('waiting-for-input');
+    let indicator = document.getElementById(`${prefix}-input-indicator`);
+    if (!indicator && wrap) {
+      indicator = document.createElement('div');
+      indicator.id = `${prefix}-input-indicator`;
+      indicator.className = 'input-waiting-indicator';
+      indicator.textContent = '⌨️ Wacht op jouw invoer...';
+      wrap.parentElement?.insertBefore(indicator, wrap);
+    }
+    if (indicator) indicator.style.display = 'flex';
+    setTimeout(() => { if (!input.disabled) input.focus(); }, 50);
   }
 
   function disableInput(prefix) {
-    if (prefix === 'free') {
-      const stack = new Error().stack.split('\n').slice(1,3).join(' | ');
-    }
     const input = qs(`${prefix}-runtime-input`);
     const btn = qs(`${prefix}-send-input-btn`);
     if (!input || !btn) return;
@@ -272,12 +429,17 @@
     btn.disabled = true;
     input.value = '';
     input.placeholder = 'Input unavailable';
+    // Sprint 10I: verberg indicator
+    const wrap = qs(`${prefix}-runtime-input-wrap`);
+    if (wrap) wrap.classList.remove('waiting-for-input');
+    const indicator = document.getElementById(`${prefix}-input-indicator`);
+    if (indicator) indicator.style.display = 'none';
   }
 
   function monacoOptions(assist, readOnly = false) {
     return {
       language: 'python',
-      theme: 'pycodeflow-dark',
+      theme: _editorTheme === 'light' ? 'vs' : 'pycodeflow-dark',
       automaticLayout: false,
       minimap: { enabled: false },
       fontSize: 18,
@@ -306,7 +468,13 @@
       snippetSuggestions: assist ? 'inline' : 'none',
       parameterHints: { enabled: assist },
       tabCompletion: assist ? 'on' : 'off',
-      acceptSuggestionOnEnter: assist ? 'on' : 'off'
+      acceptSuggestionOnEnter: assist ? 'on' : 'off',
+      // Sprint 10F: auto-indent en haakjes sluiten
+      autoIndent: 'full',
+      autoClosingBrackets: 'always',
+      autoClosingQuotes: 'always',
+      // Sprint 10G: PEP8 regellengte indicator (enkel voor leerkracht/vrij via rulers optie)
+      rulers: [],
     };
   }
 
@@ -352,6 +520,14 @@
         value: initialValue,
         ...monacoOptions(assist, readOnly)
       });
+      // Sprint 10E+L: statusbalk en thema initialiseren
+      const isTeacherOrFree = owner === 'teacher' || owner === 'free';
+      applyEditorTheme(owner, _editorTheme);
+      editorStore[owner].onDidChangeCursorPosition(() => {
+        updateStatusbar(owner, editorStore[owner], isTeacherOrFree);
+      });
+      updateStatusbar(owner, editorStore[owner], isTeacherOrFree);
+
       editorStore[owner].onDidChangeModelContent(() => {
         renderCustomGutter(owner);
         if (editorStore[`${owner}ApplyingRemote`]) return;
@@ -646,9 +822,15 @@
     if (!host) return;
     const isExamMode = data.session.mode === 'exam';
     const filterTerm = (qs('student-filter-input')?.value || '').toLowerCase().trim();
-    const students = (data.students || []).filter(s =>
-      !filterTerm || s.name.toLowerCase().includes(filterTerm)
-    );
+    const statusFilter = window._statusFilter || null;
+    const students = (data.students || []).filter(s => {
+      if (filterTerm && !s.name.toLowerCase().includes(filterTerm)) return false;
+      // Sprint 10O: statusfilter
+      if (statusFilter === 'done'  && !s.isDone) return false;
+      if (statusFilter === 'hand'  && !s.handRaised) return false;
+      if (statusFilter === 'tab'   && !s.tabHidden) return false;
+      return true;
+    });
 
     if (!students.length) {
       host.innerHTML = filterTerm
@@ -679,11 +861,19 @@
         ? `<span class="tab-badge tab-badge-hand">✋ Hand op</span>`
         : '';
 
+      // Sprint 10Q: run-status icoon
+      const runStatusIcon = {
+        'running':       '<span class="run-status-icon run-status-running" title="Code loopt">▶</span>',
+        'waiting_input': '<span class="run-status-icon run-status-waiting" title="Wacht op invoer">⌨️</span>',
+        'queued':        '<span class="run-status-icon run-status-queued" title="In wachtrij">⏳</span>',
+        'idle':          '',
+      }[s.runStatus || 'idle'] || '';
+
       return `
       <div class="student-item${isExamMode && s.tabHidden ? ' student-item-alert' : ''}${s.handRaised ? ' student-item-hand' : ''}">
         <div class="student-head">
           <div>
-            <strong>${escapeHtml(s.name)}</strong>
+            <strong>${escapeHtml(s.name)}</strong> ${runStatusIcon}
             ${doneBadge}${handBadge}${tabBadge}
             <br/><span class="muted">${s.online ? 'online' : 'offline'}</span>
           </div>
@@ -990,7 +1180,17 @@
     socket.emit('student_join_free', { name, className });
 
     // Editor initialiseren zodra server bevestigt
-    let _freeRunActive = false; // Track of er een actieve run is
+    // Sprint 10M: free editor kopieer knoppen
+    qs('free-copy-code-btn')?.addEventListener('click', () =>
+      copyToClipboard(getEditorValue('free') || '', qs('free-copy-code-btn'))
+    );
+    qs('free-copy-output-btn')?.addEventListener('click', () =>
+      copyToClipboard(qs('free-output-panel')?.textContent || '', qs('free-copy-output-btn'))
+    );
+    // Sprint 10U: auto-scroll
+    setupAutoScroll('free-output-panel');
+
+    let _freeRunActive = false;
     socket.on('free_session_state', async data => {
       const assistBadge = qs('free-editor-assist');
       if (assistBadge) setAssistBadge(assistBadge, data.editorAssist !== false);
@@ -1073,6 +1273,7 @@
       const panel = qs('free-output-panel');
       if (panel) panel.textContent = output;
       setTab('free', 'output');
+      autoScrollOutput('free-output-panel'); // Sprint 10U
       document.querySelectorAll('[data-owner="free"][data-tab]').forEach(b =>
         b.classList.toggle('active', b.dataset.tab === 'output'));
     });
@@ -1139,7 +1340,13 @@
     qs('toggle-run-all-btn')?.addEventListener('click', () => socket.emit('teacher_toggle_all', { field: 'run' }));
     qs('teacher-toggle-workspace-btn')?.addEventListener('click', () => socket.emit('teacher_toggle_class_workspace'));
     qs('toggle-code-all-btn')?.addEventListener('click', () => socket.emit('teacher_toggle_all', { field: 'code' }));
-    qs('teacher-close-session-btn')?.addEventListener('click', () => socket.emit('teacher_close_session'));
+    qs('teacher-close-session-btn')?.addEventListener('click', () => {
+      const online = (window._lastTeacherSessionData?.students || []).filter(s => s.online).length;
+      const msg = online > 0
+        ? `Weet je zeker dat je de sessie wil sluiten? ${online} leerling${online===1?'':'en'} ${online===1?'is':'zijn'} nog verbonden.`
+        : 'Weet je zeker dat je de sessie wil sluiten?';
+      if (confirm(msg)) socket.emit('teacher_close_session');
+    });
 
     // Timer/countdown widget
     qs('teacher-timer-start-btn')?.addEventListener('click', () => {
@@ -1176,10 +1383,90 @@
 
     // Snippet sturen/wissen
     // Annotatie panel toggle
+    // Sprint 10N: overzichtsmodus (grid view)
+    let _gridViewActive = false;
+    qs('teacher-grid-view-btn')?.addEventListener('click', () => {
+      _gridViewActive = !_gridViewActive;
+      const btn = qs('teacher-grid-view-btn');
+      const gridPanel = qs('teacher-grid-view-panel');
+      const studentList = qs('teacher-student-list');
+      if (!gridPanel) return;
+      if (_gridViewActive) {
+        btn && (btn.textContent = '≡ Lijst');
+        studentList && studentList.classList.add('hidden');
+        gridPanel.classList.remove('hidden');
+        renderGridView(window._lastTeacherSessionData);
+      } else {
+        btn && (btn.textContent = '⊞ Overzicht');
+        studentList && studentList.classList.remove('hidden');
+        gridPanel.classList.add('hidden');
+      }
+    });
+
+    function renderGridView(data) {
+      const panel = qs('teacher-grid-view-panel');
+      if (!panel || !data) return;
+      const students = data.students || [];
+      if (!students.length) {
+        panel.innerHTML = '<p class="muted" style="padding:8px;">Geen leerlingen verbonden.</p>';
+        return;
+      }
+      panel.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;';
+      panel.innerHTML = students.map(s => {
+        const codePreview = (s.code || s.personalCode || '').split('\n').slice(0,3).join('\n');
+        const statusColor = s.runStatus === 'running' ? '#4ade80' : s.runStatus === 'waiting_input' ? '#60a5fa' : 'transparent';
+        return `<div class="student-grid-card" data-grid-live="${s.id}" style="border:2px solid ${statusColor};border-radius:10px;padding:8px;background:var(--surface);cursor:pointer;min-height:100px;overflow:hidden;">
+          <div style="font-weight:700;font-size:0.82rem;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(s.name)}</div>
+          <div style="font-size:0.72rem;color:var(--muted);margin-bottom:6px;">${s.online ? '● online' : '○ offline'}${s.handRaised ? ' ✋' : ''}${s.isDone ? ' ✓' : ''}</div>
+          <pre style="font-size:0.7rem;color:#d4d4d4;background:#1e1e1e;border-radius:4px;padding:4px;margin:0;overflow:hidden;max-height:48px;line-height:1.3;">${escapeHtml(codePreview || '(leeg)')}</pre>
+        </div>`;
+      }).join('');
+      panel.querySelectorAll('[data-grid-live]').forEach(card => {
+        card.addEventListener('click', () => {
+          socket.emit('teacher_select_student', { studentId: card.dataset.gridLive });
+          _gridViewActive = false;
+          const btn = qs('teacher-grid-view-btn');
+          if (btn) btn.textContent = '⊞ Overzicht';
+          qs('teacher-grid-view-panel')?.classList.add('hidden');
+          qs('teacher-student-list')?.classList.remove('hidden');
+          setTab('teacher', 'code');
+          layoutEditor('teacher', true);
+        });
+      });
+    }
+
+    // Sprint 10M: kopieer knoppen teacher
+    qs('teacher-copy-code-btn')?.addEventListener('click', () =>
+      copyToClipboard(getEditorValue('teacher') || '', qs('teacher-copy-code-btn'))
+    );
+    qs('teacher-copy-output-btn')?.addEventListener('click', () =>
+      copyToClipboard(qs('teacher-output-panel')?.textContent || '', qs('teacher-copy-output-btn'))
+    );
+    // Sprint 10U: auto-scroll instellen
+    setupAutoScroll('teacher-output-panel');
+
     qs('teacher-annotation-btn')?.addEventListener('click', () => {
       const panel = qs('teacher-annotation-panel');
       if (panel) panel.classList.toggle('hidden');
     });
+    // Sprint 10P: annotatie templates
+    const _annotationTemplates = [
+      'Let op de inspringing!',
+      'Vergeet de dubbele punt niet.',
+      'Controleer de variabelenaam.',
+      'Goed bezig! Kleine fout op deze regel.',
+      'Gebruik een lus hier.',
+      'Vergeet de haakjes niet.',
+      'Bekijk de ingebouwde functies.',
+    ];
+    qs('annotation-template-select')?.addEventListener('change', e => {
+      const val = e.target.value;
+      if (val && qs('annotation-message')) {
+        qs('annotation-message').value = val;
+        e.target.value = '';
+      }
+    });
+
     qs('teacher-send-annotation-btn')?.addEventListener('click', () => {
       const start = parseInt(qs('annotation-start-line')?.value || '1');
       const end   = parseInt(qs('annotation-end-line')?.value   || start.toString());
@@ -1249,6 +1536,32 @@
     // Zoekfilter leerlingenlijst — triggert een herrender van de lijst
     qs('student-filter-input')?.addEventListener('input', () => {
       if (window._lastTeacherSessionData) renderStudentList(window._lastTeacherSessionData);
+    });
+    // Sprint 10O: statusfilter knoppen
+    document.querySelectorAll('[data-status-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-status-filter]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        window._statusFilter = btn.dataset.statusFilter === 'all' ? null : btn.dataset.statusFilter;
+        if (window._lastTeacherSessionData) renderStudentList(window._lastTeacherSessionData);
+      });
+    });
+    // Sprint 10V: keyboard navigatie leerlingenlijst (leerkracht-app)
+    let _focusedStudentIdx = -1;
+    document.addEventListener('keydown', e => {
+      const host = qs('teacher-student-list');
+      if (!host) return;
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
+      const items = [...host.querySelectorAll('.student-item')];
+      if (!items.length) return;
+      e.preventDefault();
+      if (e.key === 'ArrowDown') _focusedStudentIdx = Math.min(_focusedStudentIdx + 1, items.length - 1);
+      if (e.key === 'ArrowUp')   _focusedStudentIdx = Math.max(_focusedStudentIdx - 1, 0);
+      items.forEach((el, i) => el.classList.toggle('student-item-focused', i === _focusedStudentIdx));
+      items[_focusedStudentIdx]?.scrollIntoView({ block: 'nearest' });
+      if (e.key === 'Enter' && _focusedStudentIdx >= 0) {
+        items[_focusedStudentIdx].querySelector('[data-live-control]')?.click();
+      }
     });
     qs('teacher-announcement-send-btn')?.addEventListener('click', () => {
       socket.emit('teacher_send_announcement', { text: qs('teacher-announcement-input').value });
@@ -1352,6 +1665,8 @@
       }
 
       renderStudentList(data);
+      // Sprint 10N: grid view bijwerken als actief
+      if (typeof _gridViewActive !== 'undefined' && _gridViewActive) renderGridView(data);
     });
 
     socket.on('run_output', ({ audience, output }) => {
@@ -1670,6 +1985,28 @@ async function applyStudentState(data) {
 
     if (state) applyStudentState(state);
 
+    // Sprint 10M: student kopieer knoppen
+    qs('student-copy-code-btn')?.addEventListener('click', () =>
+      copyToClipboard(getEditorValue('student') || '', qs('student-copy-code-btn'))
+    );
+    qs('student-copy-output-btn')?.addEventListener('click', () =>
+      copyToClipboard(qs('student-output-panel')?.textContent || '', qs('student-copy-output-btn'))
+    );
+    // Sprint 10U: auto-scroll
+    setupAutoScroll('student-output-panel');
+
+    // Sprint 10S: naam wijzigen
+    window._changeStudentName = () => {
+      const badge = qs('student-name-badge');
+      const currentName = badge?.textContent || '';
+      const newName = prompt('Vul je naam in:', currentName)?.trim();
+      if (newName && newName !== currentName) {
+        socket.emit('student_change_name', { name: newName });
+        if (badge) badge.textContent = newName;
+        setLS('studentName', newName);
+      }
+    };
+
     socket.on('student_state', async data => {
       setLS('studentState', data);
       setLS('studentSessionCode', data.session.code);
@@ -1706,11 +2043,25 @@ async function applyStudentState(data) {
     socket.on('announcement_update', ({ text }) => {
       updateAnnouncement('student', text || '');
     });
-    socket.on('timer_update', ({ remainingMs, running }) => {
+    socket.on('timer_update', ({ remainingMs, running, totalMs }) => {
       const display = qs('student-timer-display');
-      if (!display) return; // niet op teacher-pagina
+      if (!display) return;
+      // Sprint 10K: voortgangsbalk
+      let bar = qs('student-timer-bar-fill');
+      let barWrap = qs('student-timer-bar');
+      if (!barWrap) {
+        barWrap = document.createElement('div');
+        barWrap.id = 'student-timer-bar';
+        barWrap.className = 'timer-progress-bar';
+        bar = document.createElement('div');
+        bar.id = 'student-timer-bar-fill';
+        bar.className = 'timer-progress-fill';
+        barWrap.appendChild(bar);
+        display.parentElement?.insertBefore(barWrap, display);
+      }
       if (!running || remainingMs <= 0) {
         display.style.display = 'none';
+        if (barWrap) barWrap.style.display = 'none';
         return;
       }
       display.style.display = 'inline-flex';
@@ -1719,6 +2070,13 @@ async function applyStudentState(data) {
       display.textContent = `⏱ ${m}:${String(s).padStart(2, '0')}`;
       display.style.color = remainingMs < 60000 ? 'var(--accent)' : 'var(--primary)';
       display.style.fontWeight = remainingMs < 60000 ? '900' : '800';
+      // Balk
+      if (barWrap && bar && totalMs > 0) {
+        barWrap.style.display = 'block';
+        const pct = Math.max(0, Math.min(100, (remainingMs / totalMs) * 100));
+        bar.style.width = pct + '%';
+        bar.style.background = pct > 50 ? '#4ade80' : pct > 20 ? '#fbbf24' : '#f87171';
+      }
     });
 
     socket.on('run_output', ({ audience, output }) => {
@@ -1775,10 +2133,22 @@ async function applyStudentState(data) {
       const icons = { cpu_timeout: '⏱', input_timeout: '⏳', disconnect: '🔌', cancelled: '⏹' };
       const icon = icons[errorType] || '⚠️';
       const lineInfo = line ? ` (regel ${line})` : '';
-      // Voeg foutbericht toe in rood achter eventuele bestaande output
       const existingText = panel.textContent || '';
       panel.innerHTML = (existingText ? existingText.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '<br>' : '') + `<span style="color:#f87171;font-weight:700;">${icon} ${message}${lineInfo}</span>`;
       setTab('student', 'output');
+      // Sprint 10H: markeer de fout-regel in de editor
+      if (line && window.monaco && editorStore.student) {
+        editorStore.student.deltaDecorations(editorStore._errorDecorations || [], []);
+        editorStore._errorDecorations = editorStore.student.deltaDecorations([], [{
+          range: new window.monaco.Range(line, 1, line, 1),
+          options: {
+            isWholeLine: true,
+            className: 'error-line-highlight',
+            overviewRuler: { color: 'rgba(248,113,113,0.8)', position: 1 },
+            hoverMessage: { value: `❌ ${message}` },
+          }
+        }]);
+      }
     });
     socket.on('run_queued', ({ position, message }) => {
       studentWorkspaceState.localOutput = '';

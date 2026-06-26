@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Vrij oefenen — PyCodeFlow</title>
-<link rel="stylesheet" href="/styles.css?v=freesession1"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.8.2"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 </head><body>
 <div class="topbar"><div class="topbar-inner">
@@ -12,7 +12,7 @@
     <span class="badge" id="free-class-badge">-</span>
     <a href="/index.html" class="btn btn-muted small">Stoppen</a>
   </div>
-</div></div>
+<button class="dark-toggle" id="dark-mode-toggle" title="Wissel donker/licht thema">🌙</button></div></div>
 <div class="page">
 
 <div class="card screen">
@@ -35,14 +35,24 @@
       <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
       <div class="toolbar-spacer"></div>
       <button class="btn btn-soft small" id="free-run-btn">Run</button>
+      <button class="btn btn-muted small" id="free-editor-theme-btn" title="Editor thema" onclick="toggleEditorTheme('free')">☀️</button>
+      <button class="btn btn-muted small" id="free-copy-code-btn" title="Kopieer code">📋</button>
+      <button class="btn btn-muted small" title="Sneltoetsen (Ctrl+?)" onclick="toggleShortcutsOverlay()">?</button>
     </div>
     <div id="free-code-panel" class="editor-frame-wrap">
       <div class="editor-frame">
         <div id="free-line-numbers" class="custom-gutter"></div>
         <div id="free-editor" class="monaco-editor-host"></div>
       </div>
+    <div id="free-editor-statusbar" class="editor-statusbar statusbar-dark">
+  <span>Ln 1, Kol 1</span><span>|</span><span>0 regels</span><span>|</span><span>Python</span><span>|</span><span>UTF-8</span><span style="margin-left:auto;">Spaties: 4</span>
+</div>
     </div>
-    <pre id="free-output-panel" class="output-panel hidden"></pre>
+    
+<div style="position:relative;">
+  <button id="free-copy-output-btn" class="copy-output-btn" title="Kopieer output">📋</button>
+  <pre id="free-output-panel" class="output-panel hidden output-dark"></pre>
+</div>
     <div id="free-runtime-input-wrap" class="runtime-input-wrap hidden">
       <input id="free-runtime-input" placeholder="Typ je input hier" disabled/>
       <button class="btn btn-soft" id="free-send-input-btn" disabled>Stuur input</button>
@@ -52,5 +62,5 @@
 </div>
 <script src="/socket.io/socket.io.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/app.js?v=examfix2"></script>
+<script src="/app.js?v=v2026.2.8.2"></script>
 </body></html>

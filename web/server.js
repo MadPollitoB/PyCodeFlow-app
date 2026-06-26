@@ -1111,7 +1111,7 @@ function clearRunRef(info) {
     if (session.teacherRunId === info.runId) session.teacherRunId = null;
   } else if (info.targetStudentId && session.students[info.targetStudentId]) {
     const s = session.students[info.targetStudentId];
-    if (s.runId === info.runId) s.runId = null;
+    if (s.runId === info.runId) { s.runId = null; s.runStatus = 'idle'; }
   }
 }
 
@@ -1208,6 +1208,7 @@ function forwardRunnerEvent(info, event) {
       updateTeacherLiveView(session, s.id);
     } else if (event.type === "input_request") {
       runnerWaitingForInput.add(info.runId);
+      s.runStatus = 'waiting_input'; // Sprint 10Q
       if (s.socketId) io.to(s.socketId).emit("input_request", { audience: "student" });
       if (session.mode === "exam" && session.selectedStudentId === s.id && session.teacherSocketId) {
         io.to(session.teacherSocketId).emit("mirror_input_request", { studentId: s.id });
@@ -2248,7 +2249,8 @@ io.on("connection", (socket) => {
         workspace: requestedWorkspace
       });
       s.runId = runId;
-      s.currentWorkspace = requestedWorkspace || 'shared'; // bijhouden voor echo routing
+      s.runStatus = 'running'; // Sprint 10Q
+      s.currentWorkspace = requestedWorkspace || 'shared';
       if (s.socketId) io.to(s.socketId).emit("switch_to_output", { audience: "student" });
       if (session.mode === "exam" && session.selectedStudentId === s.id && session.teacherSocketId) {
         io.to(session.teacherSocketId).emit("teacher_preview_reset");

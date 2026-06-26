@@ -1,0 +1,23 @@
+════════════════════════════════════════════════════════════════════════
+PyCodeFlow Stresstest Log
+Versie     : 2026.2.7.6
+Test type  : memory-leak
+Gestart    : 2026-05-24T14:53:04.756Z
+Host RAM   : 25910MB vrij / 31871MB totaal
+Load avg   : 0.42 / 0.25 / 0.20
+════════════════════════════════════════════════════════════════════════
+[2026-05-24 14:52:38.752] [INFO] === Stresstest gestart: memory-leak ===
+[2026-05-24 14:52:38.752] [INFO] Systeem: 25922MB vrij RAM, load 0.23
+[2026-05-24 14:52:38.752] [INFO] --- Memory leak detector ---
+[2026-05-24 14:52:38.756] [INFO] Memory leak detector: 50 opeenvolgende runs
+[2026-05-24 14:52:38.756] [INFO] Web RAM voor: 85MB
+[2026-05-24 14:52:38.756] [INFO] Runner RAM voor: 42MB
+[2026-05-24 14:53:04.755] [PASS] Web RAM na: 86MB (Δ+1.2MB) ✓ stabiel
+[2026-05-24 14:53:04.756] [OK] === Klaar: 51/51 OK (100%) in 26.0s ===
+────────────────────────────────────────────────────────────────────────
+SAMENVATTING
+────────────────────────────────────────────────────────────────────────
+Resultaat  : 51/51 checks geslaagd (100%)
+Duur       : 26.0s
+Oordeel    : ✅ GESLAAGD
+════════════════════════════════════════════════════════════════════════

@@ -2,13 +2,13 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Leerling</title>
-<link rel="stylesheet" href="/styles.css"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.8.2"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 </head><body>
 <div class="topbar"><div class="topbar-inner">
   <div class="logo-group"><img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/><span>PyCodeFlow</span></div>
   <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a></div>
-</div></div>
+<button class="dark-toggle" id="dark-mode-toggle" title="Wissel donker/licht thema">🌙</button></div></div>
 <div class="page">
 
 <div class="card screen">
@@ -18,7 +18,7 @@
       <p class="muted" id="student-subtitle">Werk in je sessie.</p>
     </div>
     <div class="badges">
-      <span class="badge" id="student-name-badge">Naam: -</span>
+      <span class="badge" id="student-name-badge" style="cursor:pointer;" title="Klik om naam te wijzigen" onclick="window._changeStudentName && window._changeStudentName()">Naam: - ✏️</span>
       <span class="badge" id="student-session-code">----</span>
       <span class="badge" id="student-mode">Klasmodus</span>
       <span class="badge" id="student-editor-assist">Codehulp aan</span>
@@ -44,6 +44,8 @@
       <div id="student-timer-display" style="display:none; font-size:1rem; font-weight:800; color:var(--primary); padding:4px 10px; background:var(--primary-soft); border-radius:8px; margin-right:8px;"></div>
       <div id="student-autosave-indicator" style="font-size:0.75rem; color:var(--muted); opacity:0; transition:opacity 0.5s; margin-right:8px; align-self:center;">💾 Concept opgeslagen</div>
       <button class="btn btn-soft small" id="student-run-btn">Run</button>
+      <button class="btn btn-muted small" id="student-editor-theme-btn" title="Editor thema" onclick="toggleEditorTheme('student')">☀️</button>
+      <button class="btn btn-muted small" id="student-copy-code-btn" title="Kopieer code">📋</button>
       <button class="btn btn-muted small" id="student-raise-hand-btn" style="margin-left:8px;">✋ Hand opsteken</button>
       <button class="btn btn-muted small" id="student-done-btn" style="margin-left:8px;">✓ Klaar</button>
     </div>
@@ -52,8 +54,15 @@
         <div id="student-line-numbers" class="custom-gutter"></div>
         <div id="student-editor" class="monaco-editor-host"></div>
       </div>
+    <div id="student-editor-statusbar" class="editor-statusbar statusbar-dark editor-statusbar-minimal">
+      <span>Ln 1, Kol 1</span><span>|</span><span>0 regels</span>
     </div>
-    <pre id="student-output-panel" class="output-panel hidden"></pre>
+    </div>
+    
+    <div style="position:relative;">
+      <button id="student-copy-output-btn" class="copy-output-btn" title="Kopieer output">📋</button>
+      <pre id="student-output-panel" class="output-panel hidden output-dark"></pre>
+    </div>
     <div id="student-snippet-panel" class="hidden" style="padding:12px; background:#1e1e1e; color:#d4d4d4; font-family:'Consolas',monospace; font-size:0.88rem; white-space:pre-wrap; overflow:auto; flex:1; border-radius:0 0 12px 12px; line-height:1.5;"></div>
     <div id="student-runtime-input-wrap" class="runtime-input-wrap hidden">
       <input id="student-runtime-input" placeholder="Input unavailable" disabled/>
@@ -61,4 +70,4 @@
     </div>
   </div>
 </div>
-</div><script src="/socket.io/socket.io.js"></script><script src="/monaco/min/vs/loader.js"></script><script src="/app.js"></script></body></html>
+</div><script src="/socket.io/socket.io.js"></script><script src="/monaco/min/vs/loader.js"></script><script src="/app.js?v2026.2.8.2"></script></body></html>

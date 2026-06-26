@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Leerkracht</title>
-<link rel="stylesheet" href="/styles.css"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.8.2"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .runner-health-bar-track {
@@ -139,7 +139,8 @@
 <div class="topbar"><div class="topbar-inner">
   <div class="logo-group"><img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/><span>PyCodeFlow</span></div>
   <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a><a href="/api/teacher-logout" class="btn btn-muted small">Afmelden</a></div>
-<button class="dark-toggle" id="dark-mode-toggle" title="Wissel donker/licht thema">🌙</button></div></div>
+<button class="dark-toggle" id="dark-mode-toggle" title="Wissel donker/licht thema">🌙</button>
+<span id="connection-status-dot" class="connection-dot connection-connected" title="Verbonden"></span></div></div>
 <div class="page">
 
 <div class="card screen">
@@ -194,8 +195,11 @@
         <div class="toolbar-spacer"></div>
         <span id="teacher-view-label">Gedeelde sessie</span>
         <button class="btn btn-muted small" id="teacher-clear-snippet-btn" title="Verwijder het code-voorbeeld bij alle leerlingen" style="display:none;">✕ Voorbeeld</button>
-        <button class="btn btn-soft small" id="teacher-send-snippet-btn" title="Stuur huidige code als leesvoorbeeld naar alle leerlingen (leerlingen zien extra tabblad)">📎 Voorbeeld</button>
+        <button class="btn btn-soft small" id="teacher-send-snippet-btn" title="Stuur huidige code als leesvoorbeeld naar alle leerlingen">📎 Voorbeeld</button>
         <button class="btn btn-soft small" id="teacher-annotation-btn" title="Voeg een annotatie toe op een regelbereik">📌 Annoteer</button>
+        <button class="btn btn-muted small" id="teacher-editor-theme-btn" title="Editor thema wisselen (donker/licht)" onclick="toggleEditorTheme('teacher')">☀️</button>
+        <button class="btn btn-muted small" id="teacher-copy-code-btn" title="Kopieer code naar klembord">📋</button>
+        <button class="btn btn-muted small" title="Sneltoetsen (Ctrl+?)" onclick="toggleShortcutsOverlay()">?</button>
         <button class="btn btn-soft small" id="teacher-run-btn">Run</button>
       </div>
       <div id="teacher-code-panel" class="editor-frame-wrap">
@@ -203,8 +207,15 @@
           <div id="teacher-line-numbers" class="custom-gutter"></div>
           <div id="teacher-editor" class="monaco-editor-host"></div>
         </div>
+    <div id="teacher-editor-statusbar" class="editor-statusbar statusbar-dark">
+        <span>Ln 1, Kol 1</span><span>|</span><span>0 regels</span><span>|</span><span>Python</span><span>|</span><span>UTF-8</span><span style="margin-left:auto;">Spaties: 4</span>
       </div>
-      <pre id="teacher-output-panel" class="output-panel hidden"></pre>
+      </div>
+      
+      <div style="position:relative;">
+        <button id="teacher-copy-output-btn" class="copy-output-btn" title="Kopieer output">📋</button>
+        <pre id="teacher-output-panel" class="output-panel hidden output-dark"></pre>
+      </div>
       <div id="teacher-runtime-input-wrap" class="runtime-input-wrap hidden">
         <input id="teacher-runtime-input" placeholder="Input unavailable" disabled/>
         <button class="btn btn-soft" id="teacher-send-input-btn" disabled>Stuur input</button>
@@ -219,12 +230,23 @@
             style="width:100%; padding:7px 12px; border:1.5px solid var(--border); border-radius:10px; font-size:0.88rem; color:var(--text); background:var(--surface-soft); outline:none;"/>
         </div>
         <p class="muted" id="teacher-student-count">0 online</p>
+        <!-- Sprint 10O: statusfilter knoppen -->
+        <div class="status-filter-bar" style="margin-bottom:8px;">
+          <button class="status-filter-btn active" data-status-filter="all">Alle</button>
+          <button class="status-filter-btn" data-status-filter="done">✓ Klaar</button>
+          <button class="status-filter-btn" data-status-filter="hand">✋ Hand</button>
+          <button class="status-filter-btn" data-status-filter="tab">⚠️ Tab weg</button>
+        </div>
         <div class="row" style="flex-wrap:wrap; gap:6px;">
           <button class="btn btn-soft small" id="toggle-run-all-btn">Run all uit</button>
           <button class="btn btn-soft small" id="toggle-code-all-btn">Code all uit</button>
           <button class="btn btn-muted small" id="teacher-reset-all-done-btn" title="Zet alle Klaar-statussen terug naar bezig">↺ Klaar resetten</button>
+          <!-- Sprint 10N: overzichtsmodus knop -->
+          <button class="btn btn-muted small" id="teacher-grid-view-btn" title="Overzichtsmodus: alle leerlingen in grid">⊞ Overzicht</button>
         </div>
         <div id="teacher-student-list" class="student-list" style="margin-top:16px;"></div>
+        <!-- Sprint 10N: grid overzicht panel (verborgen standaard) -->
+        <div id="teacher-grid-view-panel" class="hidden" style="margin-top:16px;"></div>
       </div>
       <div class="panel">
         <h2>Status</h2>
@@ -285,6 +307,17 @@
     <option value="green">🟢 Groen</option>
     <option value="red">🔴 Rood</option>
   </select>
+  <label style="font-size:0.75rem;color:var(--muted);display:block;margin-bottom:3px;">Snel invullen</label>
+  <select id="annotation-template-select" style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:0.82rem;color:var(--muted);background:var(--surface-soft);margin-bottom:6px;">
+    <option value="">— Kies een template —</option>
+    <option>Let op de inspringing!</option>
+    <option>Vergeet de dubbele punt niet.</option>
+    <option>Controleer de variabelenaam.</option>
+    <option>Goed bezig! Kleine fout op deze regel.</option>
+    <option>Gebruik een lus hier.</option>
+    <option>Vergeet de haakjes niet.</option>
+    <option>Bekijk de ingebouwde functies.</option>
+  </select>
   <label style="font-size:0.75rem;color:var(--muted);display:block;margin-bottom:3px;">Bericht</label>
   <textarea id="annotation-message" rows="2" placeholder="Kijk eens naar deze regels..." style="width:100%;padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:0.88rem;resize:none;color:var(--text);background:var(--surface-soft);margin-bottom:8px;"></textarea>
   <div style="display:flex;gap:8px;">
@@ -296,5 +329,5 @@
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/app.js?v=monitorfix2"></script>
+<script src="/app.js?v=v2026.2.8.2"></script>
 </body></html>
