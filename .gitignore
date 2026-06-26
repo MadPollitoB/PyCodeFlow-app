@@ -1,1 +1,122 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PyCodeFlow — .gitignore
+#  Wat NOOIT in git mag: secrets, database, logs, builds, caches
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Geheimen & configuratie ───────────────────────────────────────────────────
 .env
+.env.*
+!.env.example
+
+# ── Database ──────────────────────────────────────────────────────────────────
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data/
+pgdata/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+logs/
+*.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+
+# ── Node.js ───────────────────────────────────────────────────────────────────
+node_modules/
+web/node_modules/
+.npm/
+.yarn/
+
+# ── Monaco Editor (groot, via npm te installeren) ─────────────────────────────
+web/node_modules/monaco-editor/
+web/public/monaco/
+
+# ── Docker volumes en build artifacts ─────────────────────────────────────────
+docker-volumes/
+.docker/
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.Python
+runner/__pycache__/
+venv/
+.venv/
+env/
+
+# ── OS bestanden ──────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+
+# ── Editor en IDE ─────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# ── Tijdelijke bestanden ──────────────────────────────────────────────────────
+tmp/
+temp/
+.tmp/
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+
+# ── SSL certificaten ──────────────────────────────────────────────────────────
+*.pem
+*.key
+*.crt
+*.csr
+*.p12
+*.pfx
+ssl/
+certs/
+
+# ── Backups van SQLite migratie ───────────────────────────────────────────────
+*.db.backup-*
+*.sqlite.backup-*
+
+# ── Test outputs ──────────────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+test-results/
+*.test.log
+
+# ── PDF exports (worden on-the-fly gegenereerd) ───────────────────────────────
+exports/
+pdf-exports/
+*.pdf
+
+# ── Cloudflare en tunnel configs met secrets ──────────────────────────────────
+.cloudflared/
+tunnel-*.json
+cloudflare-*.json
+
+# ── Synology specifiek ────────────────────────────────────────────────────────
+@eaDir/
+#recycle/
+.SynoResource
+
+# ── Wat WEL in git mag (whitelist) ───────────────────────────────────────────
+!.env.example
+!docker-compose.yml
+!docker-compose.prod.yml
+!check-deployment.sh
+!pycodeflow.sh
+!web/public/templates.json

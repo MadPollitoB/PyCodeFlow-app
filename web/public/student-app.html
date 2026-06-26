@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Leerling</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.8.2"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.12.0"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 </head><body>
 <div class="topbar"><div class="topbar-inner">
@@ -44,18 +44,21 @@
       <div id="student-timer-display" style="display:none; font-size:1rem; font-weight:800; color:var(--primary); padding:4px 10px; background:var(--primary-soft); border-radius:8px; margin-right:8px;"></div>
       <div id="student-autosave-indicator" style="font-size:0.75rem; color:var(--muted); opacity:0; transition:opacity 0.5s; margin-right:8px; align-self:center;">💾 Concept opgeslagen</div>
       <button class="btn btn-soft small" id="student-run-btn">Run</button>
-      <button class="btn btn-muted small" id="student-editor-theme-btn" title="Editor thema" onclick="toggleEditorTheme('student')">☀️</button>
-      <button class="btn btn-muted small" id="student-copy-code-btn" title="Kopieer code">📋</button>
+      <button id="student-editor-theme-btn" title="Editor thema" onclick="if(window.toggleEditorTheme) toggleEditorTheme('student')" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;">☀️</button>
+      <button id="student-copy-code-btn" title="Kopieer code" onclick="if(window.copyToClipboard && window.getEditorValue) copyToClipboard(getEditorValue('student')||'', this)" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;">📋</button>
       <button class="btn btn-muted small" id="student-raise-hand-btn" style="margin-left:8px;">✋ Hand opsteken</button>
       <button class="btn btn-muted small" id="student-done-btn" style="margin-left:8px;">✓ Klaar</button>
+      <button id="student-history-btn" title="Bekijk mijn code-geschiedenis"
+        style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;margin-left:8px;">📜</button>
     </div>
     <div id="student-code-panel" class="editor-frame-wrap">
       <div class="editor-frame">
         <div id="student-line-numbers" class="custom-gutter"></div>
         <div id="student-editor" class="monaco-editor-host"></div>
       </div>
-    <div id="student-editor-statusbar" class="editor-statusbar statusbar-dark editor-statusbar-minimal">
-      <span>Ln 1, Kol 1</span><span>|</span><span>0 regels</span>
+    <div id="student-editor-statusbar"
+      style="display:flex;gap:10px;align-items:center;padding:3px 12px;font-size:11px;font-family:Consolas,monospace;background:#1f2d57;color:#9fb3c8;flex-shrink:0;">
+      <span id="student-sb-pos">Ln 1, Kol 1</span><span>|</span><span id="student-sb-lines">0 regels</span>
     </div>
     </div>
     
@@ -70,4 +73,5 @@
     </div>
   </div>
 </div>
-</div><script src="/socket.io/socket.io.js"></script><script src="/monaco/min/vs/loader.js"></script><script src="/app.js?v2026.2.8.2"></script></body></html>
+</div><script src="/socket.io/socket.io.js"></script><script src="/monaco-env.js"></script>
+<script src="/monaco/min/vs/loader.js"></script><script src="/app.js?v2026.2.8.2"></script></body></html>

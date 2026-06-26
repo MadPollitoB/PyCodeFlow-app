@@ -7,6 +7,18 @@ const crypto = require("crypto");
 // SQLite database — sessie-persistentie en leerkrachtenaccounts
 const dbModule = require('./db/database');
 
+// Sprint 12a: async database initialisatie (PostgreSQL)
+// Server start pas als schema klaar is
+let _dbReady = false;
+dbModule.init().then(async () => {
+  _dbReady = true;
+  console.log('[db] PostgreSQL schema OK');
+  await checkAuthConfig();
+}).catch(err => {
+  console.error('[db] FATALE FOUT — database niet bereikbaar:', err.message);
+  process.exit(1);
+});
+
 const PORT = process.env.PORT || 3000;
 const RUNNER_URL = process.env.RUNNER_URL || "http://runner:5000";
 const BASIC_AUTH_ENABLED = String(process.env.POC_BASIC_AUTH_ENABLED || "true").toLowerCase() !== "false";
@@ -19,7 +31,11 @@ const COOKIE_SECRET = process.env.POC_BASIC_COOKIE_SECRET || "";
 // ── CSRF-bescherming ──────────────────────────────────────────────────────────
 // Genereer een server-side CSRF token per process-start.
 // Stuur het mee als cookie; clients moeten het terugsturen als X-CSRF-Token header.
+// Fix SEC-5: globale CSRF token (server-wide) — per-sessie tokens via cookie
+// De globale token blijft voor de API maar we voegen een per-sessie nonce toe
 const CSRF_TOKEN = crypto.randomBytes(32).toString('hex');
+// Per-socket CSRF nonces voor extra bescherming
+const socketCsrfNonces = new Map();
 
 function setCsrfCookie(res) {
   res.setHeader('Set-Cookie', [
@@ -172,20 +188,25 @@ function parseBasicAuthHeader(headerValue) {
   }
 }
 
-function credentialsAreValid(authHeader) {
+async function credentialsAreValid(authHeader) {
+  // Sprint 12a: async omdat PostgreSQL queries async zijn
   if (!BASIC_AUTH_ENABLED) return true;
   const creds = parseBasicAuthHeader(authHeader);
   if (!creds) return false;
 
-  // Probeer eerst de SQLite database (nieuwe manier)
-  const teacher = dbModule.getTeacherByUsername(creds.username);
-  if (teacher) {
-    const valid = verifyPasswordWithHash(creds.password, teacher.pass_hash);
-    if (valid) dbModule.updateLastLogin(teacher.id);
-    return valid;
+  // PostgreSQL database (primair)
+  try {
+    const teacher = await dbModule.getTeacherByUsername(creds.username);
+    if (teacher) {
+      const valid = verifyPasswordWithHash(creds.password, teacher.pass_hash);
+      if (valid) dbModule.updateLastLogin(teacher.id).catch(()=>{});
+      return valid;
+    }
+  } catch (e) {
+    console.error('[auth] DB fout:', e.message);
   }
 
-  // Fallback: .env credentials (tijdens migratieperiode of als DB leeg is)
+  // Fallback: .env credentials
   if (BASIC_AUTH_USER && PASSWORD_HASH) {
     return safeEqual(creds.username, BASIC_AUTH_USER) && verifyPasswordWithHash(creds.password, PASSWORD_HASH);
   }
@@ -202,7 +223,7 @@ async function requireBasicAuth(req, res, next) {
     return res.status(429).send("Te veel mislukte loginpogingen. Probeer later opnieuw.");
   }
 
-  if (credentialsAreValid(req.headers.authorization)) {
+  if (await credentialsAreValid(req.headers.authorization)) {
     clearAuthFailures(ip);
     return next();
   }
@@ -218,12 +239,16 @@ async function requireBasicAuth(req, res, next) {
   return res.status(401).send("Authenticatie vereist.");
 }
 
-if (BASIC_AUTH_ENABLED) {
+// Sprint 12a: startup check is nu async (PostgreSQL)
+// Wordt uitgevoerd na dbModule.init()
+async function checkAuthConfig() {
+  if (!BASIC_AUTH_ENABLED) return;
   // Controleer of er minstens één leerkracht in de DB staat OF dat .env credentials aanwezig zijn.
   // Na DB-migratie mogen POC_BASIC_USER/PASS_HASH verwijderd zijn uit .env.
-  const dbHasTeacher = (() => {
-    try { return dbModule.listTeachers().length > 0; } catch { return false; }
-  })();
+  // Sprint 12a: async check - wordt later opgelost in startup sequentie
+  // Tijdelijk: vertrouw op .env credentials als DB nog niet klaar is
+  let dbHasTeacher = false;
+  try { dbHasTeacher = (await dbModule.listTeachers()).length > 0; } catch {}
   const envHasCredentials = !!(BASIC_AUTH_USER && PASSWORD_HASH
     && BASIC_AUTH_USER !== "CHANGE_ME" && BASIC_AUTH_PASS_HASH !== "CHANGE_ME_HASH");
 
@@ -233,7 +258,7 @@ if (BASIC_AUTH_ENABLED) {
     process.exit(1);
   }
   if (dbHasTeacher) {
-    console.log(`[auth] ${dbModule.listTeachers().length} leerkracht(en) geladen vanuit database.`);
+    dbModule.listTeachers().then(ts => console.log(`[auth] ${ts.length} leerkracht(en) geladen vanuit database.`)).catch(()=>{});
   }
 }
 
@@ -243,7 +268,13 @@ if (passwordConfigUsesLegacyPlaintext) {
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  // Fix SEC-4: maximale payload 64KB — voldoende voor schoolcode
+  maxHttpBufferSize: 64 * 1024,
+  // Voorkom dat socket.io pingTimeout te lang is
+  pingTimeout: 20000,
+  pingInterval: 25000,
+});
 
 function parseCookieHeader(headerValue) {
   const out = {};
@@ -273,7 +304,7 @@ function hasValidTeacherCookie(cookieHeader) {
 
 function setTeacherCookie(res) {
   if (!BASIC_AUTH_ENABLED) return;
-  res.setHeader("Set-Cookie", `teacher_auth=${encodeURIComponent(teacherCookieValue())}; Path=/; HttpOnly; SameSite=Lax`);
+  res.setHeader("Set-Cookie", `teacher_auth=${encodeURIComponent(teacherCookieValue())}; Path=/; HttpOnly; SameSite=Strict; Secure`);
 }
 
 async function requireTeacherAuth(req, res, next) {
@@ -291,11 +322,63 @@ function socketIsTeacherAuthorized(socket) {
   return hasValidTeacherCookie(socket.request.headers.cookie || "");
 }
 
-app.use(express.json());
+// Fix SEC-3: HTTP security headers
+app.use((req, res, next) => {
+  // Sprint 12a-D: per-request nonce voor CSP — vervangt unsafe-eval
+  // Monaco ESM-versie vereist geen eval() meer, enkel een nonce voor inline workers
+  const cspNonce = crypto.randomBytes(16).toString('base64');
+  res.locals.cspNonce = cspNonce;
+
+  res.setHeader('Content-Security-Policy',
+    "default-src 'self'; " +
+    // unsafe-eval verwijderd — Monaco ESM vereist dit niet meer
+    `script-src 'self' 'unsafe-inline' 'nonce-${cspNonce}'; ` +
+    "style-src 'self' 'unsafe-inline'; " +
+    "font-src 'self' data:; " +
+    "img-src 'self' data:; " +
+    // worker-src voor Monaco's web workers
+    "worker-src 'self' blob:; " +
+    "connect-src 'self' ws: wss:; " +
+    "frame-ancestors 'none';"
+  );
+  // Voorkomt dat de pagina in een iframe geladen wordt (clickjacking)
+  res.setHeader('X-Frame-Options', 'DENY');
+  // Voorkomt MIME-type sniffing
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  // Verwijdert server-informatie
+  res.removeHeader('X-Powered-By');
+  // Referrer policy
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  // Permissions policy: geen camera, microfoon, locatie
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  // HSTS: browser gebruikt altijd HTTPS (Cloudflare Tunnel)
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
+});
+
+// Fix SEC-9: expliciete JSON body size limiet
+app.use(express.json({ limit: '64kb' }));
 
 app.get('/monitoring.html', requireTeacherAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'monitoring.html'));
 });
+
+// Sprint 12b: admin pagina
+app.get('/admin.html', requireTeacherAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
+// Sprint 16: quiz pagina's
+app.get('/quiz-bank.html', requireTeacherAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'quiz-bank.html'));
+});
+app.get('/quiz-teacher.html', requireTeacherAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'quiz-teacher.html'));
+});
+app.get('/quiz-review.html', requireTeacherAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'quiz-review.html'));
+});
+// quiz-student.html is publiek (leerlingen joinen via code)
 
 // Custom login-pagina — publiek bereikbaar (geen auth), anders oneindige redirect
 app.get('/teacher-login.html', (req, res) => {
@@ -304,7 +387,7 @@ app.get('/teacher-login.html', (req, res) => {
 
 // Logout: wis de teacher_auth cookie en stuur door naar de loginpagina
 app.get('/api/teacher-logout', (req, res) => {
-  res.setHeader('Set-Cookie', 'teacher_auth=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+  res.setHeader('Set-Cookie', 'teacher_auth=; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=0');
   res.redirect('/teacher-login.html');
 });
 
@@ -439,7 +522,7 @@ app.get('/api/templates', requireTeacherAuth, (req, res) => {
 });
 
 // Code history: snapshots voor een leerling ophalen
-app.get('/api/sessions/:code/history/:studentId', requireTeacherAuth, (req, res) => {
+app.get('/api/sessions/:code/history/:studentId', requireTeacherAuth, async (req, res) => {
   const code = (req.params.code || '').toUpperCase();
   const studentId = req.params.studentId;
   const session = sessions.get(code);
@@ -447,7 +530,7 @@ app.get('/api/sessions/:code/history/:studentId', requireTeacherAuth, (req, res)
   const student = session.students[studentId];
   if (!student) return res.status(404).json({ error: 'Leerling niet gevonden' });
   try {
-    const snapshots = dbModule.getSnapshots(code, studentId);
+    const snapshots = await dbModule.getSnapshots(code, studentId);
     res.json({ studentName: student.name, snapshots });
   } catch(e) {
     res.status(500).json({ error: e.message });
@@ -458,6 +541,982 @@ app.get('/api/sessions/:code/history/:studentId', requireTeacherAuth, (req, res)
 app.get('/api/csrf-token', requireTeacherAuth, (req, res) => {
   setCsrfCookie(res);
   res.json({ token: CSRF_TOKEN });
+});
+
+// Sprint 12a-D: Monaco ESM worker configuratie (publiek endpoint)
+// Workers via blob: URLs — vereist geen unsafe-eval
+app.get('/monaco-env.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(`// PyCodeFlow — Monaco ESM Worker Environment (Sprint 12a-D)
+// Configureert Monaco workers als blob: URLs zodat unsafe-eval niet nodig is
+window.MonacoEnvironment = {
+  getWorkerUrl: function(moduleId, label) {
+    var base = '/monaco/min/vs';
+    if (label === 'json')       return base + '/language/json/json.worker.js';
+    if (label === 'css' || label === 'scss' || label === 'less')
+                                return base + '/language/css/css.worker.js';
+    if (label === 'html')       return base + '/language/html/html.worker.js';
+    if (label === 'typescript' || label === 'javascript')
+                                return base + '/language/typescript/ts.worker.js';
+    return base + '/editor.worker.js';
+  }
+};`);
+});
+
+// ── Sprint 12b: Admin API — leerkrachten ─────────────────────────────────────
+
+app.get('/api/admin/teachers', requireTeacherAuth, requireCsrf, async (req, res) => {
+  try {
+    const teachers = await dbModule.listTeachers();
+    res.json(teachers);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/teachers', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { username, password, displayName, role } = req.body || {};
+  if (!username || !password) return res.status(400).json({ error: 'Gebruikersnaam en wachtwoord vereist' });
+  if (username.length > 64) return res.status(400).json({ error: 'Gebruikersnaam te lang' });
+  try {
+    const { hash, salt } = createPasswordHash(password);
+    const id = await dbModule.createTeacher(username.trim(), `${hash}:${salt.toString('hex')}`, (displayName || '').slice(0, 64), role === 'admin' ? 'admin' : 'teacher');
+    res.json({ ok: true, id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/admin/teachers/:username/password', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { password } = req.body || {};
+  if (!password || password.length < 8) return res.status(400).json({ error: 'Wachtwoord moet minimaal 8 tekens zijn' });
+  const { hash, salt } = createPasswordHash(password);
+  const ok = await dbModule.updatePassHash(req.params.username, `${hash}:${salt.toString('hex')}`);
+  res.json({ ok });
+});
+
+app.put('/api/admin/teachers/:username/role', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { role } = req.body || {};
+  if (!['teacher', 'admin'].includes(role)) return res.status(400).json({ error: 'Ongeldige rol' });
+  const ok = await dbModule.updateTeacherRole(req.params.username, role);
+  res.json({ ok });
+});
+
+app.delete('/api/admin/teachers/:username', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const ok = await dbModule.deleteTeacher(req.params.username);
+  res.json({ ok });
+});
+
+// ── Sprint 12b: Admin API — klassen ──────────────────────────────────────────
+
+app.get('/api/admin/classes', requireTeacherAuth, async (req, res) => {
+  try {
+    const classes = await dbModule.listClasses(req.query.archived === 'true');
+    res.json(classes);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Publiek endpoint voor leerling dropdown (enkel namen)
+app.get('/api/classes', async (req, res) => {
+  try {
+    const classes = await dbModule.listClasses(false);
+    res.json(classes.map(c => ({ id: c.id, name: c.name, school_year: c.school_year })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/classes', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { name, schoolYear } = req.body || {};
+  if (!name?.trim()) return res.status(400).json({ error: 'Naam vereist' });
+  try {
+    const id = await dbModule.createClass(name.trim().slice(0, 64), schoolYear || '2025-2026');
+    res.json({ ok: true, id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/admin/classes/:id/archive', requireTeacherAuth, requireCsrf, async (req, res) => {
+  await dbModule.archiveClass(req.params.id);
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/classes/:id', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const ok = await dbModule.deleteClass(req.params.id);
+  res.json({ ok });
+});
+
+app.post('/api/admin/classes/:id/teachers', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { teacherId } = req.body || {};
+  if (!teacherId) return res.status(400).json({ error: 'teacherId vereist' });
+  await dbModule.linkTeacherClass(teacherId, req.params.id);
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/classes/:id/teachers/:teacherId', requireTeacherAuth, requireCsrf, async (req, res) => {
+  await dbModule.unlinkTeacherClass(req.params.teacherId, req.params.id);
+  res.json({ ok: true });
+});
+
+// ── Sprint 12c: Admin API — leerlingen ───────────────────────────────────────
+
+app.get('/api/admin/students', requireTeacherAuth, async (req, res) => {
+  try {
+    const students = await dbModule.listStudents(req.query.classId || null, req.query.includeBlocked !== 'false');
+    res.json(students);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/students', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { name, classId, source, status } = req.body || {};
+  if (!name?.trim()) return res.status(400).json({ error: 'Naam vereist' });
+  try {
+    const id = await dbModule.createStudent(name.trim().slice(0, 64), classId || null, source || 'manual', status || 'active');
+    res.json({ ok: true, id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/admin/students/:id/status', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { status } = req.body || {};
+  if (!['active', 'pending', 'blocked'].includes(status)) return res.status(400).json({ error: 'Ongeldige status' });
+  await dbModule.updateStudentStatus(req.params.id, status);
+  res.json({ ok: true });
+});
+
+app.put('/api/admin/students/:id/class', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { classId } = req.body || {};
+  await dbModule.updateStudentClass(req.params.id, classId || null);
+  res.json({ ok: true });
+});
+
+app.put('/api/admin/students/:id/notes', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { notes } = req.body || {};
+  await dbModule.updateStudentNotes(req.params.id, String(notes || '').slice(0, 500));
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/students/:id', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const ok = await dbModule.deleteStudent(req.params.id);
+  res.json({ ok });
+});
+
+// Sprint 12c: CSV import
+app.post('/api/admin/students/import-csv', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { csv } = req.body || {};
+  if (!csv) return res.status(400).json({ error: 'CSV data vereist' });
+  if (csv.length > 200 * 1024) return res.status(400).json({ error: 'CSV te groot (max 200KB)' });
+  const lines = csv.split('\n').map(l => l.trim()).filter(Boolean);
+  const rows = lines.map(line => {
+    const [name, className] = line.split(',').map(s => s.trim());
+    return { name, className };
+  }).filter(r => r.name);
+  try {
+    const result = await dbModule.importStudentsFromCSV(rows);
+    res.json({ ok: true, ...result });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ══ Sprint 16: Quiz Timer helper ═════════════════════════════════════════════
+
+function startQuizTimer(session, student, totalSeconds) {
+  if (student._quizTimerInterval) clearInterval(student._quizTimerInterval);
+  const endAt = (student.quizStartedAt || Date.now()) + totalSeconds * 1000;
+
+  student._quizTimerInterval = setInterval(() => {
+    if (!student.socketId) return;
+    const remaining = Math.max(0, Math.round((endAt - Date.now()) / 1000));
+
+    io.to(student.socketId).emit('quiz_timer_update', { remaining, total: totalSeconds });
+
+    // 10% waarschuwing
+    if (!student._quizWarned && remaining <= Math.round(totalSeconds * 0.10)) {
+      student._quizWarned = true;
+      const mins = Math.ceil(remaining / 60);
+      io.to(student.socketId).emit('quiz_warning', {
+        remaining,
+        message: `⚠️ Nog ${mins} minuut${mins !== 1 ? 'en' : ''}! Controleer al je antwoorden.`,
+      });
+    }
+
+    // Timer verlopen — auto-submit
+    if (remaining <= 0) {
+      clearInterval(student._quizTimerInterval);
+      if (!student.quizSubmitted) {
+        student.quizSubmitted = true;
+        io.to(student.socketId).emit('quiz_force_submit');
+        // Sla alle in-memory antwoorden op
+        const sessionCode = Object.entries(session.students)
+          .find(([,s]) => s.id === student.id)?.[0] ? session.code : session.code;
+        Object.entries(student.quizAnswers || {}).forEach(([qId, ans]) => {
+          dbModule.saveQuizAnswer({
+            sessionCode: session.code, studentId: student.id,
+            studentName: student.name, studentClass: student.className || '',
+            questionId: qId, personalOrder: student.quizPersonalOrder?.indexOf(qId) ?? 0,
+            code: ans.code || '', runCount: ans.runCount || 0,
+            firstVisitAt: ans.firstVisitAt || null, firstRunAt: ans.firstRunAt || null,
+          }).catch(() => {});
+        });
+        dbModule.submitQuizAnswers(session.code, student.id, true).catch(() => {});
+        // Notificeer leerkracht
+        if (session.teacherSocketId) {
+          io.to(session.teacherSocketId).emit('quiz_student_progress', {
+            studentId: student.id, studentName: student.name, className: student.className,
+            currentQuestion: -1, totalQuestions: -1,
+            savedCount: Object.keys(student.quizAnswers || {}).length,
+            submitted: true, startedAt: student.quizStartedAt, autoSubmitted: true,
+          });
+        }
+      }
+    }
+  }, 1000);
+}
+
+// ══ Sprint 16: Toetsmodule API ═════════════════════════════════════════════
+
+// ── 16a: Vragenbank ──────────────────────────────────────────────────────────
+
+app.get('/api/quiz/bank', requireTeacherAuth, async (req, res) => {
+  try {
+    const questions = await dbModule.listQuizBank({
+      subject: req.query.subject || null,
+      difficulty: req.query.difficulty || null,
+      archived: req.query.archived === 'true',
+    });
+    res.json(questions);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/quiz/bank/subjects', requireTeacherAuth, async (req, res) => {
+  try { res.json(await dbModule.getQuizBankSubjects()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { text, subject, difficulty, maxPoints } = req.body || {};
+  if (!text?.trim()) return res.status(400).json({ error: 'Vraagstelling is verplicht.' });
+  if (text.length > 5000) return res.status(400).json({ error: 'Vraagstelling te lang (max 5000 tekens).' });
+  try {
+    const teacher = await dbModule.getTeacherByUsername(
+      parseBasicAuthHeader(req.headers.authorization)?.username || ''
+    );
+    const id = await dbModule.createQuizQuestion({
+      text, subject: (subject || '').slice(0, 64),
+      difficulty: ['makkelijk','gemiddeld','moeilijk'].includes(difficulty) ? difficulty : 'gemiddeld',
+      maxPoints: Math.max(1, Math.min(100, parseInt(maxPoints) || 4)),
+      createdBy: teacher?.id || null,
+    });
+    res.json({ ok: true, id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { text, subject, difficulty, maxPoints } = req.body || {};
+  if (!text?.trim()) return res.status(400).json({ error: 'Vraagstelling is verplicht.' });
+  const ok = await dbModule.updateQuizQuestion(req.params.id, {
+    text, subject: (subject || '').slice(0, 64),
+    difficulty: ['makkelijk','gemiddeld','moeilijk'].includes(difficulty) ? difficulty : 'gemiddeld',
+    maxPoints: Math.max(1, Math.min(100, parseInt(maxPoints) || 4)),
+  });
+  res.json({ ok });
+});
+
+app.put('/api/quiz/bank/:id/archive', requireTeacherAuth, requireCsrf, async (req, res) => {
+  await dbModule.archiveQuizQuestion(req.params.id);
+  res.json({ ok: true });
+});
+
+app.delete('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const result = await dbModule.deleteQuizQuestion(req.params.id);
+  if (!result.ok) return res.status(409).json({ error: result.reason });
+  res.json({ ok: true });
+});
+
+app.post('/api/quiz/bank/import-csv', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { csv } = req.body || {};
+  if (!csv) return res.status(400).json({ error: 'CSV-data is verplicht.' });
+  if (csv.length > 500 * 1024) return res.status(400).json({ error: 'CSV te groot (max 500KB).' });
+  const lines = csv.split('\n').map(l => l.trim()).filter(Boolean);
+  // Verwijder header-rij als aanwezig
+  const hasHeader = lines[0]?.toLowerCase().includes('onderwerp') || lines[0]?.toLowerCase().includes('vraag');
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+  const rows = dataLines.map(line => {
+    // CSV-parsing: ondersteuning voor aanhalingstekens
+    const parts = line.match(/(".*?"|[^,]+)(?=,|$)/g)?.map(s => s.replace(/^"|"$/g, '').trim()) || [];
+    return { onderwerp: parts[0], moeilijkheid: parts[1], max_punten: parts[2], vraag: parts[3] };
+  }).filter(r => r.vraag);
+  try {
+    const teacher = await dbModule.getTeacherByUsername(
+      parseBasicAuthHeader(req.headers.authorization)?.username || ''
+    );
+    const result = await dbModule.importQuizQuestionsCSV(rows, teacher?.id || null);
+    res.json({ ok: true, ...result });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── 16b: Toets aanmaken & beheren ────────────────────────────────────────────
+
+app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { name, questions, randomize, timerSeconds, minRunsPerQ,
+          hideQuestionOnScreen, isTeacherPreview, templateCode } = req.body || {};
+  if (!name?.trim()) return res.status(400).json({ error: 'Naam is verplicht.' });
+  if (!questions?.length) return res.status(400).json({ error: 'Selecteer minstens 1 vraag.' });
+  if (questions.length > 50) return res.status(400).json({ error: 'Max 50 vragen per toets.' });
+
+  const code = makeCode();
+  const session = {
+    code, id: crypto.randomUUID(), name: name.trim(), mode: 'quiz',
+    editorAssist: false, createdAt: Date.now(),
+    teacherSocketId: null, selectedStudentId: null,
+    classWorkspaceMode: 'personal', sharedCode: '', sharedOutput: '',
+    announcement: '', students: {},
+    config: {
+      autoIndent: false, autoClosingBrackets: false, autoClosingQuotes: false,
+      quickSuggestions: false, parameterHints: false, errorLineMarking: true,
+    },
+    // Quiz-specifieke velden (in-memory)
+    quizStarted: false, quizPaused: false, quizEnded: false,
+  };
+  sessions.set(code, session);
+
+  try {
+    await dbModule.persistSession(session);
+    await dbModule.createQuizSession({
+      sessionCode: code,
+      questions: questions.map((q, i) => ({
+        bankId: q.id, orderIndex: i,
+        text: q.text, subject: q.subject || '',
+        points: parseInt(q.points) || parseInt(q.max_points) || 4,
+      })),
+      randomize: randomize !== false,
+      // Sprint 17: no_timer = true → geen tijdslimiet (taak zonder deadline)
+      noTimer: noTimer === true,
+      timerSeconds: noTimer ? null : Math.max(60, Math.min(7200, parseInt(timerSeconds) || 2700)),
+      minRunsPerQ: parseInt(minRunsPerQ) || 0,
+      hideQuestionOnScreen: hideQuestionOnScreen === true,
+      isTeacherPreview: isTeacherPreview === true,
+    });
+    res.json({ ok: true, code });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/quiz/:code', requireTeacherAuth, async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const session = sessions.get(code);
+  const meta = await dbModule.getQuizMeta(code);
+  const questions = await dbModule.getQuizQuestions(code);
+  res.json({ session: session ? { code, name: session.name, mode: session.mode } : null, meta, questions });
+});
+
+app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const meta = await dbModule.getQuizMeta(code);
+  const questions = await dbModule.getQuizQuestions(code);
+  const origSession = sessions.get(code) || await dbModule.loadActiveSessions().then(s => s.find(x => x.code === code));
+  if (!meta || !questions.length) return res.status(404).json({ error: 'Toets niet gevonden.' });
+  const newName = (req.body?.name || (origSession?.name || 'Toets') + ' (kopie)').slice(0, 100);
+  // Simuleer de /api/quiz POST maar intern
+  req.body = {
+    name: newName,
+    questions: questions.map(q => ({ id: q.bank_question_id, text: q.text_snapshot, subject: q.subject, points: q.points })),
+    randomize: meta.randomize, timerSeconds: meta.timer_seconds,
+    minRunsPerQ: meta.min_runs_per_q, hideQuestionOnScreen: meta.hide_question_on_screen,
+  };
+  // Roep dezelfde logica aan via directe call
+  const newCode = makeCode();
+  const newSession = {
+    code: newCode, id: crypto.randomUUID(), name: newName, mode: 'quiz',
+    editorAssist: false, createdAt: Date.now(),
+    teacherSocketId: null, selectedStudentId: null,
+    classWorkspaceMode: 'personal', sharedCode: '', sharedOutput: '',
+    announcement: '', students: {},
+    config: { autoIndent: false, autoClosingBrackets: false, autoClosingQuotes: false,
+               quickSuggestions: false, parameterHints: false, errorLineMarking: true },
+    quizStarted: false, quizPaused: false, quizEnded: false,
+  };
+  sessions.set(newCode, newSession);
+  await dbModule.persistSession(newSession);
+  await dbModule.createQuizSession({
+    sessionCode: newCode,
+    questions: questions.map((q, i) => ({
+      bankId: q.bank_question_id, orderIndex: i,
+      text: q.text_snapshot, subject: q.subject, points: q.points,
+    })),
+    randomize: meta.randomize,
+    noTimer: meta.no_timer || false,
+    timerSeconds: meta.timer_seconds,
+    minRunsPerQ: meta.min_runs_per_q,
+    hideQuestionOnScreen: meta.hide_question_on_screen,
+    isTeacherPreview: false,
+    schoolYear: meta.school_year || '',
+    targetClass: meta.target_class || '',
+  });
+  res.json({ ok: true, code: newCode });
+});
+
+// ── 16b: Toets pauzeren ──────────────────────────────────────────────────────
+
+app.post('/api/quiz/:code/pause', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const session = sessions.get(req.params.code.toUpperCase());
+  if (!session || session.mode !== 'quiz') return res.status(404).json({ error: 'Niet gevonden.' });
+  session.quizPaused = !session.quizPaused;
+  io.to(session.code).emit('quiz_paused', { paused: session.quizPaused });
+  res.json({ ok: true, paused: session.quizPaused });
+});
+
+// ── 16d: Verbetermodule ───────────────────────────────────────────────────────
+
+app.get('/api/quiz/:code/answers', requireTeacherAuth, async (req, res) => {
+  try { res.json(await dbModule.getQuizAnswers(req.params.code.toUpperCase())); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/quiz/:code/answers/:studentId', requireTeacherAuth, async (req, res) => {
+  try {
+    const answers = await dbModule.getQuizAnswersByStudent(
+      req.params.code.toUpperCase(), req.params.studentId
+    );
+    const comment = await dbModule.getQuizGeneralComment(
+      req.params.code.toUpperCase(), req.params.studentId
+    );
+    res.json({ answers, generalComment: comment });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/quiz/:code/run-history/:studentId/:questionId', requireTeacherAuth, async (req, res) => {
+  try {
+    res.json(await dbModule.getQuizRunHistory(
+      req.params.code.toUpperCase(), req.params.studentId, req.params.questionId
+    ));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/quiz/:code/answers/:answerId/score', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { score, teacherComment } = req.body || {};
+  await dbModule.scoreQuizAnswer(req.params.answerId,
+    score !== undefined ? parseInt(score) : null,
+    String(teacherComment || '').slice(0, 1000)
+  );
+  res.json({ ok: true });
+});
+
+app.put('/api/quiz/:code/general-comment/:studentId', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { comment } = req.body || {};
+  await dbModule.saveQuizGeneralComment(
+    req.params.code.toUpperCase(), req.params.studentId,
+    String(comment || '').slice(0, 2000)
+  );
+  res.json({ ok: true });
+});
+
+app.post('/api/quiz/:code/release', requireTeacherAuth, requireCsrf, async (req, res) => {
+  await dbModule.releaseQuizResults(req.params.code.toUpperCase());
+  const session = sessions.get(req.params.code.toUpperCase());
+  if (session) io.to(session.code).emit('quiz_results_released');
+  res.json({ ok: true });
+});
+
+app.get('/api/quiz/:code/similarity', requireTeacherAuth, async (req, res) => {
+  try {
+    const answers = await dbModule.getQuizAnswers(req.params.code.toUpperCase());
+    // Bereken Levenshtein-gelijkenis per vraag
+    function levenshtein(a, b) {
+      const m = a.length, n = b.length;
+      const d = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+      for (let j = 0; j <= n; j++) d[0][j] = j;
+      for (let i = 1; i <= m; i++)
+        for (let j = 1; j <= n; j++)
+          d[i][j] = a[i-1] === b[j-1] ? d[i-1][j-1]
+            : 1 + Math.min(d[i-1][j], d[i][j-1], d[i-1][j-1]);
+      return d[m][n];
+    }
+    function similarity(a, b) {
+      if (!a && !b) return 0;
+      const maxLen = Math.max(a.length, b.length);
+      if (maxLen === 0) return 100;
+      return Math.round((1 - levenshtein(a, b) / maxLen) * 100);
+    }
+    // Groepeer per vraag
+    const byQuestion = {};
+    for (const a of answers) {
+      if (!byQuestion[a.question_id]) byQuestion[a.question_id] = [];
+      byQuestion[a.question_id].push(a);
+    }
+    const results = [];
+    for (const [qid, qAnswers] of Object.entries(byQuestion)) {
+      for (let i = 0; i < qAnswers.length; i++) {
+        for (let j = i + 1; j < qAnswers.length; j++) {
+          const pct = similarity(qAnswers[i].code || '', qAnswers[j].code || '');
+          if (pct >= 80 && (qAnswers[i].code || '').length > 20) {
+            results.push({
+              questionId: qid, questionText: qAnswers[i].text_snapshot?.slice(0, 60),
+              student1: { id: qAnswers[i].student_id, name: qAnswers[i].student_name },
+              student2: { id: qAnswers[j].student_id, name: qAnswers[j].student_name },
+              similarity: pct,
+            });
+          }
+        }
+      }
+    }
+    res.json(results.sort((a, b) => b.similarity - a.similarity));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── 16d: Commentaar templates ─────────────────────────────────────────────────
+
+app.get('/api/quiz/comment-templates', requireTeacherAuth, async (req, res) => {
+  const teacher = await dbModule.getTeacherByUsername(
+    parseBasicAuthHeader(req.headers.authorization)?.username || ''
+  );
+  res.json(await dbModule.listQuizCommentTemplates(teacher?.id));
+});
+
+app.post('/api/quiz/comment-templates', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { text } = req.body || {};
+  if (!text?.trim()) return res.status(400).json({ error: 'Tekst is verplicht.' });
+  const teacher = await dbModule.getTeacherByUsername(
+    parseBasicAuthHeader(req.headers.authorization)?.username || ''
+  );
+  const id = await dbModule.createQuizCommentTemplate(text.slice(0, 500), teacher?.id);
+  res.json({ ok: true, id });
+});
+
+app.delete('/api/quiz/comment-templates/:id', requireTeacherAuth, requireCsrf, async (req, res) => {
+  await dbModule.deleteQuizCommentTemplate(req.params.id);
+  res.json({ ok: true });
+});
+
+// ── 16e: PDF export (pdfkit) ─────────────────────────────────────────────────
+
+function getSchoolName() { return process.env.SCHOOL_NAME || 'PyCodeFlow'; }
+
+async function generateQuizPDF(sessionCode, type, studentId = null, scored = false) {
+  // pdfkit laden — bij ontbreken geeft duidelijke fout
+  let PDFDocument;
+  try { PDFDocument = require('pdfkit'); }
+  catch (e) {
+    throw new Error('pdfkit niet geïnstalleerd. Voer "npm install pdfkit" uit in de web map.');
+  }
+
+  const doc = new PDFDocument({ margin: 50, size: 'A4' });
+  const school = getSchoolName();
+  const meta = await dbModule.getQuizMeta(sessionCode);
+  const questions = await dbModule.getQuizQuestions(sessionCode);
+  const sessionInfo = await dbModule.loadActiveSessions().then(ss => ss.find(s => s.code === sessionCode))
+    || { name: sessionCode, code: sessionCode };
+  const now = new Date().toLocaleDateString('nl-BE', { day:'2-digit', month:'2-digit', year:'numeric' });
+
+  // Helper functies
+  function header(title, subtitle = '') {
+    doc.fontSize(14).font('Helvetica-Bold').text(school, { align: 'left' });
+    doc.fontSize(10).font('Helvetica').fillColor('#666').text('PyCodeFlow · Toetsplatform', { align: 'left' });
+    doc.moveDown(0.3);
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#2563eb').lineWidth(2).stroke();
+    doc.moveDown(0.5);
+    doc.fontSize(16).font('Helvetica-Bold').fillColor('#000').text(sessionInfo.name || sessionCode);
+    if (subtitle) doc.fontSize(10).font('Helvetica').fillColor('#666').text(subtitle);
+    doc.moveDown(0.5);
+  }
+
+  function codeBlock(code, y = null) {
+    if (!code?.trim()) {
+      doc.fontSize(9).font('Helvetica-Oblique').fillColor('#999').text('(geen code ingediend)');
+      return;
+    }
+    const lines = code.split('\n');
+    doc.fontSize(9).font('Courier').fillColor('#1e1e1e');
+    const blockX = 60, blockW = 485;
+    const startY = doc.y;
+    doc.rect(blockX - 4, startY - 4, blockW, lines.length * 13 + 12)
+       .fillAndStroke('#f8f9fa', '#d1d5db');
+    doc.fillColor('#1e1e1e');
+    lines.forEach((line, i) => {
+      doc.text(line, blockX, startY + i * 13, { lineBreak: false, width: blockW - 8 });
+    });
+    doc.y = startY + lines.length * 13 + 16;
+    doc.fillColor('#000');
+  }
+
+  function pageNumber() {
+    const range = doc.bufferedPageRange();
+    for (let i = 0; i < range.count; i++) {
+      doc.switchToPage(range.start + i);
+      doc.fontSize(8).fillColor('#999')
+         .text(`Pagina ${i+1} van ${range.count}`, 50, 790, { width: 495, align: 'center' });
+    }
+  }
+
+  // ── Type 1: Vragenblad ──────────────────────────────────────────────────────
+  if (type === 'questions') {
+    const timerMins = Math.round((meta?.timer_seconds || 2700) / 60);
+    header(`Toets: ${sessionInfo.name}`, `${now} · ${timerMins} minuten · ${questions.length} vragen`);
+    doc.fontSize(10).font('Helvetica').text('Naam: ').underpre;
+    doc.moveTo(110, doc.y - 2).lineTo(350, doc.y - 2).strokeColor('#000').lineWidth(0.5).stroke();
+    doc.text('   Klas: ').underpre;
+    doc.moveTo(390, doc.y - 2).lineTo(545, doc.y - 2).strokeColor('#000').lineWidth(0.5).stroke();
+    doc.moveDown(0.8);
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#ccc').lineWidth(0.5).stroke();
+    doc.moveDown(0.8);
+
+    questions.forEach((q, i) => {
+      if (doc.y > 680) doc.addPage();
+      const pts = q.points || 0;
+      doc.fontSize(11).font('Helvetica-Bold')
+         .text(`Vraag ${i+1}`, 50, doc.y, { continued: true })
+         .font('Helvetica').fontSize(9).fillColor('#666')
+         .text(`   ${q.subject || ''}`, { continued: true });
+      doc.text(`/${pts} punten`, { align: 'right' });
+      doc.fillColor('#000').moveDown(0.3);
+      doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#e5e7eb').lineWidth(0.5).stroke();
+      doc.moveDown(0.3);
+      doc.fontSize(10).font('Helvetica').text(q.text_snapshot || q.text || '', { lineGap: 4 });
+      doc.moveDown(0.5);
+      // Witruimte voor notities
+      const spaceY = Math.min(doc.y + 80, 750);
+      doc.rect(50, doc.y, 495, 80).strokeColor('#e5e7eb').lineWidth(0.5).stroke();
+      doc.y = spaceY + 10;
+      doc.moveDown(0.5);
+    });
+  }
+
+  // ── Type 2a/2b: Antwoordformulier ──────────────────────────────────────────
+  else if (type === 'answers') {
+    const processStudent = async (stud) => {
+      const answers = await dbModule.getQuizAnswersByStudent(sessionCode, stud.id);
+      const generalComment = await dbModule.getQuizGeneralComment(sessionCode, stud.id);
+      const orderedAnswers = questions.map(q => answers.find(a => a.question_id === q.id));
+      const totalScore = scored ? answers.reduce((s, a) => s + (a.score || 0), 0) : null;
+      const maxScore = questions.reduce((s, q) => s + (q.points || 0), 0);
+      const sub = answers[0];
+
+      header(
+        `${stud.name} — ${stud.class || ''}`,
+        `${now} · ${scored ? `Score: ${totalScore}/${maxScore} pt · ` : ''}Ingediend: ${sub?.submitted_at ? new Date(sub.submitted_at).toLocaleTimeString('nl-BE',{hour:'2-digit',minute:'2-digit'}) : '—'} ${sub?.auto_submitted ? '(timer)' : ''}`
+      );
+
+      orderedAnswers.forEach((ans, i) => {
+        const q = questions[i];
+        if (doc.y > 650) doc.addPage();
+        doc.fontSize(11).font('Helvetica-Bold')
+           .text(`Vraag ${i+1} — ${q.subject || ''}`, { continued: true });
+        if (scored && ans?.score !== null && ans?.score !== undefined) {
+          doc.font('Helvetica').fontSize(10).fillColor('#2563eb')
+             .text(`   ${ans.score}/${q.points} pt`, { align: 'right' });
+        } else {
+          doc.font('Helvetica').fontSize(10).fillColor('#666')
+             .text(`   ___/${q.points} pt`, { align: 'right' });
+        }
+        doc.fillColor('#000').moveDown(0.2);
+        doc.fontSize(9).font('Helvetica').fillColor('#666').text(q.text_snapshot?.slice(0,100) || '', { lineGap: 2 });
+        doc.fillColor('#000').moveDown(0.3);
+        codeBlock(ans?.code || '');
+        if (scored && ans?.teacher_comment) {
+          doc.fontSize(9).font('Helvetica-Oblique').fillColor('#2563eb')
+             .text('Opmerking: ' + ans.teacher_comment, { lineGap: 2 });
+          doc.fillColor('#000');
+        }
+        doc.moveDown(0.6);
+        doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#e5e7eb').lineWidth(0.5).stroke();
+        doc.moveDown(0.4);
+      });
+
+      if (scored && generalComment) {
+        doc.moveDown(0.5);
+        doc.fontSize(10).font('Helvetica-Bold').text('Algemeen commentaar:');
+        doc.fontSize(10).font('Helvetica').text(generalComment, { lineGap: 3 });
+        doc.moveDown(0.5);
+      }
+
+      // Totaalbalk
+      doc.moveDown(0.5);
+      doc.rect(50, doc.y, 495, 30).fillAndStroke('#f3f4f6', '#d1d5db');
+      doc.fontSize(11).font('Helvetica-Bold').fillColor('#000')
+         .text(`Totaal: ${scored ? totalScore + '/' + maxScore + ' punten' : '___/' + maxScore + ' punten'}   Handtekening: ___________________`, 58, doc.y - 22);
+      doc.y += 16;
+    };
+
+    if (studentId) {
+      const stud = { id: studentId, name: 'Leerling', class: '' };
+      // Haal naam op uit antwoorden
+      const firstAns = await dbModule.getQuizAnswersByStudent(sessionCode, studentId);
+      if (firstAns.length) { stud.name = firstAns[0].student_name; stud.class = firstAns[0].student_class; }
+      await processStudent(stud);
+    } else {
+      // Alle leerlingen
+      const allAnswers = await dbModule.getQuizAnswers(sessionCode);
+      const seen = new Set();
+      const students = allAnswers.filter(a => { if (seen.has(a.student_id)) return false; seen.add(a.student_id); return true; });
+      for (let i = 0; i < students.length; i++) {
+        if (i > 0) doc.addPage();
+        await processStudent({ id: students[i].student_id, name: students[i].student_name, class: students[i].student_class });
+      }
+    }
+  }
+
+  // ── Type 3: Klasoverzicht ───────────────────────────────────────────────────
+  else if (type === 'overview') {
+    const allAnswers = await dbModule.getQuizAnswers(sessionCode);
+    const seen = new Set();
+    const students = allAnswers
+      .filter(a => { if (seen.has(a.student_id)) return false; seen.add(a.student_id); return true; })
+      .map(a => ({ id: a.student_id, name: a.student_name, class: a.student_class }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'nl'));
+    const maxScore = questions.reduce((s, q) => s + q.points, 0);
+
+    header(`Klasoverzicht: ${sessionInfo.name}`, `${now} · ${students.length} leerlingen`);
+
+    // Tabelheader
+    const colW = Math.min(60, Math.floor(350 / questions.length));
+    const nameW = 180;
+    const y0 = doc.y;
+    doc.rect(50, y0, 495, 20).fill('#2563eb');
+    doc.fontSize(8).font('Helvetica-Bold').fillColor('#fff');
+    doc.text('Naam', 54, y0 + 6, { width: nameW, lineBreak: false });
+    questions.forEach((q, i) => {
+      doc.text(`V${i+1}`, 54 + nameW + i * colW, y0 + 6, { width: colW, align: 'center', lineBreak: false });
+    });
+    doc.text('Totaal', 54 + nameW + questions.length * colW, y0 + 6, { width: 60, align: 'right', lineBreak: false });
+    doc.y = y0 + 22;
+
+    let totalScores = [];
+    students.forEach((stud, si) => {
+      const y = doc.y;
+      if (y > 750) { doc.addPage(); }
+      if (si % 2 === 0) doc.rect(50, y, 495, 16).fill('#f9fafb').stroke();
+      doc.fillColor('#000').fontSize(8).font('Helvetica');
+      const studAnswers = allAnswers.filter(a => a.student_id === stud.id);
+      let total = 0;
+      doc.text(stud.name, 54, y + 4, { width: nameW, lineBreak: false });
+      questions.forEach((q, i) => {
+        const ans = studAnswers.find(a => a.question_id === q.id);
+        const s = ans?.score !== null && ans?.score !== undefined ? ans.score : '—';
+        if (typeof s === 'number') total += s;
+        doc.text(String(s), 54 + nameW + i * colW, y + 4, { width: colW, align: 'center', lineBreak: false });
+      });
+      doc.font('Helvetica-Bold').text(total > 0 ? `${total}/${maxScore}` : '—',
+        54 + nameW + questions.length * colW, y + 4, { width: 60, align: 'right', lineBreak: false });
+      totalScores.push(total);
+      doc.y = y + 18;
+    });
+
+    // Gemiddelde
+    const avg = totalScores.filter(s => s > 0).reduce((a,b) => a+b, 0) / (totalScores.filter(s=>s>0).length || 1);
+    doc.moveDown(0.5);
+    doc.fontSize(9).font('Helvetica-Bold').text(`Klasgemiddelde: ${avg.toFixed(1)}/${maxScore} punten`);
+  }
+
+  doc.flushPages();
+  pageNumber();
+  return doc;
+}
+
+app.get('/api/quiz/:code/pdf/questions', requireTeacherAuth, async (req, res) => {
+  try {
+    const doc = await generateQuizPDF(req.params.code.toUpperCase(), 'questions');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="vragenblad-${req.params.code}.pdf"`);
+    doc.pipe(res);
+    doc.end();
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/quiz/:code/pdf/answers/:studentId', requireTeacherAuth, async (req, res) => {
+  try {
+    const scored = req.query.scored === 'true';
+    const doc = await generateQuizPDF(req.params.code.toUpperCase(), 'answers', req.params.studentId, scored);
+    const suffix = scored ? 'met-scores' : 'zonder-scores';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="antwoorden-${req.params.studentId}-${suffix}.pdf"`);
+    doc.pipe(res);
+    doc.end();
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/quiz/:code/pdf/answers', requireTeacherAuth, async (req, res) => {
+  try {
+    const scored = req.query.scored === 'true';
+    const doc = await generateQuizPDF(req.params.code.toUpperCase(), 'answers', null, scored);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="alle-antwoorden-${req.params.code}.pdf"`);
+    doc.pipe(res);
+    doc.end();
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/quiz/:code/pdf/overview', requireTeacherAuth, async (req, res) => {
+  try {
+    const doc = await generateQuizPDF(req.params.code.toUpperCase(), 'overview');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="klasoverzicht-${req.params.code}.pdf"`);
+    doc.pipe(res);
+    doc.end();
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/quiz/:code/export/zip', requireTeacherAuth, async (req, res) => {
+  // ZIP met .py bestanden per leerling
+  const zlib = require('zlib');
+  const code = req.params.code.toUpperCase();
+  const answers = await dbModule.getQuizAnswers(code);
+  const questions = await dbModule.getQuizQuestions(code);
+
+  // Groepeer per leerling
+  const seen = new Set();
+  const students = answers.filter(a => { if (seen.has(a.student_id)) return false; seen.add(a.student_id); return true; });
+
+  // Maak een eenvoudige ZIP (zonder externe library — tar-achtige structuur)
+  // Gebruik zlib voor compressie, maar maak een geldige ZIP via Buffer manipulatie
+  // Simpelere aanpak: stuur alle .py bestanden als één tekst-archief
+  let content = `# PyCodeFlow Toetsexport
+# Sessie: ${code}
+# Geëxporteerd: ${new Date().toISOString()}
+
+`;
+  const safeName = s => s.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+  for (const stud of students) {
+    content += `${'='.repeat(60)}
+# LEERLING: ${stud.student_name} (${stud.student_class || 'geen klas'})
+${'='.repeat(60)}
+
+`;
+    for (const q of questions) {
+      const ans = answers.find(a => a.student_id === stud.student_id && a.question_id === q.id);
+      content += `# --- Vraag ${q.order_index + 1}: ${q.text_snapshot?.slice(0,60) || ''} ---
+`;
+      content += `# Score: ${ans?.score !== null && ans?.score !== undefined ? ans.score + '/' + q.points : 'niet verbeterd'}
+`;
+      if (ans?.teacher_comment) content += `# Opmerking: ${ans.teacher_comment}
+`;
+      content += (ans?.code || '# (geen code ingediend)') + '\n\n';
+    }
+  }
+
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="toets-${code}-export.txt"`);
+  res.send(content);
+});
+
+// ── 17b: Quiz archief endpoints ──────────────────────────────────────────────
+
+app.get('/api/quiz/archive', requireTeacherAuth, async (req, res) => {
+  try {
+    const { year, classId, subject, archived } = req.query;
+    const result = await dbModule.getQuizArchive({
+      year: year || null,
+      classId: classId || null,
+      subject: subject || null,
+      archived: archived === 'true' ? true : archived === 'false' ? false : null,
+    });
+    res.json(result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/quiz/archive/student', requireTeacherAuth, async (req, res) => {
+  const { name, classId, year } = req.query;
+  if (!name) return res.status(400).json({ error: 'name parameter verplicht' });
+  try {
+    res.json(await dbModule.getStudentHistory({ name, classId: classId || null, year: year || null }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/quiz/archive/years', requireTeacherAuth, async (req, res) => {
+  try { res.json(await dbModule.getAvailableYears()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/quiz/:code/stats/detailed', requireTeacherAuth, async (req, res) => {
+  try { res.json(await dbModule.getQuizStatsDetailed(req.params.code.toUpperCase())); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/quiz/:code/archive', requireTeacherAuth, requireCsrf, async (req, res) => {
+  await dbModule.archiveQuiz(req.params.code.toUpperCase());
+  res.json({ ok: true });
+});
+
+app.put('/api/quiz/:code/unarchive', requireTeacherAuth, requireCsrf, async (req, res) => {
+  await dbModule.unarchiveQuiz(req.params.code.toUpperCase());
+  res.json({ ok: true });
+});
+
+app.delete('/api/quiz/:code', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { confirmName } = req.body || {};
+  const code = req.params.code.toUpperCase();
+  const session = sessions.get(code);
+  const sessionName = session?.name || code;
+  // Vereist bevestiging via naam
+  if (!confirmName || confirmName.trim().toLowerCase() !== sessionName.toLowerCase()) {
+    return res.status(400).json({ error: 'Bevestigingsnaam komt niet overeen.' });
+  }
+  await dbModule.deleteQuizFully(code);
+  sessions.delete(code);
+  res.json({ ok: true });
+});
+
+app.put('/api/quiz/new-school-year', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { newYear } = req.body || {};
+  if (!newYear || !/^[0-9]{4}-[0-9]{4}$/.test(newYear)) return res.status(400).json({ error: 'Ongeldig schooljaar formaat (bv. 2026-2027)' });
+  try {
+    // Archiveer alle actieve (niet-gearchiveerde) quiz sessies
+    const archive = await dbModule.getQuizArchive({ archived: false });
+    let archived = 0;
+    for (const q of archive) {
+      await dbModule.archiveQuiz(q.code);
+      archived++;
+    }
+    res.json({ ok: true, archived, newYear });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Route voor quiz-archive.html
+app.get('/quiz-archive.html', requireTeacherAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'quiz-archive.html'));
+});
+
+// ── 17a: Log beheer endpoints ────────────────────────────────────────────────
+
+app.get('/api/admin/logs/info', requireTeacherAuth, (req, res) => {
+  try {
+    const files = fs.readdirSync(LOGS_DIR).filter(f => f.endsWith('.log') && f !== '.gitkeep');
+    const now = Date.now();
+    const cutoff = now - LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    let totalBytes = 0;
+    let oldCount = 0;
+    const fileList = files.map(f => {
+      const fp = path.join(LOGS_DIR, f);
+      const stat = fs.statSync(fp);
+      if (stat.mtimeMs < cutoff) oldCount++;
+      totalBytes += stat.size;
+      return { name: f, size: stat.size, mtime: stat.mtimeMs, old: stat.mtimeMs < cutoff };
+    }).sort((a, b) => b.mtime - a.mtime);
+    res.json({
+      totalFiles: files.length,
+      totalBytes,
+      totalMB: (totalBytes / 1024 / 1024).toFixed(2),
+      oldCount,
+      retentionDays: LOG_RETENTION_DAYS,
+      files: fileList.slice(0, 20), // max 20 tonen
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/logs/cleanup', requireTeacherAuth, requireCsrf, (req, res) => {
+  const removed = cleanOldLogs();
+  res.json({ ok: true, removed });
+});
+
+app.post('/api/admin/logs/cleanup-all', requireTeacherAuth, requireCsrf, (req, res) => {
+  // Verwijder ALLE logbestanden (enkel voor troubleshooting)
+  try {
+    const files = fs.readdirSync(LOGS_DIR).filter(f => f.endsWith('.log') && f !== '.gitkeep');
+    let removed = 0;
+    for (const f of files) {
+      try { fs.unlinkSync(path.join(LOGS_DIR, f)); removed++; } catch {}
+    }
+    console.log(`[logs] Handmatige volledige cleanup: ${removed} bestanden verwijderd`);
+    res.json({ ok: true, removed });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── 16f: Quiz monitoring stats ────────────────────────────────────────────────
+
+app.get('/api/quiz/stats', requireTeacherAuth, async (req, res) => {
+  try { res.json(await dbModule.getQuizStats()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Web-container health check
@@ -598,8 +1657,32 @@ const activeRuns = new Map(); // runId -> routing info
 const runRateLimit = new Map();
 
 // Set van runIds waarvoor de runner momenteel wacht op stdin input
-// Wordt bijgehouden op basis van input_request events uit de runner
 const runnerWaitingForInput = new Set();
+
+// Fix SEC-12: rate limiting op student_join — max 10 join-pogingen per minuut per IP
+const joinRateLimit = new Map(); // ip -> { count, windowStart }
+const JOIN_RATE_WINDOW_MS = 60 * 1000;
+const JOIN_RATE_MAX = 10;
+
+function checkJoinRateLimit(ip) {
+  const now = Date.now();
+  const entry = joinRateLimit.get(ip) || { count: 0, windowStart: now };
+  if (now - entry.windowStart > JOIN_RATE_WINDOW_MS) {
+    entry.count = 0;
+    entry.windowStart = now;
+  }
+  entry.count++;
+  joinRateLimit.set(ip, entry);
+  return entry.count <= JOIN_RATE_MAX;
+}
+
+// Cleanup join rate limit map elke 5 minuten
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, e] of joinRateLimit.entries()) {
+    if (now - e.windowStart > JOIN_RATE_WINDOW_MS * 2) joinRateLimit.delete(ip);
+  }
+}, 5 * 60 * 1000);
 
 // Code snapshot debounce: studentId -> timestamp laatste snapshot
 const snapshotLastSaved = new Map();
@@ -613,7 +1696,7 @@ function maybeSnapshot(session, student, code) {
   if (now - last < SNAPSHOT_INTERVAL_MS) return;
   snapshotLastSaved.set(key, now);
   try {
-    dbModule.saveSnapshot(session.code, student.id, student.name, code || '');
+    dbModule.saveSnapshot(session.code, student.id, student.name, code || '').catch(e => console.error('[db] saveSnapshot:', e.message));
   } catch(e) { /* stil falen */ }
 }
 const RUN_RATE_LIMIT_MS = 3000; // minimale tijd tussen twee runs per socket
@@ -691,9 +1774,9 @@ function nextRevision(current) {
 }
 
 // Laad persistente sessies vanuit SQLite bij opstarten
-(function loadPersistedSessions() {
+(async function loadPersistedSessions() {
   try {
-    const persisted = dbModule.loadActiveSessions();
+    const persisted = await dbModule.loadActiveSessions();
     for (const session of persisted) {
       sessions.set(session.code, session);
     }
@@ -707,10 +1790,12 @@ function nextRevision(current) {
 
 
 function makeCode() {
+  // Fix SEC-1+13: crypto.randomBytes() + 8 tekens (32^8 = ~1 biljoen combinaties)
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
   do {
-    code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+    const bytes = crypto.randomBytes(8);
+    code = Array.from(bytes, b => chars[b % chars.length]).join("");
   } while (sessions.has(code));
   return code;
 }
@@ -741,10 +1826,28 @@ app.get("/api/free-students", requireTeacherAuth, (req, res) => {
   res.json(list);
 });
 
-app.get("/api/sessions", requireTeacherAuth, (req, res) => {
-  const list = [...sessions.values()].filter(s => !s.deleted && !s.closed).map(sessionSummary)
+app.get("/api/sessions", requireTeacherAuth, async (req, res) => {
+  const includeClosed = req.query.includeClosed === 'true';
+  const activeList = [...sessions.values()]
+    .filter(s => !s.deleted && !s.closed)
+    .map(sessionSummary)
     .sort((a,b) => b.createdAt - a.createdAt);
-  res.json(list);
+
+  if (!includeClosed) return res.json(activeList);
+
+  // Sprint 11B: voeg gesloten sessies toe vanuit SQLite
+  const closedList = (await dbModule.loadClosedSessions()).map(s => ({
+    code:        s.code,
+    name:        s.name,
+    mode:        s.mode,
+    createdAt:   s.createdAt,
+    studentCount: s.studentCount,
+    closed:      true,
+    deleted:     s.deleted,
+    editorAssist: s.editorAssist,
+  }));
+
+  res.json([...activeList, ...closedList]);
 });
 
 // ── ZIP Export: alle leerlingencode + output per sessie ───────────────────────
@@ -901,6 +2004,12 @@ function buildTeacherData(session) {
     // Klaar-knop
     isDone:   Boolean(s.isDone),
     doneAt:   s.doneAt || null,
+    // Sprint 13B: badge en klas
+    joinBadge:   s.joinBadge || null,
+    className:   s.className || '',
+    dbStudentId: s.dbStudentId || null,
+    // Sprint 10Q: run-status
+    runStatus: s.runStatus || 'idle',
   }));
   let view = {
     mode: session.mode,
@@ -940,7 +2049,9 @@ function buildTeacherData(session) {
     statusText: session.statusText || "Sessie actief",
     statusType: session.statusType || "info",
     allRunEnabled: getActiveStudents(session).length > 0 && getActiveStudents(session).every(s => s.classCanRun !== false),
-    allCodeEnabled: getActiveStudents(session).length > 0 && getActiveStudents(session).every(s => s.classCanEdit !== false)
+    allCodeEnabled: getActiveStudents(session).length > 0 && getActiveStudents(session).every(s => s.classCanEdit !== false),
+    // Sprint 13A: sessie-config meesturen
+    config: session.config || {},
   };
 }
 
@@ -1281,9 +2392,9 @@ function schedulePersist(session, delayMs = 2000) {
   if (existing) clearTimeout(existing);
   const timer = setTimeout(() => {
     persistTimers.delete(session.code);
-    try { dbModule.persistSession(session); } catch(e) {
+    dbModule.persistSession(session).catch(e => {
       console.error('[db] persistSession fout:', e.message);
-    }
+    });
   }, delayMs);
   persistTimers.set(session.code, timer);
 }
@@ -1292,15 +2403,33 @@ function schedulePersist(session, delayMs = 2000) {
 function persistNow(session) {
   const existing = persistTimers.get(session.code);
   if (existing) { clearTimeout(existing); persistTimers.delete(session.code); }
-  try { dbModule.persistSession(session); } catch(e) {
+  dbModule.persistSession(session).catch(e => {
     console.error('[db] persistNow fout:', e.message);
-  }
+  });
 }
 
 io.on("connection", (socket) => {
+  // Fix SEC-5: genereer unieke CSRF nonce per socket
+  const socketNonce = crypto.randomBytes(16).toString('hex');
+  socketCsrfNonces.set(socket.id, socketNonce);
+  socket.emit('csrf_nonce', { nonce: socketNonce });
+
   socket.on("teacher_create_session", ({ name, mode, editorAssist, templateCode }) => {
     if (!socketIsTeacherAuthorized(socket)) return socket.emit("error_message", "Leerkracht-authenticatie vereist");
     const code = makeCode();
+
+    // Sprint 13A: standaard sessie-config per modus
+    // Examenmodus: editor-hulp standaard uit; leerkracht kan dit per-sessie aanpassen
+    const isExam = mode === 'exam';
+    const defaultConfig = {
+      autoIndent:          !isExam,
+      autoClosingBrackets: !isExam,
+      autoClosingQuotes:   !isExam,
+      quickSuggestions:    !isExam && editorAssist !== false,
+      parameterHints:      !isExam && editorAssist !== false,
+      errorLineMarking:    true,   // altijd aan, niet uitschakelbaar
+    };
+
     // Gebruik het meegegeven template, of de standaard startcode
     const startCode = templateCode
       ? String(templateCode).slice(0, 50000)
@@ -1319,6 +2448,8 @@ io.on("connection", (socket) => {
       sharedOutput: "",
       announcement: "",
       students: {},
+      // Sprint 13A: per-sessie editor configuratie
+      config: defaultConfig,
       closed: false,
       blocked: false,
       deleted: false,
@@ -1336,6 +2467,77 @@ io.on("connection", (socket) => {
     emitTeacherSession(session);
   });
 
+  // Sprint 13C: inline badge beheer — leerkracht aanvaardt/blokkeert leerling vanuit sessie
+  socket.on("teacher_update_student_badge", async ({ studentId, action }) => {
+    if (!socketIsTeacherAuthorized(socket)) return;
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "teacher") return;
+    const session = sessions.get(ctx.code);
+    if (!session) return;
+    const s = session.students[studentId];
+    if (!s) return;
+
+    if (action === 'accept') {
+      // Aanvaarden: pending → active, badge verwijderen
+      s.joinBadge = null;
+      if (s.dbStudentId) {
+        await dbModule.updateStudentStatus(s.dbStudentId, 'active').catch(()=>{});
+      }
+      setStatus(session, `${s.name} aanvaard`, 'success');
+    } else if (action === 'block') {
+      // Blokkeren: geldt bij volgende join, niet live verwijderen
+      s.joinBadge = 'blocked';
+      if (s.dbStudentId) {
+        await dbModule.updateStudentStatus(s.dbStudentId, 'blocked').catch(()=>{});
+      }
+      setStatus(session, `${s.name} geblokkeerd (geldt bij volgende join)`, 'warning');
+    } else if (action === 'assign_class') {
+      // Klas toewijzen — classId meegestuurd als extra veld
+      return; // wordt afgehandeld via teacher_assign_student_class
+    }
+    emitTeacherSession(session);
+  });
+
+  socket.on("teacher_assign_student_class", async ({ studentId, classId }) => {
+    if (!socketIsTeacherAuthorized(socket)) return;
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "teacher") return;
+    const session = sessions.get(ctx.code);
+    if (!session) return;
+    const s = session.students[studentId];
+    if (!s) return;
+    if (s.dbStudentId) {
+      await dbModule.updateStudentClass(s.dbStudentId, classId).catch(()=>{});
+    } else {
+      // Leerling nog niet in DB — aanmaken en koppelen
+      try {
+        const newId = await dbModule.createStudent(s.name, classId, 'manual', 'active');
+        s.dbStudentId = newId;
+      } catch {}
+    }
+    s.joinBadge = null;
+    emitTeacherSession(session);
+    setStatus(session, `${s.name} gekoppeld aan klas`, 'success');
+  });
+
+  // Sprint 13A: leerkracht past sessie-config aan
+  socket.on("teacher_update_session_config", ({ key, value }) => {
+    if (!socketIsTeacherAuthorized(socket)) return;
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "teacher") return;
+    const session = sessions.get(ctx.code);
+    if (!session) return;
+    // Valideer key en value
+    const allowedKeys = ['autoIndent','autoClosingBrackets','autoClosingQuotes','quickSuggestions','parameterHints'];
+    if (!allowedKeys.includes(key)) return;
+    if (typeof value !== 'boolean') return;
+    if (!session.config) session.config = {};
+    session.config[key] = value;
+    // Broadcast naar alle leerlingen in de sessie
+    io.to(session.code).emit('session_config_update', { config: session.config });
+    setStatus(session, `Sessie-instelling bijgewerkt: ${key} = ${value}`, 'info');
+  });
+
   socket.on("teacher_join_session", ({ code }) => {
     if (!socketIsTeacherAuthorized(socket)) return socket.emit("error_message", "Leerkracht-authenticatie vereist");
     const session = sessions.get((code || "").toUpperCase());
@@ -1347,14 +2549,63 @@ io.on("connection", (socket) => {
     emitTeacherSession(session);
   });
 
-  socket.on("student_join", ({ name, code, resumeId }) => {
+  socket.on("student_join", async ({ name, code, className, resumeId }) => {
     const normalizedCode = (code || "").trim().toUpperCase();
-    const normalizedName = String(name || "").trim();
+    // Fix SEC-12: rate limit op join pogingen
+    const joinIp = socket.handshake.headers['x-forwarded-for']?.split(',')[0]?.trim() || socket.handshake.address;
+    if (!checkJoinRateLimit(joinIp)) {
+      return socket.emit('error_message', 'Te veel inlogpogingen. Probeer over een minuut opnieuw.');
+    }
+    const normalizedName = String(name || "").trim().slice(0, 64);
+    const normalizedClass = String(className || "").trim().slice(0, 64);
     const normalizedNameLower = normalizedName.toLowerCase();
     const session = sessions.get(normalizedCode);
     if (!session || session.closed || session.deleted || session.blocked) return socket.emit("error_message", "Sessie niet gevonden of niet bereikbaar");
     if (!normalizedName) return socket.emit("error_message", "Geef eerst je naam in. De placeholder telt niet als naam.");
     if (!normalizedCode) return socket.emit("error_message", "Geef eerst je sessiecode in.");
+
+    // Sprint 13B: duplicaat-detectie binnen dezelfde sessie
+    const activeNames = Object.values(session.students)
+      .filter(s => s.online && !s.removed)
+      .map(s => (s.name || '').toLowerCase());
+    if (!resumeId && activeNames.includes(normalizedNameLower)) {
+      return socket.emit('error_message',
+        `Er is al iemand met de naam "${normalizedName}" in deze sessie. Voeg je initialen of achternaam toe.`);
+    }
+
+    // Sprint 13B: leerling opzoeken in students tabel (async)
+    let studentRecord = null;
+    let joinBadge = null; // null | 'new' | 'pending' | 'guest'
+    try {
+      if (normalizedClass) {
+        // Zoek klas op naam
+        const classes = await dbModule.listClasses(false);
+        const cls = classes.find(c => c.name.toLowerCase() === normalizedClass.toLowerCase());
+        if (cls) {
+          studentRecord = await dbModule.getStudentByName(normalizedName, cls.id);
+          if (studentRecord) {
+            if (studentRecord.status === 'blocked') {
+              return socket.emit('error_message', 'Je hebt geen toegang tot deze sessie.');
+            }
+            joinBadge = studentRecord.status === 'pending' ? 'pending' : null;
+            // Update last_seen
+            dbModule.updateStudentLastSeen(studentRecord.id).catch(()=>{});
+          } else {
+            // Naam niet in klas — aanmaken als pending
+            const newId = await dbModule.createStudent(normalizedName, cls.id, 'manual', 'pending');
+            studentRecord = { id: newId, name: normalizedName, class_id: cls.id, status: 'pending' };
+            joinBadge = 'new';
+          }
+        } else {
+          joinBadge = 'new'; // klas onbekend
+        }
+      } else {
+        joinBadge = 'guest'; // geen klas opgegeven
+      }
+    } catch (e) {
+      console.error('[join] DB fout bij leerling opzoeken:', e.message);
+      // Niet blokkeren bij DB fout — leerling mag toch joinen
+    }
 
     let student = findReusableStudent(session, normalizedName, resumeId);
 
@@ -1374,8 +2625,10 @@ io.on("connection", (socket) => {
     const id = crypto.randomUUID();
     student = {
       id, name: normalizedName || "Leerling", socketId: socket.id,
+      className: normalizedClass || '',       // Sprint 13B: klas opgeslagen
+      joinBadge: joinBadge,                   // Sprint 13B: null|'new'|'pending'|'guest'
+      dbStudentId: studentRecord?.id || null, // Sprint 13B: link naar students tabel
       classCanRun: false, classCanEdit: false,
-      // In examenmodus heeft de leerling altijd volledige persoonlijke run- en bewerkrechten.
       personalCanRun: true, personalCanEdit: true, removed: false,
       code: session.mode === "class" ? session.sharedCode : 'print("Hallo")\n',
       personalCode: '',
@@ -1390,7 +2643,8 @@ io.on("connection", (socket) => {
     resumeRunIfNeeded(student.runId);
     emitStudentState(session, student);
     emitTeacherSession(session);
-    setStatus(session, `${student.name} is gejoined`, "info");
+    const badgeInfo = joinBadge ? ` [${joinBadge}]` : '';
+    setStatus(session, `${student.name} is gejoined${badgeInfo}`, "info");
   });
 
   // ── Vrije sessie ────────────────────────────────────────────────────────────
@@ -1447,6 +2701,10 @@ io.on("connection", (socket) => {
   socket.on("free_run_request", async ({ codeText } = {}) => {
     const ctx = socketToUser.get(socket.id);
     if (!ctx || ctx.role !== "free") return;
+    // Fix SEC-extra: maximale code grootte 32KB
+    if (typeof codeText === 'string' && codeText.length > 32768) {
+      return socket.emit('free_run_end');
+    }
     const student = freeStudents.get(socket.id);
     if (!student) return;
     // Per-socket rate limiting (3s min)
@@ -1710,18 +2968,24 @@ io.on("connection", (socket) => {
     if (!ctx || ctx.role !== "teacher") return;
     const session = sessions.get(ctx.code);
     if (!session) return;
+    // Fix SEC-8: valideer annotatie velden
+    if (typeof message !== 'string' || message.trim().length === 0) return;
+    if (message.length > 500) return socket.emit('error_message', 'Annotatie mag maximaal 500 tekens bevatten.');
+    const safeStart = Math.max(1, Math.min(99999, parseInt(startLine) || 1));
+    const safeEnd   = Math.max(safeStart, Math.min(99999, parseInt(endLine) || safeStart));
+    const safeColor = ['yellow','blue','green','red'].includes(color) ? color : 'yellow';
     const annotation = {
       id: crypto.randomUUID(),
-      startLine: Math.max(1, parseInt(startLine) || 1),
-      endLine:   Math.max(1, parseInt(endLine)   || 1),
-      message:   String(message || '').slice(0, 200),
-      color:     ['yellow','blue','green','red'].includes(color) ? color : 'yellow',
+      startLine: safeStart,   // Fix SEC-8: gebruik gerevalideerde waarden
+      endLine:   safeEnd,
+      message:   String(message || '').trim().slice(0, 500),
+      color:     safeColor,
       createdAt: Date.now(),
     };
     if (!session.annotations) session.annotations = [];
     session.annotations.push(annotation);
     // Persisteer in SQLite
-    dbModule.saveAnnotations(session.code, session.annotations);
+    dbModule.saveAnnotations(session.code, session.annotations).catch(()=>{});
     // Stuur naar alle leerlingen
     for (const s of getActiveStudents(session)) {
       if (s.socketId) io.to(s.socketId).emit('annotation_added', annotation);
@@ -1736,7 +3000,7 @@ io.on("connection", (socket) => {
     if (!session) return;
     session.annotations = [];
     // Persisteer lege array
-    dbModule.saveAnnotations(session.code, []);
+    dbModule.saveAnnotations(session.code, []).catch(()=>{});
     for (const s of getActiveStudents(session)) {
       if (s.socketId) io.to(s.socketId).emit('annotations_cleared');
     }
@@ -2094,7 +3358,7 @@ io.on("connection", (socket) => {
     const session = sessions.get(ctx.code);
     if (!session) return;
     session.deleted = true;
-    dbModule.markSessionDeleted(session.code);
+    dbModule.markSessionDeleted(session.code).catch(()=>{});
     // Sprint 9A: cleanup memory
     if (session.timerInterval) { clearInterval(session.timerInterval); session.timerInterval = null; }
     for (const k of snapshotLastSaved.keys()) {
@@ -2123,7 +3387,7 @@ io.on("connection", (socket) => {
     const session = sessions.get(ctx.code);
     if (!session) return;
     session.closed = true;
-    dbModule.markSessionClosed(session.code);
+    dbModule.markSessionClosed(session.code).catch(()=>{});
     io.to(session.code).emit("force_landing");
     setStatus(session, "Sessie afgesloten", "warning");
     io.emit("sessions_updated"); // Live refresh sessieoverzicht
@@ -2135,6 +3399,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("run_request", async ({ codeText, workspace } = {}) => {
+    // Fix SEC-extra: maximale code grootte 32KB
+    if (typeof codeText === 'string' && codeText.length > 32768) return;
     // Rate limiting: maximaal 1 run per RUN_RATE_LIMIT_MS per socket
     const now = Date.now();
     const lastRun = runRateLimit.get(socket.id) || 0;
@@ -2320,9 +3586,258 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("disconnect", () => {
+  // ══ Sprint 16c: Quiz socket events ══════════════════════════════════════════
+
+  socket.on('quiz_start', async ({ code, name, className }) => {
+    // Leerling drukt op START TOETS — individuele timer begint
+    const normalizedCode = (code || '').trim().toUpperCase();
+    const session = sessions.get(normalizedCode);
+    if (!session || session.mode !== 'quiz') return socket.emit('error_message', 'Toets niet gevonden.');
+    const meta = await dbModule.getQuizMeta(normalizedCode);
+    if (!meta) return socket.emit('error_message', 'Toets-configuratie niet gevonden.');
+
+    const studentName = String(name || '').trim().slice(0, 64);
+    const studentClass = String(className || '').trim().slice(0, 64);
+    if (!studentName) return socket.emit('error_message', 'Naam is verplicht.');
+
+    // Dubbele verbinding detecteren
+    const existing = Object.values(session.students).find(
+      s => s.name.toLowerCase() === studentName.toLowerCase() && s.online && !s.removed
+    );
+    if (existing && existing.socketId !== socket.id) {
+      socket.emit('error_message', `Er is al een verbinding actief voor "${studentName}". Gebruik hetzelfde tabblad.`);
+      if (session.teacherSocketId) {
+        io.to(session.teacherSocketId).emit('quiz_double_connection', { studentName });
+      }
+      return;
+    }
+
+    // Herstarten: bestaande leerling
+    let student = Object.values(session.students).find(
+      s => s.name.toLowerCase() === studentName.toLowerCase() && !s.removed
+    );
+
+    if (!student) {
+      const id = crypto.randomUUID();
+      // Genereer gepersonaliseerde vraagvolgorde
+      const questions = await dbModule.getQuizQuestions(normalizedCode);
+      let orderedIds = questions.map(q => q.id);
+      if (meta.randomize) {
+        // Fisher-Yates shuffle met crypto.randomBytes
+        for (let i = orderedIds.length - 1; i > 0; i--) {
+          const j = crypto.randomBytes(4).readUInt32BE() % (i + 1);
+          [orderedIds[i], orderedIds[j]] = [orderedIds[j], orderedIds[i]];
+        }
+      }
+      await dbModule.saveQuizStudentOrder(normalizedCode, id, orderedIds);
+
+      student = {
+        id, name: studentName, socketId: socket.id,
+        className: studentClass, online: true, removed: false,
+        joinBadge: null, dbStudentId: null,
+        quizStartedAt: Date.now(),
+        quizSubmitted: false,
+        quizAnswers: {}, // { questionId: { code, runCount, firstVisitAt, firstRunAt } }
+        quizCurrentQuestion: 0,
+        quizPersonalOrder: orderedIds,
+        runId: null, runStatus: 'idle',
+      };
+      session.students[id] = student;
+    } else {
+      student.socketId = socket.id;
+      student.online = true;
+      // Herstel opgeslagen antwoorden
+    }
+
+    socket.join(normalizedCode);
+    socketToUser.set(socket.id, { role: 'quiz_student', code: normalizedCode, studentId: student.id });
+
+    // Herstel antwoorden uit DB bij reconnect
+    const savedAnswers = await dbModule.getQuizAnswersByStudent(normalizedCode, student.id);
+    const savedOrder = await dbModule.getQuizStudentOrder(normalizedCode, student.id);
+    const questions = await dbModule.getQuizQuestions(normalizedCode);
+
+    // Stuur quiz state naar leerling
+    socket.emit('quiz_state', {
+      studentId: student.id,
+      studentName: student.name,
+      sessionName: session.name,
+      timerSeconds: meta.timer_seconds,
+      noTimer: meta.no_timer || false,
+      startedAt: student.quizStartedAt,
+      submitted: student.quizSubmitted,
+      paused: session.quizPaused || false,
+      hideQuestionOnScreen: meta.hide_question_on_screen,
+      questions: savedOrder.length > 0
+        ? savedOrder.map(o => questions.find(q => q.id === o.question_id)).filter(Boolean)
+        : questions,
+      savedAnswers: savedAnswers.reduce((acc, a) => {
+        acc[a.question_id] = { code: a.code, runCount: a.run_count };
+        return acc;
+      }, {}),
+      config: session.config || {},
+    });
+
+    // Notificeer leerkracht
+    if (session.teacherSocketId) {
+      io.to(session.teacherSocketId).emit('quiz_student_progress', {
+        studentId: student.id, studentName: student.name,
+        className: student.className,
+        currentQuestion: student.quizCurrentQuestion,
+        totalQuestions: questions.length,
+        savedCount: savedAnswers.length,
+        submitted: student.quizSubmitted,
+        startedAt: student.quizStartedAt,
+      });
+    }
+
+    // Start timer (enkel als er een timer is)
+    if (!student.quizSubmitted && !session.quizPaused && !meta.no_timer && meta.timer_seconds) {
+      startQuizTimer(session, student, meta.timer_seconds);
+    }
+  });
+
+  socket.on('quiz_save_answer', async ({ questionId, code, runCount, firstVisitAt, firstRunAt, currentQuestion }) => {
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== 'quiz_student') return;
+    const session = sessions.get(ctx.code);
+    const student = session?.students[ctx.studentId];
+    if (!student || student.quizSubmitted) return;
+
+    // Sla op in-memory
+    student.quizAnswers[questionId] = { code, runCount, firstVisitAt, firstRunAt };
+    student.quizCurrentQuestion = currentQuestion;
+
+    // Sla op in DB (tussentijdse backup)
+    dbModule.saveQuizAnswer({
+      sessionCode: ctx.code, studentId: ctx.studentId,
+      studentName: student.name, studentClass: student.className || '',
+      questionId, personalOrder: student.quizPersonalOrder?.indexOf(questionId) ?? 0,
+      code, runCount: runCount || 0,
+      firstVisitAt: firstVisitAt || null, firstRunAt: firstRunAt || null,
+    }).catch(e => console.error('[quiz] saveQuizAnswer:', e.message));
+
+    socket.emit('quiz_answer_saved', { questionId });
+
+    // Update leerkracht
+    const questions = await dbModule.getQuizQuestions(ctx.code);
+    if (session.teacherSocketId) {
+      io.to(session.teacherSocketId).emit('quiz_student_progress', {
+        studentId: ctx.studentId, studentName: student.name,
+        className: student.className,
+        currentQuestion, totalQuestions: questions.length,
+        savedCount: Object.keys(student.quizAnswers).length,
+        submitted: false, startedAt: student.quizStartedAt,
+      });
+    }
+  });
+
+  socket.on('quiz_run_completed', async ({ questionId, code }) => {
+    // Run-history bijhouden voor verbetermodule
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== 'quiz_student') return;
+    dbModule.saveQuizRunHistory({
+      sessionCode: ctx.code, studentId: ctx.studentId, questionId, code,
+    }).catch(() => {});
+  });
+
+  socket.on('quiz_submit_all', async ({ answers }) => {
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== 'quiz_student') return;
+    const session = sessions.get(ctx.code);
+    const student = session?.students[ctx.studentId];
+    if (!student || student.quizSubmitted) return;
+
+    student.quizSubmitted = true;
+
+    // Sla alle antwoorden op in DB
+    for (const [questionId, ans] of Object.entries(answers || {})) {
+      await dbModule.saveQuizAnswer({
+        sessionCode: ctx.code, studentId: ctx.studentId,
+        studentName: student.name, studentClass: student.className || '',
+        questionId, personalOrder: student.quizPersonalOrder?.indexOf(questionId) ?? 0,
+        code: ans.code || '', runCount: ans.runCount || 0,
+        firstVisitAt: ans.firstVisitAt || null, firstRunAt: ans.firstRunAt || null,
+      }).catch(() => {});
+    }
+    await dbModule.submitQuizAnswers(ctx.code, ctx.studentId, false).catch(() => {});
+
+    socket.emit('quiz_submitted_ok', {
+      name: student.name,
+      answeredCount: Object.keys(answers || {}).length,
+    });
+
+    // Notificeer leerkracht
+    const questions = await dbModule.getQuizQuestions(ctx.code);
+    if (session.teacherSocketId) {
+      io.to(session.teacherSocketId).emit('quiz_student_progress', {
+        studentId: ctx.studentId, studentName: student.name,
+        className: student.className,
+        currentQuestion: questions.length,
+        totalQuestions: questions.length,
+        savedCount: questions.length,
+        submitted: true, startedAt: student.quizStartedAt,
+      });
+    }
+  });
+
+  socket.on('quiz_teacher_join', async ({ code }) => {
+    // Leerkracht opent quiz-beheer
+    if (!socketIsTeacherAuthorized(socket)) return;
+    const normalizedCode = (code || '').trim().toUpperCase();
+    const session = sessions.get(normalizedCode);
+    if (!session || session.mode !== 'quiz') return socket.emit('error_message', 'Toets niet gevonden.');
+    session.teacherSocketId = socket.id;
+    socket.join(normalizedCode);
+    socketToUser.set(socket.id, { role: 'quiz_teacher', code: normalizedCode });
+
+    const meta = await dbModule.getQuizMeta(normalizedCode);
+    const questions = await dbModule.getQuizQuestions(normalizedCode);
+    const progress = Object.values(session.students)
+      .filter(s => !s.removed)
+      .map(s => ({
+        studentId: s.id, studentName: s.name, className: s.className,
+        currentQuestion: s.quizCurrentQuestion || 0,
+        totalQuestions: questions.length,
+        savedCount: Object.keys(s.quizAnswers || {}).length,
+        submitted: s.quizSubmitted || false,
+        startedAt: s.quizStartedAt || null,
+        online: s.online,
+      }));
+
+    socket.emit('quiz_teacher_state', {
+      sessionCode: normalizedCode, sessionName: session.name,
+      meta, questions, progress, paused: session.quizPaused || false,
+    });
+  });
+
+  socket.on('quiz_reset_student', async ({ studentId }) => {
+    // Leerkracht laat één leerling opnieuw starten
+    if (!socketIsTeacherAuthorized(socket)) return;
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx) return;
+    const session = sessions.get(ctx.code);
+    const student = session?.students[studentId];
+    if (!student) return;
+    student.quizSubmitted = false;
+    student.quizStartedAt = null;
+    student.quizAnswers = {};
+    student.quizCurrentQuestion = 0;
+    // Stuur reset naar leerling als verbonden
+    if (student.socketId) {
+      io.to(student.socketId).emit('quiz_reset');
+    }
+    socket.emit('quiz_student_progress', {
+      studentId, studentName: student.name, className: student.className,
+      currentQuestion: 0, totalQuestions: 0,
+      savedCount: 0, submitted: false, startedAt: null,
+    });
+  });
+
+  socket.on('disconnect', () => {
     const ctx = socketToUser.get(socket.id);
     runRateLimit.delete(socket.id); // cleanup rate limit entry
+    socketCsrfNonces.delete(socket.id); // Fix SEC-5: cleanup CSRF nonce
     if (!ctx) return;
     // Sprint 9B: timer cleanup bij leerkracht disconnect
     if (ctx.role === 'teacher') {
@@ -2385,6 +3900,51 @@ const { EventEmitter } = require('events');
 
 const LOGS_DIR = path.join(__dirname, 'logs');
 if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true });
+
+// ── Sprint 17a: Log rotatie ────────────────────────────────────────────────
+const LOG_RETENTION_DAYS = parseInt(process.env.LOG_RETENTION_DAYS) || 7;
+
+function cleanOldLogs() {
+  try {
+    const cutoff = Date.now() - LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    const files = fs.readdirSync(LOGS_DIR).filter(f => f.endsWith('.log') && f !== '.gitkeep');
+    let removed = 0;
+    for (const f of files) {
+      const fp = path.join(LOGS_DIR, f);
+      try {
+        if (fs.statSync(fp).mtimeMs < cutoff) {
+          fs.unlinkSync(fp);
+          removed++;
+        }
+      } catch { /* bestand al weg */ }
+    }
+    if (removed > 0) {
+      console.log(`[logs] ${removed} logbestand(en) ouder dan ${LOG_RETENTION_DAYS} dagen verwijderd`);
+    }
+    return removed;
+  } catch (e) {
+    console.error('[logs] Cleanup fout:', e.message);
+    return 0;
+  }
+}
+
+// Bij startup direct cleanup uitvoeren
+cleanOldLogs();
+
+// Dagelijks om 03:00 opnieuw uitvoeren
+(function scheduleLogCleanup() {
+  const now = new Date();
+  const next3am = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 3, 0, 0);
+  const msUntil3am = next3am - now;
+  setTimeout(() => {
+    cleanOldLogs();
+    setInterval(cleanOldLogs, 24 * 60 * 60 * 1000);
+  }, msUntil3am);
+  console.log(`[logs] Automatische cleanup gepland om 03:00 (over ${Math.round(msUntil3am/3600000)}u)`);
+})();
+
+// API endpoint voor handmatige log cleanup (via pycodeflow.sh)
+// Wordt verderop geregistreerd als app.post('/api/admin/logs/cleanup', ...)
 
 // Maximaal 1 stresstest tegelijk
 let activeStressTest = null; // { type, startedAt, emitter, stop() }
@@ -2881,7 +4441,7 @@ async function testWebSocketLoad(emitter, logLines, stopped, numClients = 10) {
   const session = sessions.get(testSessionCode);
   if (session) {
     session.deleted = true;
-    dbModule.markSessionDeleted(testSessionCode);
+    await dbModule.markSessionDeleted(testSessionCode);
     sessions.delete(testSessionCode);
   }
 
@@ -2908,7 +4468,7 @@ async function testHttpBenchmark(emitter, logLines, stopped) {
   // Haal een valide cookie op voor geauthenticeerde endpoints
   let authHeader = '';
   if (BASIC_AUTH_ENABLED) {
-    const teachers = dbModule.listTeachers();
+    const teachers = await dbModule.listTeachers();
     if (teachers.length) authHeader = 'Basic ' + Buffer.from('__stresstest__:__na__').toString('base64');
   }
 
@@ -3006,7 +4566,7 @@ async function testRateLimitVerification(emitter, logLines, stopped) {
 
   // Opruimen
   const sess = sessions.get(sessionCode);
-  if (sess) { sess.deleted = true; dbModule.markSessionDeleted(sessionCode); sessions.delete(sessionCode); }
+  if (sess) { sess.deleted = true; dbModule.markSessionDeleted(sessionCode).catch(()=>{}); sessions.delete(sessionCode); }
 
   stressLog(emitter, logLines, testResult ? 'pass' : 'fail',
     testResult ? 'Rate limiting werkt correct — tweede run geblokkeerd' : 'Rate limiting faalde — tweede run werd niet geblokkeerd');
@@ -3245,6 +4805,10 @@ app.get('/api/stress-test/stream', requireTeacherAuth, (req, res) => {
 
 // Start endpoint
 app.post('/api/stress-test/start', requireTeacherAuth, requireCsrf, async (req, res) => {
+  // Fix SEC-10: stresstest enkel in non-productie of als flag gezet
+  if (process.env.STRESS_TEST_ENABLED !== 'true') {
+    return res.status(403).json({ error: 'Stresstest uitgeschakeld. Zet STRESS_TEST_ENABLED=true in .env om te activeren.' });
+  }
   if (activeStressTest) {
     return res.status(409).json({ error: 'Er loopt al een stresstest' });
   }

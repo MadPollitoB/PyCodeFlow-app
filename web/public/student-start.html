@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Leerling starten</title>
-<link rel="stylesheet" href="/styles.css?v=freesession1"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.11.0"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .btn-divider {
@@ -20,7 +20,7 @@
 <div class="topbar"><div class="topbar-inner">
   <div class="logo-group"><img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/><span>PyCodeFlow</span></div>
   <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a></div>
-</div></div>
+<button class="dark-toggle" id="dark-mode-toggle" title="Wissel donker/licht thema">🌙</button></div></div>
 <div class="page">
 
 <div class="card screen" style="max-width:760px; margin:0 auto;">
@@ -33,7 +33,12 @@
     </div>
     <div class="input-group">
       <label for="student-class">Klas</label>
-      <input id="student-class" placeholder="vb.: 3A" autocomplete="off"/>
+      <!-- Sprint 13B: dropdown of tekstveld afhankelijk van beschikbare klassen -->
+      <select id="student-class-select" style="display:none;width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:12px;font-size:1rem;background:var(--surface);color:var(--text);">
+        <option value="">— Geen klas / Gast —</option>
+      </select>
+      <input id="student-class" placeholder="vb.: 3A" autocomplete="off" style="display:none;"/>
+      <span id="student-class-loading" style="color:var(--muted);font-size:0.85rem;">Klassen ophalen...</span>
     </div>
     <div class="input-group" id="code-group">
       <label for="student-code">Sessiecode</label>
@@ -50,4 +55,4 @@
     <div id="student-start-error" class="muted" style="margin-top:12px;"></div>
   </div>
 </div>
-</div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=freesession1"></script></body></html>
+</div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=v2026.2.11.0"></script></body></html>

@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Leerkracht</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.8.2"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.12.0"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .runner-health-bar-track {
@@ -197,9 +197,12 @@
         <button class="btn btn-muted small" id="teacher-clear-snippet-btn" title="Verwijder het code-voorbeeld bij alle leerlingen" style="display:none;">✕ Voorbeeld</button>
         <button class="btn btn-soft small" id="teacher-send-snippet-btn" title="Stuur huidige code als leesvoorbeeld naar alle leerlingen">📎 Voorbeeld</button>
         <button class="btn btn-soft small" id="teacher-annotation-btn" title="Voeg een annotatie toe op een regelbereik">📌 Annoteer</button>
-        <button class="btn btn-muted small" id="teacher-editor-theme-btn" title="Editor thema wisselen (donker/licht)" onclick="toggleEditorTheme('teacher')">☀️</button>
-        <button class="btn btn-muted small" id="teacher-copy-code-btn" title="Kopieer code naar klembord">📋</button>
-        <button class="btn btn-muted small" title="Sneltoetsen (Ctrl+?)" onclick="toggleShortcutsOverlay()">?</button>
+        <button id="teacher-session-config-btn" title="Sessie-instellingen"
+          onclick="document.getElementById('session-config-panel').classList.toggle('hidden')"
+          style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;">⚙️</button>
+        <button id="teacher-editor-theme-btn" title="Editor thema (licht/donker)" onclick="if(window.toggleEditorTheme) toggleEditorTheme('teacher')" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;">☀️</button>
+        <button id="teacher-copy-code-btn" title="Kopieer code" onclick="if(window.copyToClipboard && window.getEditorValue) copyToClipboard(getEditorValue('teacher')||'', this)" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;">📋</button>
+        <button title="Sneltoetsen (Ctrl+?)" onclick="if(window.toggleShortcutsOverlay) toggleShortcutsOverlay()" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;font-weight:bold;">?</button>
         <button class="btn btn-soft small" id="teacher-run-btn">Run</button>
       </div>
       <div id="teacher-code-panel" class="editor-frame-wrap">
@@ -207,9 +210,10 @@
           <div id="teacher-line-numbers" class="custom-gutter"></div>
           <div id="teacher-editor" class="monaco-editor-host"></div>
         </div>
-    <div id="teacher-editor-statusbar" class="editor-statusbar statusbar-dark">
-        <span>Ln 1, Kol 1</span><span>|</span><span>0 regels</span><span>|</span><span>Python</span><span>|</span><span>UTF-8</span><span style="margin-left:auto;">Spaties: 4</span>
-      </div>
+    <div id="teacher-editor-statusbar"
+      style="display:flex;gap:10px;align-items:center;padding:4px 12px;font-size:12px;font-family:Consolas,monospace;background:#007acc;color:#fff;flex-shrink:0;min-height:22px;box-sizing:border-box;">
+      <span id="teacher-sb-pos">Ln 1, Kol 1</span><span>|</span><span id="teacher-sb-lines">0 regels</span><span>|</span><span>Python</span><span>|</span><span>UTF-8</span><span style="margin-left:auto;">Spaties: 4</span>
+    </div>
       </div>
       
       <div style="position:relative;">
@@ -294,6 +298,62 @@
 </div>
 </div>
 <!-- Annotatie panel (floating) -->
+<!-- Sprint 13A: Sessie-instellingen paneel -->
+<div id="session-config-panel" class="hidden" style="position:fixed; top:80px; right:24px; z-index:1001; width:280px; background:var(--surface); border:1.5px solid var(--border); border-radius:18px; box-shadow:var(--shadow); padding:18px 20px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+    <strong style="font-size:0.95rem;">⚙️ Sessie-instellingen</strong>
+    <button onclick="document.getElementById('session-config-panel').classList.add('hidden')" style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:var(--muted);">✕</button>
+  </div>
+  <p style="font-size:0.78rem;color:var(--muted);margin:0 0 12px;">Wijzigingen worden live gesynchroniseerd naar alle leerlingen.</p>
+
+  <div class="config-toggle-row">
+    <label class="config-toggle-label">
+      <span>Auto-indent na <code>:</code></span>
+      <input type="checkbox" id="config-toggle-autoIndent" checked
+        onchange="emitConfigChange('autoIndent', this.checked)">
+    </label>
+  </div>
+  <div class="config-toggle-row">
+    <label class="config-toggle-label">
+      <span>Auto-sluiten haakjes <code>( [ {</code></span>
+      <input type="checkbox" id="config-toggle-autoClosingBrackets" checked
+        onchange="emitConfigChange('autoClosingBrackets', this.checked)">
+    </label>
+  </div>
+  <div class="config-toggle-row">
+    <label class="config-toggle-label">
+      <span>Auto-sluiten aanhalingstekens <code>" '</code></span>
+      <input type="checkbox" id="config-toggle-autoClosingQuotes" checked
+        onchange="emitConfigChange('autoClosingQuotes', this.checked)">
+    </label>
+  </div>
+  <div class="config-toggle-row">
+    <label class="config-toggle-label">
+      <span>Autocomplete suggesties</span>
+      <input type="checkbox" id="config-toggle-quickSuggestions" checked
+        onchange="emitConfigChange('quickSuggestions', this.checked)">
+    </label>
+  </div>
+  <div class="config-toggle-row">
+    <label class="config-toggle-label">
+      <span>Parameter-info tooltip</span>
+      <input type="checkbox" id="config-toggle-parameterHints" checked
+        onchange="emitConfigChange('parameterHints', this.checked)">
+    </label>
+  </div>
+  <div class="config-toggle-row" style="opacity:0.5;" title="Altijd aan — niet uitschakelbaar">
+    <label class="config-toggle-label">
+      <span>Fout-regel markering 🔴</span>
+      <input type="checkbox" checked disabled>
+    </label>
+  </div>
+
+  <p style="font-size:0.72rem;color:var(--muted);margin:12px 0 0;">
+    Standaard: alles <strong>aan</strong> in klasmodus, alles <strong>uit</strong> in examenmodus.
+    Foutmeldingen en Nederlandse uitleg zijn altijd zichtbaar.
+  </p>
+</div>
+
 <div id="teacher-annotation-panel" class="hidden" style="position:fixed; bottom:24px; right:24px; z-index:1000; width:300px; background:var(--surface); border:1.5px solid var(--border); border-radius:18px; box-shadow:var(--shadow); padding:18px 20px;">
   <div style="font-weight:800; font-size:0.95rem; margin-bottom:12px; color:var(--text);">📌 Annotatie toevoegen</div>
   <div style="display:flex; gap:8px; margin-bottom:8px;">
@@ -328,6 +388,7 @@
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
+<script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/app.js?v=v2026.2.8.2"></script>
+<script src="/app.js?v=v2026.2.12.0"></script>
 </body></html>

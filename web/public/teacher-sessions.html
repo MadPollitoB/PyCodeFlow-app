@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Leerkrachtenplatform</title>
-<link rel="stylesheet" href="/styles.css?v=freesession1"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.14.0"/>
 <style>
   .free-session-panel { margin-top: 32px; }
   .free-student-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
@@ -18,7 +18,14 @@
 </head><body>
 <div class="topbar"><div class="topbar-inner">
   <div class="logo-group"><img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/><span>PyCodeFlow</span></div>
-  <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a><a href="/monitoring.html" class="btn btn-soft small">Systeembeheer</a><a href="/api/teacher-logout" class="btn btn-muted small">Afmelden</a></div>
+  <div class="top-actions">
+  <a href="/index.html" class="btn btn-muted small">Home</a>
+  <a href="/quiz-bank.html" class="btn btn-muted small">📋 Vragenbank</a>
+  <a href="/quiz-archive.html" class="btn btn-muted small">📦 Archief</a>
+  <a href="/quiz-teacher.html" class="btn btn-soft small">📝 Nieuwe toets</a>
+  <a href="/monitoring.html" class="btn btn-muted small">Systeembeheer</a>
+  <a href="/api/teacher-logout" class="btn btn-muted small">Afmelden</a>
+</div>
 <button class="dark-toggle" id="dark-mode-toggle" title="Wissel donker/licht thema">🌙</button></div></div>
 <div class="page">
 
@@ -76,8 +83,28 @@
           <button class="btn btn-soft small" id="sessions-refresh-btn" title="Vernieuwen">↻</button>
         </div>
       </div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <button class="btn btn-muted small active-tab" onclick="showTab('sessions',this)">Sessies</button>
+        <button class="btn btn-muted small" onclick="showTab('quizzes',this)">📝 Toetsen</button>
+      </div>
+      <div id="tab-sessions">
       <div class="inline-note">Klik op <strong>Open</strong> om te bewerken, of <strong>Waarnemen</strong> om read-only mee te kijken.</div>
+      <div style="display:flex;align-items:center;gap:12px;margin:12px 0 0;">
+        <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;color:var(--muted);cursor:pointer;">
+          <input type="checkbox" id="show-closed-toggle" style="width:16px;height:16px;">
+          Toon gesloten sessies
+        </label>
+        <span id="autocheck-badge" style="margin-left:auto;font-size:0.82rem;display:none;padding:3px 10px;border-radius:8px;cursor:pointer;" title="Klik om monitoring te openen" onclick="window.open('/monitoring.html','_blank')"></span>
+      </div>
       <div class="session-list" id="session-list"></div>
+      </div><!-- /tab-sessions -->
+      <div id="tab-quizzes" style="display:none;">
+        <div class="inline-note">Toetsen en taken die je hebt aangemaakt.</div>
+        <div id="quiz-list"><p class="muted">Geen toetsen gevonden.</p></div>
+        <div style="margin-top:12px;">
+          <a href="/quiz-teacher.html" class="btn btn-soft small">+ Nieuwe toets aanmaken</a>
+        </div>
+      </div><!-- /tab-quizzes -->
     </div>
   </div>
 
@@ -96,4 +123,4 @@
   </div>
 
 </div>
-</div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=freesession1"></script></body></html>
+</div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=v2026.2.14.0"></script></body></html>

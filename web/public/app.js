@@ -78,7 +78,6 @@
     const editor = editorStore[owner];
     if (!editor) return;
     const monacoTheme = theme === 'light' ? 'vs' : 'pycodeflow-dark';
-    // Enkel die editor-instantie aanpassen
     editor.updateOptions({ theme: monacoTheme });
     // Output paneel class
     const panel = qs(`${owner}-output-panel`);
@@ -89,8 +88,24 @@
     // Statusbalk thema
     const statusbar = qs(`${owner}-editor-statusbar`);
     if (statusbar) {
-      statusbar.classList.toggle('statusbar-light', theme === 'light');
-      statusbar.classList.toggle('statusbar-dark',  theme !== 'light');
+      statusbar.style.background = theme === 'light' ? '#f3f3f3' : '#007acc';
+      statusbar.style.color      = theme === 'light' ? '#555'    : '#fff';
+    }
+    // Sprint 11A: gutter thema — CSS variabelen op de editor-frame-wrap
+    const frameWrap = qs(`${owner}-code-panel`);
+    if (frameWrap) {
+      frameWrap.classList.toggle('editor-theme-light', theme === 'light');
+      frameWrap.classList.toggle('editor-theme-dark',  theme !== 'light');
+    }
+    // Gutter direct updaten
+    const gutter = qs(`${owner}-line-numbers`);
+    if (gutter) {
+      gutter.style.background = theme === 'light' ? '#e8edf5' : '#1f2f57';
+      gutter.style.color      = theme === 'light' ? '#4a5568' : '#9fb3c8';
+      // Monaco gutter background ook aanpassen
+      editor.updateOptions({
+        theme: monacoTheme,
+      });
     }
     // Toggle knop icoon
     const btn = qs(`${owner}-editor-theme-btn`);
@@ -106,18 +121,25 @@
 
   // Statusbalk updaten op basis van cursor-positie
   function updateStatusbar(owner, editor, isTeacherOrFree) {
-    const bar = qs(`${owner}-editor-statusbar`);
-    if (!bar) return;
     const pos = editor.getPosition();
     const model = editor.getModel();
     if (!pos || !model) return;
     const ln = pos.lineNumber;
     const col = pos.column;
     const lines = model.getLineCount();
-    if (isTeacherOrFree) {
-      bar.innerHTML = `<span>Ln ${ln}, Kol ${col}</span><span>|</span><span>${lines} regels</span><span>|</span><span>Python</span><span>|</span><span>UTF-8</span><span style="margin-left:auto;">Spaties: 4</span>`;
-    } else {
-      bar.innerHTML = `<span>Ln ${ln}, Kol ${col}</span><span>|</span><span>${lines} regels</span>`;
+    // Update via directe span IDs (inline styled, altijd zichtbaar)
+    const posEl = document.getElementById(`${owner}-sb-pos`);
+    const linesEl = document.getElementById(`${owner}-sb-lines`);
+    if (posEl) posEl.textContent = `Ln ${ln}, Kol ${col}`;
+    if (linesEl) linesEl.textContent = `${lines} regels`;
+    // Fallback: update hele balk als spans niet bestaan
+    const bar = qs(`${owner}-editor-statusbar`);
+    if (bar && !posEl) {
+      if (isTeacherOrFree) {
+        bar.innerHTML = `<span>Ln ${ln}, Kol ${col}</span><span>|</span><span>${lines} regels</span><span>|</span><span>Python</span><span>|</span><span>UTF-8</span><span style="margin-left:auto;">Spaties: 4</span>`;
+      } else {
+        bar.innerHTML = `<span>Ln ${ln}, Kol ${col}</span><span>|</span><span>${lines} regels</span>`;
+      }
     }
   }
 
@@ -193,6 +215,31 @@
     try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; } catch { return fallback; }
   }
   function go(url) { location.href = url; }
+
+  // Sprint 13A: sessie-config paneel updaten op basis van ontvangen config
+  function updateSessionConfigPanel(config) {
+    const keys = ['autoIndent','autoClosingBrackets','autoClosingQuotes','quickSuggestions','parameterHints'];
+    keys.forEach(key => {
+      const toggle = document.getElementById(`config-toggle-${key}`);
+      if (toggle) {
+        toggle.checked = config[key] ?? true;
+        toggle.dataset.value = String(config[key] ?? true);
+      }
+    });
+  }
+
+  // Sprint 13A: stuur config wijziging naar server
+  function emitConfigChange(key, value) {
+    socket.emit('teacher_update_session_config', { key, value });
+  }
+
+  // Sprint 13C: inline badge acties
+  window._teacherBadgeAction = function(studentId, action) {
+    socket.emit('teacher_update_student_badge', { studentId, action });
+  };
+  window._teacherAssignClass = function(studentId, classId) {
+    socket.emit('teacher_assign_student_class', { studentId, classId });
+  };
 
   // Sprint 10M: kopieer naar klembord met feedback
   function copyToClipboard(text, btnEl) {
@@ -436,7 +483,18 @@
     if (indicator) indicator.style.display = 'none';
   }
 
-  function monacoOptions(assist, readOnly = false) {
+  // Sprint 13A: actieve sessie-config (ontvangen van server)
+  let _sessionConfig = {};
+
+  function monacoOptions(assist, readOnly = false, config = {}) {
+    // config overschrijft standaard assist-gebaseerde opties
+    // Lege config = normale modus (alles op basis van assist)
+    const autoIndent          = config.autoIndent          ?? true;
+    const autoClosingBrackets = config.autoClosingBrackets ?? true;
+    const autoClosingQuotes   = config.autoClosingQuotes   ?? true;
+    const quickSuggs          = config.quickSuggestions    ?? assist;
+    const paramHints          = config.parameterHints      ?? assist;
+
     return {
       language: 'python',
       theme: _editorTheme === 'light' ? 'vs' : 'pycodeflow-dark',
@@ -462,18 +520,18 @@
       roundedSelection: false,
       scrollBeyondLastLine: false,
       readOnly,
-      quickSuggestions: assist,
-      suggestOnTriggerCharacters: assist,
-      wordBasedSuggestions: assist ? 'currentDocument' : 'off',
-      snippetSuggestions: assist ? 'inline' : 'none',
-      parameterHints: { enabled: assist },
-      tabCompletion: assist ? 'on' : 'off',
-      acceptSuggestionOnEnter: assist ? 'on' : 'off',
-      // Sprint 10F: auto-indent en haakjes sluiten
-      autoIndent: 'full',
-      autoClosingBrackets: 'always',
-      autoClosingQuotes: 'always',
-      // Sprint 10G: PEP8 regellengte indicator (enkel voor leerkracht/vrij via rulers optie)
+      // Suggesties — config.quickSuggestions overschrijft assist
+      quickSuggestions:           quickSuggs,
+      suggestOnTriggerCharacters: quickSuggs,
+      wordBasedSuggestions:       quickSuggs ? 'currentDocument' : 'off',
+      snippetSuggestions:         quickSuggs ? 'inline' : 'none',
+      parameterHints:             { enabled: paramHints },
+      tabCompletion:              quickSuggs ? 'on' : 'off',
+      acceptSuggestionOnEnter:    quickSuggs ? 'on' : 'off',
+      // Auto-indent en haakjes — per-sessie instelbaar
+      autoIndent:          autoIndent          ? 'full'   : 'none',
+      autoClosingBrackets: autoClosingBrackets ? 'always' : 'never',
+      autoClosingQuotes:   autoClosingQuotes   ? 'always' : 'never',
       rulers: [],
     };
   }
@@ -505,8 +563,13 @@
     if (window.monaco && window.monaco.editor) return Promise.resolve(window.monaco);
     return new Promise((resolve, reject) => {
       if (!window.require) return reject(new Error('Monaco loader niet gevonden'));
+      // Sprint 12a-D: MonacoEnvironment geconfigureerd via monaco-env.js
+      // Workers laden via blob: URLs — geen unsafe-eval meer nodig in CSP
       window.require.config({ paths: { vs: '/monaco/min/vs' } });
-      window.require(['vs/editor/editor.main'], () => resolve(window.monaco), reject);
+      window.require(['vs/editor/editor.main'], () => {
+        if (!window.monaco) return reject(new Error('Monaco niet geladen'));
+        resolve(window.monaco);
+      }, reject);
     });
   }
 
@@ -568,10 +631,12 @@
     return editorStore[owner];
   }
 
-  function updateEditorConfig(owner, { assist, readOnly }) {
+  function updateEditorConfig(owner, { assist, readOnly, config = null }) {
     const editor = editorStore[owner];
     if (!editor) return;
-    editor.updateOptions(monacoOptions(assist, readOnly));
+    // Gebruik config als meegegeven, anders de globale _sessionConfig (voor student-editor)
+    const effectiveConfig = config || (owner === 'student' ? _sessionConfig : {});
+    editor.updateOptions(monacoOptions(assist, readOnly, effectiveConfig));
     layoutEditor(owner);
     renderCustomGutter(owner);
   }
@@ -687,14 +752,16 @@
     await loadSessions();
   }
 
-  function renderSessions(list) {
+  function renderSessions(list, showClosed = false) {
     const host = qs('session-list');
     if (!host) return;
-    if (!list.length) {
+    const activeList = list.filter(s => !s.closed);
+    const closedList = list.filter(s => s.closed);
+    if (!activeList.length && !closedList.length) {
       host.innerHTML = `<div class="student-item"><strong>Nog geen lopende sessies</strong><div class="muted">Maak eerst een sessie aan.</div></div>`;
       return;
     }
-    host.innerHTML = list.map(s => `
+    host.innerHTML = activeList.map(s => `
       <div class="session-row">
         <div class="session-row-main">
           <div class="session-title-row">
@@ -731,6 +798,27 @@
     host.querySelectorAll('[data-delete-session]').forEach(btn => btn.addEventListener('click', async () => {
       await deleteSession(btn.dataset.deleteSession);
     }));
+    // Sprint 11B: gesloten sessies onderaan, grijs, enkel Export knop
+    if (showClosed && closedList.length) {
+      const closedHtml = '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);"><p class="muted" style="font-size:0.82rem;margin-bottom:8px;">🔒 Gesloten sessies</p>' +
+        closedList.map(s => `
+          <div class="session-row" style="opacity:0.6;background:var(--surface-soft);">
+            <div class="session-row-main">
+              <div class="session-title-row">
+                <strong class="session-title">${escapeHtml(s.name || s.code)}</strong>
+                <span class="badge">${s.mode === 'exam' ? 'Examen' : 'Klas'} · Gesloten</span>
+              </div>
+              <div class="session-meta-grid">
+                <div><span class="session-meta-label">Code</span><span class="session-meta-value">${s.code}</span></div>
+                <div><span class="session-meta-label">Datum</span><span class="session-meta-value">${new Date(s.createdAt).toLocaleString('nl-BE',{dateStyle:'short',timeStyle:'short'})}</span></div>
+              </div>
+            </div>
+            <div class="session-row-actions">
+              <a class="btn btn-muted small" href="/api/sessions/${encodeURIComponent(s.code)}/export" target="_blank">⬇ Export</a>
+            </div>
+          </div>`).join('') + '</div>';
+      host.innerHTML += closedHtml;
+    }
   }
 
   // ── Code history playback ──────────────────────────────────────────────────
@@ -869,12 +957,27 @@
         'idle':          '',
       }[s.runStatus || 'idle'] || '';
 
+      // Sprint 13B+C: join badge met inline acties
+      const badgeHtml = {
+        'new':     `<span class="join-badge join-badge-new" title="Onbekende leerling">⚠️ Nieuw</span>
+                    <button class="btn-badge-action" onclick="window._teacherBadgeAction('${s.id}','accept')" title="Aanvaarden">✓</button>
+                    <select class="badge-class-select" onchange="if(this.value) window._teacherAssignClass('${s.id}',this.value)" style="font-size:0.75rem;padding:2px 4px;border-radius:6px;border:1px solid var(--border);">
+                      <option value="">→ Klas</option>
+                      ${(window._classesList||[]).map(cl => `<option value="${cl.id}">${escapeHtml(cl.name)}</option>`).join('')}
+                    </select>`,
+        'pending': `<span class="join-badge join-badge-pending" title="In afwachting van bevestiging">⏳ Afwachting</span>
+                    <button class="btn-badge-action" onclick="window._teacherBadgeAction('${s.id}','accept')" title="Aanvaarden">✓</button>`,
+        'guest':   `<span class="join-badge join-badge-guest" title="Gast — geen klas">👤 Gast</span>`,
+        'blocked': `<span class="join-badge join-badge-blocked" title="Geblokkeerd">✕ Geblokkeerd</span>`,
+      }[s.joinBadge] || '';
+
       return `
       <div class="student-item${isExamMode && s.tabHidden ? ' student-item-alert' : ''}${s.handRaised ? ' student-item-hand' : ''}">
         <div class="student-head">
           <div>
             <strong>${escapeHtml(s.name)}</strong> ${runStatusIcon}
             ${doneBadge}${handBadge}${tabBadge}
+            ${badgeHtml}
             <br/><span class="muted">${s.online ? 'online' : 'offline'}</span>
           </div>
         </div>
@@ -1010,12 +1113,13 @@
     });
   }
 
-  async function loadSessions() {
+  async function loadSessions(includeClosed = false) {
     try {
-      const r = await fetch('/api/sessions');
+      const url = includeClosed ? '/api/sessions?includeClosed=true' : '/api/sessions';
+      const r = await fetch(url);
       if (!r.ok) return;
-      renderSessions(await r.json());
-      // Update timestamp
+      const sessions = await r.json();
+      renderSessions(sessions, includeClosed);
       const ts = qs('sessions-last-updated');
       if (ts) ts.textContent = new Date().toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     } catch(e) { /* stil falen */ }
@@ -1026,7 +1130,92 @@
     qs('go-teacher-sessions')?.addEventListener('click', () => go('/teacher-sessions.html'));
   }
 
+  // Sprint 16: tab switcher voor teacher-sessions
+  window.showTab = function(name, btn) {
+    document.getElementById('tab-sessions').style.display = name === 'sessions' ? '' : 'none';
+    const quizDiv = document.getElementById('tab-quizzes');
+    if (quizDiv) quizDiv.style.display = name === 'quizzes' ? '' : 'none';
+    document.querySelectorAll('.active-tab').forEach(b => b.classList.remove('active-tab'));
+    if (btn) btn.classList.add('active-tab');
+    if (name === 'quizzes') loadQuizSessions();
+  };
+
+  async function loadQuizSessions() {
+    try {
+      // Haal sessies op en filter op mode='quiz'
+      const r = await fetch('/api/sessions?includeClosed=true');
+      if (!r.ok) return;
+      const sessions = await r.json();
+      const quizzes = sessions.filter(s => s.mode === 'quiz');
+      const el = document.getElementById('quiz-list');
+      if (!el) return;
+      if (!quizzes.length) {
+        el.innerHTML = '<p class="muted">Nog geen toetsen aangemaakt. Klik op "+ Nieuwe toets aanmaken".</p>';
+        return;
+      }
+      el.innerHTML = quizzes.map(q => `
+        <div class="student-item" style="margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <div>
+              <strong>${escapeHtml(q.name || q.code)}</strong>
+              <span class="badge" style="margin-left:6px;">Toets</span>
+              ${q.closed ? '<span class="badge" style="background:#fee2e2;color:#991b1b;margin-left:4px;">Gesloten</span>' : ''}
+            </div>
+            <div class="muted" style="font-size:0.82rem;margin-left:auto;">
+              Code: <strong>${q.code}</strong> ·
+              ${new Date(q.createdAt).toLocaleDateString('nl-BE',{day:'2-digit',month:'2-digit',year:'numeric'})}
+            </div>
+            <div style="display:flex;gap:6px;">
+              <a class="btn btn-muted small" href="/quiz-review.html?code=${q.code}">✏️ Verbeteren</a>
+              <button class="btn btn-muted small" onclick="duplicateQuiz('${q.code}')">📋 Dupliceren</button>
+            </div>
+          </div>
+        </div>`).join('');
+    } catch {}
+  }
+
+  window.duplicateQuiz = async function(code) {
+    const name = prompt('Naam voor de kopie:', '');
+    if (name === null) return;
+    const r = await fetch('/api/quiz/' + code + '/duplicate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name: name || undefined }),
+    });
+    const data = await r.json();
+    if (data.ok) { alert('Toets gekopieerd! Nieuwe code: ' + data.code); loadQuizSessions(); }
+    else alert('Fout: ' + data.error);
+  };
+
   if (page === 'teacher-sessions.html') {
+    // Sprint 11B: toggle gesloten sessies
+    const closedToggle = document.getElementById('show-closed-toggle');
+    if (closedToggle) {
+      closedToggle.addEventListener('change', () => loadSessions(closedToggle.checked));
+    }
+
+    // Sprint 11E: autocheck badge ophalen
+    async function loadAutocheckBadge() {
+      try {
+        const r = await apiFetch('/api/stress-test/autocheck-status');
+        if (!r.ok) return;
+        const { lastAutocheck } = await r.json();
+        const badge = document.getElementById('autocheck-badge');
+        if (!badge || !lastAutocheck) return;
+        const ts = new Date(lastAutocheck.timestamp).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' });
+        badge.style.display = 'inline-block';
+        if (lastAutocheck.ok) {
+          badge.style.background = '#d1fae5';
+          badge.style.color = '#065f46';
+          badge.textContent = `✅ Systeemcheck OK · ${ts}`;
+        } else {
+          badge.style.background = '#fee2e2';
+          badge.style.color = '#991b1b';
+          badge.textContent = `❌ Systeemcheck gefaald · ${ts}`;
+        }
+      } catch {}
+    }
+    loadAutocheckBadge();
+    setInterval(loadAutocheckBadge, 5 * 60 * 1000); // elke 5 min bijwerken
     loadSessions();
     loadTemplates();
     const checkbox = qs('editor-assist-enabled');
@@ -1082,6 +1271,39 @@
   }
 
   if (page === 'student-start.html') {
+    // Sprint 13B: klas-dropdown initialiseren
+    (async () => {
+      const loading = document.getElementById('student-class-loading');
+      const selectEl = document.getElementById('student-class-select');
+      const inputEl  = document.getElementById('student-class');
+      try {
+        const r = await fetch('/api/classes');
+        const classes = await r.json();
+        if (loading) loading.style.display = 'none';
+        if (classes.length > 0) {
+          // Dropdown beschikbaar
+          classes.forEach(cls => {
+            const opt = document.createElement('option');
+            opt.value = cls.name;
+            opt.textContent = cls.name;
+            selectEl?.appendChild(opt);
+          });
+          if (selectEl) selectEl.style.display = '';
+          // Herstel vorige keuze
+          const saved = localStorage.getItem('pycodeflow_student_class');
+          if (saved && selectEl) {
+            const match = [...selectEl.options].find(o => o.value === saved);
+            if (match) selectEl.value = saved;
+          }
+        } else {
+          // Geen klassen — gebruik vrij tekstveld
+          if (inputEl) inputEl.style.display = '';
+        }
+      } catch {
+        if (loading) loading.style.display = 'none';
+        if (inputEl) inputEl.style.display = ''; // fallback bij API fout
+      }
+    })();
     const nameInput = qs('student-name');
     const codeInput = qs('student-code');
     if (nameInput) {
@@ -1096,6 +1318,11 @@
     const submitStudentJoin = () => {
       const name = normalizeStudentFieldValue(qs('student-name')?.value, 'name');
       const code = normalizeStudentFieldValue(qs('student-code')?.value, 'code');
+      // Sprint 13B: klas ophalen uit dropdown of vrij tekstveld
+      const selectEl = document.getElementById('student-class-select');
+      const inputEl  = document.getElementById('student-class');
+      const className = ((selectEl?.style.display !== 'none' ? selectEl?.value : inputEl?.value) || '').trim();
+      if (className) localStorage.setItem('pycodeflow_student_class', className);
       const errorEl = qs('student-start-error');
       if (!name) {
         if (errorEl) errorEl.textContent = 'Geef eerst je naam in. De placeholder telt niet als naam.';
@@ -1108,7 +1335,7 @@
         return;
       }
       if (errorEl) errorEl.textContent = '';
-      socket.emit('student_join', { name, code });
+      socket.emit('student_join', { name, code, className });
     };
 
     qs('student-join-btn')?.addEventListener('click', submitStudentJoin);
@@ -1122,16 +1349,15 @@
     // Vrij oefenen: geen sessiecode nodig, wel naam en klas
     const submitFreeJoin = () => {
       const name = normalizeStudentFieldValue(qs('student-name')?.value, 'name');
-      const className = (qs('student-class')?.value || '').trim();
+      // Sprint 13B: klas uit dropdown of tekstveld
+      const selectEl = document.getElementById('student-class-select');
+      const inputEl  = document.getElementById('student-class');
+      const className = ((selectEl?.style.display !== 'none' ? selectEl?.value : inputEl?.value) || '').trim();
+      if (className) localStorage.setItem('pycodeflow_student_class', className);
       const errorEl = qs('student-start-error');
       if (!name) {
         if (errorEl) errorEl.textContent = 'Geef eerst je naam in.';
         qs('student-name')?.focus();
-        return;
-      }
-      if (!className) {
-        if (errorEl) errorEl.textContent = 'Geef je klas in om vrij te oefenen.';
-        qs('student-class')?.focus();
         return;
       }
       if (errorEl) errorEl.textContent = '';
@@ -1279,7 +1505,11 @@
     });
     socket.on('free_run_queued', ({ position }) => {
       const panel = qs('free-output-panel');
-      if (panel) panel.textContent = `In wachtrij... (positie ${position})`;
+      if (panel) {
+        // Sprint 11D: pulserende animatie + tijdschatting
+        const estSec = (position || 1) * 8; // ~8s per run gemiddeld
+        panel.innerHTML = `<span class="queue-pulse">⏳</span> In wachtrij — positie <strong>${position}</strong> · geschatte wachttijd ~${estSec}s`;
+      }
       setTab('free', 'output');
     });
 
@@ -1537,6 +1767,11 @@
     qs('student-filter-input')?.addEventListener('input', () => {
       if (window._lastTeacherSessionData) renderStudentList(window._lastTeacherSessionData);
     });
+    // Sprint 13B: klassen ophalen voor badge dropdown
+    fetch('/api/classes').then(r => r.json()).then(cls => {
+      window._classesList = cls;
+    }).catch(() => { window._classesList = []; });
+
     // Sprint 10O: statusfilter knoppen
     document.querySelectorAll('[data-status-filter]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1586,7 +1821,9 @@
     setInterval(loadTeacherMonitoring, 3000);
 
     socket.on('teacher_session_data', async data => {
-      window._lastTeacherSessionData = data; // voor filter herrender
+      window._lastTeacherSessionData = data;
+    // Sprint 13A: update sessie-config paneel
+    if (data.config) updateSessionConfigPanel(data.config);
       ['teacher-session-code','teacher-session-code-top'].forEach(id=>{ const el = qs(id); if (el) el.textContent = data.session.code; });
       qs('teacher-session-mode').textContent = data.session.mode === 'exam' ? 'Examenmodus' : 'Klasmodus';
       setAssistBadge(qs('teacher-editor-assist'), data.session.editorAssist);
@@ -1777,7 +2014,9 @@ async function applyStudentEditorFromState() {
   }
 
   await ensureEditor('student', codeText, data.editorAssist, readOnly);
-  updateEditorConfig('student', { assist: data.editorAssist, readOnly });
+  // Sprint 13A: pas sessie-config toe op student editor
+  if (data.config) _sessionConfig = data.config;
+  updateEditorConfig('student', { assist: data.editorAssist, readOnly, config: _sessionConfig });
 
   // In persoonlijke werkruimte (individuele fase of examenmodus): als de leerling een
   // lokale draft heeft, is localPersonalCode de bron van waarheid. Skip setValue dan
@@ -1995,6 +2234,20 @@ async function applyStudentState(data) {
     // Sprint 10U: auto-scroll
     setupAutoScroll('student-output-panel');
 
+    // Sprint 11C: leerling ziet eigen code-history
+    qs('student-history-btn')?.addEventListener('click', async () => {
+      const sid = getLS('studentId');
+      const code = getLS('studentSessionCode');
+      if (!sid || !code) return;
+      try {
+        const r = await fetch(`/api/sessions/${encodeURIComponent(code)}/history/${encodeURIComponent(sid)}`);
+        if (!r.ok) { alert('Geen history beschikbaar.'); return; }
+        const { studentName, snapshots } = await r.json();
+        if (!snapshots?.length) { alert('Nog geen snapshots opgeslagen.'); return; }
+        showHistoryPlayback(studentName || 'Jouw code', snapshots);
+      } catch { alert('Kon history niet laden.'); }
+    });
+
     // Sprint 10S: naam wijzigen
     window._changeStudentName = () => {
       const badge = qs('student-name-badge');
@@ -2106,6 +2359,14 @@ async function applyStudentState(data) {
     // runtime_input_echo: echo zit nu in server-side outputAccum
     socket.on('runtime_input_echo', () => { /* echo verwerkt via run_output */ });
 
+    // Sprint 13A: sessie-config live bijwerken
+    socket.on('session_config_update', ({ config }) => {
+      _sessionConfig = config || {};
+      // Pas editor config toe met nieuwe instellingen
+      const assist = document.getElementById('student-editor-assist')?.dataset?.assist !== 'false';
+      updateEditorConfig('student', { assist, readOnly: false, config: _sessionConfig });
+    });
+
     socket.on('run_end', ({ audience, reason }) => {
       if (audience === 'student' || audience === 'teacher-all') {
         disableInput('student');
@@ -2153,6 +2414,11 @@ async function applyStudentState(data) {
     socket.on('run_queued', ({ position, message }) => {
       studentWorkspaceState.localOutput = '';
       const panel = qs('student-output-panel');
+      // Sprint 11D: pulserende indicator in student-app
+      if (panel) {
+        const estSec = (position || 1) * 8;
+        panel.innerHTML = `<span class="queue-pulse">⏳</span> In wachtrij — positie <strong>${position}</strong> · geschatte wachttijd ~${estSec}s`;
+      }
       if (panel) panel.textContent = message || '⏳ Wachten op uitvoerslot...';
       setTab('student', 'output');
     });
