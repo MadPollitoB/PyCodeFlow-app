@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="nl" data-theme="light">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>PyCodeFlow — Beheer</title>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.10.0"/>
+  <style>
+    .admin-tabs { display:flex; gap:8px; margin-bottom:24px; border-bottom:2px solid var(--border); padding-bottom:0; }
+    .admin-tab  { padding:10px 20px; cursor:pointer; border:none; background:none; font-weight:700; font-size:0.95rem; color:var(--muted); border-bottom:3px solid transparent; margin-bottom:-2px; }
+    .admin-tab.active { color:var(--primary); border-bottom-color:var(--primary); }
+    .admin-panel { display:none; } .admin-panel.active { display:block; }
+    .admin-table { width:100%; border-collapse:collapse; font-size:0.88rem; margin-top:12px; }
+    .admin-table th { text-align:left; padding:8px 12px; color:var(--muted); font-weight:700; border-bottom:2px solid var(--border); }
+    .admin-table td { padding:8px 12px; border-bottom:1px solid var(--border); vertical-align:middle; }
+    .admin-table tr:hover td { background:var(--surface-soft); }
+    .badge-admin { background:#fef3c7; color:#92400e; padding:2px 8px; border-radius:6px; font-size:0.75rem; font-weight:700; }
+    .badge-teacher { background:#e0e7ff; color:#3730a3; padding:2px 8px; border-radius:6px; font-size:0.75rem; font-weight:700; }
+    .status-active  { color:#059669; font-weight:700; }
+    .status-pending { color:#d97706; font-weight:700; }
+    .status-blocked { color:#dc2626; font-weight:700; }
+    .inline-form { display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-bottom:16px; padding:16px; background:var(--surface-soft); border-radius:12px; }
+    .inline-form label { font-size:0.82rem; color:var(--muted); display:block; margin-bottom:4px; }
+    .inline-form input, .inline-form select { padding:8px 10px; border:1.5px solid var(--border); border-radius:8px; font-size:0.88rem; background:var(--surface); color:var(--text); }
+    .csv-area { width:100%; min-height:120px; padding:10px; border:1.5px solid var(--border); border-radius:8px; font-family:Consolas,monospace; font-size:0.82rem; resize:vertical; }
+    .import-result { margin-top:12px; padding:12px; border-radius:8px; font-size:0.88rem; display:none; }
+    .import-result.ok { background:#d1fae5; color:#065f46; }
+    .import-result.err { background:#fee2e2; color:#991b1b; }
+  </style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo-group">
+    <img src="/favicon.ico" width="28" height="28" alt=""/>
+    <span style="font-weight:800;font-size:1.1rem;">PyCodeFlow</span>
+    <span class="badge" style="margin-left:8px;">Beheer</span>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;">
+    <a href="/teacher-sessions.html" class="btn btn-muted small">← Sessies</a>
+    <a href="/monitoring.html" class="btn btn-muted small">📊 Monitoring</a>
+    <button class="dark-toggle" id="dark-mode-toggle">🌙</button>
+  </div>
+</div>
+
+<div class="screen" style="max-width:1100px;margin:0 auto;padding:28px 20px;">
+  <h1 style="margin:0 0 8px;">Gebruikersbeheer</h1>
+  <p class="muted" style="margin:0 0 24px;">Leerkrachten, klassen en leerlingen beheren.</p>
+
+  <div class="admin-tabs">
+    <button class="admin-tab active" data-tab="teachers">👨‍🏫 Leerkrachten</button>
+    <button class="admin-tab" data-tab="classes">🏫 Klassen</button>
+    <button class="admin-tab" data-tab="students">👩‍🎓 Leerlingen</button>
+  </div>
+
+  <!-- LEERKRACHTEN -->
+  <div class="admin-panel active" id="panel-teachers">
+    <div class="inline-form">
+      <div><label>Gebruikersnaam</label><input id="new-teacher-username" placeholder="gebruikersnaam" style="width:160px;"/></div>
+      <div><label>Wachtwoord</label><input id="new-teacher-password" type="password" placeholder="min. 8 tekens" style="width:160px;"/></div>
+      <div><label>Weergavenaam</label><input id="new-teacher-display" placeholder="Naam Achternaam" style="width:180px;"/></div>
+      <div><label>Rol</label><select id="new-teacher-role"><option value="teacher">Leerkracht</option><option value="admin">Admin</option></select></div>
+      <button class="btn btn-soft small" onclick="addTeacher()">+ Toevoegen</button>
+    </div>
+    <table class="admin-table" id="teachers-table">
+      <thead><tr><th>Gebruikersnaam</th><th>Weergavenaam</th><th>Rol</th><th>Laatste login</th><th>Acties</th></tr></thead>
+      <tbody id="teachers-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- KLASSEN -->
+  <div class="admin-panel" id="panel-classes">
+    <div class="inline-form">
+      <div><label>Klasnaam</label><input id="new-class-name" placeholder="6A Informatica" style="width:200px;"/></div>
+      <div><label>Schooljaar</label><input id="new-class-year" value="2025-2026" style="width:120px;"/></div>
+      <button class="btn btn-soft small" onclick="addClass()">+ Toevoegen</button>
+      <label style="margin-left:16px;display:flex;align-items:center;gap:6px;font-size:0.82rem;">
+        <input type="checkbox" id="show-archived-classes" onchange="loadClasses()"> Toon gearchiveerde
+      </label>
+    </div>
+    <table class="admin-table">
+      <thead><tr><th>Naam</th><th>Schooljaar</th><th>Leerlingen</th><th>Status</th><th>Acties</th></tr></thead>
+      <tbody id="classes-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- LEERLINGEN -->
+  <div class="admin-panel" id="panel-students">
+    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+      <select id="student-class-filter" onchange="loadStudents()" style="padding:8px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface);color:var(--text);font-size:0.88rem;">
+        <option value="">Alle klassen</option>
+      </select>
+      <input id="student-search" placeholder="Naam zoeken..." oninput="filterStudents()" style="padding:8px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface);color:var(--text);font-size:0.88rem;width:200px;"/>
+      <button class="btn btn-muted small" onclick="document.getElementById('csv-import-section').classList.toggle('hidden')">📥 CSV-import</button>
+    </div>
+    <div id="csv-import-section" class="hidden" style="margin-bottom:16px;padding:16px;background:var(--surface-soft);border-radius:12px;">
+      <p style="font-size:0.88rem;color:var(--muted);margin:0 0 8px;">Formaat: <code>naam,klas</code> per regel. Voorbeeld: <code>Emma Janssens,6A Informatica</code></p>
+      <textarea class="csv-area" id="csv-input" placeholder="Emma Janssens,6A Informatica&#10;Luca Peeters,6A Informatica&#10;Sara Declercq,6B"></textarea>
+      <button class="btn btn-soft small" style="margin-top:8px;" onclick="importCSV()">Importeren</button>
+      <div class="import-result" id="import-result"></div>
+    </div>
+    <table class="admin-table">
+      <thead><tr><th>Naam</th><th>Klas</th><th>Status</th><th>Bron</th><th>Laatste sessie</th><th>Acties</th></tr></thead>
+      <tbody id="students-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/app.js?v=v2026.2.10.0"></script>
+<script>
+// ── Tab navigatie ─────────────────────────────────────────────────────────────
+document.querySelectorAll('.admin-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.admin-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.admin-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'teachers') loadTeachers();
+    if (btn.dataset.tab === 'classes')  loadClasses();
+    if (btn.dataset.tab === 'students') { loadClassFilter(); loadStudents(); }
+  });
+});
+
+function fmtDate(ts) {
+  if (!ts) return '—';
+  return new Date(Number(ts)).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+// ── Leerkrachten ──────────────────────────────────────────────────────────────
+let _teachers = [];
+async function loadTeachers() {
+  const r = await fetch('/api/admin/teachers');
+  _teachers = await r.json();
+  const tbody = document.getElementById('teachers-tbody');
+  tbody.innerHTML = _teachers.map(t => `
+    <tr>
+      <td><strong>${escHtml(t.username)}</strong></td>
+      <td>${escHtml(t.display_name || '—')}</td>
+      <td><span class="${t.role === 'admin' ? 'badge-admin' : 'badge-teacher'}">${t.role === 'admin' ? 'Admin' : 'Leerkracht'}</span></td>
+      <td>${fmtDate(t.last_login)}</td>
+      <td style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn btn-muted small" onclick="resetPwd('${escHtml(t.username)}')">🔑 Wachtwoord</button>
+        <button class="btn btn-muted small" onclick="toggleRole('${escHtml(t.username)}','${t.role}')">${t.role === 'admin' ? '↓ Leerkracht' : '↑ Admin'}</button>
+        <button class="btn btn-danger small" onclick="deleteTeacher('${escHtml(t.username)}')">Verwijderen</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function addTeacher() {
+  const u = document.getElementById('new-teacher-username').value.trim();
+  const p = document.getElementById('new-teacher-password').value;
+  const d = document.getElementById('new-teacher-display').value.trim();
+  const r = document.getElementById('new-teacher-role').value;
+  if (!u || !p) return alert('Gebruikersnaam en wachtwoord zijn verplicht.');
+  if (p.length < 8) return alert('Wachtwoord moet minimaal 8 tekens bevatten.');
+  const res = await fetch('/api/admin/teachers', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username:u, password:p, displayName:d, role:r }) });
+  const data = await res.json();
+  if (data.ok) { loadTeachers(); ['new-teacher-username','new-teacher-password','new-teacher-display'].forEach(id => document.getElementById(id).value = ''); }
+  else alert('Fout: ' + (data.error || 'onbekend'));
+}
+
+async function resetPwd(username) {
+  const pwd = prompt(`Nieuw wachtwoord voor ${username} (min. 8 tekens):`);
+  if (!pwd || pwd.length < 8) return;
+  const res = await fetch(`/api/admin/teachers/${encodeURIComponent(username)}/password`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: pwd }) });
+  const data = await res.json();
+  alert(data.ok ? 'Wachtwoord bijgewerkt.' : 'Fout: ' + data.error);
+}
+
+async function toggleRole(username, currentRole) {
+  const newRole = currentRole === 'admin' ? 'teacher' : 'admin';
+  if (!confirm(`Rol van ${username} wijzigen naar ${newRole}?`)) return;
+  await fetch(`/api/admin/teachers/${encodeURIComponent(username)}/role`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ role: newRole }) });
+  loadTeachers();
+}
+
+async function deleteTeacher(username) {
+  if (!confirm(`Leerkracht "${username}" verwijderen? Dit kan niet ongedaan worden.`)) return;
+  await fetch(`/api/admin/teachers/${encodeURIComponent(username)}`, { method:'DELETE' });
+  loadTeachers();
+}
+
+// ── Klassen ───────────────────────────────────────────────────────────────────
+async function loadClasses() {
+  const archived = document.getElementById('show-archived-classes')?.checked;
+  const r = await fetch(`/api/admin/classes${archived ? '?archived=true' : ''}`);
+  const classes = await r.json();
+  const tbody = document.getElementById('classes-tbody');
+  tbody.innerHTML = classes.map(c => `
+    <tr style="${c.archived ? 'opacity:0.5;' : ''}">
+      <td><strong>${escHtml(c.name)}</strong></td>
+      <td>${escHtml(c.school_year)}</td>
+      <td>${c.student_count ?? 0}</td>
+      <td>${c.archived ? '<span class="badge">Gearchiveerd</span>' : '<span class="status-active">Actief</span>'}</td>
+      <td style="display:flex;gap:6px;">
+        ${!c.archived ? `<button class="btn btn-muted small" onclick="archiveClass('${c.id}')">Archiveren</button>` : ''}
+        <button class="btn btn-danger small" onclick="deleteClass('${c.id}','${escHtml(c.name)}')">Verwijderen</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function addClass() {
+  const name = document.getElementById('new-class-name').value.trim();
+  const year = document.getElementById('new-class-year').value.trim();
+  if (!name) return alert('Naam is verplicht.');
+  const res = await fetch('/api/admin/classes', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, schoolYear: year }) });
+  const data = await res.json();
+  if (data.ok) { document.getElementById('new-class-name').value = ''; loadClasses(); }
+  else alert('Fout: ' + data.error);
+}
+
+async function archiveClass(id) {
+  if (!confirm('Klas archiveren?')) return;
+  await fetch(`/api/admin/classes/${id}/archive`, { method:'PUT' });
+  loadClasses();
+}
+
+async function deleteClass(id, name) {
+  if (!confirm(`Klas "${name}" verwijderen? Enkel mogelijk als de klas leeg is.`)) return;
+  const res = await fetch(`/api/admin/classes/${id}`, { method:'DELETE' });
+  const data = await res.json();
+  if (!data.ok) alert('Kan klas niet verwijderen — verwijder eerst alle leerlingen.');
+  else loadClasses();
+}
+
+// ── Leerlingen ────────────────────────────────────────────────────────────────
+let _allStudents = [];
+
+async function loadClassFilter() {
+  const r = await fetch('/api/classes');
+  const classes = await r.json();
+  const sel = document.getElementById('student-class-filter');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Alle klassen</option>' + classes.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join('');
+  if (cur) sel.value = cur;
+}
+
+async function loadStudents() {
+  const classId = document.getElementById('student-class-filter').value;
+  const r = await fetch(`/api/admin/students${classId ? '?classId=' + classId : ''}`);
+  _allStudents = await r.json();
+  renderStudentTable(_allStudents);
+}
+
+function filterStudents() {
+  const q = document.getElementById('student-search').value.toLowerCase();
+  renderStudentTable(_allStudents.filter(s => s.name.toLowerCase().includes(q)));
+}
+
+const statusLabel = { active:'Actief', pending:'Afwachting', blocked:'Geblokkeerd' };
+const sourceLabel = { manual:'Handmatig', csv:'CSV', google:'Google', smartschool:'Smartschool' };
+
+function renderStudentTable(students) {
+  const tbody = document.getElementById('students-tbody');
+  if (!students.length) { tbody.innerHTML = '<tr><td colspan="6" class="muted" style="padding:16px;">Geen leerlingen gevonden.</td></tr>'; return; }
+  tbody.innerHTML = students.map(s => `
+    <tr>
+      <td><strong>${escHtml(s.name)}</strong></td>
+      <td>${escHtml(s.class_name || '—')}</td>
+      <td><span class="status-${s.status}">${statusLabel[s.status] || s.status}</span></td>
+      <td>${escHtml(sourceLabel[s.source] || s.source)}</td>
+      <td>${fmtDate(s.last_seen)}</td>
+      <td style="display:flex;gap:4px;flex-wrap:wrap;">
+        ${s.status !== 'active'   ? `<button class="btn btn-success small" onclick="setStudentStatus('${s.id}','active')">✓ Aanvaarden</button>` : ''}
+        ${s.status !== 'blocked'  ? `<button class="btn btn-muted small" onclick="setStudentStatus('${s.id}','blocked')">✕ Blokkeren</button>` : ''}
+        ${s.status === 'blocked'  ? `<button class="btn btn-muted small" onclick="setStudentStatus('${s.id}','active')">↩ Deblokkeren</button>` : ''}
+        <button class="btn btn-muted small" onclick="editNote('${s.id}','${escHtml(s.notes||'')}')">🗒</button>
+        <button class="btn btn-danger small" onclick="deleteStudent('${s.id}','${escHtml(s.name)}')">✕</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function setStudentStatus(id, status) {
+  await fetch(`/api/admin/students/${id}/status`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status }) });
+  loadStudents();
+}
+
+async function editNote(id, currentNote) {
+  const note = prompt('Notitie (max 500 tekens):', currentNote);
+  if (note === null) return;
+  await fetch(`/api/admin/students/${id}/notes`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ notes: note }) });
+  loadStudents();
+}
+
+async function deleteStudent(id, name) {
+  if (!confirm(`Leerling "${name}" verwijderen?`)) return;
+  await fetch(`/api/admin/students/${id}`, { method:'DELETE' });
+  loadStudents();
+}
+
+async function importCSV() {
+  const csv = document.getElementById('csv-input').value.trim();
+  if (!csv) return alert('Voer CSV-data in.');
+  const res = await fetch('/api/admin/students/import-csv', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ csv }) });
+  const data = await res.json();
+  const el = document.getElementById('import-result');
+  el.style.display = 'block';
+  if (data.ok) {
+    el.className = 'import-result ok';
+    el.innerHTML = `✅ <strong>${data.added}</strong> toegevoegd · <strong>${data.skipped}</strong> overgeslagen · <strong>${data.classesCreated}</strong> klassen aangemaakt${data.errors.length ? '<br>⚠️ Fouten: ' + data.errors.join(', ') : ''}`;
+    loadStudents(); loadClassFilter();
+  } else {
+    el.className = 'import-result err';
+    el.textContent = '❌ ' + data.error;
+  }
+}
+
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Init
+loadTeachers();
+</script>
+</body>
+</html>

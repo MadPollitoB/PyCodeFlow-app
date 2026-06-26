@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="nl" data-theme="light">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>PyCodeFlow — Toets</title>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.14.0"/>
+  <style>
+    .quiz-topbar { background:var(--primary); color:#fff; padding:10px 20px;
+      display:flex; align-items:center; justify-content:space-between; }
+    .quiz-timer { font-size:1.4rem; font-weight:800; font-family:Consolas,monospace; }
+    .quiz-timer.warning { color:#fde68a; }
+    .quiz-timer.danger  { color:#fca5a5; }
+    .quiz-nav { display:flex; gap:6px; flex-wrap:wrap; margin:12px 16px; }
+    .qnav-btn { width:36px; height:36px; border-radius:8px; border:2px solid var(--border);
+      background:var(--surface); cursor:pointer; font-weight:700; font-size:0.88rem; position:relative; }
+    .qnav-btn.visited  { border-color:var(--primary); color:var(--primary); }
+    .qnav-btn.saved    { background:var(--primary); color:#fff; border-color:var(--primary); }
+    .qnav-btn.no-run   { background:#fef3c7; border-color:#d97706; color:#92400e; }
+    .qnav-btn.current  { box-shadow:0 0 0 3px rgba(37,99,235,0.35); }
+    .quiz-question { margin:0 16px 12px; padding:14px 16px;
+      background:var(--surface-soft); border-radius:12px; border-left:4px solid var(--primary); }
+    .quiz-question h3 { margin:0 0 6px; font-size:0.95rem; color:var(--muted); }
+    .quiz-question p  { margin:0; font-size:0.97rem; line-height:1.65; white-space:pre-wrap; }
+    .quiz-nav-row { display:flex; justify-content:space-between; align-items:center;
+      padding:10px 16px; background:var(--surface); border-top:1px solid var(--border); }
+    .warning-banner { background:#fef3c7; color:#92400e; padding:10px 16px;
+      font-weight:700; display:none; text-align:center; }
+    .warning-banner.visible { display:block; }
+    .pause-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7);
+      display:flex; align-items:center; justify-content:center; z-index:9999;
+      color:#fff; font-size:1.5rem; font-weight:800; display:none; }
+    .pause-overlay.visible { display:flex; }
+    /* Startscherm */
+    .start-screen { display:flex; align-items:center; justify-content:center;
+      min-height:80vh; padding:20px; }
+    .start-card { background:var(--surface); border:1.5px solid var(--border);
+      border-radius:20px; padding:40px; max-width:500px; width:100%; text-align:center;
+      box-shadow:var(--shadow); }
+    .start-card h2 { font-size:1.6rem; margin:0 0 8px; }
+    /* Indienpagina */
+    .submit-screen { display:none; }
+    .submit-screen.visible { display:block; }
+    .submit-checklist { list-style:none; padding:0; margin:16px 0; }
+    .submit-checklist li { padding:8px 0; border-bottom:1px solid var(--border);
+      display:flex; align-items:center; gap:10px; font-size:0.92rem; }
+    /* Bevestigingsscherm */
+    .done-screen { display:none; text-align:center; padding:60px 20px; }
+    .done-screen.visible { display:block; }
+    .done-screen .done-icon { font-size:4rem; margin-bottom:16px; }
+    /* Editor wrapper */
+    .quiz-editor-wrap { padding:0 16px; }
+  </style>
+</head>
+<body>
+<!-- Startscherm -->
+<div class="start-screen" id="start-screen">
+  <div class="start-card">
+    <div style="font-size:3rem;margin-bottom:12px;">📝</div>
+    <h2 id="start-session-name">Toets laden...</h2>
+    <p class="muted" id="start-info" style="margin:8px 0 24px;"></p>
+    <div style="background:var(--surface-soft);border-radius:12px;padding:14px 16px;margin-bottom:24px;text-align:left;">
+      <strong>Jouw naam:</strong> <span id="start-student-name">—</span><br/>
+      <strong>Klas:</strong> <span id="start-student-class">—</span>
+    </div>
+    <div style="background:#fef3c7;border-radius:10px;padding:12px 14px;margin-bottom:24px;font-size:0.88rem;color:#92400e;">
+      ⏱ Jouw timer start pas als je op de knop hieronder klikt.
+    </div>
+    <button class="btn btn-primary" style="width:100%;font-size:1.1rem;padding:16px;"
+      onclick="startQuiz()">🚀 START TOETS</button>
+    <p class="muted" style="font-size:0.82rem;margin-top:12px;">
+      Je kan op elk moment opslaan en terugkeren naar vorige vragen.
+    </p>
+  </div>
+</div>
+
+<!-- Pauze overlay -->
+<div class="pause-overlay" id="pause-overlay">
+  ⏸ Toets gepauzeerd door de leerkracht — wacht even...
+</div>
+
+<!-- Quiz scherm -->
+<div id="quiz-screen" style="display:none;">
+  <div class="quiz-topbar">
+    <span style="font-weight:700;">📝 <span id="qs-session-name"></span></span>
+    <div class="quiz-timer" id="quiz-timer">--:--</div>
+    <span id="qs-progress" style="font-size:0.85rem;opacity:0.85;"></span>
+  </div>
+  <div class="warning-banner" id="warning-banner"></div>
+  <div class="quiz-nav" id="quiz-nav"></div>
+  <div class="quiz-question" id="quiz-question" style="display:none;">
+    <h3 id="q-header"></h3>
+    <p id="q-text"></p>
+  </div>
+  <div class="quiz-editor-wrap">
+    <div class="editor-shell card" style="margin-bottom:12px;">
+      <div class="editor-toolbar">
+        <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+        <div class="toolbar-spacer"></div>
+        <button id="quiz-run-btn" class="btn btn-soft small">Run ▶</button>
+        <button id="quiz-copy-code-btn" title="Kopieer code"
+          style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;">📋</button>
+      </div>
+      <div id="quiz-code-panel" class="editor-frame-wrap">
+        <div class="editor-frame">
+          <div id="quiz-line-numbers" class="custom-gutter"></div>
+          <div id="quiz-editor" class="monaco-editor-host"></div>
+        </div>
+        <div id="quiz-editor-statusbar"
+          style="display:flex;gap:10px;align-items:center;padding:4px 12px;font-size:12px;font-family:Consolas,monospace;background:#007acc;color:#fff;flex-shrink:0;">
+          <span id="quiz-sb-pos">Ln 1, Kol 1</span><span>|</span><span id="quiz-sb-lines">0 regels</span><span>|</span><span>Python</span>
+        </div>
+      </div>
+      <div id="quiz-wait-input" style="display:none;padding:10px 16px;background:#eff6ff;
+        border-top:2px solid #93c5fd;color:#1e40af;font-weight:700;font-size:0.92rem;">
+        ⌨️ Wacht op jouw invoer...
+      </div>
+      <div id="quiz-input-wrap" style="display:none;padding:10px 16px;border-top:1px solid var(--border);">
+        <input id="quiz-input-field" style="width:100%;padding:8px;border:1.5px solid var(--border);
+          border-radius:8px;font-family:Consolas,monospace;font-size:1rem;"/>
+      </div>
+    </div>
+    <div class="card" style="padding:12px 16px;min-height:80px;">
+      <div style="font-size:0.78rem;color:var(--muted);margin-bottom:4px;">Output:</div>
+      <div id="quiz-output-panel" class="output-panel output-dark"
+        style="min-height:60px;max-height:200px;overflow-y:auto;white-space:pre-wrap;
+          font-family:Consolas,monospace;font-size:0.9rem;padding:4px 0;"></div>
+    </div>
+  </div>
+  <div class="quiz-nav-row">
+    <button class="btn btn-muted small" id="quiz-prev-btn" onclick="navigate(-1)">← Vorige</button>
+    <button class="btn btn-muted small" onclick="openSubmitScreen()" style="background:#fef3c7;color:#92400e;border:none;">📤 Indienen</button>
+    <button class="btn btn-soft small" id="quiz-next-btn" onclick="navigate(1)">Volgende →</button>
+  </div>
+</div>
+
+<!-- Indienbevestiging -->
+<div class="screen submit-screen" id="submit-screen">
+  <div class="card" style="max-width:600px;margin:40px auto;padding:28px;">
+    <h2>📤 Toets indienen</h2>
+    <p class="muted">Controleer jouw antwoorden voor je indient:</p>
+    <ul class="submit-checklist" id="submit-checklist"></ul>
+    <p style="font-size:0.85rem;color:var(--muted);margin:12px 0 20px;">
+      Je bent zelf verantwoordelijk voor het indienen. Niet-ingevulde vragen krijgen 0 punten.
+    </p>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-muted small" onclick="closeSubmitScreen()">← Terug naar toets</button>
+      <button class="btn btn-primary small" onclick="submitAll()">✅ Definitief indienen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Klaar-scherm -->
+<div class="done-screen" id="done-screen">
+  <div class="done-icon">✅</div>
+  <h2>Toets ingediend</h2>
+  <p id="done-info" class="muted"></p>
+  <p class="muted" style="margin-top:8px;">Wacht op de leerkracht. Je kan dit venster sluiten.</p>
+</div>
+
+<script src="/monaco-env.js"></script>
+<script src="/monaco/min/vs/loader.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/app.js?v=v2026.2.14.0"></script>
+<script>
+// ── Quiz student logica ──────────────────────────────────────────────────────
+const socket = io();
+let _state = null;        // volledige quiz state van server
+let _currentIdx = 0;      // huidige vraag index (in persoonlijke volgorde)
+let _answers = {};        // { questionId: { code, runCount, firstVisitAt, firstRunAt } }
+let _visited = new Set(); // bezochte vraag IDs
+let _timerInterval = null;
+let _studentId = null;
+let _sessionCode = null;
+let _totalSeconds = 0;
+let _startedAt = null;
+let _runCount = {};       // { questionId: aantal }
+let _noTimer = false;     // geen tijdslimiet bij taak
+let _editorReady = false;
+let _currentQuestionId = null;
+let _runHistory = {};     // { questionId: [code, ...] }
+
+// URL params
+const params = new URLSearchParams(location.search);
+const urlCode = params.get('code') || '';
+const urlName = params.get('name') || localStorage.getItem('studentName') || '';
+const urlClass = params.get('class') || localStorage.getItem('pycodeflow_student_class') || '';
+
+// Vul startscherm
+document.getElementById('start-student-name').textContent = urlName || '(naam ontbreekt)';
+document.getElementById('start-student-class').textContent = urlClass || '(geen klas)';
+if (!urlName) {
+  document.getElementById('start-session-name').textContent = 'Naam ontbreekt';
+  document.querySelector('.start-card button').disabled = true;
+}
+
+function startQuiz() {
+  socket.emit('quiz_start', { code: urlCode, name: urlName, className: urlClass });
+}
+
+socket.on('quiz_state', async (state) => {
+  _state = state;
+  _studentId = state.studentId;
+  _sessionCode = urlCode;
+  _totalSeconds = state.timerSeconds;
+  _noTimer = state.noTimer || false;
+  _startedAt = state.startedAt || Date.now();
+  _answers = { ...state.savedAnswers };
+
+  // Herstel run counts
+  for (const [qid, ans] of Object.entries(_answers)) {
+    _runCount[qid] = ans.runCount || 0;
+    if (ans.runCount > 0) _visited.add(qid);
+  }
+  Object.keys(_answers).forEach(id => _visited.add(id));
+
+  document.getElementById('start-screen').style.display = 'none';
+  document.getElementById('quiz-screen').style.display = 'block';
+  document.getElementById('qs-session-name').textContent = state.sessionName;
+
+  if (state.submitted) { showDoneScreen(state.studentName, Object.keys(_answers).length); return; }
+  if (state.paused) document.getElementById('pause-overlay').classList.add('visible');
+
+  // Verberg timer bij taken zonder tijdslimiet
+  const timerEl = document.getElementById('quiz-timer');
+  if (_noTimer && timerEl) {
+    timerEl.textContent = '∞';
+    timerEl.title = 'Geen tijdslimiet';
+    timerEl.style.opacity = '0.5';
+  }
+
+  // Initialiseer editor
+  await initQuizEditor(state.config || {});
+  renderNav();
+  goToQuestion(0);
+  startTimer();
+});
+
+socket.on('quiz_timer_update', ({ remaining, total }) => {
+  updateTimerDisplay(remaining, total);
+});
+
+socket.on('quiz_warning', ({ message }) => {
+  const b = document.getElementById('warning-banner');
+  b.textContent = message;
+  b.classList.add('visible');
+  setTimeout(() => b.classList.remove('visible'), 30000);
+});
+
+socket.on('quiz_force_submit', () => {
+  const code = getCurrentCode();
+  if (_currentQuestionId) saveCurrentAnswer(code);
+  showDoneScreen(urlName, Object.keys(_answers).length);
+});
+
+socket.on('quiz_paused', ({ paused }) => {
+  document.getElementById('pause-overlay').classList.toggle('visible', paused);
+});
+
+socket.on('quiz_reset', () => {
+  _answers = {}; _visited.clear(); _runCount = {}; _currentIdx = 0;
+  document.getElementById('done-screen').classList.remove('visible');
+  document.getElementById('submit-screen').classList.remove('visible');
+  document.getElementById('start-screen').style.display = 'flex';
+  document.getElementById('quiz-screen').style.display = 'none';
+  document.getElementById('done-screen').style.display = 'none';
+});
+
+socket.on('quiz_results_released', () => {
+  // Toekomstige functie: leerkracht geeft resultaten vrij
+});
+
+socket.on('error_message', (msg) => {
+  alert(typeof msg === 'string' ? msg : msg.message || 'Fout');
+});
+
+// ── Editor initialisatie ────────────────────────────────────────────────────
+async function initQuizEditor(config) {
+  if (_editorReady) return;
+  // Gebruik bestaande ensureEditor functie uit app.js
+  await ensureEditor('quiz', '', false, false, config);
+  _editorReady = true;
+
+  // Run knop
+  document.getElementById('quiz-run-btn').onclick = runCode;
+
+  // Kopieer knop
+  document.getElementById('quiz-copy-code-btn').onclick = () => {
+    navigator.clipboard?.writeText(getCurrentCode() || '');
+  };
+
+  // Input handling
+  document.getElementById('quiz-input-field').addEventListener('keyup', e => {
+    if (e.key === 'Enter') sendInput();
+  });
+}
+
+function getCurrentCode() {
+  return editorStore?.quiz?.getValue() || '';
+}
+
+function setEditorCode(code) {
+  if (editorStore?.quiz) {
+    const model = editorStore.quiz.getModel();
+    model.setValue(code || '');
+  }
+}
+
+// ── Navigatie ───────────────────────────────────────────────────────────────
+function renderNav() {
+  const questions = _state?.questions || [];
+  const nav = document.getElementById('quiz-nav');
+  nav.innerHTML = questions.map((q, i) => {
+    const qid = q.id;
+    let cls = 'qnav-btn';
+    if (i === _currentIdx) cls += ' current';
+    else if (_answers[qid]?.code) {
+      cls += _runCount[qid] > 0 ? ' saved' : ' no-run';
+    } else if (_visited.has(qid)) {
+      cls += ' visited';
+    }
+    return `<button class="${cls}" onclick="goToQuestion(${i})" title="Vraag ${i+1}">${i+1}</button>`;
+  }).join('');
+  document.getElementById('qs-progress').textContent =
+    `${_currentIdx+1}/${questions.length} · ${Object.keys(_answers).filter(k=>_answers[k]?.code).length} opgeslagen`;
+}
+
+function goToQuestion(idx) {
+  const questions = _state?.questions || [];
+  if (idx < 0 || idx >= questions.length) return;
+
+  // Sla huidige vraag op voor navigatie
+  if (_currentQuestionId) {
+    const code = getCurrentCode();
+    saveCurrentAnswer(code);
+  }
+
+  _currentIdx = idx;
+  const q = questions[idx];
+  _currentQuestionId = q.id;
+
+  // Markeer als bezocht
+  if (!_visited.has(q.id)) {
+    _visited.add(q.id);
+    if (!_answers[q.id]) {
+      _answers[q.id] = { firstVisitAt: Date.now(), runCount: 0, code: '' };
+    } else if (!_answers[q.id].firstVisitAt) {
+      _answers[q.id].firstVisitAt = Date.now();
+    }
+  }
+
+  // Toon vraagstelling
+  const questionEl = document.getElementById('quiz-question');
+  if (!_state?.hideQuestionOnScreen) {
+    questionEl.style.display = 'block';
+    document.getElementById('q-header').textContent = `Vraag ${idx+1} van ${questions.length} · ${q.subject || ''} · ${q.points} punten`;
+    document.getElementById('q-text').textContent = q.text_snapshot || q.text || '';
+  } else {
+    questionEl.style.display = 'none';
+  }
+
+  // Herstel code in editor
+  const savedCode = _answers[q.id]?.code || '';
+  setEditorCode(savedCode);
+  document.getElementById('quiz-output-panel').textContent = '';
+
+  // Navigatieknoppen
+  document.getElementById('quiz-prev-btn').disabled = idx === 0;
+  document.getElementById('quiz-next-btn').textContent =
+    idx === questions.length - 1 ? 'Laatste vraag' : 'Volgende →';
+
+  renderNav();
+}
+
+function navigate(dir) {
+  goToQuestion(_currentIdx + dir);
+}
+
+function saveCurrentAnswer(code) {
+  if (!_currentQuestionId) return;
+  if (!_answers[_currentQuestionId]) _answers[_currentQuestionId] = {};
+  _answers[_currentQuestionId].code = code;
+  _answers[_currentQuestionId].runCount = _runCount[_currentQuestionId] || 0;
+
+  socket.emit('quiz_save_answer', {
+    questionId: _currentQuestionId,
+    code,
+    runCount: _runCount[_currentQuestionId] || 0,
+    firstVisitAt: _answers[_currentQuestionId]?.firstVisitAt || null,
+    firstRunAt: _answers[_currentQuestionId]?.firstRunAt || null,
+    currentQuestion: _currentIdx,
+  });
+}
+
+// ── Code uitvoeren ──────────────────────────────────────────────────────────
+function runCode() {
+  const code = getCurrentCode();
+  if (!code.trim()) return;
+  document.getElementById('quiz-output-panel').textContent = '';
+
+  // Track first run
+  if (!_answers[_currentQuestionId]) _answers[_currentQuestionId] = {};
+  if (!_answers[_currentQuestionId].firstRunAt) {
+    _answers[_currentQuestionId].firstRunAt = Date.now();
+  }
+  _runCount[_currentQuestionId] = (_runCount[_currentQuestionId] || 0) + 1;
+  _answers[_currentQuestionId].runCount = _runCount[_currentQuestionId];
+
+  // Sla run history op
+  socket.emit('quiz_run_completed', { questionId: _currentQuestionId, code });
+
+  // Gebruik bestaande run-logica via socket
+  socket.emit('free_run_request', { codeText: code });
+  renderNav();
+}
+
+// Hergebruik output events van app.js
+socket.on('free_run_output', ({ output }) => {
+  const panel = document.getElementById('quiz-output-panel');
+  panel.textContent += output;
+  panel.scrollTop = panel.scrollHeight;
+});
+socket.on('free_run_end', () => {
+  document.getElementById('quiz-wait-input').style.display = 'none';
+  document.getElementById('quiz-input-wrap').style.display = 'none';
+});
+socket.on('free_input_request', () => {
+  document.getElementById('quiz-wait-input').style.display = 'block';
+  document.getElementById('quiz-input-wrap').style.display = 'block';
+  setTimeout(() => document.getElementById('quiz-input-field')?.focus(), 50);
+});
+
+function sendInput() {
+  const val = document.getElementById('quiz-input-field').value;
+  document.getElementById('quiz-input-field').value = '';
+  document.getElementById('quiz-wait-input').style.display = 'none';
+  document.getElementById('quiz-input-wrap').style.display = 'none';
+  socket.emit('free_runtime_input', { value: val });
+}
+
+// ── Indienen ────────────────────────────────────────────────────────────────
+function openSubmitScreen() {
+  saveCurrentAnswer(getCurrentCode());
+  const questions = _state?.questions || [];
+  const list = document.getElementById('submit-checklist');
+  list.innerHTML = questions.map((q, i) => {
+    const ans = _answers[q.id];
+    const hasCode = ans?.code?.trim();
+    const hasRun = (ans?.runCount || 0) > 0;
+    let icon, msg;
+    if (hasCode && hasRun) { icon = '✅'; msg = `Vraag ${i+1} — opgeslagen (${ans.runCount} run${ans.runCount !== 1 ? 's' : ''})`; }
+    else if (hasCode && !hasRun) { icon = '⚠️'; msg = `Vraag ${i+1} — opgeslagen maar nooit uitgevoerd`; }
+    else if (!hasCode && _visited.has(q.id)) { icon = '⚠️'; msg = `Vraag ${i+1} — bezocht maar geen code`; }
+    else { icon = '⚠️'; msg = `Vraag ${i+1} — nog niet bezocht`; }
+    return `<li>${icon} ${msg}</li>`;
+  }).join('');
+  document.getElementById('quiz-screen').style.display = 'none';
+  document.getElementById('submit-screen').classList.add('visible');
+}
+
+function closeSubmitScreen() {
+  document.getElementById('submit-screen').classList.remove('visible');
+  document.getElementById('quiz-screen').style.display = 'block';
+}
+
+function submitAll() {
+  saveCurrentAnswer(getCurrentCode());
+  socket.emit('quiz_submit_all', { answers: _answers });
+  showDoneScreen(urlName, Object.keys(_answers).filter(k => _answers[k]?.code).length);
+}
+
+function showDoneScreen(name, count) {
+  document.getElementById('quiz-screen').style.display = 'none';
+  document.getElementById('submit-screen').classList.remove('visible');
+  document.getElementById('done-screen').style.display = 'block';
+  document.getElementById('done-screen').classList.add('visible');
+  document.getElementById('done-info').textContent =
+    `${name} · ${count} van ${_state?.questions?.length || '?'} vragen beantwoord`;
+}
+
+// ── Timer ────────────────────────────────────────────────────────────────────
+function startTimer() {
+  if (_noTimer || !_totalSeconds) return; // Geen timer bij taak
+  if (_timerInterval) clearInterval(_timerInterval);
+  const endAt = (_startedAt || Date.now()) + _totalSeconds * 1000;
+  _timerInterval = setInterval(() => {
+    const remaining = Math.max(0, Math.round((endAt - Date.now()) / 1000));
+    updateTimerDisplay(remaining, _totalSeconds);
+    if (remaining <= 0) clearInterval(_timerInterval);
+  }, 1000);
+}
+
+function updateTimerDisplay(remaining, total) {
+  const el = document.getElementById('quiz-timer');
+  const m = Math.floor(remaining / 60).toString().padStart(2, '0');
+  const s = (remaining % 60).toString().padStart(2, '0');
+  el.textContent = `${m}:${s}`;
+  el.className = 'quiz-timer';
+  if (remaining <= total * 0.10) el.classList.add(remaining <= 60 ? 'danger' : 'warning');
+}
+
+// Sessie code opvragen als niet in URL
+if (!urlCode) {
+  const code = prompt('Voer de toetscode in:');
+  if (code) location.href = `/quiz-student.html?code=${code.trim().toUpperCase()}&name=${encodeURIComponent(urlName)}&class=${encodeURIComponent(urlClass)}`;
+}
+</script>
+</body>
+</html>

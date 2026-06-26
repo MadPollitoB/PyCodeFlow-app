@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="nl" data-theme="light">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>PyCodeFlow — Vragenbank</title>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.13.0"/>
+  <style>
+    .qb-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px; }
+    @media(max-width:900px){ .qb-grid { grid-template-columns:1fr; } }
+    .q-card { background:var(--surface); border:1.5px solid var(--border); border-radius:14px; padding:16px 18px; }
+    .q-card:hover { border-color:var(--primary); }
+    .q-meta { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px; }
+    .q-text { font-size:0.92rem; color:var(--text); line-height:1.6; white-space:pre-wrap; }
+    .q-actions { display:flex; gap:6px; margin-top:12px; flex-wrap:wrap; }
+    .diff-badge { padding:2px 8px; border-radius:6px; font-size:0.75rem; font-weight:700; }
+    .diff-makkelijk { background:#d1fae5; color:#065f46; }
+    .diff-gemiddeld  { background:#fef3c7; color:#92400e; }
+    .diff-moeilijk   { background:#fee2e2; color:#991b1b; }
+    .filter-bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
+    .filter-bar select, .filter-bar input {
+      padding:8px 10px; border:1.5px solid var(--border); border-radius:8px;
+      font-size:0.88rem; background:var(--surface); color:var(--text); }
+    .form-panel { background:var(--surface-soft); border:1.5px solid var(--border);
+      border-radius:14px; padding:20px; margin-bottom:24px; }
+    .form-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:12px; }
+    @media(max-width:700px){ .form-row { grid-template-columns:1fr; } }
+    .form-row label { font-size:0.82rem; color:var(--muted); display:block; margin-bottom:4px; }
+    .form-row input, .form-row select, .form-row textarea {
+      width:100%; padding:8px 10px; border:1.5px solid var(--border);
+      border-radius:8px; font-size:0.88rem; background:var(--surface); color:var(--text); }
+    textarea.q-input { min-height:100px; resize:vertical; font-family:inherit; }
+    .csv-area { width:100%; min-height:120px; padding:10px; border:1.5px solid var(--border);
+      border-radius:8px; font-family:Consolas,monospace; font-size:0.82rem; resize:vertical; }
+    .tab-nav { display:flex; gap:0; border-bottom:2px solid var(--border); margin-bottom:20px; }
+    .tab-nav button { padding:10px 20px; border:none; background:none; font-weight:700;
+      color:var(--muted); cursor:pointer; border-bottom:3px solid transparent; margin-bottom:-2px; }
+    .tab-nav button.active { color:var(--primary); border-bottom-color:var(--primary); }
+    .tab-content { display:none; } .tab-content.active { display:block; }
+    #import-result { margin-top:10px; padding:10px; border-radius:8px; font-size:0.88rem; display:none; }
+    .import-ok  { background:#d1fae5; color:#065f46; }
+    .import-err { background:#fee2e2; color:#991b1b; }
+    .empty-state { color:var(--muted); text-align:center; padding:40px; }
+    .stats-bar { display:flex; gap:20px; margin-bottom:16px; flex-wrap:wrap; }
+    .stat-chip { background:var(--surface-soft); border:1px solid var(--border);
+      border-radius:10px; padding:8px 14px; font-size:0.85rem; }
+    .stat-chip strong { color:var(--primary); }
+  </style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="logo-group">
+      <img src="/assets/logo.svg" class="logo-small" alt=""/>
+      <span>PyCodeFlow</span>
+      <span class="badge" style="margin-left:8px;">Vragenbank</span>
+    </div>
+    <div class="top-actions">
+      <a href="/teacher-sessions.html" class="btn btn-muted small">← Sessies</a>
+      <a href="/admin.html" class="btn btn-muted small">👤 Beheer</a>
+      <button class="dark-toggle" id="dark-mode-toggle">🌙</button>
+    </div>
+  </div>
+</div>
+
+<div class="screen" style="max-width:1100px;margin:0 auto;padding:28px 20px;">
+  <h1 style="margin:0 0 6px;">Vragenbank</h1>
+  <p class="muted" style="margin:0 0 20px;">Beheer herbruikbare toetsvragen per onderwerp.</p>
+
+  <div class="tab-nav">
+    <button class="active" onclick="switchTab('browse')">📋 Vragen</button>
+    <button onclick="switchTab('add')">+ Nieuwe vraag</button>
+    <button onclick="switchTab('csv')">📥 CSV-import</button>
+  </div>
+
+  <!-- Tab: Bladeren -->
+  <div class="tab-content active" id="tab-browse">
+    <div class="stats-bar" id="stats-bar"></div>
+    <div class="filter-bar">
+      <select id="filter-subject" onchange="loadQuestions()">
+        <option value="">Alle onderwerpen</option>
+      </select>
+      <select id="filter-difficulty" onchange="loadQuestions()">
+        <option value="">Alle niveaus</option>
+        <option value="makkelijk">Makkelijk</option>
+        <option value="gemiddeld">Gemiddeld</option>
+        <option value="moeilijk">Moeilijk</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;">
+        <input type="checkbox" id="show-archived" onchange="loadQuestions()"> Toon gearchiveerd
+      </label>
+      <span style="margin-left:auto;color:var(--muted);font-size:0.85rem;" id="q-count"></span>
+    </div>
+    <div id="q-grid" class="qb-grid"></div>
+  </div>
+
+  <!-- Tab: Nieuwe vraag -->
+  <div class="tab-content" id="tab-add">
+    <div class="form-panel">
+      <h3 style="margin:0 0 16px;" id="form-title">Nieuwe vraag toevoegen</h3>
+      <input type="hidden" id="edit-id"/>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Vraagstelling</label>
+        <textarea class="q-input" id="q-text" placeholder="Schrijf een functie die ..."></textarea>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Onderwerp</label>
+          <input id="q-subject" list="subjects-list" placeholder="Bv. Functies, Lussen..."/>
+          <datalist id="subjects-list"></datalist>
+        </div>
+        <div>
+          <label>Moeilijkheid</label>
+          <select id="q-difficulty">
+            <option value="makkelijk">Makkelijk</option>
+            <option value="gemiddeld" selected>Gemiddeld</option>
+            <option value="moeilijk">Moeilijk</option>
+          </select>
+        </div>
+        <div>
+          <label>Max. punten</label>
+          <input type="number" id="q-points" value="4" min="1" max="100"/>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-soft small" onclick="saveQuestion()">💾 Opslaan</button>
+        <button class="btn btn-muted small" onclick="cancelEdit()">Annuleren</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: CSV import -->
+  <div class="tab-content" id="tab-csv">
+    <div class="form-panel">
+      <h3 style="margin:0 0 8px;">CSV bulk-import</h3>
+      <p style="font-size:0.85rem;color:var(--muted);margin:0 0 12px;">
+        Formaat: <code>onderwerp,moeilijkheid,max_punten,vraag</code> — één vraag per regel.<br/>
+        Duplicaten (zelfde vraagtekst) worden automatisch overgeslagen.
+      </p>
+      <p style="font-size:0.82rem;color:var(--muted);margin:0 0 8px;">Voorbeeld:</p>
+      <pre style="background:var(--surface);padding:10px;border-radius:8px;font-size:0.78rem;overflow:auto;">Functies,gemiddeld,4,"Schrijf een functie die twee getallen optelt."
+Lijsten,moeilijk,4,"Sorteer een lijst zonder .sort() te gebruiken."
+Lussen,makkelijk,2,"Druk de getallen 1 tot 10 af met een lus."</pre>
+      <textarea class="csv-area" id="csv-input" placeholder="Plak je CSV hier..."></textarea>
+      <button class="btn btn-soft small" style="margin-top:10px;" onclick="importCSV()">📥 Importeren</button>
+      <div id="import-result"></div>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js?v=v2026.2.13.0"></script>
+<script>
+let _questions = [];
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.querySelectorAll('.tab-nav button')[['browse','add','csv'].indexOf(name)].classList.add('active');
+  if (name === 'browse') loadQuestions();
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function loadSubjects() {
+  const r = await fetch('/api/quiz/bank/subjects');
+  const subjects = await r.json();
+  const sel = document.getElementById('filter-subject');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Alle onderwerpen</option>' +
+    subjects.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  if (cur) sel.value = cur;
+  // Datalist voor autocomplete
+  document.getElementById('subjects-list').innerHTML =
+    subjects.map(s => `<option value="${esc(s)}"></option>`).join('');
+}
+
+async function loadQuestions() {
+  const subject = document.getElementById('filter-subject').value;
+  const difficulty = document.getElementById('filter-difficulty').value;
+  const archived = document.getElementById('show-archived').checked;
+  const params = new URLSearchParams();
+  if (subject) params.set('subject', subject);
+  if (difficulty) params.set('difficulty', difficulty);
+  if (archived) params.set('archived', 'true');
+  const r = await fetch('/api/quiz/bank?' + params);
+  _questions = await r.json();
+  renderQuestions(_questions);
+  document.getElementById('q-count').textContent = `${_questions.length} vragen`;
+  // Stats
+  const total = _questions.length;
+  const byDiff = { makkelijk: 0, gemiddeld: 0, moeilijk: 0 };
+  _questions.forEach(q => byDiff[q.difficulty] = (byDiff[q.difficulty]||0)+1);
+  document.getElementById('stats-bar').innerHTML =
+    `<div class="stat-chip">Totaal: <strong>${total}</strong></div>` +
+    Object.entries(byDiff).map(([d,n]) => n > 0 ?
+      `<div class="stat-chip">${d}: <strong>${n}</strong></div>` : '').join('');
+}
+
+function renderQuestions(qs) {
+  const el = document.getElementById('q-grid');
+  if (!qs.length) {
+    el.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">Geen vragen gevonden.</div>';
+    return;
+  }
+  el.innerHTML = qs.map(q => `
+    <div class="q-card ${q.archived ? 'opacity:0.5' : ''}">
+      <div class="q-meta">
+        ${q.subject ? `<span class="badge">${esc(q.subject)}</span>` : ''}
+        <span class="diff-badge diff-${q.difficulty}">${q.difficulty}</span>
+        <span class="muted" style="font-size:0.78rem;margin-left:auto;">${q.max_points} pt</span>
+        ${q.archived ? '<span class="badge" style="background:#fee2e2;color:#991b1b;">Gearchiveerd</span>' : ''}
+      </div>
+      <div class="q-text">${esc(q.text)}</div>
+      <div class="q-actions">
+        <button class="btn btn-muted small" onclick="editQuestion('${q.id}')">✏️ Bewerken</button>
+        ${!q.archived
+          ? `<button class="btn btn-muted small" onclick="archiveQuestion('${q.id}')">📦 Archiveren</button>`
+          : `<button class="btn btn-muted small" onclick="deleteQuestion('${q.id}','${esc(q.text).slice(0,30)}')">🗑 Verwijderen</button>`}
+      </div>
+    </div>`).join('');
+}
+
+function editQuestion(id) {
+  const q = _questions.find(x => x.id === id);
+  if (!q) return;
+  document.getElementById('edit-id').value = id;
+  document.getElementById('q-text').value = q.text;
+  document.getElementById('q-subject').value = q.subject || '';
+  document.getElementById('q-difficulty').value = q.difficulty;
+  document.getElementById('q-points').value = q.max_points;
+  document.getElementById('form-title').textContent = 'Vraag bewerken';
+  switchTab('add');
+}
+
+function cancelEdit() {
+  document.getElementById('edit-id').value = '';
+  document.getElementById('q-text').value = '';
+  document.getElementById('q-subject').value = '';
+  document.getElementById('q-difficulty').value = 'gemiddeld';
+  document.getElementById('q-points').value = '4';
+  document.getElementById('form-title').textContent = 'Nieuwe vraag toevoegen';
+  switchTab('browse');
+}
+
+async function saveQuestion() {
+  const id = document.getElementById('edit-id').value;
+  const body = {
+    text: document.getElementById('q-text').value.trim(),
+    subject: document.getElementById('q-subject').value.trim(),
+    difficulty: document.getElementById('q-difficulty').value,
+    maxPoints: parseInt(document.getElementById('q-points').value) || 4,
+  };
+  if (!body.text) return alert('Vul een vraagstelling in.');
+  const url = id ? `/api/quiz/bank/${id}` : '/api/quiz/bank';
+  const method = id ? 'PUT' : 'POST';
+  const r = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const data = await r.json();
+  if (data.ok || data.id) { cancelEdit(); loadSubjects(); loadQuestions(); }
+  else alert('Fout: ' + data.error);
+}
+
+async function archiveQuestion(id) {
+  if (!confirm('Vraag archiveren? Ze blijft beschikbaar in afgelopen toetsen.')) return;
+  await fetch(`/api/quiz/bank/${id}/archive`, { method: 'PUT' });
+  loadQuestions();
+}
+
+async function deleteQuestion(id, preview) {
+  if (!confirm(`Vraag verwijderen: "${preview}..."?\nDit kan niet ongedaan worden.`)) return;
+  const r = await fetch(`/api/quiz/bank/${id}`, { method: 'DELETE' });
+  const data = await r.json();
+  if (!data.ok) alert('Kan niet verwijderen: ' + data.error);
+  else loadQuestions();
+}
+
+async function importCSV() {
+  const csv = document.getElementById('csv-input').value.trim();
+  if (!csv) return alert('Voer CSV-data in.');
+  const r = await fetch('/api/quiz/bank/import-csv', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ csv }),
+  });
+  const data = await r.json();
+  const el = document.getElementById('import-result');
+  el.style.display = 'block';
+  if (data.ok) {
+    el.className = 'import-result import-ok';
+    el.innerHTML = `✅ <strong>${data.added}</strong> toegevoegd · <strong>${data.skipped}</strong> overgeslagen${data.errors.length ? '<br>⚠️ ' + data.errors.join(', ') : ''}`;
+    loadSubjects(); loadQuestions();
+  } else {
+    el.className = 'import-result import-err';
+    el.textContent = '❌ ' + data.error;
+  }
+}
+
+// Init
+loadSubjects();
+loadQuestions();
+</script>
+</body>
+</html>

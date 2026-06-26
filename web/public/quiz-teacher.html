@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="nl" data-theme="light">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>PyCodeFlow — Toets aanmaken</title>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.14.0"/>
+  <style>
+    .wizard-steps { display:flex; gap:0; margin-bottom:28px; }
+    .wizard-step { flex:1; padding:12px; text-align:center; background:var(--surface-soft);
+      border:1px solid var(--border); font-size:0.85rem; position:relative; }
+    .wizard-step.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+    .wizard-step.done { background:#d1fae5; color:#065f46; border-color:#6ee7b7; }
+    .wizard-step:first-child { border-radius:10px 0 0 10px; }
+    .wizard-step:last-child { border-radius:0 10px 10px 0; }
+    .q-select-list { display:flex; flex-direction:column; gap:8px; max-height:400px; overflow-y:auto; }
+    .q-select-item { display:flex; align-items:flex-start; gap:12px; padding:12px;
+      background:var(--surface); border:1.5px solid var(--border); border-radius:10px; cursor:pointer; }
+    .q-select-item:hover { border-color:var(--primary); }
+    .q-select-item.selected { border-color:var(--primary); background:#eff6ff; }
+    .q-select-item input[type=checkbox] { width:18px; height:18px; margin-top:2px; flex-shrink:0; }
+    .selected-list { display:flex; flex-direction:column; gap:6px; }
+    .sel-row { display:flex; align-items:center; gap:8px; padding:8px 12px;
+      background:var(--surface-soft); border-radius:8px; }
+    .sel-row .pts { width:60px; text-align:center; padding:4px;
+      border:1px solid var(--border); border-radius:6px; font-size:0.88rem; }
+    .form-row-2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    @media(max-width:600px){ .form-row-2 { grid-template-columns:1fr; } }
+    .preview-badge { font-size:0.72rem; background:#fef3c7; color:#92400e;
+      padding:2px 8px; border-radius:6px; font-weight:700; }
+  </style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="logo-group">
+      <img src="/assets/logo.svg" class="logo-small" alt=""/>
+      <span>PyCodeFlow</span>
+    </div>
+    <div class="top-actions">
+      <a href="/teacher-sessions.html" class="btn btn-muted small">← Sessies</a>
+      <a href="/quiz-bank.html" class="btn btn-muted small">📋 Vragenbank</a>
+      <button class="dark-toggle" id="dark-mode-toggle">🌙</button>
+    </div>
+  </div>
+</div>
+
+<div class="screen" style="max-width:850px;margin:0 auto;padding:28px 20px;">
+  <h1 style="margin:0 0 6px;">Nieuwe toets aanmaken</h1>
+  <p class="muted" style="margin:0 0 20px;">Stel een toets of taak in met vragen uit de vragenbank.</p>
+
+  <div class="wizard-steps">
+    <div class="wizard-step active" id="step-1-ind">① Basisinfo</div>
+    <div class="wizard-step" id="step-2-ind">② Vragen selecteren</div>
+    <div class="wizard-step" id="step-3-ind">③ Bevestigen</div>
+  </div>
+
+  <!-- Stap 1: Basisinfo -->
+  <div id="step-1">
+    <div class="card" style="padding:24px;">
+      <div class="input-group">
+        <label>Naam van de toets</label>
+        <input id="quiz-name" placeholder="Bv. Toets Functies H2"/>
+      </div>
+      <div class="form-row-2" style="margin-top:16px;">
+        <div>
+          <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:6px;">Timer</label>
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;">
+            <input type="radio" name="quiz-timer-type" value="timed" checked onchange="toggleTimer(this.value)"/>
+            Tijdslimiet:
+            <input type="number" id="quiz-timer-min" value="45" min="1" max="240"
+              style="width:70px;padding:6px;border:1.5px solid var(--border);border-radius:8px;"/>
+            minuten
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="radio" name="quiz-timer-type" value="notimer" onchange="toggleTimer(this.value)"/>
+            <span>
+              <strong>Geen tijdslimiet</strong><br/>
+              <span class="muted" style="font-size:0.8rem;">Leerlingen kunnen op eigen tempo werken (taak thuis, project, ...)</span>
+            </span>
+          </label>
+        </div>
+        <div>
+          <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:6px;">Vraagvolgorde</label>
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;">
+            <input type="radio" name="quiz-order" value="random" checked/> Random per leerling <em style="color:var(--muted);font-size:0.8rem;">(aanbevolen)</em>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="radio" name="quiz-order" value="fixed"/> Vast voor iedereen
+          </label>
+        </div>
+      </div>
+      <div class="form-row-2" style="margin-top:14px;">
+        <div>
+          <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:6px;">Schooljaar</label>
+          <input id="quiz-school-year" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;"
+            placeholder="2025-2026"/>
+        </div>
+        <div>
+          <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:6px;">Klas (optioneel)</label>
+          <select id="quiz-target-class" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);">
+            <option value="">— Alle klassen / niet gekoppeld —</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top:16px;display:flex;flex-direction:column;gap:10px;">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+          <input type="checkbox" id="quiz-hide-question"/>
+          <span><strong>Vraagstelling verbergen op scherm</strong><br/>
+            <span class="muted" style="font-size:0.82rem;">Leerlingen lezen de vraag enkel van het papier.</span></span>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+          <input type="checkbox" id="quiz-min-runs"/>
+          <span><strong>Minstens 1 run per vraag vereisen</strong><br/>
+            <span class="muted" style="font-size:0.82rem;">Indienen toont waarschuwing als vraag niet uitgevoerd is.</span></span>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+          <input type="checkbox" id="quiz-is-preview"/>
+          <span><strong>Test als leerkracht <span class="preview-badge">PREVIEW</span></strong><br/>
+            <span class="muted" style="font-size:0.82rem;">Antwoorden worden niet opgeslagen. Gebruik om de toets te testen.</span></span>
+        </label>
+      </div>
+      <div style="margin-top:20px;">
+        <button class="btn btn-primary" onclick="goStep(2)">Volgende: vragen selecteren →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stap 2: Vragen selecteren -->
+  <div id="step-2" style="display:none;">
+    <div class="card" style="padding:24px;">
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+        <select id="sel-subject" onchange="filterBank()">
+          <option value="">Alle onderwerpen</option>
+        </select>
+        <select id="sel-difficulty" onchange="filterBank()">
+          <option value="">Alle niveaus</option>
+          <option value="makkelijk">Makkelijk</option>
+          <option value="gemiddeld">Gemiddeld</option>
+          <option value="moeilijk">Moeilijk</option>
+        </select>
+      </div>
+      <div class="q-select-list" id="q-select-list"></div>
+      <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:16px;">
+        <strong>Geselecteerde vragen</strong>
+        <span class="muted" style="font-size:0.82rem;margin-left:8px;" id="sel-count">0 geselecteerd · 0 punten</span>
+        <div class="selected-list" style="margin-top:10px;" id="sel-list"></div>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:10px;">
+        <button class="btn btn-muted small" onclick="goStep(1)">← Terug</button>
+        <button class="btn btn-primary small" onclick="goStep(3)">Bevestigen →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stap 3: Bevestigen -->
+  <div id="step-3" style="display:none;">
+    <div class="card" style="padding:24px;" id="confirm-panel"></div>
+    <div style="margin-top:16px;display:flex;gap:10px;">
+      <button class="btn btn-muted small" onclick="goStep(2)">← Terug</button>
+      <button class="btn btn-primary" onclick="createQuiz()">✅ Toets aanmaken</button>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js?v=v2026.2.14.0"></script>
+<script>
+let _bank = [];
+let _selected = {}; // { id: { ...question, points: override } }
+
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function loadBank() {
+  const r = await fetch('/api/quiz/bank');
+  _bank = await r.json();
+  // Subjects
+  const subjects = [...new Set(_bank.map(q => q.subject).filter(Boolean))].sort();
+  const sel = document.getElementById('sel-subject');
+  sel.innerHTML = '<option value="">Alle onderwerpen</option>' +
+    subjects.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  filterBank();
+}
+
+function filterBank() {
+  const subj = document.getElementById('sel-subject').value;
+  const diff = document.getElementById('sel-difficulty').value;
+  const filtered = _bank.filter(q =>
+    (!subj || q.subject === subj) && (!diff || q.difficulty === diff) && !q.archived
+  );
+  const list = document.getElementById('q-select-list');
+  if (!filtered.length) {
+    list.innerHTML = '<p class="muted">Geen vragen gevonden. Voeg vragen toe in de vragenbank.</p>';
+    return;
+  }
+  list.innerHTML = filtered.map(q => `
+    <div class="q-select-item ${_selected[q.id] ? 'selected' : ''}" onclick="toggleSelect('${q.id}')">
+      <input type="checkbox" ${_selected[q.id] ? 'checked' : ''} onclick="e=>e.stopPropagation()"/>
+      <div>
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;">
+          ${q.subject ? `<span class="badge">${esc(q.subject)}</span>` : ''}
+          <span class="diff-badge diff-${q.difficulty}" style="padding:1px 7px;border-radius:5px;font-size:0.72rem;font-weight:700;
+            background:${q.difficulty==='makkelijk'?'#d1fae5':q.difficulty==='moeilijk'?'#fee2e2':'#fef3c7'};
+            color:${q.difficulty==='makkelijk'?'#065f46':q.difficulty==='moeilijk'?'#991b1b':'#92400e'};">
+            ${q.difficulty}</span>
+          <span class="muted" style="font-size:0.78rem;">${q.max_points} pt</span>
+        </div>
+        <div style="font-size:0.9rem;line-height:1.5;">${esc(q.text.slice(0, 120))}${q.text.length > 120 ? '...' : ''}</div>
+      </div>
+    </div>`).join('');
+}
+
+function toggleSelect(id) {
+  const q = _bank.find(x => x.id === id);
+  if (!q) return;
+  if (_selected[id]) delete _selected[id];
+  else _selected[id] = { ...q, points: q.max_points };
+  filterBank();
+  renderSelectedList();
+}
+
+function renderSelectedList() {
+  const ids = Object.keys(_selected);
+  const total = ids.reduce((s, id) => s + (_selected[id].points || 0), 0);
+  document.getElementById('sel-count').textContent = `${ids.length} geselecteerd · ${total} punten`;
+  document.getElementById('sel-list').innerHTML = ids.map((id, i) => {
+    const q = _selected[id];
+    return `<div class="sel-row">
+      <span style="font-weight:700;min-width:24px;">${i+1}.</span>
+      <span style="flex:1;font-size:0.88rem;">${esc(q.text.slice(0, 60))}...</span>
+      <input type="number" class="pts" value="${q.points}" min="1" max="100"
+        onchange="_selected['${id}'].points=parseInt(this.value)||1; renderSelectedList()"/>
+      <span class="muted" style="font-size:0.78rem;">pt</span>
+      <button style="background:none;border:none;cursor:pointer;color:var(--muted);" onclick="toggleSelect('${id}')">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function goStep(n) {
+  if (n === 2 && !document.getElementById('quiz-name').value.trim()) {
+    alert('Voer een naam in voor de toets.'); return;
+  }
+  if (n === 3) {
+    if (!Object.keys(_selected).length) { alert('Selecteer minstens 1 vraag.'); return; }
+    renderConfirm();
+  }
+  [1,2,3].forEach(i => {
+    document.getElementById(`step-${i}`).style.display = i === n ? 'block' : 'none';
+    const ind = document.getElementById(`step-${i}-ind`);
+    ind.className = 'wizard-step' + (i === n ? ' active' : i < n ? ' done' : '');
+  });
+  if (n === 2) loadBank();
+}
+
+function renderConfirm() {
+  const ids = Object.keys(_selected);
+  const total = ids.reduce((s, id) => s + (_selected[id].points || 0), 0);
+  const mins = parseInt(document.getElementById('quiz-timer-min').value) || 45;
+  const random = document.querySelector('[name=quiz-order]:checked').value === 'random';
+  const isPreview = document.getElementById('quiz-is-preview').checked;
+  document.getElementById('confirm-panel').innerHTML = `
+    <h3 style="margin:0 0 16px;">Bevestig toets</h3>
+    ${isPreview ? '<div style="background:#fef3c7;color:#92400e;padding:10px;border-radius:8px;margin-bottom:14px;font-weight:700;">⚠️ PREVIEW MODE — antwoorden worden niet opgeslagen</div>' : ''}
+    <table style="width:100%;font-size:0.9rem;border-collapse:collapse;">
+      <tr><td style="padding:6px 0;color:var(--muted);">Naam</td><td><strong>${esc(document.getElementById('quiz-name').value)}</strong></td></tr>
+      <tr><td style="padding:6px 0;color:var(--muted);">Timer</td><td><strong>${noTimer ? '∞ Geen tijdslimiet (taak)' : mins + ' minuten'}</strong></td></tr>
+      <tr><td style="padding:6px 0;color:var(--muted);">Volgorde</td><td><strong>${random ? '🔀 Random per leerling' : '📋 Vast voor iedereen'}</strong></td></tr>
+      <tr><td style="padding:6px 0;color:var(--muted);">Vragen</td><td><strong>${ids.length} vragen · ${total} punten</strong></td></tr>
+    </table>
+    <div style="margin-top:14px;">
+      ${ids.map((id, i) => {
+        const q = _selected[id];
+        return `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:0.88rem;">
+          <strong>${i+1}.</strong> ${esc(q.text.slice(0,80))}... <span class="muted">(${q.points}pt)</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+async function createQuiz() {
+  const name = document.getElementById('quiz-name').value.trim();
+  const timerType = document.querySelector('[name=quiz-timer-type]:checked').value;
+  const noTimer = timerType === 'notimer';
+  const timerSeconds = noTimer ? null : (parseInt(document.getElementById('quiz-timer-min').value) || 45) * 60;
+  const randomize = document.querySelector('[name=quiz-order]:checked').value === 'random';
+  const schoolYear = document.getElementById('quiz-school-year').value.trim();
+  const targetClass = document.getElementById('quiz-target-class').value;
+  const hideQuestionOnScreen = document.getElementById('quiz-hide-question').checked;
+  const minRunsPerQ = document.getElementById('quiz-min-runs').checked ? 1 : 0;
+  const isTeacherPreview = document.getElementById('quiz-is-preview').checked;
+  const questions = Object.values(_selected).map(q => ({
+    id: q.id, text: q.text, subject: q.subject, points: q.points, max_points: q.max_points,
+  }));
+
+  const r = await fetch('/api/quiz', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ name, questions, randomize, timerSeconds, noTimer, minRunsPerQ,
+                           hideQuestionOnScreen, isTeacherPreview, schoolYear, targetClass }),
+  });
+  const data = await r.json();
+  if (data.ok) {
+    const previewUrl = `/quiz-student.html?code=${data.code}&name=${encodeURIComponent('Leerkracht Test')}`;
+    if (isTeacherPreview) {
+      if (confirm(`Toets aangemaakt! Code: ${data.code}\nWil je de preview openen als leerling?`)) {
+        window.open(previewUrl, '_blank');
+      }
+    } else {
+      alert(`Toets aangemaakt!\nSessiecode: ${data.code}\n\nDeel deze code met de leerlingen.`);
+      location.href = '/teacher-sessions.html';
+    }
+  } else {
+    alert('Fout: ' + data.error);
+  }
+}
+
+function toggleTimer(val) {
+  const timerInput = document.getElementById('quiz-timer-min');
+  if (timerInput) timerInput.disabled = val === 'notimer';
+}
+
+// Schooljaar standaard
+(function() {
+  const el = document.getElementById('quiz-school-year');
+  if (!el) return;
+  const now = new Date();
+  const y = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+  el.value = y + '-' + (y + 1);
+})();
+
+// Klassen laden
+(async function() {
+  try {
+    const r = await fetch('/api/classes');
+    const classes = await r.json();
+    const sel = document.getElementById('quiz-target-class');
+    if (!sel) return;
+    classes.forEach(function(cl) {
+      const opt = document.createElement('option');
+      opt.value = cl.id; opt.textContent = cl.name;
+      sel.appendChild(opt);
+    });
+  } catch {}
+})();
+</script>
+</body>
+</html>

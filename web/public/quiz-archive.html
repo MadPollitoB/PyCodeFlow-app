@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="nl" data-theme="light">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>PyCodeFlow — Toets-archief</title>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.14.0"/>
+  <style>
+    .filter-bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
+    .filter-bar select, .filter-bar input {
+      padding:8px 10px; border:1.5px solid var(--border); border-radius:8px;
+      font-size:0.88rem; background:var(--surface); color:var(--text); }
+    .quiz-card { background:var(--surface); border:1.5px solid var(--border);
+      border-radius:14px; padding:16px 18px; margin-bottom:12px; }
+    .quiz-card:hover { border-color:var(--primary); }
+    .quiz-card.archived { opacity:0.6; background:var(--surface-soft); }
+    .quiz-meta-row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:8px; }
+    .quiz-stats { display:flex; gap:16px; flex-wrap:wrap; margin:8px 0; font-size:0.85rem; }
+    .quiz-stat { color:var(--muted); }
+    .quiz-stat strong { color:var(--text); }
+    .quiz-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+    .bar-wrap { display:flex; align-items:center; gap:8px; }
+    .bar { height:10px; border-radius:5px; background:var(--primary); }
+    .bar-bg { height:10px; border-radius:5px; background:var(--border); flex:1; overflow:hidden; }
+    .stats-panel { display:none; background:var(--surface-soft); border-radius:10px;
+      padding:14px 16px; margin-top:10px; border:1px solid var(--border); }
+    .stats-panel.visible { display:block; }
+    .student-search-panel { background:var(--surface); border:1.5px solid var(--border);
+      border-radius:14px; padding:20px; margin-bottom:24px; display:none; }
+    .student-search-panel.visible { display:block; }
+    .student-history-table { width:100%; border-collapse:collapse; font-size:0.88rem; margin-top:12px; }
+    .student-history-table th { text-align:left; padding:8px; border-bottom:2px solid var(--border);
+      color:var(--muted); font-size:0.82rem; }
+    .student-history-table td { padding:8px; border-bottom:1px solid var(--border); }
+    .no-timer-badge { background:#e0e7ff; color:#3730a3; padding:2px 8px; border-radius:6px;
+      font-size:0.75rem; font-weight:700; }
+    .confirm-delete { background:#fee2e2; border:1.5px solid #fca5a5; border-radius:10px;
+      padding:12px 14px; margin-top:10px; font-size:0.88rem; display:none; }
+    .confirm-delete.visible { display:block; }
+    .tab-nav { display:flex; gap:0; border-bottom:2px solid var(--border); margin-bottom:20px; }
+    .tab-nav button { padding:10px 20px; border:none; background:none; font-weight:700;
+      color:var(--muted); cursor:pointer; border-bottom:3px solid transparent; margin-bottom:-2px; }
+    .tab-nav button.active { color:var(--primary); border-bottom-color:var(--primary); }
+    .tab-content { display:none; } .tab-content.active { display:block; }
+  </style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="logo-group">
+      <img src="/assets/logo.svg" class="logo-small" alt=""/>
+      <span>PyCodeFlow</span>
+      <span class="badge" style="margin-left:8px;">Toets-archief</span>
+    </div>
+    <div class="top-actions">
+      <a href="/teacher-sessions.html" class="btn btn-muted small">← Sessies</a>
+      <a href="/quiz-teacher.html" class="btn btn-soft small">+ Nieuwe toets</a>
+      <a href="/quiz-bank.html" class="btn btn-muted small">📋 Vragenbank</a>
+      <button class="dark-toggle" id="dark-mode-toggle">🌙</button>
+    </div>
+  </div>
+</div>
+
+<div class="screen" style="max-width:1100px;margin:0 auto;padding:28px 20px;">
+  <h1 style="margin:0 0 6px;">Toets-archief</h1>
+  <p class="muted" style="margin:0 0 20px;">Overzicht van alle toetsen en taken per jaar en klas.</p>
+
+  <div class="tab-nav">
+    <button class="active" onclick="switchTab('overzicht',this)">📋 Overzicht</button>
+    <button onclick="switchTab('leerling',this)">👤 Per leerling</button>
+    <button onclick="switchTab('schooljaar',this)">📅 Nieuw schooljaar</button>
+  </div>
+
+  <!-- Tab: Overzicht -->
+  <div class="tab-content active" id="tab-overzicht">
+    <div class="filter-bar">
+      <select id="filter-year" onchange="loadArchive()">
+        <option value="">Alle schooljaren</option>
+      </select>
+      <select id="filter-class" onchange="loadArchive()">
+        <option value="">Alle klassen</option>
+      </select>
+      <select id="filter-archived" onchange="loadArchive()">
+        <option value="">Actief + gearchiveerd</option>
+        <option value="false">Enkel actief</option>
+        <option value="true">Enkel gearchiveerd</option>
+      </select>
+      <span class="muted" style="font-size:0.85rem;margin-left:auto;" id="archive-count"></span>
+    </div>
+    <div id="archive-list"></div>
+  </div>
+
+  <!-- Tab: Per leerling -->
+  <div class="tab-content" id="tab-leerling">
+    <div class="student-search-panel visible">
+      <h3 style="margin:0 0 14px;">Leerling zoeken</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+        <div>
+          <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Naam</label>
+          <input id="student-search-name" placeholder="Emma Janssens"
+            style="padding:8px;border:1.5px solid var(--border);border-radius:8px;min-width:200px;"/>
+        </div>
+        <div>
+          <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Schooljaar</label>
+          <select id="student-search-year"
+            style="padding:8px;border:1.5px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);">
+            <option value="">Alle jaren</option>
+          </select>
+        </div>
+        <button class="btn btn-soft small" onclick="searchStudent()">🔍 Zoeken</button>
+        <button class="btn btn-muted small" onclick="exportStudentPDF()">🖨️ PDF rapport</button>
+      </div>
+    </div>
+    <div id="student-results"></div>
+  </div>
+
+  <!-- Tab: Nieuw schooljaar -->
+  <div class="tab-content" id="tab-schooljaar">
+    <div class="card" style="padding:24px;max-width:600px;">
+      <h3 style="margin:0 0 12px;">📅 Nieuw schooljaar starten</h3>
+      <p style="color:var(--muted);font-size:0.88rem;margin:0 0 16px;">
+        Dit archiveert alle actieve toetsen en taken. De data blijft bewaard.
+        Je kan alles terugvinden onder "Gearchiveerd".
+      </p>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:6px;">
+          Nieuw schooljaar
+        </label>
+        <input id="new-school-year" placeholder="2026-2027"
+          style="padding:10px;border:1.5px solid var(--border);border-radius:10px;width:200px;"/>
+      </div>
+      <div id="new-year-preview" style="background:var(--surface-soft);border-radius:10px;
+        padding:12px;margin-bottom:16px;font-size:0.88rem;display:none;"></div>
+      <button class="btn btn-muted small" onclick="previewNewYear()">Voorvertoning</button>
+      <button class="btn btn-soft small" style="margin-left:8px;" onclick="startNewYear()">
+        📅 Schooljaar starten
+      </button>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js?v=v2026.2.14.0"></script>
+<script>
+let _classes = [];
+
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmtDate(ts){ return ts ? new Date(Number(ts)).toLocaleDateString('nl-BE',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—'; }
+function pct(score, max){ return max > 0 ? Math.round(score / max * 100) : 0; }
+
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  if (btn) btn.classList.add('active');
+}
+
+async function init() {
+  // Schooljaren laden
+  const yr = await fetch('/api/quiz/archive/years').then(r => r.json()).catch(() => []);
+  ['filter-year', 'student-search-year'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    yr.forEach(y => {
+      const opt = document.createElement('option');
+      opt.value = y; opt.textContent = y;
+      sel.appendChild(opt);
+    });
+  });
+
+  // Klassen laden
+  _classes = await fetch('/api/classes').then(r => r.json()).catch(() => []);
+  const clsSel = document.getElementById('filter-class');
+  if (clsSel) {
+    _classes.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id; opt.textContent = c.name;
+      clsSel.appendChild(opt);
+    });
+  }
+
+  // Schooljaar default
+  const nyEl = document.getElementById('new-school-year');
+  if (nyEl) {
+    const now = new Date();
+    const y = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+    nyEl.value = (y + 1) + '-' + (y + 2);
+  }
+
+  loadArchive();
+}
+
+async function loadArchive() {
+  const year = document.getElementById('filter-year').value;
+  const classId = document.getElementById('filter-class').value;
+  const archived = document.getElementById('filter-archived').value;
+
+  const params = new URLSearchParams();
+  if (year) params.set('year', year);
+  if (classId) params.set('classId', classId);
+  if (archived) params.set('archived', archived);
+
+  const quizzes = await fetch('/api/quiz/archive?' + params).then(r => r.json()).catch(() => []);
+  document.getElementById('archive-count').textContent = `${quizzes.length} toets${quizzes.length !== 1 ? 'en' : ''}`;
+  renderArchive(quizzes);
+}
+
+function renderArchive(quizzes) {
+  const el = document.getElementById('archive-list');
+  if (!quizzes.length) {
+    el.innerHTML = '<p class="muted" style="padding:20px 0;">Geen toetsen gevonden.</p>';
+    return;
+  }
+  el.innerHTML = quizzes.map(q => {
+    const maxScore = q.max_score_per_student || 0;
+    const avgPct = q.avg_score && maxScore ? pct(q.avg_score, maxScore) : null;
+    const clsName = _classes.find(c => c.id === q.target_class)?.name || q.target_class || '';
+    return `
+    <div class="quiz-card ${q.archived ? 'archived' : ''}">
+      <div class="quiz-meta-row">
+        <strong style="font-size:1rem;">${esc(q.name || q.code)}</strong>
+        ${q.no_timer ? '<span class="no-timer-badge">∞ Geen timer</span>' : ''}
+        ${q.archived ? '<span class="badge" style="background:#fee2e2;color:#991b1b;">Gearchiveerd</span>' : ''}
+        ${q.results_released ? '<span class="badge" style="background:#d1fae5;color:#065f46;">Vrijgegeven</span>' : ''}
+        <span class="muted" style="font-size:0.82rem;margin-left:auto;">${fmtDate(q.created_at)}</span>
+      </div>
+      <div class="quiz-stats">
+        <div class="quiz-stat">Schooljaar: <strong>${esc(q.school_year || '—')}</strong></div>
+        ${clsName ? `<div class="quiz-stat">Klas: <strong>${esc(clsName)}</strong></div>` : ''}
+        <div class="quiz-stat">Code: <strong>${q.code}</strong></div>
+        <div class="quiz-stat">Leerlingen: <strong>${q.student_count || 0}</strong></div>
+        <div class="quiz-stat">Vragen: <strong>${q.question_count || 0}</strong></div>
+        ${!q.no_timer ? `<div class="quiz-stat">Timer: <strong>${Math.round((q.timer_seconds||2700)/60)} min</strong></div>` : ''}
+        ${avgPct !== null ? `<div class="quiz-stat">Gemiddelde: <strong>${q.avg_score}/${maxScore} (${avgPct}%)</strong></div>` : ''}
+      </div>
+      ${avgPct !== null ? `
+      <div class="bar-wrap" style="margin:6px 0;">
+        <div class="bar-bg"><div class="bar" style="width:${avgPct}%;background:${avgPct>=60?'var(--primary)':'#f59e0b'};"></div></div>
+        <span style="font-size:0.78rem;color:var(--muted);min-width:40px;">${avgPct}%</span>
+      </div>` : ''}
+      <div class="quiz-actions">
+        <a class="btn btn-soft small" href="/quiz-review.html?code=${q.code}">✏️ Verbeteren</a>
+        <button class="btn btn-muted small" onclick="toggleStats('${q.code}')">📊 Statistieken</button>
+        <a class="btn btn-muted small" href="/api/quiz/${q.code}/pdf/overview" target="_blank">🖨️ PDF overzicht</a>
+        <a class="btn btn-muted small" href="/api/quiz/${q.code}/pdf/questions" target="_blank">🖨️ Vragenblad</a>
+        ${!q.archived
+          ? `<button class="btn btn-muted small" onclick="archiveQuiz('${q.code}')">📦 Archiveren</button>`
+          : `<button class="btn btn-muted small" onclick="unarchiveQuiz('${q.code}')">↩ Deblokkeren</button>`
+        }
+        <button class="btn btn-danger small" onclick="showDeleteConfirm('${q.code}','${esc(q.name||q.code)}')">🗑 Verwijderen</button>
+      </div>
+      <div class="stats-panel" id="stats-${q.code}"></div>
+      <div class="confirm-delete" id="delete-${q.code}">
+        <strong>⚠️ Definitief verwijderen — kan niet ongedaan worden gemaakt</strong><br/>
+        <span class="muted" style="font-size:0.82rem;">
+          Verwijdert alle antwoorden, scores en commentaren van ${q.student_count || 0} leerlingen.
+          Vragen in de vragenbank blijven bewaard.
+        </span><br/><br/>
+        Typ de toetsnaam ter bevestiging:<br/>
+        <input id="confirm-input-${q.code}" placeholder="${esc(q.name||q.code)}"
+          style="padding:6px;border:1.5px solid #fca5a5;border-radius:8px;width:280px;margin-top:6px;"/>
+        <div style="margin-top:8px;display:flex;gap:8px;">
+          <button class="btn btn-muted small" onclick="hideDeleteConfirm('${q.code}')">Annuleren</button>
+          <button class="btn btn-danger small" onclick="deleteQuiz('${q.code}','${esc(q.name||q.code)}')">Definitief verwijderen</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function toggleStats(code) {
+  const panel = document.getElementById('stats-' + code);
+  if (!panel) return;
+  if (panel.classList.contains('visible')) {
+    panel.classList.remove('visible'); return;
+  }
+  panel.innerHTML = '<p class="muted" style="font-size:0.85rem;">Statistieken laden...</p>';
+  panel.classList.add('visible');
+  const stats = await fetch('/api/quiz/' + code + '/stats/detailed').then(r => r.json()).catch(() => []);
+  if (!stats.length) { panel.innerHTML = '<p class="muted">Geen statistieken beschikbaar.</p>'; return; }
+  panel.innerHTML = '<strong style="font-size:0.88rem;">Per vraag:</strong><br/>' +
+    stats.map((q, i) => {
+      const s = q.stats;
+      const p = s.avg_score !== null ? pct(s.avg_score, q.points) : null;
+      return `<div style="margin-top:8px;font-size:0.85rem;">
+        <strong>V${i+1}:</strong> ${esc(q.text_snapshot?.slice(0,50)||'')}...
+        ${s.avg_score !== null ? `
+        <div class="bar-wrap" style="margin:4px 0;">
+          <div class="bar-bg"><div class="bar" style="width:${p}%;height:8px;background:${p>=60?'var(--primary)':'#f59e0b'};"></div></div>
+          <span style="font-size:0.75rem;color:var(--muted);min-width:80px;">
+            gem. ${s.avg_score}/${q.points} pt (${p}%) · ${s.avg_runs} runs
+          </span>
+        </div>` : '<span class="muted"> — niet verbeterd</span>'}
+      </div>`;
+    }).join('');
+}
+
+async function archiveQuiz(code) {
+  if (!confirm('Toets archiveren? Ze blijft beschikbaar onder "Gearchiveerd".')) return;
+  await fetch('/api/quiz/' + code + '/archive', { method: 'PUT' });
+  loadArchive();
+}
+
+async function unarchiveQuiz(code) {
+  await fetch('/api/quiz/' + code + '/unarchive', { method: 'PUT' });
+  loadArchive();
+}
+
+function showDeleteConfirm(code) {
+  document.getElementById('delete-' + code)?.classList.add('visible');
+}
+function hideDeleteConfirm(code) {
+  document.getElementById('delete-' + code)?.classList.remove('visible');
+}
+
+async function deleteQuiz(code, name) {
+  const inputEl = document.getElementById('confirm-input-' + code);
+  const typed = inputEl?.value?.trim() || '';
+  if (typed.toLowerCase() !== name.toLowerCase()) {
+    alert('Naam komt niet overeen. Typ exact: ' + name);
+    return;
+  }
+  const r = await fetch('/api/quiz/' + code, {
+    method: 'DELETE', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ confirmName: typed }),
+  });
+  const data = await r.json();
+  if (data.ok) { alert('Toets definitief verwijderd.'); loadArchive(); }
+  else alert('Fout: ' + data.error);
+}
+
+async function searchStudent() {
+  const name = document.getElementById('student-search-name').value.trim();
+  const year = document.getElementById('student-search-year').value;
+  if (!name) { alert('Voer een naam in.'); return; }
+
+  const params = new URLSearchParams({ name });
+  if (year) params.set('year', year);
+
+  const results = await fetch('/api/quiz/archive/student?' + params).then(r => r.json()).catch(() => []);
+  const el = document.getElementById('student-results');
+
+  if (!results.length) {
+    el.innerHTML = '<p class="muted">Geen resultaten gevonden voor "' + esc(name) + '".</p>';
+    return;
+  }
+
+  const studentName = results[0].student_name;
+  const studentClass = results[0].student_class;
+  const totalScore = results.reduce((s, r) => s + (Number(r.total_score) || 0), 0);
+  const totalMax   = results.reduce((s, r) => s + (Number(r.max_score)   || 0), 0);
+
+  el.innerHTML = `
+    <div class="card" style="padding:20px;">
+      <h3 style="margin:0 0 6px;">${esc(studentName)}</h3>
+      <p class="muted" style="margin:0 0 14px;">${esc(studentClass)} · ${results.length} toets${results.length!==1?'en':''} · Totaal: ${totalScore}/${totalMax} pt</p>
+      <table class="student-history-table">
+        <thead><tr>
+          <th>Toets</th><th>Datum</th><th>Schooljaar</th><th>Score</th><th>%</th><th>Acties</th>
+        </tr></thead>
+        <tbody>
+          ${results.map(r => {
+            const p = r.max_score > 0 ? pct(r.total_score || 0, r.max_score) : '—';
+            return `<tr>
+              <td><strong>${esc(r.quiz_name)}</strong></td>
+              <td>${fmtDate(r.created_at)}</td>
+              <td>${esc(r.school_year)}</td>
+              <td>${r.total_score !== null ? r.total_score + '/' + r.max_score : '—'}</td>
+              <td>${typeof p === 'number' ? p + '%' : p}</td>
+              <td>
+                <a class="btn btn-muted small" href="/quiz-review.html?code=${r.session_code}" target="_blank">Bekijken</a>
+                <a class="btn btn-muted small" href="/api/quiz/${r.session_code}/pdf/answers/${results[0]?.student_id||''}?scored=true" target="_blank">🖨️ PDF</a>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+        <tfoot>
+          <tr style="font-weight:700;border-top:2px solid var(--border);">
+            <td colspan="3">Totaal</td>
+            <td>${totalScore}/${totalMax}</td>
+            <td>${totalMax > 0 ? pct(totalScore, totalMax) + '%' : '—'}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+}
+
+function exportStudentPDF() {
+  const name = document.getElementById('student-search-name').value.trim();
+  const year = document.getElementById('student-search-year').value;
+  if (!name) { alert('Voer eerst een naam in en zoek.'); return; }
+  const params = new URLSearchParams({ name });
+  if (year) params.set('year', year);
+  window.open('/api/quiz/archive/pdf/student?' + params, '_blank');
+}
+
+async function previewNewYear() {
+  const active = await fetch('/api/quiz/archive?archived=false').then(r => r.json()).catch(() => []);
+  const el = document.getElementById('new-year-preview');
+  const newYear = document.getElementById('new-school-year').value;
+  el.style.display = 'block';
+  el.innerHTML = `<strong>Dit wordt gearchiveerd:</strong><br/>
+    ${active.length} toets${active.length !== 1 ? 'en' : ''} worden gearchiveerd.<br/>
+    ${active.map(q => `• ${esc(q.name || q.code)} (${esc(q.school_year)})`).join('<br/>')}
+    <br/><br/>Nieuw schooljaar wordt: <strong>${esc(newYear)}</strong>`;
+}
+
+async function startNewYear() {
+  const newYear = document.getElementById('new-school-year').value.trim();
+  if (!newYear.match(/^[0-9]{4}-[0-9]{4}$/)) {
+    alert('Ongeldig formaat. Gebruik bv. 2026-2027'); return;
+  }
+  if (!confirm('Nieuw schooljaar starten? Alle actieve toetsen worden gearchiveerd.')) return;
+  const r = await fetch('/api/quiz/new-school-year', {
+    method: 'PUT', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ newYear }),
+  });
+  const data = await r.json();
+  if (data.ok) {
+    alert(`Klaar! ${data.archived} toets${data.archived !== 1 ? 'en' : ''} gearchiveerd. Welkom in ${newYear}!`);
+    loadArchive();
+  } else {
+    alert('Fout: ' + data.error);
+  }
+}
+
+init();
+</script>
+</body>
+</html>
