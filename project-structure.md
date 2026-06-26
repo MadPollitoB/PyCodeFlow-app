@@ -111,6 +111,8 @@
 | `.gitignore` | `/volume3/docker/pycodeflow/.gitignore` |
 | `.env.example` | `/volume3/docker/pycodeflow/.env.example` |
 | `docker-compose.yml` | `/volume3/docker/pycodeflow/docker-compose.yml` |
+| `Dockerfile.web` | `/volume3/docker/pycodeflow/web/Dockerfile` *(hernoem naar Dockerfile)* |
+| `package.json` | `/volume3/docker/pycodeflow/web/package.json` |
 
 ### Documentatie (niet deployen — enkel lokaal/git)
 

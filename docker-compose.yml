@@ -1,13 +1,45 @@
+# PyCodeFlow — docker-compose.yml
+# Basis configuratie voor productie op Synology NAS
+# Gebruik: docker compose up -d
+# Of via: bash pycodeflow.sh
+
 services:
+
+  # ── PostgreSQL database ──────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: pycodeflow-postgres-1
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pycodeflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: pycodeflow
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    networks:
+      - pycodeflow
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pycodeflow -d pycodeflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Web server (Node.js) ─────────────────────────────────────────────────
   web:
     build: ./web
+    container_name: pycodeflow-web-1
     restart: unless-stopped
     ports:
       - "3000:3000"
     env_file:
       - .env
     depends_on:
-      - runner
+      postgres:
+        condition: service_healthy
+      runner:
+        condition: service_started
     mem_limit: 768m
     cpus: 1.5
     networks:
@@ -15,20 +47,21 @@ services:
       - runner_internal
     volumes:
       - ./logs:/app/logs
-      - ./data:/app/data
+    # Geen data/ volume meer nodig — SQLite is vervangen door PostgreSQL
 
+  # ── Python runner ────────────────────────────────────────────────────────
   runner:
     build: ./runner
+    container_name: pycodeflow-runner-1
     restart: unless-stopped
     env_file:
       - .env
 
-    # 🔒 Geen externe netwerktoegang voor de runner,
-    # maar wel bereikbaar vanuit de webcontainer via een intern Docker-netwerk.
+    # Geen externe netwerktoegang voor de runner
     networks:
       - runner_internal
 
-    # 🔒 Security
+    # Beveiliging
     read_only: true
     tmpfs:
       - /tmp:size=64m,noexec,nosuid,nodev
@@ -38,8 +71,8 @@ services:
     cap_drop:
       - ALL
     pids_limit: 128
-    mem_limit: 8g
-    cpus: 5.0
+    mem_limit: 256m
+    cpus: 1.0
 
 networks:
   pycodeflow:

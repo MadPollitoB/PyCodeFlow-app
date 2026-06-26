@@ -255,32 +255,35 @@ setup_eerste_start() {
   ok "PostgreSQL is klaar"
   echo ""
 
-  # ── Stap 5: npm packages installeren ─────────────────────────────────────
-  stap "Stap 5: npm packages controleren en installeren"
+  # ── Stap 5: npm packages ─────────────────────────────────────────────────
+  stap "Stap 5: npm packages controleren"
+  echo ""
+  echo -e "  ${DIM}Packages worden geïnstalleerd via de Dockerfile bij build.${RESET}"
   echo ""
 
-  local packages_nodig=()
-
-  # Check welke packages ontbreken
-  for pkg in pg pdfkit; do
-    if ! docker exec pycodeflow-web-1 node -e "require('$pkg')" 2>/dev/null; then
-      packages_nodig+=("$pkg")
-    else
+  local packages_ok=true
+  for pkg in pg pdfkit express socket.io; do
+    if docker exec pycodeflow-web-1 node -e "require('$pkg')" 2>/dev/null; then
       ok "$pkg aanwezig"
+    else
+      err "$pkg ONTBREEKT — container wordt herbouwd"
+      packages_ok=false
     fi
   done
 
-  if [[ ${#packages_nodig[@]} -gt 0 ]]; then
-    info "Installeren: ${packages_nodig[*]}"
-    docker exec pycodeflow-web-1 \
-      sh -c "cd /app && npm install ${packages_nodig[*]} --save"
-    if [[ $? -eq 0 ]]; then
-      ok "npm packages geïnstalleerd"
-    else
-      warn "npm install had problemen — controleer logs"
-    fi
-  else
-    ok "Alle npm packages aanwezig"
+  if ! $packages_ok; then
+    echo ""
+    info "Container herbouwen met correcte packages (package.json bevat nu pg + pdfkit)..."
+    $COMPOSE --project-directory "$BASE" up --build -d web
+    echo ""
+    # Wacht opnieuw op web
+    local p2=0
+    while ! curl -sf http://localhost:3000/health > /dev/null 2>&1; do
+      sleep 3; p2=$((p2+1))
+      [[ $p2 -gt 20 ]] && { err "Web start niet op na rebuild."; pauze; return 1; }
+      echo -n "."
+    done
+    echo ""; ok "Container herbouwd"
   fi
   echo ""
 
@@ -465,15 +468,24 @@ actie_rebuild() {
 actie_logs() {
   while true; do
     header
-    stap "Logs"
+    stap "Logs bekijken"
     echo ""
-    echo -e "  ${BOLD}1)${RESET} Web — live"
+    # Status per container
+    local ws rs ps
+    ws=$(container_status pycodeflow-web-1)
+    rs=$(container_status pycodeflow-runner-1)
+    ps=$(container_status pycodeflow-postgres-1)
+    echo -e "  web:      $(kleur_status "$ws")   runner: $(kleur_status "$rs")   postgres: $(kleur_status "$ps")"
+    echo ""
+    echo -e "  ${BOLD}1)${RESET} Web — live (Ctrl+C om te stoppen)"
     echo -e "  ${BOLD}2)${RESET} Runner — live"
     echo -e "  ${BOLD}3)${RESET} PostgreSQL — live"
     echo -e "  ${BOLD}4)${RESET} Alle containers — live"
-    echo -e "  ${BOLD}5)${RESET} Web — laatste 50 regels"
-    echo -e "  ${BOLD}6)${RESET} Runner — laatste 50 regels"
-    echo -e "  ${BOLD}7)${RESET} PostgreSQL — laatste 50 regels"
+    echo -e "  ${BOLD}5)${RESET} Web — laatste 100 regels"
+    echo -e "  ${BOLD}6)${RESET} Runner — laatste 100 regels"
+    echo -e "  ${BOLD}7)${RESET} PostgreSQL — laatste 100 regels"
+    echo -e "  ${BOLD}8)${RESET} Web — enkel fouten (ERROR/FATAL)"
+    echo -e "  ${BOLD}9)${RESET} PostgreSQL — verbindingsstatus controleren"
     echo -e "  ${BOLD}0)${RESET} Terug"
     echo ""
     read -rp "  Keuze: " lk
@@ -482,9 +494,44 @@ actie_logs() {
       2) $COMPOSE --project-directory "$BASE" logs -f runner ;;
       3) $COMPOSE --project-directory "$BASE" logs -f postgres ;;
       4) $COMPOSE --project-directory "$BASE" logs -f ;;
-      5) $COMPOSE --project-directory "$BASE" logs --tail=50 web;  pauze ;;
-      6) $COMPOSE --project-directory "$BASE" logs --tail=50 runner; pauze ;;
-      7) $COMPOSE --project-directory "$BASE" logs --tail=50 postgres; pauze ;;
+      5) $COMPOSE --project-directory "$BASE" logs --tail=100 web; pauze ;;
+      6) $COMPOSE --project-directory "$BASE" logs --tail=100 runner; pauze ;;
+      7) $COMPOSE --project-directory "$BASE" logs --tail=100 postgres; pauze ;;
+      8)
+        echo ""
+        echo -e "  ${BOLD}Fouten in web logs:${RESET}"
+        $COMPOSE --project-directory "$BASE" logs --tail=200 web 2>/dev/null           | grep -iE "error|fatal|exception|crash|cannot find|module not found"           | tail -30
+        echo ""
+        pauze ;;
+      9)
+        header
+        stap "PostgreSQL verbindingsstatus"
+        echo ""
+        if docker exec pycodeflow-postgres-1 pg_isready -U pycodeflow -d pycodeflow 2>/dev/null; then
+          ok "PostgreSQL bereikbaar en klaar"
+          echo ""
+          info "Tabellen in database:"
+          docker exec pycodeflow-postgres-1             psql -U pycodeflow -d pycodeflow -c "\dt" 2>/dev/null             || err "Kan geen verbinding maken met de database"
+          echo ""
+          info "Aantal records per tabel:"
+          docker exec pycodeflow-postgres-1             psql -U pycodeflow -d pycodeflow -c "
+              SELECT 'teachers' AS tabel, COUNT(*) AS aantal FROM teachers
+              UNION ALL SELECT 'sessions', COUNT(*) FROM sessions
+              UNION ALL SELECT 'students', COUNT(*) FROM students
+              UNION ALL SELECT 'classes', COUNT(*) FROM classes
+              UNION ALL SELECT 'quiz_bank', COUNT(*) FROM quiz_bank
+              UNION ALL SELECT 'quiz_answers', COUNT(*) FROM quiz_answers
+              ORDER BY tabel;" 2>/dev/null             || warn "Sommige tabellen bestaan nog niet (schema nog niet aangemaakt)"
+        else
+          err "PostgreSQL NIET bereikbaar!"
+          echo ""
+          warn "Controleer:"
+          info "1. Is de postgres container actief? (zie status hierboven)"
+          info "2. Is POSTGRES_PASSWORD correct in .env?"
+          info "3. Probeer: docker compose restart postgres"
+        fi
+        echo ""
+        pauze ;;
       0) return ;;
       *) err "Ongeldige keuze."; sleep 1 ;;
     esac
@@ -506,7 +553,7 @@ actie_check() {
 
 actie_npm_check() {
   header
-  stap "npm packages controleren en installeren"
+  stap "npm packages controleren"
   echo ""
 
   if ! docker inspect pycodeflow-web-1 &>/dev/null; then
@@ -514,19 +561,35 @@ actie_npm_check() {
     pauze; return
   fi
 
+  echo -e "  ${DIM}Packages worden geïnstalleerd via de Dockerfile bij 'docker compose build'.${RESET}"
+  echo -e "  ${DIM}Hier controleren we of ze aanwezig zijn in de draaiende container.${RESET}"
+  echo ""
+
   local alles_ok=true
-  for pkg in pg pdfkit better-sqlite3; do
+  for pkg in pg pdfkit express socket.io dotenv; do
     if docker exec pycodeflow-web-1 node -e "require('$pkg')" 2>/dev/null; then
       ok "$pkg"
     else
-      warn "$pkg ontbreekt — installeren..."
-      docker exec pycodeflow-web-1 sh -c "cd /app && npm install $pkg --save"
-      [[ $? -eq 0 ]] && ok "$pkg geïnstalleerd" || { err "$pkg installatie mislukt"; alles_ok=false; }
+      err "$pkg ONTBREEKT — container herbouwen nodig"
+      alles_ok=false
     fi
   done
 
   echo ""
-  $alles_ok && ok "Alle packages aanwezig" || warn "Sommige packages hebben problemen"
+
+  if ! $alles_ok; then
+    warn "Eén of meer packages ontbreken in de container."
+    read -rp "  Container nu herbouwen? (j/n) [j]: " rebuild
+    if [[ "${rebuild:-j}" =~ ^[jJ]$ ]]; then
+      info "Herbouwen... (kan enkele minuten duren)"
+      $COMPOSE --project-directory "$BASE" up --build -d web
+      echo ""
+      ok "Container herbouwd. Controleer logs als de server niet start."
+    fi
+  else
+    ok "Alle packages aanwezig"
+  fi
+
   echo ""
   pauze
 }
@@ -657,6 +720,87 @@ update_versie() {
   else
     warn "Geannuleerd."
   fi
+  echo ""
+  pauze
+}
+
+actie_volledige_reset() {
+  header
+  echo -e "${ROOD}╔══════════════════════════════════════════════╗${RESET}"
+  echo -e "${ROOD}║  ⚠️   VOLLEDIGE RESET — ALLES VERWIJDEREN    ║${RESET}"
+  echo -e "${ROOD}╚══════════════════════════════════════════════╝${RESET}"
+  echo ""
+  echo -e "  ${ROOD}${BOLD}DIT VERWIJDERT ALLES:${RESET}"
+  echo -e "  ${ROOD}✗${RESET} Alle Docker containers"
+  echo -e "  ${ROOD}✗${RESET} Alle Docker images (pycodeflow)"
+  echo -e "  ${ROOD}✗${RESET} Alle Docker volumes"
+  echo -e "  ${ROOD}✗${RESET} PostgreSQL database + alle data (pgdata/)"
+  echo -e "  ${ROOD}✗${RESET} Alle logbestanden"
+  echo -e "  ${ROOD}✗${RESET} .env configuratie"
+  echo ""
+  echo -e "  ${GROEN}✓${RESET} Bestanden in web/, runner/ blijven bewaard"
+  echo -e "  ${GROEN}✓${RESET} Backups in backups/ blijven bewaard"
+  echo ""
+  warn "Dit is onomkeerbaar. Alle leerlingendata en toetsresultaten gaan verloren."
+  echo ""
+
+  read -rp "  Type 'RESET' om te bevestigen (of Enter om te annuleren): " bevestig1
+  if [[ "$bevestig1" != "RESET" ]]; then
+    warn "Geannuleerd — geen wijzigingen."
+    pauze; return
+  fi
+
+  read -rp "  Nogmaals bevestigen — type 'JA VERWIJDER ALLES': " bevestig2
+  if [[ "$bevestig2" != "JA VERWIJDER ALLES" ]]; then
+    warn "Geannuleerd — geen wijzigingen."
+    pauze; return
+  fi
+
+  echo ""
+  stap "Stap 1: Containers stoppen en verwijderen"
+  $COMPOSE --project-directory "$BASE" down --volumes --remove-orphans 2>/dev/null
+  ok "Containers en volumes gestopt"
+
+  stap "Stap 2: Docker images verwijderen"
+  docker rmi pycodeflow-web pycodeflow-runner 2>/dev/null
+  docker image prune -f 2>/dev/null
+  ok "Images verwijderd"
+
+  stap "Stap 3: PostgreSQL data verwijderen"
+  if [[ -d "$BASE/pgdata" ]]; then
+    rm -rf "$BASE/pgdata"
+    ok "pgdata/ verwijderd"
+  else
+    info "pgdata/ bestond niet"
+  fi
+
+  stap "Stap 4: Logbestanden verwijderen"
+  if [[ -d "$BASE/logs" ]]; then
+    rm -f "$BASE/logs"/*.log 2>/dev/null
+    ok "Logbestanden verwijderd"
+  fi
+
+  stap "Stap 5: .env verwijderen"
+  if [[ -f "$BASE/.env" ]]; then
+    rm -f "$BASE/.env"
+    ok ".env verwijderd"
+  fi
+
+  stap "Stap 6: Data map opruimen (SQLite legacy)"
+  if [[ -d "$BASE/data" ]]; then
+    rm -f "$BASE/data"/*.db 2>/dev/null
+    ok "SQLite bestanden verwijderd"
+  fi
+
+  echo ""
+  echo -e "  ${GROEN}╔══════════════════════════════════════════╗${RESET}"
+  echo -e "  ${GROEN}║  ✅  Volledige reset voltooid            ║${RESET}"
+  echo -e "  ${GROEN}╚══════════════════════════════════════════╝${RESET}"
+  echo ""
+  ok "Alles verwijderd."
+  echo ""
+  echo -e "  ${BOLD}Volgende stap:${RESET}"
+  info "Kies optie 13 (Eerste-start opnieuw) om alles opnieuw in te stellen."
   echo ""
   pauze
 }
@@ -801,6 +945,7 @@ while true; do
   echo -e "  ${BOLD}11)${RESET} 📊  Container resources"
   echo -e "  ${BOLD}12)${RESET} 🗑   Logs opruimen"
   echo -e "  ${BOLD}13)${RESET} 🔧  Eerste-start opnieuw uitvoeren"
+  echo -e "  ${BOLD}14)${RESET} 💣  Volledige reset (verwijder alles + herinstall)"
   echo -e "  ${BOLD} q)${RESET} ✖   Afsluiten"
   echo ""
   echo -e "${BOLD}──────────────────────────────────────────────${RESET}"
@@ -821,6 +966,7 @@ while true; do
     11) actie_resources ;;
     12) actie_logs_cleanup ;;
     13) setup_eerste_start ;;
+    14) actie_volledige_reset ;;
     q|Q) echo -e "${GROEN}Tot later!${RESET}"; echo ""; exit 0 ;;
     *) err "Ongeldige keuze."; sleep 1 ;;
   esac

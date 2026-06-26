@@ -1,10 +1,22 @@
-FROM node:20-bookworm
+# PyCodeFlow — Web container Dockerfile
+# Locatie op NAS: /volume3/docker/pycodeflow/web/Dockerfile
 
-RUN apt-get update && apt-get install -y python3 && rm -rf /var/lib/apt/lists/*
+FROM node:20-alpine
 
+# Werkmap
 WORKDIR /app
-COPY package*.json ./
-RUN npm install
+
+# Installeer eerst enkel package.json voor betere Docker cache
+COPY package.json ./
+
+# Installeer alle npm packages (inclusief pg en pdfkit)
+RUN npm install --omit=dev
+
+# Kopieer de rest van de applicatie
 COPY . .
+
+# Poort
 EXPOSE 3000
-CMD ["npm", "start"]
+
+# Startcommando
+CMD ["node", "server.js"]
