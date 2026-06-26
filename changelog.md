@@ -1,3 +1,61 @@
+## v2026.2.17.0 — Sprint 20: Afwerking
+
+### 19h — Bulk PDF ZIP (aparte PDF per leerling)
+
+Nieuw endpoint `GET /api/quiz/:code/pdf/zip?scored=true/false`:
+- Genereert een echte ZIP met per leerling een aparte PDF (`01_Emma_Janssens.pdf`, ...)
+- PDF bevat alle vragen + antwoorden per vraagtype (code, open, meerkeuze)
+- Meerkeuze: ✅/❌/☑ iconen voor correct/fout/gemist
+- Scores en commentaar inbegrepen bij `scored=true`
+- Geen externe packages — ZIP gebouwd via handmatige Buffer + CRC32
+- `exportAll()` in quiz-review.html uitgebreid: 7 exportopties (waaronder nieuw ZIP)
+
+### 20a — Audit-log leerkrachtenacties
+
+Nieuwe tabel `audit_log` in PostgreSQL:
+- Gelogde acties: `score_changed`, `quiz_deleted`, `results_released`
+- Per actie: actor (leerkracht), tijdstip, IP, oud/nieuw waarde
+- Endpoint: `GET /api/admin/audit-log?limit=50&action=score_changed`
+- Zichtbaar in monitoring.html als scrollbare tabel met filteroptie
+
+### 20b — Wachtwoord-reset via pycodeflow.sh
+
+Nieuw menu-item **17 🔑 Wachtwoord leerkracht resetten**:
+- Toont bestaande leerkrachten
+- Invoer nieuw wachtwoord (met bevestiging)
+- Reset via `manage-teacher.js` in de container
+
+### Sprint 21 — Systeembeheer volledig up-to-date
+
+**monitoring.html** uitgebreid met 4 nieuwe secties:
+
+**PostgreSQL sectie:** verbindingsstatus, tabelaantal, leerkrachten/klassen/leerlingen/sessies, quiz statistieken (vragen in bank, toetsen ooit, antwoorden totaal).
+
+**Backup sectie:** laatste backup status, logbestand info, versie + uptime + Node.js versie.
+
+**Audit-log tabel:** filterbaar op actie-type, toont de laatste 25 acties.
+
+**Stresstest historiek:**
+- Lijndiagram van laatste 10 tests (kleurgecodeerd: groen/oranje/rood op stressload%)
+- Tabel met type, datum, **stressload percentage + label**, runs OK/totaal, gemiddelde tijd, foutenpercentage
+- Stressload = gewogen gemiddelde: RAM runner (25%) + CPU runner (20%) + run-tijd vs target (20%) + gefaalde runs (20%) + PG pool (15%)
+- Labels: LAAG (0–40%) / NORMAAL (41–70%) / MATIG (71–85%) / HOOG (86–95%) / KRITIEK (>95%)
+
+**server.js:** `berekenStressload()` functie voor gewogen stressload berekening.
+
+### Database
+`audit_log` tabel (actor, action, target, detail_json, ip, created_at)
+`stress_results` tabel (testtype, stressload%, runs, timing, RAM/CPU)
+Methodes: `auditLog()`, `getAuditLog()`, `saveStressResult()`, `getStressResults()`
+
+### pycodeflow.sh
+Menu nu 17 opties. Nieuw: optie 17 wachtwoord-reset.
+
+### Bestanden
+`server.js` · `database.js` · `pycodeflow.sh` · `monitoring.html` · `quiz-review.html`
+
+---
+
 ## v2026.2.16.0 — Sprint 19: Betrouwbaarheid & uitbreidingen
 
 ### 19a — Quiz backup 15s + vrije editor localStorage + versie-endpoint

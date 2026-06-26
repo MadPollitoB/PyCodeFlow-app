@@ -18,19 +18,19 @@
 | **17b** | — | Toets/taak archief: beheer + opvragen per jaar/klas | ✅ Afgerond (v2026.2.14.0) | ~2 dagen |
 | **18a** | 🔴 P1-1 | Vraagtypen: open vraag + meerkeuze + single choice | 🔄 Gepland | ~3 dagen |
 | **18b** | 🔴 P1-2 | Automatische scoring meerkeuze/single choice | 🔄 Gepland | ~1 dag |
-| **19a** | 🔴 P1-3 | Quiz backup 15s + vrije editor localStorage + versie-endpoint | 🔄 Gepland | ~0.5 dag |
-| **19b** | 🔴 P1-4 | Schoollogo in UI (topbar + PDF) | 🔄 Gepland | ~0.5 dag |
+| **19a ✅** | 🔴 P1-3 | ✅ Afgerond (v2026.2.16.0) | 🔄 Gepland | ~0.5 dag |
+| **19b ✅** | 🔴 P1-4 | ✅ Afgerond (v2026.2.16.0) | 🔄 Gepland | ~0.5 dag |
 | **19c** | 🔴 P1-5 | check-deployment.sh volledig bijwerken (sprint 12+) | 🔄 Gepland | ~0.5 dag |
-| **19d** | 🔴 P1-6 | Notificatie leerling heeft toets nog niet gestart | 🔄 Gepland | ~0.5 dag |
-| **19e** | 🔴 P1-7 | Servercrash notificatie (webhook/email) | 🔄 Gepland | ~1 dag |
-| **19f** | 🔴 P1-8 | Markdown rendering in vraagstellingen | 🔄 Gepland | ~1 dag |
-| **19g** | 🔴 P1-9 | Sessie-config persistent na herstart | 🔄 Gepland | ~0.5 dag |
-| **19h** | 🔴 P1-10 | Bulk PDF export: alle antwoordformulieren als aparte bestanden | 🔄 Gepland | ~1 dag |
-| **19i** | 🔴 P1-11 | Automatische PostgreSQL backup (7 dagen, logging, melding) | 🔄 Gepland | ~1 dag |
-| **19j** | 🔴 P1-12 | Toets/taak: tijdsvenster + toegang zonder leerkracht online | 🔄 Gepland | ~1.5 dag |
-| **20a** | 🟠 P2-1 | Audit-log leerkrachtenacties (score gewijzigd, toets verwijderd) | 🔄 Gepland | ~1 dag |
-| **20b** | 🟠 P2-2 | Wachtwoord-reset flow voor leerkrachten (self-service) | 🔄 Gepland | ~1 dag |
-| **21** | 🟠 P2-3 | Systeembeheer (monitoring.html) volledig up-to-date | 🔄 Gepland | ~1.5 dag |
+| **19d ✅** | 🔴 P1-6 | ✅ Afgerond (v2026.2.16.0) | 🔄 Gepland | ~0.5 dag |
+| **19e ✅** | 🔴 P1-7 | ✅ Afgerond (v2026.2.16.0) | 🔄 Gepland | ~1 dag |
+| **19f ✅** | 🔴 P1-8 | ✅ Afgerond (v2026.2.16.0) | 🔄 Gepland | ~1 dag |
+| **19g ✅** | 🔴 P1-9 | ✅ Afgerond (v2026.2.16.0) | 🔄 Gepland | ~0.5 dag |
+| **19h** | 🔴 P1-10 | Bulk PDF export: alle antwoordformulieren als aparte bestanden | ✅ Afgerond (v2026.2.17.0) | ~1 dag |
+| **19i ✅** | 🔴 P1-11 | ✅ Afgerond (v2026.2.16.0) | 🔄 Gepland | ~1 dag |
+| **19j ✅** | 🔴 P1-12 | ✅ Afgerond (v2026.2.16.0) | 🔄 Gepland | ~1.5 dag |
+| **20a** | 🟠 P2-1 | Audit-log leerkrachtenacties (score gewijzigd, toets verwijderd) | ✅ Afgerond (v2026.2.17.0) | ~1 dag |
+| **20b** | 🟠 P2-2 | Wachtwoord-reset flow voor leerkrachten (self-service) | ✅ Afgerond (v2026.2.17.0) | ~1 dag |
+| **21** | 🟠 P2-3 | Systeembeheer (monitoring.html) volledig up-to-date | ✅ Afgerond (v2026.2.17.0) | ~1.5 dag |
 | **14** | ⏸ Uitgesteld | Google OAuth leerlingen | ⏸ Uitgesteld (later) | ~3 dagen |
 | **15** | ⏸ Uitgesteld | Smartschool SSO | ⏸ Uitgesteld (optioneel) | ~1 week |
 

@@ -318,6 +318,89 @@
 
 
 
+  <!-- ═══ SPRINT 20/21 NIEUWE SECTIES ═══ -->
+
+  <!-- PostgreSQL sectie -->
+  <div style="margin-top:32px;">
+    <h2>🗄 PostgreSQL</h2>
+    <div class="mon-grid">
+      <div class="mon-card">
+        <div class="mon-card-title">Verbinding</div>
+        <div id="pg-status" style="font-size:1.1rem;font-weight:700;color:var(--primary);">Laden...</div>
+        <div class="muted" style="font-size:0.82rem;margin-top:4px;" id="pg-detail"></div>
+      </div>
+      <div class="mon-card">
+        <div class="mon-card-title">Tabellen & records</div>
+        <div id="pg-tables" style="font-size:0.88rem;line-height:1.8;"></div>
+      </div>
+      <div class="mon-card">
+        <div class="mon-card-title">Quiz statistieken</div>
+        <div id="pg-quiz" style="font-size:0.88rem;line-height:1.8;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backup sectie -->
+  <div style="margin-top:28px;">
+    <h2>💾 Database backup</h2>
+    <div class="mon-grid">
+      <div class="mon-card">
+        <div class="mon-card-title">Laatste backup</div>
+        <div id="backup-status" style="font-size:0.95rem;font-weight:700;">Laden...</div>
+        <div class="muted" style="font-size:0.82rem;margin-top:4px;" id="backup-detail"></div>
+      </div>
+      <div class="mon-card">
+        <div class="mon-card-title">Log-bestanden</div>
+        <div id="log-status" style="font-size:0.88rem;line-height:1.8;"></div>
+      </div>
+      <div class="mon-card">
+        <div class="mon-card-title">Versie</div>
+        <div id="version-info" style="font-size:0.88rem;line-height:1.8;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Audit log sectie -->
+  <div style="margin-top:28px;">
+    <h2>📋 Audit-log <span style="font-size:0.8rem;font-weight:400;color:var(--muted);">(Sprint 20a)</span></h2>
+    <div class="mon-card">
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+        <select id="audit-filter-action" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:0.85rem;background:var(--surface);color:var(--text);">
+          <option value="">Alle acties</option>
+          <option value="score_changed">Score gewijzigd</option>
+          <option value="quiz_deleted">Toets verwijderd</option>
+          <option value="results_released">Resultaten vrijgegeven</option>
+        </select>
+        <button class="btn btn-muted small" onclick="loadAuditLog()">🔄 Verversen</button>
+      </div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+          <thead>
+            <tr style="border-bottom:2px solid var(--border);">
+              <th style="text-align:left;padding:6px 8px;color:var(--muted);">Tijdstip</th>
+              <th style="text-align:left;padding:6px 8px;color:var(--muted);">Leerkracht</th>
+              <th style="text-align:left;padding:6px 8px;color:var(--muted);">Actie</th>
+              <th style="text-align:left;padding:6px 8px;color:var(--muted);">Doel</th>
+              <th style="text-align:left;padding:6px 8px;color:var(--muted);">Detail</th>
+            </tr>
+          </thead>
+          <tbody id="audit-tbody">
+            <tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted);">Laden...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stresstest historiek -->
+  <div style="margin-top:28px;">
+    <h2>📊 Stresstest historiek <span style="font-size:0.8rem;font-weight:400;color:var(--muted);">(Sprint 21)</span></h2>
+    <div class="mon-card">
+      <canvas id="stress-history-chart" height="80" style="width:100%;margin-bottom:12px;"></canvas>
+      <div id="stress-history-table" style="font-size:0.85rem;"></div>
+    </div>
+  </div>
+
   <!-- ═══ STRESSTEST SECTIE ═══ -->
   <div style="margin-top:40px;">
     <h2>Stresstest</h2>
@@ -908,6 +991,212 @@
       }
     }).catch(() => {});
 })();
+
+// ═══ Sprint 20/21: Nieuwe monitoring functies ═══════════════════════════════
+
+async function loadExtraMonitoring() {
+  // PostgreSQL status
+  try {
+    const r = await fetch('/api/monitoring', { credentials: 'same-origin' });
+    const d = await r.json();
+
+    // PostgreSQL
+    const pgEl = document.getElementById('pg-status');
+    if (pgEl) pgEl.textContent = '● Verbonden';
+
+    const pgDetail = document.getElementById('pg-detail');
+    if (pgDetail && d.dbStats) {
+      pgDetail.textContent = `${d.dbStats.tableCount || '?'} tabellen`;
+    }
+
+    const pgTables = document.getElementById('pg-tables');
+    if (pgTables && d.dbStats) {
+      const stats = d.dbStats;
+      pgTables.innerHTML = [
+        `Leerkrachten: <strong>${stats.teacherCount || 0}</strong>`,
+        `Klassen: <strong>${stats.classCount || 0}</strong>`,
+        `Leerlingen: <strong>${stats.studentCount || 0}</strong>`,
+        `Sessies: <strong>${stats.sessionCount || 0}</strong>`,
+      ].join('<br/>');
+    }
+
+    const pgQuiz = document.getElementById('pg-quiz');
+    if (pgQuiz && d.quizStats) {
+      const qs = d.quizStats;
+      pgQuiz.innerHTML = [
+        `Vragen in bank: <strong>${qs.totalQuestions || 0}</strong>`,
+        `Toetsen ooit: <strong>${qs.totalSessions || 0}</strong>`,
+        `Antwoorden totaal: <strong>${qs.totalAnswers || 0}</strong>`,
+        `Gem. runs/antwoord: <strong>${qs.avgRuns || 0}</strong>`,
+      ].join('<br/>');
+    }
+  } catch {}
+
+  // Versie
+  try {
+    const vr = await fetch('/api/version', { credentials: 'same-origin' });
+    const vd = await vr.json();
+    const vEl = document.getElementById('version-info');
+    if (vEl) vEl.innerHTML = [
+      `Versie: <strong>${vd.version || '?'}</strong>`,
+      `Uptime: <strong>${Math.round((vd.uptime || 0) / 3600)}u ${Math.round(((vd.uptime||0)%3600)/60)}m</strong>`,
+      `Node.js: <strong>${vd.node || '?'}</strong>`,
+    ].join('<br/>');
+  } catch {}
+
+  // Log status
+  try {
+    const lr = await fetch('/api/admin/logs/info', { credentials: 'same-origin' });
+    const ld = await lr.json();
+    const lEl = document.getElementById('log-status');
+    if (lEl) lEl.innerHTML = [
+      `Bestanden: <strong>${ld.totalFiles || 0}</strong>`,
+      `Grootte: <strong>${ld.totalMB || 0} MB</strong>`,
+      `Retentie: <strong>${ld.retentionDays || 7} dagen</strong>`,
+      `Oud (te verwijderen): <strong>${ld.oldCount || 0}</strong>`,
+    ].join('<br/>');
+  } catch {}
+
+  // Audit log
+  loadAuditLog();
+
+  // Stresstest historiek
+  loadStressHistory();
+}
+
+async function loadAuditLog() {
+  const action = document.getElementById('audit-filter-action')?.value || '';
+  try {
+    const url = '/api/admin/audit-log?limit=25' + (action ? '&action=' + action : '');
+    const r = await fetch(url, { credentials: 'same-origin' });
+    const logs = await r.json();
+    const tbody = document.getElementById('audit-tbody');
+    if (!tbody) return;
+
+    const actionLabels = {
+      score_changed: '✏️ Score gewijzigd',
+      quiz_deleted: '🗑 Toets verwijderd',
+      results_released: '🔓 Resultaten vrijgegeven',
+    };
+
+    if (!logs.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted);">Nog geen acties gelogd.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = logs.map(log => {
+      const detail = (() => { try { return JSON.parse(log.detail_json || '{}'); } catch { return {}; } })();
+      let detailStr = '';
+      if (log.action === 'score_changed') {
+        detailStr = `${detail.studentName || '?'}: ${detail.oldScore ?? '—'} → ${detail.newScore ?? '—'}`;
+      } else if (detail.sessionName) {
+        detailStr = detail.sessionName;
+      }
+      const ts = new Date(Number(log.created_at)).toLocaleString('nl-BE', {
+        day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'
+      });
+      return `<tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:6px 8px;color:var(--muted);font-size:0.82rem;">${ts}</td>
+        <td style="padding:6px 8px;"><strong>${log.actor || '?'}</strong></td>
+        <td style="padding:6px 8px;">${actionLabels[log.action] || log.action}</td>
+        <td style="padding:6px 8px;font-size:0.82rem;">${log.target || ''}</td>
+        <td style="padding:6px 8px;color:var(--muted);font-size:0.82rem;">${detailStr}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    const tbody = document.getElementById('audit-tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted);padding:12px;">Audit-log niet beschikbaar.</td></tr>';
+  }
+}
+
+async function loadStressHistory() {
+  try {
+    const r = await fetch('/api/stress-results', { credentials: 'same-origin' });
+    const results = await r.json();
+
+    // Grafiek
+    const canvas = document.getElementById('stress-history-chart');
+    if (canvas && results.length > 0) {
+      const ctx = canvas.getContext('2d');
+      const W = canvas.offsetWidth || 600;
+      const H = 80;
+      canvas.width = W; canvas.height = H;
+      ctx.clearRect(0, 0, W, H);
+
+      // Grid
+      ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 0.5;
+      [25, 50, 75].forEach(y => {
+        const py = H - (y / 100) * (H - 20) - 10;
+        ctx.beginPath(); ctx.moveTo(30, py); ctx.lineTo(W - 10, py); ctx.stroke();
+        ctx.fillStyle = '#9ca3af'; ctx.font = '10px sans-serif';
+        ctx.fillText(y + '%', 2, py + 4);
+      });
+
+      const pts = results.slice().reverse();
+      const step = (W - 40) / Math.max(pts.length - 1, 1);
+
+      // Lijn
+      ctx.beginPath(); ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 2;
+      pts.forEach((r, i) => {
+        const x = 30 + i * step;
+        const y = H - ((r.stress_pct || 0) / 100) * (H - 20) - 10;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // Punten
+      pts.forEach((r, i) => {
+        const x = 30 + i * step;
+        const y = H - ((r.stress_pct || 0) / 100) * (H - 20) - 10;
+        const color = r.stress_pct > 85 ? '#dc2626' : r.stress_pct > 70 ? '#f59e0b' : '#22c55e';
+        ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = color; ctx.fill();
+      });
+    }
+
+    // Tabel
+    const tEl = document.getElementById('stress-history-table');
+    if (tEl && results.length > 0) {
+      const labelColor = {LAAG:'#22c55e', NORMAAL:'#3b82f6', MATIG:'#f59e0b', HOOG:'#ef4444', KRITIEK:'#7f1d1d'};
+      tEl.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;">' +
+        '<thead><tr style="border-bottom:2px solid var(--border);">' +
+        '<th style="text-align:left;padding:5px 8px;color:var(--muted);">Datum</th>' +
+        '<th style="text-align:left;padding:5px 8px;color:var(--muted);">Type</th>' +
+        '<th style="padding:5px 8px;color:var(--muted);">Stressload</th>' +
+        '<th style="padding:5px 8px;color:var(--muted);">Runs</th>' +
+        '<th style="padding:5px 8px;color:var(--muted);">Gem. tijd</th>' +
+        '<th style="padding:5px 8px;color:var(--muted);">Fouten</th>' +
+        '</tr></thead><tbody>' +
+        results.map(r => {
+          const color = labelColor[r.stress_label] || '#6b7280';
+          const ts = new Date(Number(r.ran_at)).toLocaleString('nl-BE', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+          const failPct = r.runs_total > 0 ? Math.round(r.runs_failed / r.runs_total * 100) : 0;
+          return `<tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:5px 8px;">${ts}</td>
+            <td style="padding:5px 8px;">${r.test_type}</td>
+            <td style="padding:5px 8px;text-align:center;">
+              <span style="background:${color}22;color:${color};padding:2px 10px;border-radius:8px;font-weight:700;">
+                ${r.stress_pct}% ${r.stress_label}
+              </span>
+            </td>
+            <td style="padding:5px 8px;text-align:center;">${r.runs_ok}/${r.runs_total}</td>
+            <td style="padding:5px 8px;text-align:center;">${r.avg_run_ms ? r.avg_run_ms + 'ms' : '—'}</td>
+            <td style="padding:5px 8px;text-align:center;color:${failPct>0?'#dc2626':'inherit'};">${failPct}%</td>
+          </tr>`;
+        }).join('') +
+        '</tbody></table>';
+    } else if (tEl) {
+      tEl.innerHTML = '<p style="color:var(--muted);text-align:center;padding:16px;">Nog geen stresstest-resultaten beschikbaar. Voer eerst een stresstest uit.</p>';
+    }
+  } catch {}
+}
+
+// Laad extra monitoring bij page load
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(loadExtraMonitoring, 1500);
+  setInterval(loadExtraMonitoring, 60000);
+});
+
 </script>
 
 </body>

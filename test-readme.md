@@ -1,7 +1,7 @@
 # PyCodeFlow — Testhandleiding
 
 > Volledig stappenplan per sprint, zowel lokaal als op de NAS.
-> Versie: v2026.2.16.0 · Bijgewerkt: juni 2026
+> Versie: v2026.2.17.0 · Bijgewerkt: juni 2026
 
 ---
 
@@ -484,6 +484,70 @@ Leerling is bezig EN deadline verstrijkt:
 
 ---
 
+## Sprint 20: Afwerking
+
+### 19h Bulk PDF ZIP
+
+```
+quiz-review.html → ⬇ Exporteer alles → kies 4 of 5:
+
+✅ Download start als .zip bestand
+✅ ZIP bevat 01_Emma_Janssens.pdf, 02_Luca_Peeters.pdf, ...
+✅ Elke PDF bevat alle vragen + antwoorden van die leerling
+✅ Meerkeuze: ✅ correct, ❌ fout, ☑ correct maar niet gekozen
+✅ Optie 5 (met scores): scores zichtbaar in PDF
+```
+
+### 20a Audit-log
+
+```
+monitoring.html → sectie "📋 Audit-log"
+
+Stap 1: Verbeter een score in quiz-review.html
+✅ Actie "✏️ Score gewijzigd" verschijnt in audit-log
+✅ Toont: leerkracht, tijdstip, leerlingnaam, oude→nieuwe score
+
+Stap 2: Verwijder een toets in quiz-archive.html
+✅ Actie "🗑 Toets verwijderd" verschijnt
+
+Stap 3: Filter op "Score gewijzigd"
+✅ Enkel score-acties zichtbaar
+```
+
+### 20b Wachtwoord-reset
+
+```bash
+bash pycodeflow.sh → optie 17
+
+✅ Bestaande leerkrachten zichtbaar
+✅ Nieuw wachtwoord instellen
+✅ Inloggen met nieuw wachtwoord werkt
+```
+
+### 21 Systeembeheer
+
+```
+monitoring.html:
+
+PostgreSQL sectie:
+✅ "● Verbonden" zichtbaar
+✅ Aantal tabellen, leerkrachten, klassen, leerlingen
+✅ Quiz statistieken (vragen in bank, toetsen ooit)
+
+Backup sectie:
+✅ Versie + uptime + Node.js versie zichtbaar
+
+Audit-log tabel:
+✅ Acties scrollbaar, filterbaar
+
+Stresstest historiek:
+✅ Na een stresstest: lijndiagram + tabel zichtbaar
+✅ Stressload % en label (LAAG/NORMAAL/MATIG/HOOG/KRITIEK)
+✅ Kleurcodering: groen < 40%, oranje 40-85%, rood > 85%
+```
+
+---
+
 ## Beveiligingstests
 
 ### CSP headers
@@ -554,4 +618,4 @@ bash check-deployment.sh
 
 ---
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.16.0*
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.17.0*

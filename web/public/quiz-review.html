@@ -470,23 +470,27 @@ function exportStudent(studentId, scored) {
 }
 
 function exportAll() {
-  const menu = [
-    'Welk PDF-type wil je exporteren?',
-    '1 = Vragenblad (voor op papier)',
-    '2 = Alle antwoordformulieren zonder scores',
-    '3 = Alle antwoordformulieren met scores',
-    '4 = Klasoverzicht (scoreblad)',
-    '5 = Alles als ZIP (.py bestanden)',
-  ].join('\n');
-  const choice = prompt(menu);
+  const keuze = prompt(
+    'Welk export-type wil je?\n' +
+    '1 = Vragenblad PDF (uitdelen)\n' +
+    '2 = Alle antwoorden (1 PDF, zonder scores)\n' +
+    '3 = Alle antwoorden (1 PDF, met scores)\n' +
+    '4 = ZIP aparte PDF per leerling (zonder scores)\n' +
+    '5 = ZIP aparte PDF per leerling (met scores) ← AANBEVOLEN\n' +
+    '6 = Klasoverzicht PDF (scoreblad)\n' +
+    '7 = TXT export (code per leerling)'
+  );
+  const base = '/api/quiz/' + sessionCode;
   const urls = {
-    '1': `/api/quiz/${sessionCode}/pdf/questions`,
-    '2': `/api/quiz/${sessionCode}/pdf/answers?scored=false`,
-    '3': `/api/quiz/${sessionCode}/pdf/answers?scored=true`,
-    '4': `/api/quiz/${sessionCode}/pdf/overview`,
-    '5': `/api/quiz/${sessionCode}/export/zip`,
+    '1': base + '/pdf/questions',
+    '2': base + '/pdf/answers?scored=false',
+    '3': base + '/pdf/answers?scored=true',
+    '4': base + '/pdf/zip?scored=false',
+    '5': base + '/pdf/zip?scored=true',
+    '6': base + '/pdf/overview',
+    '7': base + '/export/zip',
   };
-  if (urls[choice]) window.open(urls[choice], '_blank');
+  if (urls[keuze]) window.open(urls[keuze], '_blank');
 }
 
 init();

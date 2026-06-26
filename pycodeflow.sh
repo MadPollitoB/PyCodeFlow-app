@@ -675,6 +675,46 @@ actie_migratie() {
   pauze
 }
 
+actie_wachtwoord_reset() {
+  header
+  stap "Wachtwoord resetten (Sprint 20b)"
+  echo ""
+
+  if ! docker inspect pycodeflow-web-1 &>/dev/null; then
+    err "Web container niet actief."
+    pauze; return
+  fi
+
+  # Toon bestaande leerkrachten
+  echo -e "  ${BOLD}Bestaande leerkrachten:${RESET}"
+  docker compose --project-directory "$BASE" exec web     node scripts/manage-teacher.js list 2>/dev/null     || docker exec pycodeflow-web-1 node /app/scripts/manage-teacher.js list 2>/dev/null
+  echo ""
+
+  read -rp "  Gebruikersnaam: " lk_user
+  [[ -z "$lk_user" ]] && { warn "Geannuleerd."; pauze; return; }
+
+  local pw1 pw2
+  echo -e "  ${DIM}Tip: vermijd uitroeptekens (!) in wachtwoorden.${RESET}"
+  while true; do
+    read -rsp "  Nieuw wachtwoord (min. 8 tekens): " pw1; echo ""
+    [[ ${#pw1} -lt 8 ]] && { err "Te kort."; continue; }
+    read -rsp "  Bevestig: " pw2; echo ""
+    [[ "$pw1" != "$pw2" ]] && { err "Komen niet overeen."; continue; }
+    break
+  done
+
+  echo ""
+  docker exec pycodeflow-web-1     node /app/scripts/manage-teacher.js reset-password "$lk_user" "$pw1"
+
+  if [[ $? -eq 0 ]]; then
+    ok "Wachtwoord bijgewerkt voor '$lk_user'"
+  else
+    err "Reset mislukt — gebruiker bestaat mogelijk niet"
+  fi
+  echo ""
+  pauze
+}
+
 actie_leerkracht() {
   header
   stap "Leerkrachtsaccount aanmaken"
@@ -1139,6 +1179,7 @@ while true; do
   echo -e "  ${BOLD}14)${RESET} 💣  Volledige reset (verwijder alles + herinstall)"
   echo -e "  ${BOLD}15)${RESET} 🔔  Health monitor instellen (crash notificatie)"
   echo -e "  ${BOLD}16)${RESET} 💾  Database backup beheren"
+  echo -e "  ${BOLD}17)${RESET} 🔑  Wachtwoord leerkracht resetten"
   echo -e "  ${BOLD} q)${RESET} ✖   Afsluiten"
   echo ""
   echo -e "${BOLD}──────────────────────────────────────────────${RESET}"
@@ -1162,6 +1203,7 @@ while true; do
     14) actie_volledige_reset ;;
     15) actie_health_monitor ;;
     16) actie_backup ;;
+    17) actie_wachtwoord_reset ;;
     q|Q) echo -e "${GROEN}Tot later!${RESET}"; echo ""; exit 0 ;;
     *) err "Ongeldige keuze."; sleep 1 ;;
   esac

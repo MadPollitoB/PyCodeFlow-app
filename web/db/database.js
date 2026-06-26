@@ -139,6 +139,42 @@ async function initSchema() {
       ALTER TABLE sessions ADD COLUMN config_json TEXT NOT NULL DEFAULT '{}';
     EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 
+    -- Sprint 20a: audit-log leerkrachtenacties
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id          TEXT PRIMARY KEY,
+      actor       TEXT NOT NULL DEFAULT '',
+      action      TEXT NOT NULL,
+      target      TEXT NOT NULL DEFAULT '',
+      detail_json TEXT NOT NULL DEFAULT '{}',
+      ip          TEXT NOT NULL DEFAULT '',
+      created_at  BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC);
+
+    -- Sprint 21: stresstest historiek
+    CREATE TABLE IF NOT EXISTS stress_results (
+      id              TEXT PRIMARY KEY,
+      test_type       TEXT NOT NULL,
+      ran_at          BIGINT NOT NULL,
+      duration_sec    INTEGER NOT NULL DEFAULT 0,
+      params_json     TEXT NOT NULL DEFAULT '{}',
+      runs_total      INTEGER NOT NULL DEFAULT 0,
+      runs_ok         INTEGER NOT NULL DEFAULT 0,
+      runs_failed     INTEGER NOT NULL DEFAULT 0,
+      avg_run_ms      INTEGER,
+      max_run_ms      INTEGER,
+      ram_web_mb      INTEGER,
+      ram_runner_mb   INTEGER,
+      cpu_runner_pct  INTEGER,
+      pg_queries      INTEGER,
+      pg_avg_ms       INTEGER,
+      pg_pool_used    INTEGER,
+      stress_pct      INTEGER NOT NULL DEFAULT 0,
+      stress_label    TEXT NOT NULL DEFAULT 'OK',
+      log_filename    TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_stress_ran ON stress_results(ran_at DESC);
+
     -- ══ Sprint 16: Toetsmodule ════════════════════════════════════════════════
 
     CREATE TABLE IF NOT EXISTS quiz_bank (
@@ -1083,6 +1119,59 @@ module.exports = {
       `SELECT DISTINCT school_year FROM quiz_meta WHERE school_year != '' ORDER BY school_year DESC`
     );
     return r.rows.map(r => r.school_year);
+  },
+
+  // ── Audit log (Sprint 20a) ───────────────────────────────────────────────────
+
+  async auditLog(actor, action, target, detail = {}, ip = '') {
+    await query(
+      `INSERT INTO audit_log (id, actor, action, target, detail_json, ip, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [crypto.randomUUID(), String(actor||'').slice(0,64), action,
+       String(target||'').slice(0,128), JSON.stringify(detail),
+       String(ip||'').slice(0,64), Date.now()]
+    ).catch(() => {}); // nooit falen
+  },
+
+  async getAuditLog({ limit = 50, actor = null, action = null } = {}) {
+    let where = [];
+    const params = [];
+    if (actor)  { params.push(actor);  where.push(`actor = $${params.length}`); }
+    if (action) { params.push(action); where.push(`action = $${params.length}`); }
+    params.push(limit);
+    const r = await query(
+      `SELECT * FROM audit_log ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+       ORDER BY created_at DESC LIMIT $${params.length}`,
+      params
+    );
+    return r.rows;
+  },
+
+  // ── Stresstest historiek (Sprint 21) ─────────────────────────────────────────
+
+  async saveStressResult(result) {
+    await query(
+      `INSERT INTO stress_results
+         (id, test_type, ran_at, duration_sec, params_json,
+          runs_total, runs_ok, runs_failed, avg_run_ms, max_run_ms,
+          ram_web_mb, ram_runner_mb, cpu_runner_pct, pg_queries, pg_avg_ms,
+          pg_pool_used, stress_pct, stress_label, log_filename)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+      [crypto.randomUUID(), result.testType, result.ranAt || Date.now(),
+       result.durationSec || 0, JSON.stringify(result.params || {}),
+       result.runsTotal || 0, result.runsOk || 0, result.runsFailed || 0,
+       result.avgRunMs || null, result.maxRunMs || null,
+       result.ramWebMb || null, result.ramRunnerMb || null, result.cpuRunnerPct || null,
+       result.pgQueries || null, result.pgAvgMs || null, result.pgPoolUsed || null,
+       result.stressPct || 0, result.stressLabel || 'OK', result.logFilename || null]
+    );
+  },
+
+  async getStressResults(limit = 10) {
+    const r = await query(
+      `SELECT * FROM stress_results ORDER BY ran_at DESC LIMIT $1`, [limit]
+    );
+    return r.rows;
   },
 
   // ── Quiz Monitoring (Sprint 16f) ──────────────────────────────────────────────

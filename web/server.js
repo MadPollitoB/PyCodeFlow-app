@@ -1060,10 +1060,21 @@ app.get('/api/quiz/:code/run-history/:studentId/:questionId', requireTeacherAuth
 
 app.put('/api/quiz/:code/answers/:answerId/score', requireTeacherAuth, requireCsrf, async (req, res) => {
   const { score, teacherComment } = req.body || {};
+  const actor = getActorFromReq(req);
+  // Haal oude score op voor audit
+  const oldAnswers = await dbModule.getQuizAnswers(req.params.code.toUpperCase()).catch(() => []);
+  const oldAns = oldAnswers.find(a => a.id === req.params.answerId);
   await dbModule.scoreQuizAnswer(req.params.answerId,
     score !== undefined ? parseInt(score) : null,
     String(teacherComment || '').slice(0, 1000)
   );
+  // Audit log
+  dbModule.auditLog(actor, 'score_changed', req.params.answerId, {
+    sessionCode: req.params.code,
+    oldScore: oldAns?.score,
+    newScore: score !== undefined ? parseInt(score) : null,
+    studentName: oldAns?.student_name,
+  }, req.ip).catch(() => {});
   res.json({ ok: true });
 });
 
@@ -1077,9 +1088,12 @@ app.put('/api/quiz/:code/general-comment/:studentId', requireTeacherAuth, requir
 });
 
 app.post('/api/quiz/:code/release', requireTeacherAuth, requireCsrf, async (req, res) => {
-  await dbModule.releaseQuizResults(req.params.code.toUpperCase());
-  const session = sessions.get(req.params.code.toUpperCase());
+  const code = req.params.code.toUpperCase();
+  await dbModule.releaseQuizResults(code);
+  const session = sessions.get(code);
   if (session) io.to(session.code).emit('quiz_results_released');
+  const actor = getActorFromReq(req);
+  dbModule.auditLog(actor, 'results_released', code, {}, req.ip).catch(() => {});
   res.json({ ok: true });
 });
 
@@ -1420,8 +1434,206 @@ app.get('/api/quiz/:code/pdf/overview', requireTeacherAuth, async (req, res) => 
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Sprint 19h: Bulk PDF ZIP — aparte PDF per leerling
+app.get('/api/quiz/:code/pdf/zip', requireTeacherAuth, async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const scored = req.query.scored === 'true';
+
+  let PDFDocument;
+  try { PDFDocument = require('pdfkit'); }
+  catch (e) { return res.status(500).json({ error: 'pdfkit niet geïnstalleerd.' }); }
+
+  const answers = await dbModule.getQuizAnswers(code);
+  const questions = await dbModule.getQuizQuestions(code);
+
+  // Unieke leerlingen
+  const seen = new Set();
+  const students = answers
+    .filter(a => { if (seen.has(a.student_id)) return false; seen.add(a.student_id); return true; })
+    .map(a => ({ id: a.student_id, name: a.student_name, class: a.student_class }));
+
+  if (!students.length) return res.status(404).json({ error: 'Geen leerlingen gevonden.' });
+
+  // Genereer een eenvoudige ZIP met PDF-bestanden
+  // Echte ZIP-formaat via handmatige buffer (CRC32 + local file headers)
+  function crc32(buf) {
+    let crc = 0xFFFFFFFF;
+    const table = [];
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let j = 0; j < 8; j++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+      table[i] = c;
+    }
+    for (const byte of buf) crc = table[(crc ^ byte) & 0xFF] ^ (crc >>> 8);
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function writeUInt16LE(v) { const b = Buffer.alloc(2); b.writeUInt16LE(v); return b; }
+  function writeUInt32LE(v) { const b = Buffer.alloc(4); b.writeUInt32LE(v >>> 0); return b; }
+
+  const zipParts = [];
+  const centralDir = [];
+  let offset = 0;
+
+  for (let si = 0; si < students.length; si++) {
+    const stud = students[si];
+    // Genereer PDF als buffer via pdfkit
+    const pdfBuf = await new Promise(async (resolve) => {
+      const doc = new PDFDocument({ margin: 50, size: 'A4' });
+      const chunks = [];
+      doc.on('data', chunk => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+
+      const schoolName = process.env.SCHOOL_NAME || 'PyCodeFlow';
+      const studAnswers = answers.filter(a => a.student_id === stud.id);
+      const totalScore = scored ? studAnswers.reduce((s, a) => s + (a.score || 0), 0) : null;
+      const maxScore = questions.reduce((s, q) => s + (q.points || 0), 0);
+
+      doc.fontSize(14).font('Helvetica-Bold').text(schoolName);
+      doc.fontSize(10).font('Helvetica').fillColor('#666').text('PyCodeFlow · Toetsplatform');
+      doc.moveDown(0.3);
+      doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#2563eb').lineWidth(2).stroke();
+      doc.moveDown(0.5);
+      doc.fontSize(14).font('Helvetica-Bold').fillColor('#000').text(stud.name);
+      doc.fontSize(10).font('Helvetica').fillColor('#666')
+         .text(`${stud.class || ''} · ${scored ? `Score: ${totalScore}/${maxScore} pt · ` : ''}${new Date().toLocaleDateString('nl-BE')}`);
+      doc.moveDown(0.5);
+
+      questions.forEach((q, i) => {
+        if (doc.y > 650) doc.addPage();
+        const ans = studAnswers.find(a => a.question_id === q.id);
+        const qType = q.question_type || 'code';
+
+        doc.fontSize(11).font('Helvetica-Bold')
+           .text(`Vraag ${i+1} — ${q.subject || ''} · `, { continued: true });
+        if (scored && ans?.score !== null && ans?.score !== undefined) {
+          doc.fillColor('#2563eb').text(`${ans.score}/${q.points} pt`);
+        } else {
+          doc.fillColor('#666').text(`___/${q.points} pt`);
+        }
+        doc.fillColor('#000').moveDown(0.2);
+        doc.fontSize(9).font('Helvetica').fillColor('#666')
+           .text(q.text_snapshot?.slice(0, 80) || '', { lineGap: 2 });
+        doc.fillColor('#000').moveDown(0.3);
+
+        if (!ans || !ans.code) {
+          doc.fontSize(9).font('Helvetica-Oblique').fillColor('#999').text('(geen antwoord)');
+        } else if (qType === 'open') {
+          doc.fontSize(9).font('Helvetica').fillColor('#000').text(ans.code, { lineGap: 2 });
+        } else if (qType === 'code') {
+          const lines = (ans.code || '').split(String.fromCharCode(10));
+          doc.rect(54, doc.y - 2, 487, lines.length * 13 + 10).fillAndStroke('#f8f9fa', '#d1d5db');
+          doc.fontSize(8).font('Courier').fillColor('#1e1e1e');
+          lines.forEach((line, li) => {
+            doc.text(line, 58, (doc.y) + li * 13 - (li === 0 ? 0 : 13), { lineBreak: false, width: 479 });
+          });
+          doc.y += lines.length * 13 + 12;
+          doc.fillColor('#000');
+        } else {
+          // Multiple/single: toon geselecteerde opties
+          try {
+            const choices = JSON.parse(q.choices_json || '[]');
+            const selected = JSON.parse(ans.selected_choices || '[]');
+            choices.forEach(ch => {
+              const sel = selected.includes(ch.id);
+              const correct = ch.correct === true;
+              let icon = sel ? (correct ? '✓' : '✗') : '○';
+              doc.fontSize(9).font('Helvetica')
+                 .fillColor(sel && correct ? '#065f46' : sel ? '#991b1b' : '#000')
+                 .text(`  ${icon}  ${ch.text}`, { lineGap: 2 });
+            });
+          } catch {}
+          doc.fillColor('#000');
+        }
+
+        if (scored && ans?.teacher_comment) {
+          doc.fontSize(8).font('Helvetica-Oblique').fillColor('#2563eb')
+             .text(`Opmerking: ${ans.teacher_comment}`);
+          doc.fillColor('#000');
+        }
+        doc.moveDown(0.5);
+        doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#e5e7eb').lineWidth(0.5).stroke();
+        doc.moveDown(0.3);
+      });
+
+      if (scored) {
+        const genComment = await dbModule.getQuizGeneralComment(code, stud.id);
+        if (genComment) {
+          doc.moveDown(0.5).fontSize(10).font('Helvetica-Bold').text('Algemeen commentaar:');
+          doc.fontSize(10).font('Helvetica').text(genComment);
+        }
+        doc.moveDown(0.5);
+        doc.rect(50, doc.y, 495, 28).fillAndStroke('#f3f4f6', '#d1d5db');
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#000')
+           .text(`Totaal: ${totalScore}/${maxScore} punten`, 58, doc.y - 20);
+        doc.y += 12;
+      }
+      doc.end();
+    });
+
+    // Voeg PDF toe aan ZIP
+    const num = String(si + 1).padStart(2, '0');
+    const safeName = `${num}_${stud.name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+    const nameBytes = Buffer.from(safeName);
+    const crc = crc32(pdfBuf);
+    const now = new Date();
+    const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+    const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+
+    const localHeader = Buffer.concat([
+      Buffer.from('504b0304', 'hex'), // signature
+      writeUInt16LE(20),              // version needed
+      writeUInt16LE(0),               // flags
+      writeUInt16LE(0),               // compression: stored
+      writeUInt16LE(dosTime),
+      writeUInt16LE(dosDate),
+      writeUInt32LE(crc),
+      writeUInt32LE(pdfBuf.length),
+      writeUInt32LE(pdfBuf.length),
+      writeUInt16LE(nameBytes.length),
+      writeUInt16LE(0),               // extra field length
+      nameBytes,
+    ]);
+
+    const centralEntry = Buffer.concat([
+      Buffer.from('504b0102', 'hex'), // central dir signature
+      writeUInt16LE(20),              // version made by
+      writeUInt16LE(20),              // version needed
+      writeUInt16LE(0), writeUInt16LE(0),
+      writeUInt16LE(dosTime), writeUInt16LE(dosDate),
+      writeUInt32LE(crc),
+      writeUInt32LE(pdfBuf.length), writeUInt32LE(pdfBuf.length),
+      writeUInt16LE(nameBytes.length),
+      writeUInt16LE(0), writeUInt16LE(0), writeUInt16LE(0), writeUInt16LE(0),
+      writeUInt32LE(0),
+      writeUInt32LE(offset),
+      nameBytes,
+    ]);
+
+    zipParts.push(localHeader, pdfBuf);
+    centralDir.push(centralEntry);
+    offset += localHeader.length + pdfBuf.length;
+  }
+
+  const centralDirBuf = Buffer.concat(centralDir);
+  const eocd = Buffer.concat([
+    Buffer.from('504b0506', 'hex'),
+    writeUInt16LE(0), writeUInt16LE(0),
+    writeUInt16LE(students.length), writeUInt16LE(students.length),
+    writeUInt32LE(centralDirBuf.length),
+    writeUInt32LE(offset),
+    writeUInt16LE(0),
+  ]);
+
+  const zipBuf = Buffer.concat([...zipParts, centralDirBuf, eocd]);
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="antwoorden-${code}${scored?'-scores':''}.zip"`);
+  res.send(zipBuf);
+});
+
+// Originele TXT export (behouden als fallback)
 app.get('/api/quiz/:code/export/zip', requireTeacherAuth, async (req, res) => {
-  // ZIP met .py bestanden per leerling
+  // ZIP met .py bestanden per leerling (TXT formaat)
   const zlib = require('zlib');
   const code = req.params.code.toUpperCase();
   const answers = await dbModule.getQuizAnswers(code);
@@ -1512,12 +1724,13 @@ app.delete('/api/quiz/:code', requireTeacherAuth, requireCsrf, async (req, res) 
   const code = req.params.code.toUpperCase();
   const session = sessions.get(code);
   const sessionName = session?.name || code;
-  // Vereist bevestiging via naam
   if (!confirmName || confirmName.trim().toLowerCase() !== sessionName.toLowerCase()) {
     return res.status(400).json({ error: 'Bevestigingsnaam komt niet overeen.' });
   }
+  const actor = getActorFromReq(req);
   await dbModule.deleteQuizFully(code);
   sessions.delete(code);
+  dbModule.auditLog(actor, 'quiz_deleted', code, { sessionName }, req.ip).catch(() => {});
   res.json({ ok: true });
 });
 
@@ -1539,6 +1752,36 @@ app.put('/api/quiz/new-school-year', requireTeacherAuth, requireCsrf, async (req
 // Route voor quiz-archive.html
 app.get('/quiz-archive.html', requireTeacherAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'quiz-archive.html'));
+});
+
+// ── Sprint 20a: Audit log API ────────────────────────────────────────────────
+
+function getActorFromReq(req) {
+  try {
+    const auth = req.headers.authorization || '';
+    const creds = parseBasicAuthHeader(auth);
+    return creds?.username || 'onbekend';
+  } catch { return 'onbekend'; }
+}
+
+app.get('/api/admin/audit-log', requireTeacherAuth, async (req, res) => {
+  try {
+    const { limit = 50, actor, action } = req.query;
+    const logs = await dbModule.getAuditLog({
+      limit: Math.min(200, parseInt(limit) || 50),
+      actor: actor || null,
+      action: action || null,
+    });
+    res.json(logs);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Sprint 21: stresstest historiek API
+app.get('/api/stress-results', requireTeacherAuth, async (req, res) => {
+  try {
+    const results = await dbModule.getStressResults(20);
+    res.json(results);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── 17a: Log beheer endpoints ────────────────────────────────────────────────
@@ -4098,6 +4341,26 @@ cleanOldLogs();
 
 // API endpoint voor handmatige log cleanup (via pycodeflow.sh)
 // Wordt verderop geregistreerd als app.post('/api/admin/logs/cleanup', ...)
+
+// Sprint 21: stressload berekening
+function berekenStressload(metrics) {
+  const { ramRunnerPct = 0, cpuRunnerPct = 0, avgRunMs = 0, targetRunMs = 2000,
+          failedPct = 0, pgPoolPct = 0 } = metrics;
+  const runTimePct = Math.min(100, (avgRunMs / targetRunMs) * 100);
+  const score = Math.round(
+    ramRunnerPct * 0.25 +
+    cpuRunnerPct * 0.20 +
+    runTimePct   * 0.20 +
+    failedPct    * 0.20 +
+    pgPoolPct    * 0.15
+  );
+  let label = 'LAAG';
+  if (score > 95) label = 'KRITIEK';
+  else if (score > 85) label = 'HOOG';
+  else if (score > 70) label = 'MATIG';
+  else if (score > 40) label = 'NORMAAL';
+  return { score, label };
+}
 
 // Maximaal 1 stresstest tegelijk
 let activeStressTest = null; // { type, startedAt, emitter, stop() }

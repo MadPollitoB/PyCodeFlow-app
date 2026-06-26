@@ -1,7 +1,7 @@
 # PyCodeFlow — Technische documentatie
 
 > Interne werking, architectuur, API-referentie en ontwikkelaarsinformatie.
-> Versie: v2026.2.16.0
+> Versie: v2026.2.17.0
 
 ---
 
@@ -119,7 +119,8 @@ pycodeflow/
 
 | Tabel | Inhoud |
 |---|---|
-| `stress_results` | Stresstest historiek |
+| `stress_results` | Stresstest historiek (stressload%, timing, RAM/CPU) |
+| `audit_log` | Audit-log leerkrachtenacties (score gewijzigd, toets verwijderd, ...) |
 
 ---
 
@@ -145,6 +146,8 @@ pycodeflow/
 | POST | `/api/admin/students/import-csv` | CSV import |
 | GET | `/api/admin/logs/info` | Log status |
 | POST | `/api/admin/logs/cleanup` | Logs opruimen |
+| GET | `/api/admin/audit-log` | Audit-log (leerkrachtenacties) |
+| GET | `/api/stress-results` | Stresstest historiek |
 
 ### Sessies
 
@@ -286,7 +289,8 @@ BLOCKED_MODULES = {
 | 14 | Volledige reset (ALLES verwijderen, .env blijft) |
 | 15 | Health monitor instellen (crash notificatie) |
 | 16 | Database backup beheren |
+| 17 | Wachtwoord leerkracht resetten |
 
 ---
 
-*PyCodeFlow · Atheneum Hoboken · technical-readme.md · v2026.2.16.0*
+*PyCodeFlow · Atheneum Hoboken · technical-readme.md · v2026.2.17.0*
