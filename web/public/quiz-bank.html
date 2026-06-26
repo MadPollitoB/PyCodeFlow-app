@@ -100,8 +100,41 @@
       <h3 style="margin:0 0 16px;" id="form-title">Nieuwe vraag toevoegen</h3>
       <input type="hidden" id="edit-id"/>
       <div style="margin-bottom:12px;">
-        <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Vraagstelling</label>
-        <textarea class="q-input" id="q-text" placeholder="Schrijf een functie die ..."></textarea>
+        <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Vraagtype</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border:1.5px solid var(--border);border-radius:8px;">
+            <input type="radio" name="q-type" value="code" checked onchange="onTypeChange(this.value)"/> 🐍 Python code
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border:1.5px solid var(--border);border-radius:8px;">
+            <input type="radio" name="q-type" value="open" onchange="onTypeChange(this.value)"/> ✏️ Open vraag
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border:1.5px solid var(--border);border-radius:8px;">
+            <input type="radio" name="q-type" value="single" onchange="onTypeChange(this.value)"/> ◉ Single choice
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border:1.5px solid var(--border);border-radius:8px;">
+            <input type="radio" name="q-type" value="multiple" onchange="onTypeChange(this.value)"/> ☑ Meerkeuze
+          </label>
+        </div>
+      </div>
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <label style="font-size:0.82rem;color:var(--muted);">Vraagstelling <span style="font-size:0.75rem;">(Markdown ondersteund)</span></label>
+          <button type="button" class="btn btn-muted small" style="font-size:0.75rem;padding:2px 8px;"
+            onclick="toggleMarkdownPreview()">👁 Preview</button>
+        </div>
+        <textarea class="q-input" id="q-text" placeholder="Schrijf een functie die ...
+
+**Vet**, `code`, - lijsten zijn mogelijk"></textarea>
+        <div id="q-text-preview" style="display:none;padding:12px;background:var(--surface-soft);
+          border-radius:8px;margin-top:6px;border:1.5px solid var(--border);font-size:0.92rem;line-height:1.7;"></div>
+      </div>
+      <!-- Antwoordopties (enkel bij single/multiple) -->
+      <div id="choices-panel" style="display:none;margin-bottom:12px;">
+        <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:6px;">
+          Antwoordopties <span class="muted" id="choices-hint" style="font-size:0.78rem;">(selecteer de juiste)</span>
+        </label>
+        <div id="choices-list"></div>
+        <button type="button" class="btn btn-muted small" style="margin-top:8px;" onclick="addChoice()">+ Optie toevoegen</button>
       </div>
       <div class="form-row">
         <div>
@@ -210,6 +243,9 @@ function renderQuestions(qs) {
       <div class="q-meta">
         ${q.subject ? `<span class="badge">${esc(q.subject)}</span>` : ''}
         <span class="diff-badge diff-${q.difficulty}">${q.difficulty}</span>
+        <span class="badge" style="background:#f0f9ff;color:#0369a1;font-size:0.72rem;">
+          ${{code:'🐍 Code',open:'✏️ Open',single:'◉ Single',multiple:'☑ Keuze'}[q.question_type]||'Code'}
+        </span>
         <span class="muted" style="font-size:0.78rem;margin-left:auto;">${q.max_points} pt</span>
         ${q.archived ? '<span class="badge" style="background:#fee2e2;color:#991b1b;">Gearchiveerd</span>' : ''}
       </div>
@@ -232,6 +268,15 @@ function editQuestion(id) {
   document.getElementById('q-difficulty').value = q.difficulty;
   document.getElementById('q-points').value = q.max_points;
   document.getElementById('form-title').textContent = 'Vraag bewerken';
+  // Stel vraagtype in
+  const typeRadio = document.querySelector(`[name=q-type][value="${q.question_type||'code'}"]`);
+  if (typeRadio) { typeRadio.checked = true; onTypeChange(q.question_type||'code'); }
+  // Laad choices
+  try { _choices = JSON.parse(q.choices_json || '[]'); } catch { _choices = []; }
+  if (_choices.length === 0 && ['single','multiple'].includes(q.question_type)) {
+    _choices = [{id:crypto.randomUUID(),text:'',correct:false},{id:crypto.randomUUID(),text:'',correct:false}];
+  }
+  renderChoices();
   switchTab('add');
 }
 
@@ -242,18 +287,87 @@ function cancelEdit() {
   document.getElementById('q-difficulty').value = 'gemiddeld';
   document.getElementById('q-points').value = '4';
   document.getElementById('form-title').textContent = 'Nieuwe vraag toevoegen';
+  const codeRadio = document.querySelector('[name=q-type][value=code]');
+  if (codeRadio) { codeRadio.checked = true; onTypeChange('code'); }
+  _choices = [];
+  document.getElementById('choices-panel').style.display = 'none';
   switchTab('browse');
 }
 
+let _choices = []; // huidige antwoordopties
+
+function toggleMarkdownPreview() {
+  const preview = document.getElementById('q-text-preview');
+  const textarea = document.getElementById('q-text');
+  if (preview.style.display === 'none') {
+    const text = textarea.value;
+    preview.innerHTML = window.marked ? window.marked.parse(text, {breaks:true}) : text;
+    preview.style.display = 'block';
+    textarea.style.display = 'none';
+  } else {
+    preview.style.display = 'none';
+    textarea.style.display = '';
+  }
+}
+
+function onTypeChange(type) {
+  const panel = document.getElementById('choices-panel');
+  const hint  = document.getElementById('choices-hint');
+  panel.style.display = ['single','multiple'].includes(type) ? 'block' : 'none';
+  hint.textContent = type === 'single'
+    ? '(selecteer exact 1 juist antwoord)'
+    : '(selecteer alle juiste antwoorden)';
+  if (_choices.length === 0) {
+    _choices = [{id: crypto.randomUUID(), text:'', correct:false},
+                {id: crypto.randomUUID(), text:'', correct:false}];
+    renderChoices();
+  }
+}
+
+function addChoice() {
+  if (_choices.length >= 8) return alert('Maximaal 8 opties.');
+  _choices.push({ id: crypto.randomUUID(), text: '', correct: false });
+  renderChoices();
+}
+
+function removeChoice(id) {
+  if (_choices.length <= 2) return alert('Minimaal 2 opties.');
+  _choices = _choices.filter(ch => ch.id !== id);
+  renderChoices();
+}
+
+function renderChoices() {
+  const type = document.querySelector('[name=q-type]:checked')?.value || 'single';
+  const list = document.getElementById('choices-list');
+  list.innerHTML = _choices.map((ch, i) => `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+      ${type === 'single'
+        ? `<input type="radio" name="correct-choice" ${ch.correct?'checked':''} onchange="_choices.forEach((c,j)=>c.correct=j===${i}); renderChoices()"/>`
+        : `<input type="checkbox" ${ch.correct?'checked':''} onchange="_choices[${i}].correct=this.checked"/>`
+      }
+      <input value="${esc(ch.text)}" placeholder="Optie ${i+1}..."
+        oninput="_choices[${i}].text=this.value"
+        style="flex:1;padding:7px;border:1.5px solid var(--border);border-radius:8px;font-size:0.88rem;"/>
+      <button onclick="removeChoice('${ch.id}')" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:1.1rem;">✕</button>
+    </div>`).join('');
+}
+
 async function saveQuestion() {
-  const id = document.getElementById('edit-id').value;
+  const id   = document.getElementById('edit-id').value;
+  const type = document.querySelector('[name=q-type]:checked')?.value || 'code';
   const body = {
     text: document.getElementById('q-text').value.trim(),
     subject: document.getElementById('q-subject').value.trim(),
     difficulty: document.getElementById('q-difficulty').value,
     maxPoints: parseInt(document.getElementById('q-points').value) || 4,
+    questionType: type,
+    choices: ['single','multiple'].includes(type) ? _choices : [],
   };
   if (!body.text) return alert('Vul een vraagstelling in.');
+  if (['single','multiple'].includes(type)) {
+    if (_choices.filter(ch => ch.text.trim()).length < 2) return alert('Vul minstens 2 opties in.');
+    if (!_choices.some(ch => ch.correct)) return alert('Selecteer minstens 1 juist antwoord.');
+  }
   const url = id ? `/api/quiz/bank/${id}` : '/api/quiz/bank';
   const method = id ? 'PUT' : 'POST';
   const r = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
@@ -300,5 +414,6 @@ async function importCSV() {
 loadSubjects();
 loadQuestions();
 </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 </body>
 </html>

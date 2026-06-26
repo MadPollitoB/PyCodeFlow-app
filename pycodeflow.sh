@@ -80,14 +80,17 @@ toon_status() {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 is_eerste_start() {
-  # Eerste start als .env ontbreekt of DATABASE_URL niet ingesteld is
-  [[ ! -f "$ENV_FILE" ]] || ! grep -q "^DATABASE_URL=postgresql" "$ENV_FILE"
+  # Eerste start als .env ontbreekt of POSTGRES_PASSWORD niet ingesteld is
+  # DATABASE_URL wordt automatisch opgebouwd — niet meer in .env
+  [[ ! -f "$ENV_FILE" ]] || ! grep -q "^POSTGRES_PASSWORD=" "$ENV_FILE" ||     [[ -z "$(grep "^POSTGRES_PASSWORD=" "$ENV_FILE" | cut -d= -f2-)" ]]
 }
 
 postgres_db_bestaat() {
-  # Check of de pycodeflow database al bestaat in postgres
-  docker exec pycodeflow-postgres-1 \
-    psql -U pycodeflow -lqt 2>/dev/null | grep -qw pycodeflow
+  # Check of postgres draait EN bereikbaar is met het huidige wachtwoord
+  local pw
+  pw=$(get_env POSTGRES_PASSWORD)
+  [[ -z "$pw" ]] && return 1
+  docker exec pycodeflow-postgres-1     psql "postgresql://pycodeflow:${pw}@localhost/pycodeflow"     -c "SELECT 1" > /dev/null 2>&1
 }
 
 npm_package_aanwezig() {
@@ -128,50 +131,94 @@ setup_eerste_start() {
   local bestaand_pw
   bestaand_pw=$(get_env POSTGRES_PASSWORD)
 
+  # Verwijder DATABASE_URL uit .env — wordt automatisch opgebouwd
+  sed -i '/^DATABASE_URL=/d' "$ENV_FILE" 2>/dev/null
+
   if [[ -n "$bestaand_pw" ]] && postgres_db_bestaat 2>/dev/null; then
-    ok "PostgreSQL al geconfigureerd en database bestaat"
-    info "Wachtwoord: (reeds ingesteld, niet getoond)"
+    # Wachtwoord klopt en DB bestaat — alles OK
+    ok "PostgreSQL geconfigureerd en bereikbaar"
+    info "Wachtwoord: (reeds ingesteld)"
     POSTGRES_PW="$bestaand_pw"
-  else
-    if [[ -n "$bestaand_pw" ]]; then
-      warn "Wachtwoord al ingesteld maar database nog niet aangemaakt"
-      read -rp "  Huidig wachtwoord behouden? (j/n) [j]: " behoud
-      if [[ "$behoud" =~ ^[nN]$ ]]; then
-        bestaand_pw=""
+
+  elif [[ -n "$bestaand_pw" ]] && [[ -d "$BASE/pgdata" ]] && [[ -n "$(ls -A "$BASE/pgdata" 2>/dev/null)" ]]; then
+    # pgdata bestaat en is niet leeg — test of wachtwoord klopt
+    echo ""
+    info "pgdata/ gevonden — wachtwoord controleren..."
+    # Start postgres tijdelijk om te testen
+    docker compose --project-directory "$BASE" up -d postgres 2>/dev/null
+    sleep 8
+    if docker exec pycodeflow-postgres-1         psql "postgresql://pycodeflow:${bestaand_pw}@localhost/pycodeflow"         -c "SELECT 1" > /dev/null 2>&1; then
+      ok "PostgreSQL wachtwoord correct"
+      POSTGRES_PW="$bestaand_pw"
+    else
+      echo ""
+      err "PostgreSQL wachtwoord mismatch!"
+      warn "pgdata/ bevat een database met een ander wachtwoord dan in .env staat."
+      echo ""
+      echo -e "  ${BOLD}Oplossingen:${RESET}"
+      echo -e "  ${BOLD}1)${RESET} pgdata/ wissen ${DIM}(aanbevolen als DB nog leeg/onbelangrijk is)${RESET}"
+      echo -e "  ${BOLD}2)${RESET} Origineel wachtwoord ingeven"
+      echo ""
+      read -rp "  Keuze (1/2) [1]: " pw_keuze
+      pw_keuze="${pw_keuze:-1}"
+      if [[ "$pw_keuze" == "1" ]]; then
+        echo ""
+        echo -e "  Kies een nieuw PostgreSQL wachtwoord."
+        echo -e "  ${DIM}Tip: vermijd uitroeptekens (!) in het wachtwoord.${RESET}"
+        local pw1 pw2
+        while true; do
+          read -rsp "  Nieuw wachtwoord (min. 8 tekens): " pw1; echo ""
+          [[ ${#pw1} -lt 8 ]] && { err "Te kort."; continue; }
+          read -rsp "  Bevestig: " pw2; echo ""
+          [[ "$pw1" != "$pw2" ]] && { err "Komen niet overeen."; continue; }
+          break
+        done
+        docker compose --project-directory "$BASE" stop postgres 2>/dev/null
+        info "pgdata/ wissen via Docker..."
+        docker run --rm           -v "$BASE/pgdata:/pgdata"           alpine sh -c "rm -rf /pgdata/*" 2>/dev/null
+        ok "pgdata/ geleegd"
+        POSTGRES_PW="$pw1"
+        set_env "POSTGRES_PASSWORD" "$POSTGRES_PW"
+        ok "Nieuw wachtwoord ingesteld in .env"
+      else
+        echo ""
+        local orig_pw
+        read -rsp "  Origineel wachtwoord: " orig_pw; echo ""
+        POSTGRES_PW="$orig_pw"
+        set_env "POSTGRES_PASSWORD" "$POSTGRES_PW"
+        ok "Wachtwoord bijgewerkt in .env"
       fi
     fi
-
-    if [[ -z "$bestaand_pw" ]]; then
-      echo -e "  Kies een sterk wachtwoord voor de PostgreSQL database."
-      echo -e "  ${DIM}(Minimaal 12 tekens, mix van letters, cijfers en symbolen)${RESET}"
-      echo ""
-      local pw1 pw2
-      while true; do
-        read -rsp "  Wachtwoord: " pw1; echo ""
-        if [[ ${#pw1} -lt 8 ]]; then
-          err "Wachtwoord moet minstens 8 tekens bevatten. Probeer opnieuw."
-          continue
-        fi
-        read -rsp "  Bevestig wachtwoord: " pw2; echo ""
-        if [[ "$pw1" != "$pw2" ]]; then
-          err "Wachtwoorden komen niet overeen. Probeer opnieuw."
-          continue
-        fi
-        break
-      done
-      POSTGRES_PW="$pw1"
-      set_env "POSTGRES_PASSWORD" "$POSTGRES_PW"
-      ok "PostgreSQL wachtwoord ingesteld"
-    else
-      POSTGRES_PW="$bestaand_pw"
-      ok "Bestaand wachtwoord behouden"
-    fi
-
-    # Stel DATABASE_URL in
-    set_env "DATABASE_URL" "postgresql://pycodeflow:${POSTGRES_PW}@postgres:5432/pycodeflow"
-    ok "DATABASE_URL ingesteld"
     echo ""
+
+  elif [[ -n "$bestaand_pw" ]]; then
+    # Wachtwoord in .env maar nog geen pgdata — normaal bij eerste keer
+    POSTGRES_PW="$bestaand_pw"
+    ok "Wachtwoord gevonden in .env: (niet getoond)"
+
+  else
+    # Geen wachtwoord — nieuw instellen
+    echo -e "  Kies een wachtwoord voor de PostgreSQL database."
+    echo -e "  ${DIM}Minimum 8 tekens. Vermijd uitroeptekens (!) in wachtwoorden — dit geeft problemen in bash.${RESET}"
+    echo ""
+    local pw1 pw2
+    while true; do
+      read -rsp "  Wachtwoord: " pw1; echo ""
+      [[ ${#pw1} -lt 8 ]] && { err "Te kort — minimaal 8 tekens."; continue; }
+      if [[ "$pw1" == *"!"* ]]; then
+        warn "Uitroepteken (!) gevonden — dit kan problemen geven in bash-commando's."
+        read -rp "  Toch gebruiken? (j/n) [n]: " gebruik_uitroep
+        [[ ! "${gebruik_uitroep:-n}" =~ ^[jJ]$ ]] && continue
+      fi
+      read -rsp "  Bevestig wachtwoord: " pw2; echo ""
+      [[ "$pw1" != "$pw2" ]] && { err "Komen niet overeen."; continue; }
+      break
+    done
+    POSTGRES_PW="$pw1"
+    set_env "POSTGRES_PASSWORD" "$POSTGRES_PW"
+    ok "PostgreSQL wachtwoord ingesteld"
   fi
+  echo 
 
   # ── Stap 3: Basisinstellingen .env ───────────────────────────────────────
   stap "Stap 3: Basisinstellingen"
@@ -228,7 +275,7 @@ setup_eerste_start() {
   echo -e "  ${GEEL}Dit kan enkele minuten duren bij de eerste keer...${RESET}"
   echo ""
 
-  $COMPOSE --project-directory "$BASE" up --build -d
+  $COMPOSE --project-directory "$BASE" up --build -d --remove-orphans
   local compose_exit=$?
 
   if [[ $compose_exit -ne 0 ]]; then
@@ -356,8 +403,13 @@ setup_eerste_start() {
 
   # Check of er al leerkrachten in de DB zitten
   local teacher_count
-  teacher_count=$(docker exec pycodeflow-postgres-1 \
-    psql -U pycodeflow -d pycodeflow -tAc "SELECT COUNT(*) FROM teachers;" 2>/dev/null || echo "0")
+  teacher_count=$(docker exec pycodeflow-web-1     node /app/scripts/manage-teacher.js list 2>/dev/null | grep -cE "^  " || echo "0")
+  # Fallback via psql
+  if [[ "$teacher_count" == "0" ]]; then
+    local pg_pw
+    pg_pw=$(get_env POSTGRES_PASSWORD)
+    teacher_count=$(docker exec pycodeflow-postgres-1       psql "postgresql://pycodeflow:${pg_pw}@localhost/pycodeflow"       -tAc "SELECT COUNT(*) FROM teachers;" 2>/dev/null || echo "0")
+  fi
 
   if [[ "$teacher_count" == "0" ]] || [[ -z "$teacher_count" ]]; then
     warn "Nog geen leerkrachten in database"
@@ -368,25 +420,11 @@ setup_eerste_start() {
     if [[ -n "$lk_user" ]] && [[ -n "$lk_pw" ]]; then
       read -rp "  Account '$lk_user' aanmaken in database? (j/n) [j]: " aanmaken
       if [[ "${aanmaken:-j}" =~ ^[jJ]$ ]]; then
-        docker exec pycodeflow-web-1 \
-          node -e "
-const db = require('./db/database');
-db.init().then(async () => {
-  const crypto = require('crypto');
-  const salt = crypto.randomBytes(16);
-  const hash = crypto.scryptSync('${lk_pw}', salt, 64).toString('hex');
-  const stored = hash + ':' + salt.toString('hex');
-  await db.createTeacher('${lk_user}', stored, '${lk_user}', 'admin');
-  console.log('OK');
-  process.exit(0);
-}).catch(e => { console.error(e.message); process.exit(1); });
-" 2>/dev/null
-
+        docker exec pycodeflow-web-1           node /app/scripts/manage-teacher.js add "$lk_user" "$lk_pw" "admin"
         if [[ $? -eq 0 ]]; then
           ok "Leerkrachtsaccount aangemaakt in database"
         else
-          warn "Account aanmaken via script mislukt"
-          info "Probeer via admin.html na eerste login met .env credentials"
+          warn "Account aanmaken mislukt — probeer via admin.html"
         fi
       fi
     fi
@@ -667,21 +705,14 @@ actie_leerkracht() {
   [[ "$lk_rol" != "admin" ]] && lk_rol="teacher"
 
   echo ""
-  docker exec pycodeflow-web-1 node /app/scripts/manage-teacher.js add "$lk_user" "$lk_pw" "$lk_rol" 2>/dev/null \
-    || docker exec pycodeflow-web-1 node -e "
-const db = require('./db/database');
-db.init().then(async () => {
-  const crypto = require('crypto');
-  const salt = crypto.randomBytes(16);
-  const hash = crypto.scryptSync('${lk_pw}', salt, 64).toString('hex');
-  await db.createTeacher('${lk_user}', hash+':'+salt.toString('hex'), '${lk_user}', '${lk_rol}');
-  console.log('Aangemaakt: ${lk_user} (${lk_rol})');
-  process.exit(0);
-}).catch(e => { console.error(e.message); process.exit(1); });
-" 2>/dev/null
+  docker exec pycodeflow-web-1     node /app/scripts/manage-teacher.js add "$lk_user" "$lk_pw" "$lk_rol"
 
   echo ""
-  ok "Leerkrachtsaccount '$lk_user' aangemaakt als $lk_rol"
+  if [[ $? -eq 0 ]]; then
+    ok "Leerkrachtsaccount '$lk_user' aangemaakt als $lk_rol"
+  else
+    err "Aanmaken mislukt — zie foutmelding hierboven"
+  fi
   echo ""
   pauze
 }
@@ -724,20 +755,173 @@ update_versie() {
   pauze
 }
 
+actie_backup() {
+  header
+  stap "PostgreSQL backup (Sprint 19i)"
+  echo ""
+
+  local backup_script="$BASE/scripts/backup-db.sh"
+  local backup_dir="$BASE/backups"
+
+  # Toon backup status
+  if [[ -d "$backup_dir" ]]; then
+    local count
+    count=$(find "$backup_dir" -name "*.sql.gz" 2>/dev/null | wc -l)
+    local size
+    size=$(du -sh "$backup_dir" 2>/dev/null | cut -f1)
+    local laatste
+    laatste=$(find "$backup_dir" -name "*.sql.gz" -newer /tmp 2>/dev/null | sort -r | head -1)
+    echo -e "  Backups: ${GEEL}$count${RESET} bewaard · Grootte: ${GEEL}$size${RESET}"
+    if [[ -n "$laatste" ]]; then
+      ok "Laatste backup: $(basename $laatste)"
+    else
+      warn "Nog geen backups gevonden"
+    fi
+    # Toon backup log
+    if [[ -f "$backup_dir/backup.log" ]]; then
+      echo ""
+      echo -e "  ${BOLD}Recentste log-entries:${RESET}"
+      tail -5 "$backup_dir/backup.log" | sed 's/^/  /'
+    fi
+  else
+    info "Backup map bestaat nog niet — wordt aangemaakt bij eerste backup"
+  fi
+
+  echo ""
+  echo -e "  ${BOLD}Acties:${RESET}"
+  echo -e "  ${BOLD}1)${RESET} Nu een backup maken"
+  echo -e "  ${BOLD}2)${RESET} Cronjob instellen (dagelijks 02:00)"
+  echo -e "  ${BOLD}3)${RESET} Backup herstelten (restore)"
+  echo -e "  ${BOLD}0)${RESET} Terug"
+  echo ""
+  read -rp "  Keuze: " bk
+
+  case "$bk" in
+    1)
+      if [[ ! -f "$backup_script" ]]; then
+        err "backup-db.sh niet gevonden. Kopieer scripts/backup-db.sh naar $BASE/scripts/"
+        pauze; return
+      fi
+      info "Backup maken..."
+      bash "$backup_script"
+      echo ""
+      ok "Backup voltooid — zie $backup_dir"
+      ;;
+    2)
+      if [[ ! -f "$backup_script" ]]; then
+        err "backup-db.sh niet gevonden."
+        pauze; return
+      fi
+      chmod +x "$backup_script"
+      if crontab -l 2>/dev/null | grep -q "backup-db.sh"; then
+        ok "Backup cronjob al ingesteld"
+      else
+        (crontab -l 2>/dev/null; echo "0 2 * * * $backup_script") | crontab -
+        ok "Cronjob ingesteld: dagelijks om 02:00"
+      fi
+      ;;
+    3)
+      local backups
+      backups=$(find "$backup_dir" -name "*.sql.gz" 2>/dev/null | sort -r)
+      if [[ -z "$backups" ]]; then
+        err "Geen backups gevonden in $backup_dir"
+        pauze; return
+      fi
+      echo -e "  ${BOLD}Beschikbare backups:${RESET}"
+      local i=1
+      while IFS= read -r b; do
+        echo -e "  ${BOLD}$i)${RESET} $(basename $b)"
+        i=$((i+1))
+      done <<< "$backups"
+      echo ""
+      warn "LET OP: restore overschrijft de VOLLEDIGE database!"
+      read -rp "  Backup nummer om te herstellen (0=annuleren): " keuze_b
+      if [[ "$keuze_b" =~ ^[0-9]+$ ]] && [[ $keuze_b -gt 0 ]]; then
+        local gekozen
+        gekozen=$(echo "$backups" | sed -n "${keuze_b}p")
+        if [[ -n "$gekozen" ]]; then
+          read -rp "  Bevestig restore van $(basename $gekozen)? (j/n): " confirm_r
+          if [[ "$confirm_r" =~ ^[jJ]$ ]]; then
+            PG_PW=$(get_env POSTGRES_PASSWORD)
+            zcat "$gekozen" | docker exec -i pycodeflow-postgres-1               psql -U pycodeflow pycodeflow
+            [[ $? -eq 0 ]] && ok "Restore voltooid!" || err "Restore mislukt"
+          fi
+        fi
+      fi
+      ;;
+    0|*) return ;;
+  esac
+  echo ""
+  pauze
+}
+
+actie_health_monitor() {
+  header
+  stap "Health monitor instellen (Sprint 19e)"
+  echo ""
+
+  local monitor_script="$BASE/health-monitor.sh"
+
+  if [[ ! -f "$monitor_script" ]]; then
+    err "health-monitor.sh niet gevonden in $BASE"
+    info "Kopieer het bestand eerst naar $BASE/health-monitor.sh"
+    pauze; return
+  fi
+
+  chmod +x "$monitor_script"
+
+  # Check of cronjob al bestaat
+  if crontab -l 2>/dev/null | grep -q "health-monitor.sh"; then
+    ok "Health monitor cronjob is al ingesteld"
+    echo ""
+    crontab -l 2>/dev/null | grep "health-monitor"
+    echo ""
+  else
+    info "Cronjob instellen (elke 5 minuten)..."
+    (crontab -l 2>/dev/null; echo "*/5 * * * * $monitor_script >> $BASE/logs/health-monitor.log 2>&1") | crontab -
+    ok "Cronjob ingesteld: elke 5 minuten"
+  fi
+
+  # Optioneel webhook
+  local huidig_webhook
+  huidig_webhook=$(get_env WEBHOOK_URL)
+  if [[ -z "$huidig_webhook" ]]; then
+    echo ""
+    echo -e "  ${BOLD}Webhook notificaties (optioneel):${RESET}"
+    echo -e "  ${DIM}Bv. https://ntfy.sh/jouw-kanaal voor push-notificaties op telefoon${RESET}"
+    echo -e "  ${DIM}Leeglaten = enkel logging, geen externe notificatie${RESET}"
+    echo ""
+    read -rp "  Webhook URL (Enter om over te slaan): " webhook_url
+    if [[ -n "$webhook_url" ]]; then
+      set_env "WEBHOOK_URL" "$webhook_url"
+      ok "Webhook URL ingesteld"
+    fi
+  else
+    ok "Webhook URL: $huidig_webhook"
+  fi
+
+  echo ""
+  info "Test de monitor nu:"
+  info "  bash $monitor_script"
+  echo ""
+  pauze
+}
+
 actie_volledige_reset() {
   header
   echo -e "${ROOD}╔══════════════════════════════════════════════╗${RESET}"
   echo -e "${ROOD}║  ⚠️   VOLLEDIGE RESET — ALLES VERWIJDEREN    ║${RESET}"
   echo -e "${ROOD}╚══════════════════════════════════════════════╝${RESET}"
   echo ""
-  echo -e "  ${ROOD}${BOLD}DIT VERWIJDERT ALLES:${RESET}"
+  echo -e "  ${ROOD}${BOLD}DIT VERWIJDERT:${RESET}"
   echo -e "  ${ROOD}✗${RESET} Alle Docker containers"
   echo -e "  ${ROOD}✗${RESET} Alle Docker images (pycodeflow)"
   echo -e "  ${ROOD}✗${RESET} Alle Docker volumes"
   echo -e "  ${ROOD}✗${RESET} PostgreSQL database + alle data (pgdata/)"
   echo -e "  ${ROOD}✗${RESET} Alle logbestanden"
-  echo -e "  ${ROOD}✗${RESET} .env configuratie"
+  echo -e "  ${ROOD}✗${RESET} SQLite legacy bestanden"
   echo ""
+  echo -e "  ${GROEN}✓${RESET} .env wordt NIET verwijderd (wachtwoorden en tokens blijven bewaard)"
   echo -e "  ${GROEN}✓${RESET} Bestanden in web/, runner/ blijven bewaard"
   echo -e "  ${GROEN}✓${RESET} Backups in backups/ blijven bewaard"
   echo ""
@@ -758,49 +942,56 @@ actie_volledige_reset() {
 
   echo ""
   stap "Stap 1: Containers stoppen en verwijderen"
-  $COMPOSE --project-directory "$BASE" down --volumes --remove-orphans 2>/dev/null
-  ok "Containers en volumes gestopt"
+  # Gebruik --env-file zodat compose de variabelen kent ook als .env ontbreekt
+  docker compose --project-directory "$BASE" down --volumes --remove-orphans 2>/dev/null     || docker compose -f "$BASE/docker-compose.yml" down --remove-orphans 2>/dev/null
+  ok "Containers gestopt"
 
   stap "Stap 2: Docker images verwijderen"
-  docker rmi pycodeflow-web pycodeflow-runner 2>/dev/null
+  docker rmi pycodeflow-web-1 pycodeflow-runner-1 2>/dev/null
+  docker rmi "$(basename "$BASE")-web" "$(basename "$BASE")-runner" 2>/dev/null
   docker image prune -f 2>/dev/null
-  ok "Images verwijderd"
+  ok "Images verwijderd (eventuele fouten hier zijn normaal)"
 
   stap "Stap 3: PostgreSQL data verwijderen"
-  if [[ -d "$BASE/pgdata" ]]; then
-    rm -rf "$BASE/pgdata"
-    ok "pgdata/ verwijderd"
+  if [[ -d "$BASE/pgdata" ]] && [[ -n "$(ls -A "$BASE/pgdata" 2>/dev/null)" ]]; then
+    info "pgdata/ wissen via Docker (root-bestanden)..."
+    docker run --rm \
+      -v "$BASE/pgdata:/pgdata" \
+      alpine sh -c "rm -rf /pgdata/*" 2>/dev/null
+    ok "pgdata/ geleegd"
   else
-    info "pgdata/ bestond niet"
+    info "pgdata/ was al leeg"
   fi
 
   stap "Stap 4: Logbestanden verwijderen"
   if [[ -d "$BASE/logs" ]]; then
     rm -f "$BASE/logs"/*.log 2>/dev/null
     ok "Logbestanden verwijderd"
+  else
+    info "logs/ bestond niet — niets te doen"
   fi
 
-  stap "Stap 5: .env verwijderen"
-  if [[ -f "$BASE/.env" ]]; then
-    rm -f "$BASE/.env"
-    ok ".env verwijderd"
-  fi
-
-  stap "Stap 6: Data map opruimen (SQLite legacy)"
+  stap "Stap 5: Data map opruimen (SQLite legacy)"
   if [[ -d "$BASE/data" ]]; then
     rm -f "$BASE/data"/*.db 2>/dev/null
     ok "SQLite bestanden verwijderd"
+  else
+    info "data/ bestond niet — niets te doen"
   fi
+
+  # .env wordt NOOIT aangeraakt — wachtwoorden en tokens blijven bewaard
 
   echo ""
   echo -e "  ${GROEN}╔══════════════════════════════════════════╗${RESET}"
-  echo -e "  ${GROEN}║  ✅  Volledige reset voltooid            ║${RESET}"
+  echo -e "  ${GROEN}║  ✅  Reset voltooid                      ║${RESET}"
   echo -e "  ${GROEN}╚══════════════════════════════════════════╝${RESET}"
   echo ""
-  ok "Alles verwijderd."
+  ok "Containers, database en logs verwijderd."
+  ok ".env bewaard — wachtwoorden en Cloudflare token intact."
   echo ""
   echo -e "  ${BOLD}Volgende stap:${RESET}"
-  info "Kies optie 13 (Eerste-start opnieuw) om alles opnieuw in te stellen."
+  info "Kies optie 13 (Eerste-start opnieuw) om alles opnieuw op te bouwen."
+  info "Je .env is al ingesteld — de wizard gaat sneller deze keer."
   echo ""
   pauze
 }
@@ -946,6 +1137,8 @@ while true; do
   echo -e "  ${BOLD}12)${RESET} 🗑   Logs opruimen"
   echo -e "  ${BOLD}13)${RESET} 🔧  Eerste-start opnieuw uitvoeren"
   echo -e "  ${BOLD}14)${RESET} 💣  Volledige reset (verwijder alles + herinstall)"
+  echo -e "  ${BOLD}15)${RESET} 🔔  Health monitor instellen (crash notificatie)"
+  echo -e "  ${BOLD}16)${RESET} 💾  Database backup beheren"
   echo -e "  ${BOLD} q)${RESET} ✖   Afsluiten"
   echo ""
   echo -e "${BOLD}──────────────────────────────────────────────${RESET}"
@@ -967,6 +1160,8 @@ while true; do
     12) actie_logs_cleanup ;;
     13) setup_eerste_start ;;
     14) actie_volledige_reset ;;
+    15) actie_health_monitor ;;
+    16) actie_backup ;;
     q|Q) echo -e "${GROEN}Tot later!${RESET}"; echo ""; exit 0 ;;
     *) err "Ongeldige keuze."; sleep 1 ;;
   esac

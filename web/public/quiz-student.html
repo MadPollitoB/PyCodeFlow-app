@@ -93,39 +93,67 @@
     <p id="q-text"></p>
   </div>
   <div class="quiz-editor-wrap">
-    <div class="editor-shell card" style="margin-bottom:12px;">
-      <div class="editor-toolbar">
-        <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
-        <div class="toolbar-spacer"></div>
-        <button id="quiz-run-btn" class="btn btn-soft small">Run ▶</button>
-        <button id="quiz-copy-code-btn" title="Kopieer code"
-          style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;">📋</button>
-      </div>
-      <div id="quiz-code-panel" class="editor-frame-wrap">
-        <div class="editor-frame">
-          <div id="quiz-line-numbers" class="custom-gutter"></div>
-          <div id="quiz-editor" class="monaco-editor-host"></div>
+
+    <!-- CODE editor (Python) -->
+    <div id="panel-code">
+      <div class="editor-shell card" style="margin-bottom:12px;">
+        <div class="editor-toolbar">
+          <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+          <div class="toolbar-spacer"></div>
+          <button id="quiz-run-btn" class="btn btn-soft small">Run ▶</button>
+          <button id="quiz-copy-code-btn" title="Kopieer code"
+            style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;">📋</button>
         </div>
-        <div id="quiz-editor-statusbar"
-          style="display:flex;gap:10px;align-items:center;padding:4px 12px;font-size:12px;font-family:Consolas,monospace;background:#007acc;color:#fff;flex-shrink:0;">
-          <span id="quiz-sb-pos">Ln 1, Kol 1</span><span>|</span><span id="quiz-sb-lines">0 regels</span><span>|</span><span>Python</span>
+        <div id="quiz-code-panel" class="editor-frame-wrap">
+          <div class="editor-frame">
+            <div id="quiz-line-numbers" class="custom-gutter"></div>
+            <div id="quiz-editor" class="monaco-editor-host"></div>
+          </div>
+          <div id="quiz-editor-statusbar"
+            style="display:flex;gap:10px;align-items:center;padding:4px 12px;font-size:12px;font-family:Consolas,monospace;background:#007acc;color:#fff;flex-shrink:0;">
+            <span id="quiz-sb-pos">Ln 1, Kol 1</span><span>|</span><span id="quiz-sb-lines">0 regels</span><span>|</span><span>Python</span>
+          </div>
+        </div>
+        <div id="quiz-wait-input" style="display:none;padding:10px 16px;background:#eff6ff;
+          border-top:2px solid #93c5fd;color:#1e40af;font-weight:700;font-size:0.92rem;">
+          ⌨️ Wacht op jouw invoer...
+        </div>
+        <div id="quiz-input-wrap" style="display:none;padding:10px 16px;border-top:1px solid var(--border);">
+          <input id="quiz-input-field" style="width:100%;padding:8px;border:1.5px solid var(--border);
+            border-radius:8px;font-family:Consolas,monospace;font-size:1rem;"/>
         </div>
       </div>
-      <div id="quiz-wait-input" style="display:none;padding:10px 16px;background:#eff6ff;
-        border-top:2px solid #93c5fd;color:#1e40af;font-weight:700;font-size:0.92rem;">
-        ⌨️ Wacht op jouw invoer...
-      </div>
-      <div id="quiz-input-wrap" style="display:none;padding:10px 16px;border-top:1px solid var(--border);">
-        <input id="quiz-input-field" style="width:100%;padding:8px;border:1.5px solid var(--border);
-          border-radius:8px;font-family:Consolas,monospace;font-size:1rem;"/>
+      <div class="card" style="padding:12px 16px;min-height:80px;">
+        <div style="font-size:0.78rem;color:var(--muted);margin-bottom:4px;">Output:</div>
+        <div id="quiz-output-panel" class="output-panel output-dark"
+          style="min-height:60px;max-height:200px;overflow-y:auto;white-space:pre-wrap;
+            font-family:Consolas,monospace;font-size:0.9rem;padding:4px 0;"></div>
       </div>
     </div>
-    <div class="card" style="padding:12px 16px;min-height:80px;">
-      <div style="font-size:0.78rem;color:var(--muted);margin-bottom:4px;">Output:</div>
-      <div id="quiz-output-panel" class="output-panel output-dark"
-        style="min-height:60px;max-height:200px;overflow-y:auto;white-space:pre-wrap;
-          font-family:Consolas,monospace;font-size:0.9rem;padding:4px 0;"></div>
+
+    <!-- OPEN vraag -->
+    <div id="panel-open" style="display:none;">
+      <div class="card" style="padding:16px;">
+        <label style="font-size:0.85rem;color:var(--muted);display:block;margin-bottom:8px;">Jouw antwoord:</label>
+        <textarea id="quiz-open-answer" rows="8"
+          style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;
+            font-size:0.95rem;font-family:inherit;resize:vertical;"
+          placeholder="Schrijf hier jouw antwoord..."
+          oninput="updateOpenCount()"></textarea>
+        <div style="text-align:right;font-size:0.78rem;color:var(--muted);margin-top:4px;">
+          <span id="open-char-count">0</span> / 2000 tekens
+        </div>
+      </div>
     </div>
+
+    <!-- SINGLE / MULTIPLE choice -->
+    <div id="panel-choice" style="display:none;">
+      <div class="card" style="padding:16px;">
+        <div id="choice-hint" style="font-size:0.85rem;color:var(--muted);margin-bottom:12px;"></div>
+        <div id="quiz-choices-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+      </div>
+    </div>
+
   </div>
   <div class="quiz-nav-row">
     <button class="btn btn-muted small" id="quiz-prev-btn" onclick="navigate(-1)">← Vorige</button>
@@ -147,6 +175,19 @@
       <button class="btn btn-muted small" onclick="closeSubmitScreen()">← Terug naar toets</button>
       <button class="btn btn-primary small" onclick="submitAll()">✅ Definitief indienen</button>
     </div>
+  </div>
+</div>
+
+<!-- Te laat scherm (Sprint 19j) -->
+<div id="late-screen" style="display:none;text-align:center;padding:60px 20px;">
+  <div style="font-size:4rem;margin-bottom:16px;">⏰</div>
+  <h2 style="color:#dc2626;">Inlevertermijn verstreken</h2>
+  <div id="late-info" style="color:var(--muted);margin:12px 0 20px;font-size:0.95rem;"></div>
+  <div style="background:#fee2e2;border-radius:14px;padding:20px;max-width:500px;margin:0 auto;">
+    <strong>TAAK NIET TIJDIG INGELEVERD</strong><br/>
+    <span style="font-size:0.88rem;color:#991b1b;margin-top:8px;display:block;">
+      Neem contact op met je leerkracht.
+    </span>
   </div>
 </div>
 
@@ -267,11 +308,38 @@ socket.on('quiz_reset', () => {
 });
 
 socket.on('quiz_results_released', () => {
-  // Toekomstige functie: leerkracht geeft resultaten vrij
+  // Leerkracht heeft resultaten vrijgegeven — leerling kan scores bekijken
+});
+
+// Sprint 19j: toegangsvenster verlopen
+socket.on('quiz_access_expired', ({ deadlineStr, autoSubmitLate }) => {
+  document.getElementById('start-screen').style.display = 'none';
+  document.getElementById('quiz-screen').style.display = 'none';
+  document.getElementById('submit-screen').classList.remove('visible');
+  document.getElementById('done-screen').style.display = 'none';
+  const lateScreen = document.getElementById('late-screen');
+  lateScreen.style.display = 'block';
+  document.getElementById('late-info').innerHTML =
+    `Deadline was: <strong>${deadlineStr}</strong><br/>` +
+    (autoSubmitLate ? 'Je antwoorden worden als leeg ingediend.' : 'Neem contact op met je leerkracht.');
 });
 
 socket.on('error_message', (msg) => {
   alert(typeof msg === 'string' ? msg : msg.message || 'Fout');
+});
+
+// Sprint 19d: herinnering van leerkracht
+socket.on('quiz_reminder', ({ message }) => {
+  const banner = document.getElementById('warning-banner');
+  if (banner) {
+    banner.textContent = message;
+    banner.style.background = '#fee2e2';
+    banner.style.color = '#991b1b';
+    banner.classList.add('visible');
+    setTimeout(() => banner.classList.remove('visible'), 30000);
+  } else {
+    alert(message);
+  }
 });
 
 // ── Editor initialisatie ────────────────────────────────────────────────────
@@ -303,6 +371,75 @@ function setEditorCode(code) {
   if (editorStore?.quiz) {
     const model = editorStore.quiz.getModel();
     model.setValue(code || '');
+  }
+}
+
+// ── Vraagtype helpers ────────────────────────────────────────────────────────
+let _currentChoices = [];       // choices van huidige vraag
+let _selectedChoices = [];      // geselecteerde choice IDs
+
+function showQuestionPanel(type) {
+  document.getElementById('panel-code').style.display   = type === 'code' ? '' : 'none';
+  document.getElementById('panel-open').style.display   = type === 'open' ? '' : 'none';
+  document.getElementById('panel-choice').style.display = ['single','multiple'].includes(type) ? '' : 'none';
+  document.getElementById('quiz-run-btn').style.display = type === 'code' ? '' : 'none';
+}
+
+function renderChoices(choices, type, selected = []) {
+  _currentChoices = choices;
+  _selectedChoices = [...selected];
+  const hint = document.getElementById('choice-hint');
+  hint.textContent = type === 'single'
+    ? '◉ Kies het juiste antwoord:'
+    : '☑ Selecteer alle juiste antwoorden:';
+  const list = document.getElementById('quiz-choices-list');
+  list.innerHTML = choices.map((ch, i) => `
+    <label style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;
+      border:2px solid var(--border);border-radius:10px;cursor:pointer;
+      ${_selectedChoices.includes(ch.id) ? 'border-color:var(--primary);background:#eff6ff;' : ''}">
+      <input type="${type === 'single' ? 'radio' : 'checkbox'}"
+        name="quiz-choice" value="${ch.id}"
+        ${_selectedChoices.includes(ch.id) ? 'checked' : ''}
+        onchange="onChoiceChange(this, '${type}')"
+        style="margin-top:2px;width:16px;height:16px;flex-shrink:0;"/>
+      <span style="font-size:0.95rem;line-height:1.5;">${escHtml(ch.text)}</span>
+    </label>`).join('');
+}
+
+function onChoiceChange(input, type) {
+  if (type === 'single') {
+    _selectedChoices = [input.value];
+    // Herrender om alle borders bij te werken
+    renderChoices(_currentChoices, type, _selectedChoices);
+  } else {
+    if (input.checked) {
+      if (!_selectedChoices.includes(input.value)) _selectedChoices.push(input.value);
+    } else {
+      _selectedChoices = _selectedChoices.filter(id => id !== input.value);
+    }
+    renderChoices(_currentChoices, type, _selectedChoices);
+  }
+}
+
+function updateOpenCount() {
+  const ta = document.getElementById('quiz-open-answer');
+  document.getElementById('open-char-count').textContent = ta.value.length;
+}
+
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function getCurrentAnswer() {
+  // Geeft het antwoord terug afhankelijk van het vraagtype
+  const q = _state?.questions?.[_currentIdx];
+  const type = q?.question_type || 'code';
+  if (type === 'code') {
+    return { code: getCurrentCode(), selectedChoices: [] };
+  } else if (type === 'open') {
+    return { code: document.getElementById('quiz-open-answer')?.value || '', selectedChoices: [] };
+  } else {
+    return { code: '', selectedChoices: _selectedChoices };
   }
 }
 
@@ -351,18 +488,44 @@ function goToQuestion(idx) {
 
   // Toon vraagstelling
   const questionEl = document.getElementById('quiz-question');
+  const qType = q.question_type || 'code';
   if (!_state?.hideQuestionOnScreen) {
     questionEl.style.display = 'block';
-    document.getElementById('q-header').textContent = `Vraag ${idx+1} van ${questions.length} · ${q.subject || ''} · ${q.points} punten`;
-    document.getElementById('q-text').textContent = q.text_snapshot || q.text || '';
+    const typeLabel = {code:'🐍 Code',open:'✏️ Open vraag',single:'◉ Single choice',multiple:'☑ Meerkeuze'}[qType] || '';
+    document.getElementById('q-header').textContent =
+      `Vraag ${idx+1} van ${questions.length} · ${q.subject || ''} · ${q.points} punten · ${typeLabel}`;
+    // Sprint 19f: Markdown rendering
+    const qTextEl = document.getElementById('q-text');
+    const rawText = q.text_snapshot || q.text || '';
+    if (window.marked) {
+      qTextEl.innerHTML = window.marked.parse(rawText, { breaks: true });
+    } else {
+      qTextEl.textContent = rawText;
+    }
   } else {
     questionEl.style.display = 'none';
   }
 
-  // Herstel code in editor
-  const savedCode = _answers[q.id]?.code || '';
-  setEditorCode(savedCode);
-  document.getElementById('quiz-output-panel').textContent = '';
+  // Toon correct panel per vraagtype
+  showQuestionPanel(qType);
+
+  // Herstel antwoord
+  const savedAns = _answers[q.id];
+  if (qType === 'code') {
+    setEditorCode(savedAns?.code || '');
+    const out = document.getElementById('quiz-output-panel');
+    if (out) out.textContent = '';
+  } else if (qType === 'open') {
+    const ta = document.getElementById('quiz-open-answer');
+    if (ta) { ta.value = savedAns?.code || ''; updateOpenCount(); }
+  } else {
+    // single / multiple
+    try {
+      const choices = JSON.parse(q.choices_json || '[]');
+      const selected = savedAns?.selectedChoices || [];
+      renderChoices(choices, qType, selected);
+    } catch { renderChoices([], qType, []); }
+  }
 
   // Navigatieknoppen
   document.getElementById('quiz-prev-btn').disabled = idx === 0;
@@ -379,12 +542,15 @@ function navigate(dir) {
 function saveCurrentAnswer(code) {
   if (!_currentQuestionId) return;
   if (!_answers[_currentQuestionId]) _answers[_currentQuestionId] = {};
-  _answers[_currentQuestionId].code = code;
+  const ans = getCurrentAnswer();
+  _answers[_currentQuestionId].code = ans.code;
+  _answers[_currentQuestionId].selectedChoices = ans.selectedChoices;
   _answers[_currentQuestionId].runCount = _runCount[_currentQuestionId] || 0;
 
   socket.emit('quiz_save_answer', {
     questionId: _currentQuestionId,
-    code,
+    code: ans.code,
+    selectedChoices: ans.selectedChoices,
     runCount: _runCount[_currentQuestionId] || 0,
     firstVisitAt: _answers[_currentQuestionId]?.firstVisitAt || null,
     firstRunAt: _answers[_currentQuestionId]?.firstRunAt || null,
@@ -445,13 +611,26 @@ function openSubmitScreen() {
   const list = document.getElementById('submit-checklist');
   list.innerHTML = questions.map((q, i) => {
     const ans = _answers[q.id];
+    const qType = q.question_type || 'code';
     const hasCode = ans?.code?.trim();
+    const hasChoices = (ans?.selectedChoices || []).length > 0;
     const hasRun = (ans?.runCount || 0) > 0;
+    const hasAnswer = qType === 'code' ? hasCode : qType === 'open' ? hasCode : hasChoices;
     let icon, msg;
-    if (hasCode && hasRun) { icon = '✅'; msg = `Vraag ${i+1} — opgeslagen (${ans.runCount} run${ans.runCount !== 1 ? 's' : ''})`; }
-    else if (hasCode && !hasRun) { icon = '⚠️'; msg = `Vraag ${i+1} — opgeslagen maar nooit uitgevoerd`; }
-    else if (!hasCode && _visited.has(q.id)) { icon = '⚠️'; msg = `Vraag ${i+1} — bezocht maar geen code`; }
-    else { icon = '⚠️'; msg = `Vraag ${i+1} — nog niet bezocht`; }
+    if (qType === 'code') {
+      if (hasCode && hasRun) { icon = '✅'; msg = `Vraag ${i+1} — opgeslagen (${ans.runCount} run${ans.runCount !== 1?'s':''})`; }
+      else if (hasCode && !hasRun) { icon = '⚠️'; msg = `Vraag ${i+1} — opgeslagen maar nooit uitgevoerd`; }
+      else if (!hasCode && _visited.has(q.id)) { icon = '⚠️'; msg = `Vraag ${i+1} — bezocht maar geen code`; }
+      else { icon = '⚠️'; msg = `Vraag ${i+1} — nog niet bezocht`; }
+    } else if (qType === 'open') {
+      if (hasCode) { icon = '✅'; msg = `Vraag ${i+1} — antwoord opgeslagen`; }
+      else if (_visited.has(q.id)) { icon = '⚠️'; msg = `Vraag ${i+1} — bezocht maar geen antwoord`; }
+      else { icon = '⚠️'; msg = `Vraag ${i+1} — nog niet bezocht`; }
+    } else {
+      if (hasChoices) { icon = '✅'; msg = `Vraag ${i+1} — keuze opgeslagen`; }
+      else if (_visited.has(q.id)) { icon = '⚠️'; msg = `Vraag ${i+1} — bezocht maar geen keuze`; }
+      else { icon = '⚠️'; msg = `Vraag ${i+1} — nog niet bezocht`; }
+    }
     return `<li>${icon} ${msg}</li>`;
   }).join('');
   document.getElementById('quiz-screen').style.display = 'none';
@@ -505,5 +684,6 @@ if (!urlCode) {
   if (code) location.href = `/quiz-student.html?code=${code.trim().toUpperCase()}&name=${encodeURIComponent(urlName)}&class=${encodeURIComponent(urlClass)}`;
 }
 </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 </body>
 </html>

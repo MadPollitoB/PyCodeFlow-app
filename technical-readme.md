@@ -1,6 +1,7 @@
 # PyCodeFlow — Technische documentatie
 
 > Interne werking, architectuur, API-referentie en ontwikkelaarsinformatie.
+> Versie: v2026.2.16.0
 
 ---
 
@@ -8,32 +9,29 @@
 
 ```
 Browser (leerling / leerkracht)
-        │
-        │  HTTPS via Cloudflare Tunnel
-        │  Socket.IO (WebSocket)
-        │
+        │ HTTPS via Cloudflare Tunnel · Socket.IO (WebSocket)
         ▼
-┌─────────────────────────────────┐
-│  web container  (Node.js :3000) │
-│  server.js · Express · Socket.IO│
-│  database.js (pg Pool)          │
-└────────────┬────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│  web container  (Node.js :3000)                     │
+│  server.js · Express · Socket.IO                    │
+│  database.js (pg Pool → PostgreSQL)                 │
+└────────────┬────────────────────────────────────────┘
              │ HTTP intern (Docker netwerk)
              ▼
-┌─────────────────────────────────┐
-│  runner container (Python :5000)│
-│  app.py · Flask · Gunicorn      │
-│  subprocess sandbox             │
-└─────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│  runner container (Python :5000)                    │
+│  app.py · Flask · Gunicorn                          │
+│  subprocess sandbox + rlimits                       │
+└─────────────────────────────────────────────────────┘
              │
-┌─────────────────────────────────┐
-│  postgres container (:5432)     │
-│  postgres:16-alpine             │
-│  persistent volume: pgdata/     │
-└─────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│  postgres container (:5432)                         │
+│  postgres:16-alpine                                 │
+│  persistent volume: pgdata/                         │
+└─────────────────────────────────────────────────────┘
 ```
 
-### Technologiestack
+## Technologiestack
 
 | Laag | Technologie | Versie |
 |---|---|---|
@@ -41,7 +39,10 @@ Browser (leerling / leerkracht)
 | Backend | Node.js + Express + Socket.IO | Node 20 |
 | Runner | Python + Flask + Gunicorn | Python 3.12 |
 | Database | PostgreSQL via `pg` Pool | PG 16 |
-| Deployment | Docker Compose + Cloudflare Tunnel | — |
+| PDF export | pdfkit | ^0.15 |
+| Markdown | marked.js | 9.1.6 (CDN) |
+| Tunnel | Cloudflare Tunnel (cloudflared) | latest |
+| Deployment | Docker Compose | — |
 
 ---
 
@@ -49,364 +50,243 @@ Browser (leerling / leerkracht)
 
 ```
 pycodeflow/
-├── web/
-│   ├── server.js              ← Express + Socket.IO server (main)
-│   ├── db/
-│   │   └── database.js        ← PostgreSQL module (async)
-│   ├── scripts/
-│   │   ├── manage-teacher.js  ← CLI voor leerkrachten beheren
-│   │   └── migrate-sqlite-to-pg.js ← Eenmalig migratescript
-│   └── public/
-│       ├── app.js             ← Frontend logica (alle pagina's)
-│       ├── styles.css         ← CSS (alle pagina's)
-│       ├── index.html         ← Startpagina
-│       ├── teacher-app.html   ← Leerkrachten-app
-│       ├── teacher-sessions.html ← Sessieoverzicht
-│       ├── teacher-login.html ← Login-pagina
-│       ├── student-app.html   ← Leerlingen-app
-│       ├── student-start.html ← Leerling join-pagina
-│       ├── free-editor.html   ← Vrije editor
-│       ├── admin.html         ← Gebruikersbeheer
-│       ├── monitoring.html    ← Systeemmonitoring
-│       └── templates.json     ← Python code-oefeningen
-├── runner/
-│   └── app.py                 ← Flask runner met subprocess sandbox
+├── pycodeflow.sh              ← Beheertool (16 menu-opties)
+├── .env                       ← Geheimen (NOOIT in git)
+├── .env.example               ← Template
+├── .gitignore
 ├── docker-compose.yml
-├── .env                       ← Geheimen (niet in git)
-└── check-deployment.sh        ← Verificatiescript
+├── check-deployment.sh        ← Verificatiescript
+├── health-monitor.sh          ← Crash notificatie (cron)
+│
+├── pgdata/                    ← PostgreSQL databestanden
+├── logs/                      ← Logbestanden (max LOG_RETENTION_DAYS)
+├── backups/                   ← DB backups (max 7 dagen)
+│
+├── web/
+│   ├── server.js              ← Express + Socket.IO server (MAIN)
+│   ├── package.json           ← npm: pg, pdfkit, express, socket.io, dotenv
+│   ├── db/database.js         ← PostgreSQL module (alle DB-methodes)
+│   ├── scripts/
+│   │   ├── manage-teacher.js  ← CLI leerkrachten beheren
+│   │   ├── backup-db.sh       ← DB backup script
+│   │   └── migrate-sqlite-to-pg.js
+│   └── public/
+│       ├── app.js             ← Frontend logica
+│       ├── styles.css
+│       ├── monaco-env.js      ← Monaco ESM worker config
+│       ├── templates.json     ← Python oefentemplates
+│       ├── index.html, teacher-login.html, teacher-sessions.html
+│       ├── teacher-app.html, student-start.html, student-app.html
+│       ├── free-editor.html, monitoring.html, admin.html
+│       ├── quiz-bank.html, quiz-teacher.html, quiz-student.html
+│       ├── quiz-review.html, quiz-archive.html
+│       └── assets/            ← Optioneel schoollogo
+├── runner/
+│   ├── app.py                 ← Flask + subprocess sandbox
+│   └── requirements.txt
 ```
 
 ---
 
-## Database schema
+## Database schema (alle tabellen)
 
-### teachers
+### Kern
 
-| Kolom | Type | Beschrijving |
-|---|---|---|
-| `id` | TEXT PK | UUID |
-| `username` | TEXT UNIQUE | Inlognaam (case-insensitief) |
-| `pass_hash` | TEXT | `scrypt_hash:salt_hex` |
-| `display_name` | TEXT | Weergavenaam |
-| `role` | TEXT | `teacher` of `admin` |
-| `created_at` | BIGINT | Unix timestamp ms |
-| `last_login` | BIGINT | Unix timestamp ms |
+| Tabel | Inhoud |
+|---|---|
+| `teachers` | Leerkrachten + gehashte wachtwoorden |
+| `sessions` | Klassessies (+ `config_json` voor persistente editor-config) |
+| `session_annotations` | Annotaties per sessie |
+| `code_snapshots` | Code-history per leerling per sessie |
+| `classes` | Klassen |
+| `teacher_classes` | Koppeling leerkracht ↔ klas |
+| `students` | Leerlingen (status: active/pending/blocked) |
 
-### sessions
+### Quiz
 
-| Kolom | Type | Beschrijving |
-|---|---|---|
-| `code` | TEXT PK | 8-tekens code (A-Z2-9) |
-| `id` | TEXT UNIQUE | UUID |
-| `name` | TEXT | Sessienaam |
-| `mode` | TEXT | `class` of `exam` |
-| `editor_assist` | INT | 0/1 |
-| `created_at` | BIGINT | Unix timestamp ms |
-| `closed` | INT | 0/1 |
-| `blocked` | INT | 0/1 |
-| `deleted` | INT | 0/1 |
-| `shared_code` | TEXT | Gedeelde code |
-| `announcement` | TEXT | Actieve aankondiging |
-| `workspace_mode` | TEXT | `shared` of `personal` |
-| `students_json` | TEXT | JSON snapshot leerlingen |
-
-### session_annotations
-
-| Kolom | Type | Beschrijving |
-|---|---|---|
-| `session_code` | TEXT PK | FK naar sessions |
-| `annotations_json` | TEXT | JSON array annotaties |
-| `updated_at` | BIGINT | Unix timestamp ms |
-
-### code_snapshots
-
-| Kolom | Type | Beschrijving |
-|---|---|---|
-| `id` | TEXT PK | UUID |
-| `session_code` | TEXT | FK naar sessions |
-| `student_id` | TEXT | In-memory student ID |
-| `student_name` | TEXT | Naam op moment van snapshot |
-| `timestamp` | BIGINT | Unix timestamp ms |
-| `code` | TEXT | Code-inhoud |
-
-### classes
-
-| Kolom | Type | Beschrijving |
-|---|---|---|
-| `id` | TEXT PK | UUID |
-| `name` | TEXT | Klasnaam |
-| `school_year` | TEXT | Bijv. `2025-2026` |
-| `archived` | BOOLEAN | Gearchiveerd |
-| `created_at` | BIGINT | Unix timestamp ms |
-
-### students
-
-| Kolom | Type | Beschrijving |
-|---|---|---|
-| `id` | TEXT PK | UUID |
-| `name` | TEXT | Leerlingnaam |
-| `class_id` | TEXT | FK naar classes |
-| `status` | TEXT | `active`, `pending`, `blocked` |
-| `source` | TEXT | `manual`, `csv`, `google` |
-| `google_email` | TEXT UNIQUE | Voor toekomstige OAuth |
-| `google_sub` | TEXT UNIQUE | Google-ID voor OAuth |
-| `created_at` | BIGINT | Unix timestamp ms |
-| `last_seen` | BIGINT | Laatste sessie-deelname |
-| `notes` | TEXT | Vrije notitie |
-
----
-
-## REST API
-
-Alle endpoints vereisen authenticatie tenzij anders vermeld.
-
-### Sessies
-
-| Methode | Endpoint | Beschrijving |
-|---|---|---|
-| GET | `/api/sessions` | Actieve sessies (`?includeClosed=true` voor archief) |
-| GET | `/api/sessions/:code/export` | Export sessie als ZIP |
-| GET | `/api/sessions/:code/history/:studentId` | Code-snapshots leerling |
-| DELETE | `/api/sessions/:code` | Sessie verwijderen |
-| POST | `/api/sessions/:code/block-toggle` | Sessie blokkeren/deblokkeren |
-
-### Admin — Leerkrachten
-
-| Methode | Endpoint | Beschrijving |
-|---|---|---|
-| GET | `/api/admin/teachers` | Alle leerkrachten |
-| POST | `/api/admin/teachers` | Nieuwe leerkracht |
-| PUT | `/api/admin/teachers/:username/password` | Wachtwoord resetten |
-| PUT | `/api/admin/teachers/:username/role` | Rol wijzigen |
-| DELETE | `/api/admin/teachers/:username` | Verwijderen |
-
-### Admin — Klassen
-
-| Methode | Endpoint | Beschrijving |
-|---|---|---|
-| GET | `/api/admin/classes` | Alle klassen (`?archived=true`) |
-| GET | `/api/classes` | Publiek — voor leerling dropdown |
-| POST | `/api/admin/classes` | Nieuwe klas |
-| PUT | `/api/admin/classes/:id/archive` | Archiveren |
-| DELETE | `/api/admin/classes/:id` | Verwijderen |
-| POST | `/api/admin/classes/:id/teachers` | Leerkracht koppelen |
-| DELETE | `/api/admin/classes/:id/teachers/:tid` | Leerkracht ontkoppelen |
-
-### Admin — Leerlingen
-
-| Methode | Endpoint | Beschrijving |
-|---|---|---|
-| GET | `/api/admin/students` | Alle leerlingen (`?classId=`) |
-| POST | `/api/admin/students` | Nieuwe leerling |
-| PUT | `/api/admin/students/:id/status` | Status wijzigen |
-| PUT | `/api/admin/students/:id/class` | Klas wijzigen |
-| PUT | `/api/admin/students/:id/notes` | Notitie bijwerken |
-| DELETE | `/api/admin/students/:id` | Verwijderen |
-| POST | `/api/admin/students/import-csv` | CSV-import |
+| Tabel | Inhoud |
+|---|---|
+| `quiz_bank` | Vragenbank (type: code/open/single/multiple + choices_json) |
+| `quiz_question_snapshots` | Snapshot van vragen op moment van toets |
+| `quiz_meta` | Toets-instellingen (timer, tijdsvenster, volgorde, ...) |
+| `quiz_answers` | Antwoorden per leerling per vraag (+ auto_scored) |
+| `quiz_general_comments` | Algemeen commentaar per leerling |
+| `quiz_student_order` | Gepersonaliseerde vraagvolgorde |
+| `quiz_run_history` | Run-history per antwoord |
+| `quiz_comment_templates` | Herbruikbare commentaar-templates |
 
 ### Systeem
 
-| Methode | Endpoint | Beschrijving | Auth |
-|---|---|---|---|
-| GET | `/health` | Container health check | Nee |
-| GET | `/api/monitoring` | Systeem- en sessiondata | Ja |
-| GET | `/api/csrf-token` | CSRF-token ophalen | Nee |
-| GET | `/api/stress-test/autocheck-status` | Laatste autocheck | Ja |
-| POST | `/api/stress-test/start` | Stresstest starten (vereist `STRESS_TEST_ENABLED=true`) | Ja |
+| Tabel | Inhoud |
+|---|---|
+| `stress_results` | Stresstest historiek |
 
 ---
 
-## Socket.IO events
+## REST API (selectie)
 
-### Van leerling → server
+### Authenticatie
 
-| Event | Data | Beschrijving |
+| | Endpoint | Beschrijving |
 |---|---|---|
-| `student_join` | `{ name, code, className, resumeId }` | Sessie joinen |
-| `student_join_free` | `{ name, className }` | Vrije editor joinen |
-| `code_update` | `{ codeText, workspace }` | Code versturen |
-| `run_request` | `{ codeText, workspace }` | Code runnen |
-| `free_run_request` | `{ codeText }` | Vrij runnen |
-| `runtime_input` | `{ value }` | Input invullen |
-| `free_runtime_input` | `{ value }` | Vrije editor input |
-| `student_raise_hand` | — | Hand opsteken |
-| `student_lower_hand` | — | Hand zakken |
-| `student_mark_done` | — | Klaar-knop |
-| `student_unmark_done` | — | Ongedaan klaar |
-| `student_tab_hidden` | `{ hidden }` | Tab-wisseling melden |
-| `free_run_end` | — | Vrije run stoppen |
+| POST | `/api/teacher-login` | Login met username/password |
+| GET | `/api/teacher-logout` | Uitloggen |
+| GET | `/api/version` | Versie + uptime |
+| GET | `/health` | Container health check |
+| GET | `/api/school-info` | Schoolnaam + logo URL |
 
-### Van leerkracht → server
+### Admin
 
-| Event | Data | Beschrijving |
+| | Endpoint | Beschrijving |
 |---|---|---|
-| `teacher_create_session` | `{ name, mode, editorAssist, templateCode }` | Sessie aanmaken |
-| `teacher_join_session` | `{ code }` | Sessie openen |
-| `teacher_select_student` | `{ studentId }` | Leerling selecteren |
-| `teacher_update_code` | `{ codeText }` | Klascode bijwerken |
-| `teacher_run_code` | `{ codeText }` | Klascode runnen |
-| `teacher_send_annotation` | `{ startLine, endLine, message, color }` | Annotatie sturen |
-| `teacher_clear_annotations` | — | Annotaties wissen |
-| `teacher_send_announcement` | `{ message }` | Aankondiging sturen |
-| `teacher_send_snippet` | `{ code }` | Snippet broadcasten |
-| `teacher_set_student_can_run` | `{ studentId, value }` | Run-rechten |
-| `teacher_set_student_can_edit` | `{ studentId, value }` | Bewerkrechten |
-| `teacher_set_all_can_run` | `{ value }` | Alle run-rechten |
-| `teacher_start_timer` | `{ seconds }` | Timer starten |
-| `teacher_stop_timer` | — | Timer stoppen |
-| `teacher_close_session` | — | Sessie sluiten |
-| `teacher_delete_session` | — | Sessie verwijderen |
-| `teacher_update_session_config` | `{ key, value }` | Editor-config aanpassen |
-| `teacher_update_student_badge` | `{ studentId, action }` | Badge actie |
-| `teacher_assign_student_class` | `{ studentId, classId }` | Klas toewijzen |
+| GET/POST | `/api/admin/teachers` | Leerkrachten beheren |
+| GET/POST | `/api/admin/classes` | Klassen beheren |
+| GET/POST | `/api/admin/students` | Leerlingen beheren |
+| POST | `/api/admin/students/import-csv` | CSV import |
+| GET | `/api/admin/logs/info` | Log status |
+| POST | `/api/admin/logs/cleanup` | Logs opruimen |
 
-### Van server → leerling
+### Sessies
 
-| Event | Data | Beschrijving |
+| | Endpoint | Beschrijving |
 |---|---|---|
-| `student_state` | `{ ... }` | Volledige sessie-staat |
-| `code_update` | `{ codeText, ... }` | Code-synchronisatie |
-| `run_output` | `{ output, runId }` | Output-fragment |
-| `run_end` | `{ runId }` | Run afgerond |
-| `run_error` | `{ error, line }` | Runtime fout |
-| `run_queued` | `{ position }` | In wachtrij |
-| `input_request` | `{ prompt, runId }` | Input gevraagd |
-| `annotation_added` | `{ annotation }` | Annotatie ontvangen |
-| `annotations_cleared` | — | Annotaties gewist |
-| `announcement` | `{ message }` | Aankondiging ontvangen |
-| `timer_update` | `{ remaining, total }` | Timer update |
-| `timer_stopped` | — | Timer gestopt |
-| `session_config_update` | `{ config }` | Editor-config gewijzigd |
-| `csrf_nonce` | `{ nonce }` | CSRF nonce |
-| `error_message` | `{ message }` | Foutmelding |
+| GET | `/api/sessions` | Actieve sessies |
+| GET | `/api/sessions/:code/export` | Export als ZIP |
+| GET | `/api/sessions/:code/history/:id` | Code-history leerling |
 
-### Van server → leerkracht
+### Quiz
 
-| Event | Data | Beschrijving |
+| | Endpoint | Beschrijving |
 |---|---|---|
-| `teacher_session_data` | `{ session, students, view, config, ... }` | Volledige sessiedata |
-| `sessions_list` | `[ ... ]` | Lijst actieve sessies |
+| GET/POST | `/api/quiz/bank` | Vragenbank CRUD |
+| POST | `/api/quiz/bank/import-csv` | CSV import vragen |
+| POST | `/api/quiz` | Toets aanmaken |
+| POST | `/api/quiz/:code/duplicate` | Toets dupliceren |
+| GET | `/api/quiz/:code/answers` | Alle antwoorden |
+| PUT | `/api/quiz/:code/answers/:id/score` | Score opslaan |
+| POST | `/api/quiz/:code/release` | Resultaten vrijgeven |
+| GET | `/api/quiz/:code/similarity` | Gelijkenis-rapport |
+| GET | `/api/quiz/:code/pdf/questions` | PDF vragenblad |
+| GET | `/api/quiz/:code/pdf/answers` | PDF antwoorden |
+| GET | `/api/quiz/:code/pdf/overview` | PDF klasoverzicht |
+| GET | `/api/quiz/archive` | Toets-archief |
 
 ---
 
-## Python runner — sandbox
+## Socket.IO events (selectie)
 
-De runner draait Python-code in een subprocess met de volgende beperkingen:
+### Leerling → Server
+
+| Event | Beschrijving |
+|---|---|
+| `student_join` | Klassessie joinen |
+| `run_request` | Code uitvoeren |
+| `runtime_input` | Input invullen |
+| `student_raise_hand` | Hand opsteken |
+| `student_mark_done` | Klaar melden |
+| `quiz_start` | Toets starten (timer begint) |
+| `quiz_save_answer` | Antwoord opslaan |
+| `quiz_submit_all` | Toets indienen |
+
+### Server → Leerling
+
+| Event | Beschrijving |
+|---|---|
+| `student_state` | Volledige sessie-staat |
+| `run_output` | Code output |
+| `run_error` | Runtime fout |
+| `input_request` | Input gevraagd |
+| `quiz_state` | Quiz staat + vragen |
+| `quiz_timer_update` | Timer tick |
+| `quiz_warning` | 10% tijd resterend |
+| `quiz_force_submit` | Auto-submit (timer/deadline) |
+| `quiz_reminder` | Herinnering van leerkracht |
+| `quiz_access_expired` | Tijdsvenster verlopen |
+
+---
+
+## Python runner sandbox
 
 ### Geblokkeerde modules
 
 ```python
 BLOCKED_MODULES = {
     'os', 'subprocess', 'socket', 'shutil', 'importlib',
-    'ctypes', 'multiprocessing', 'signal', 'pty', 'tty',
-    'termios', 'fcntl', 'resource', 'mmap', 'syslog',
+    'ctypes', 'multiprocessing', 'signal', 'pty', ...
 }
 ```
 
-### OS-limieten (rlimits)
-
-| Limiet | Waarde | Beschrijving |
-|---|---|---|
-| `RLIMIT_NOFILE` | 64 | Max open bestanden |
-| `RLIMIT_FSIZE` | 1 MB | Max bestandsgrootte schrijven |
-| `RLIMIT_NPROC` | 32 | Max child-processen |
-
-### Docker-limieten
+### Limieten
 
 | Limiet | Waarde |
 |---|---|
-| Geheugen | 256 MB |
-| CPU | 1.0 core |
-| Timeout | 30 seconden per run |
+| RAM runner | 256 MB (Docker) |
+| CPU runner | 1 core |
+| Timeout | 30 seconden |
 | Max output | 256 KB |
 | Max code | 32 KB |
+| Open bestanden | 64 (rlimit) |
 
-### Wachtrij
+---
 
-- Max gelijktijdige runs: 18
-- Max wachtrij: 90 items
-- Geschatte wachttijd: ~8s per positie
+## Omgevingsvariabelen (.env)
+
+| Variabele | Verplicht | Beschrijving |
+|---|---|---|
+| `POSTGRES_PASSWORD` | ✅ | PostgreSQL wachtwoord (DATABASE_URL wordt auto-opgebouwd) |
+| `CLOUDFLARE_TUNNEL_TOKEN` | ✅ | Cloudflare tunnel token |
+| `POC_BASIC_COOKIE_SECRET` | ✅ | Cookie signing secret |
+| `RUNNER_URL` | ✅ | Intern adres runner (`http://runner:5000`) |
+| `SCHOOL_NAME` | — | Schoolnaam in PDF export |
+| `SCHOOL_LOGO_PATH` | — | Pad naar schoollogo |
+| `LOG_RETENTION_DAYS` | — | Logbestanden bewaren (standaard 7) |
+| `STRESS_TEST_ENABLED` | — | Stresstest inschakelen (standaard false) |
+| `WEBHOOK_URL` | — | URL voor crash notificaties |
 
 ---
 
 ## Beveiliging
 
-**Score: 93/100**
-
 | Maatregel | Status |
 |---|---|
-| HTTPS via Cloudflare Tunnel | ✅ |
-| HTTP security headers (CSP, HSTS, X-Frame, ...) | ✅ |
-| Cookie `HttpOnly + Secure + SameSite=Strict` | ✅ |
-| Wachtwoorden via `scrypt` + `timingSafeEqual` | ✅ |
-| CSRF-bescherming (token + per-socket nonce) | ✅ |
+| HTTPS via Cloudflare | ✅ |
+| CSP headers (geen unsafe-eval) | ✅ |
+| Monaco workers via blob: | ✅ |
+| Cookie HttpOnly + Secure + SameSite=Strict | ✅ |
+| Wachtwoorden via scrypt + timingSafeEqual | ✅ |
+| CSRF token + per-socket nonce | ✅ |
 | SQL: geparameteriseerde queries | ✅ |
-| XSS: `escapeHtml()` overal in templates | ✅ |
-| Rate limiting login (6/30min per IP) | ✅ |
-| Rate limiting student_join (10/min per IP) | ✅ |
-| Runner op `127.0.0.1` (niet extern bereikbaar) | ✅ |
-| Socket.IO max payload 64KB | ✅ |
-| Code max 32KB, output max 256KB | ✅ |
-| Runner sandbox: rlimits + blocked modules | ✅ |
+| Rate limiting login (6/30min) | ✅ |
+| Rate limiting join (10/min) | ✅ |
+| Runner op 127.0.0.1 (niet extern) | ✅ |
+| Runner sandbox: rlimits + geblokkeerde modules | ✅ |
 | Docker memory limiet runner (256MB) | ✅ |
-| Sessiecode: `crypto.randomBytes()`, 8 tekens | ✅ |
-| `unsafe-eval` in CSP (Monaco AMD vereist dit) | ⚠️ Fix in sprint 12a-D |
+
+**Beveiligingsscore: ~98/100**
 
 ---
 
-## Sessie-config systeem
+## pycodeflow.sh menu-opties
 
-Elke sessie heeft een `config` object in-memory:
-
-```js
-session.config = {
-  autoIndent:          true,   // false bij examenmodus standaard
-  autoClosingBrackets: true,
-  autoClosingQuotes:   true,
-  quickSuggestions:    true,
-  parameterHints:      true,
-  errorLineMarking:    true,   // altijd true, niet uitschakelbaar
-}
-```
-
-Config is **niet persistent** — bij server-herstart terug naar modus-standaard.
-
-Leerkracht wijzigt config via ⚙️ paneel → `teacher_update_session_config` socket event → server broadcast `session_config_update` → leerling past Monaco-opties live aan.
-
----
-
-## Wachtwoord-hashing
-
-```js
-// Aanmaken
-const salt = crypto.randomBytes(16);
-const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-const stored = `${hash}:${salt.toString('hex')}`;
-
-// Verifiëren
-const [hash, saltHex] = stored.split(':');
-const salt = Buffer.from(saltHex, 'hex');
-const verify = crypto.scryptSync(input, salt, 64);
-const valid = crypto.timingSafeEqual(Buffer.from(hash, 'hex'), verify);
-```
+| Optie | Actie |
+|---|---|
+| 1 | Versie instellen |
+| 2 | Start |
+| 3 | Stop |
+| 4 | Herstart |
+| 5 | Rebuild & herstart |
+| 6 | Logs bekijken (web/runner/postgres/fouten/DB-check) |
+| 7 | Verificatie (check-deployment.sh) |
+| 8 | SQLite → PostgreSQL migratie |
+| 9 | npm packages controleren |
+| 10 | Leerkrachtsaccount aanmaken |
+| 11 | Container resources (docker stats) |
+| 12 | Logs opruimen |
+| 13 | Eerste-start opnieuw uitvoeren |
+| 14 | Volledige reset (ALLES verwijderen, .env blijft) |
+| 15 | Health monitor instellen (crash notificatie) |
+| 16 | Database backup beheren |
 
 ---
 
-## Omgevingsvariabelen
-
-| Variabele | Vereist | Standaard | Beschrijving |
-|---|---|---|---|
-| `DATABASE_URL` | ✅ | — | PostgreSQL connection string |
-| `DB_SSL` | — | `false` | SSL voor DB-verbinding |
-| `POC_BASIC_USER` | — | — | Fallback leerkracht (legacy) |
-| `POC_BASIC_PASS` | — | — | Fallback wachtwoord (legacy) |
-| `RUNNER_URL` | — | `http://runner:5000` | Runner intern adres |
-| `STRESS_TEST_ENABLED` | — | `false` | Stresstest inschakelen |
-| `APP_VERSION_YEAR` | — | `2026` | Versie in footer |
-| `APP_VERSION_MAJOR` | — | `0` | Versie in footer |
-| `APP_VERSION_MINOR` | — | `0` | Versie in footer |
-| `APP_VERSION_BUILD` | — | `0` | Versie in footer |
-
----
-
-*PyCodeFlow · Atheneum Hoboken*
+*PyCodeFlow · Atheneum Hoboken · technical-readme.md · v2026.2.16.0*

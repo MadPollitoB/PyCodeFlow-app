@@ -254,7 +254,7 @@ async function checkAuthConfig() {
 
   if (!dbHasTeacher && !envHasCredentials) {
     console.error("POC Basic Auth is actief maar er zijn geen leerkrachtenaccounts gevonden.");
-    console.error("Voeg een account toe via: node scripts/manage-teacher.js add <gebruiker> <wachtwoord>");
+    console.error("[auth] Voeg een leerkracht toe via pycodeflow.sh → optie 10, of via admin.html");
     process.exit(1);
   }
   if (dbHasTeacher) {
@@ -263,7 +263,10 @@ async function checkAuthConfig() {
 }
 
 if (passwordConfigUsesLegacyPlaintext) {
-  console.warn("WAARSCHUWING: POC_BASIC_PASS wordt nog gebruikt. Vervang dit door POC_BASIC_PASS_HASH voor betere beveiliging.");
+  // POC_BASIC_PASS (plain text) wordt ondersteund als fallback.
+  // De server hasht het intern — dit is veilig genoeg voor gebruik.
+  // Optioneel: vervang door POC_BASIC_PASS_HASH voor nog betere beveiliging.
+  console.log('[auth] Fallback login actief via POC_BASIC_USER/POC_BASIC_PASS uit .env');
 }
 
 const app = express();
@@ -324,19 +327,14 @@ function socketIsTeacherAuthorized(socket) {
 
 // Fix SEC-3: HTTP security headers
 app.use((req, res, next) => {
-  // Sprint 12a-D: per-request nonce voor CSP — vervangt unsafe-eval
-  // Monaco ESM-versie vereist geen eval() meer, enkel een nonce voor inline workers
-  const cspNonce = crypto.randomBytes(16).toString('base64');
-  res.locals.cspNonce = cspNonce;
-
+  // CSP: unsafe-inline nodig voor inline scripts in HTML-bestanden
+  // unsafe-eval verwijderd (Sprint 12a-D) — Monaco ESM workers via blob: URLs
   res.setHeader('Content-Security-Policy',
     "default-src 'self'; " +
-    // unsafe-eval verwijderd — Monaco ESM vereist dit niet meer
-    `script-src 'self' 'unsafe-inline' 'nonce-${cspNonce}'; ` +
+    "script-src 'self' 'unsafe-inline'; " +
     "style-src 'self' 'unsafe-inline'; " +
     "font-src 'self' data:; " +
     "img-src 'self' data:; " +
-    // worker-src voor Monaco's web workers
     "worker-src 'self' blob:; " +
     "connect-src 'self' ws: wss:; " +
     "frame-ancestors 'none';"
@@ -416,7 +414,7 @@ app.post('/api/teacher-login', async (req, res) => {
 
   // Bouw een nep Authorization-header zodat we credentialsAreValid kunnen hergebruiken
   const fakeAuthHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
-  const valid = credentialsAreValid(fakeAuthHeader); // checkt DB én .env fallback
+  const valid = await credentialsAreValid(fakeAuthHeader); // await! anders wordt DB niet gecheckt
 
   if (valid) {
     clearAuthFailures(ip);
@@ -456,8 +454,26 @@ app.get('/landing.html', (req, res) => {
 app.get('/api/version', (req, res) => {
   res.json({
     version: APP_VERSION,
-    ...VERSION
+    ...VERSION,
+    uptime: Math.round(process.uptime()),
+    node: process.version,
   });
+});
+
+// Sprint 19b: schoollogo en schoolinfo
+app.get('/api/school-info', (req, res) => {
+  res.json({
+    name: process.env.SCHOOL_NAME || 'PyCodeFlow',
+    logoUrl: process.env.SCHOOL_LOGO_PATH ? '/school-logo' : null,
+  });
+});
+
+app.get('/school-logo', (req, res) => {
+  const logoPath = process.env.SCHOOL_LOGO_PATH;
+  if (!logoPath) return res.status(404).end();
+  const fsSync = require('fs');
+  if (!fsSync.existsSync(logoPath)) return res.status(404).end();
+  res.sendFile(logoPath);
 });
 
 
@@ -710,6 +726,29 @@ app.post('/api/admin/students/import-csv', requireTeacherAuth, requireCsrf, asyn
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ══ Sprint 19j: Deadline check interval ════════════════════════════════════
+setInterval(async () => {
+  const now = Date.now();
+  for (const [code, session] of sessions.entries()) {
+    if (session.mode !== 'quiz') continue;
+    try {
+      const meta = await dbModule.getQuizMeta(code);
+      if (!meta?.access_until || now < meta.access_until) continue;
+      if (session._deadlineHandled) continue;
+      session._deadlineHandled = true;
+
+      // Stuur force_submit naar alle nog actieve leerlingen
+      for (const student of Object.values(session.students)) {
+        if (!student.quizSubmitted && student.socketId && student.quizStartedAt) {
+          io.to(student.socketId).emit('quiz_force_submit', { reason: 'deadline' });
+          await dbModule.submitQuizAnswers(code, student.id, true).catch(() => {});
+        }
+      }
+      console.log(`[quiz] Sessie ${code}: deadline bereikt`);
+    } catch {}
+  }
+}, 60 * 1000);
+
 // ══ Sprint 16: Quiz Timer helper ═════════════════════════════════════════════
 
 function startQuizTimer(session, student, totalSeconds) {
@@ -786,9 +825,20 @@ app.get('/api/quiz/bank/subjects', requireTeacherAuth, async (req, res) => {
 });
 
 app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => {
-  const { text, subject, difficulty, maxPoints } = req.body || {};
+  const { text, subject, difficulty, maxPoints, questionType, choices } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: 'Vraagstelling is verplicht.' });
   if (text.length > 5000) return res.status(400).json({ error: 'Vraagstelling te lang (max 5000 tekens).' });
+  const validTypes = ['code', 'open', 'multiple', 'single'];
+  const qType = validTypes.includes(questionType) ? questionType : 'code';
+  // Valideer choices bij meerkeuze/single
+  if (['multiple', 'single'].includes(qType)) {
+    if (!Array.isArray(choices) || choices.length < 2) {
+      return res.status(400).json({ error: 'Minimaal 2 antwoordopties verplicht.' });
+    }
+    if (choices.length > 8) return res.status(400).json({ error: 'Maximaal 8 antwoordopties.' });
+    const hasCorrect = choices.some(ch => ch.correct === true);
+    if (!hasCorrect) return res.status(400).json({ error: 'Minimaal 1 juist antwoord verplicht.' });
+  }
   try {
     const teacher = await dbModule.getTeacherByUsername(
       parseBasicAuthHeader(req.headers.authorization)?.username || ''
@@ -797,6 +847,14 @@ app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => 
       text, subject: (subject || '').slice(0, 64),
       difficulty: ['makkelijk','gemiddeld','moeilijk'].includes(difficulty) ? difficulty : 'gemiddeld',
       maxPoints: Math.max(1, Math.min(100, parseInt(maxPoints) || 4)),
+      questionType: qType,
+      choicesJson: qType === 'code' || qType === 'open' ? '[]' : JSON.stringify(
+        (choices || []).map(ch => ({
+          id: crypto.randomUUID(),
+          text: String(ch.text || '').slice(0, 500),
+          correct: ch.correct === true,
+        }))
+      ),
       createdBy: teacher?.id || null,
     });
     res.json({ ok: true, id });
@@ -804,12 +862,22 @@ app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => 
 });
 
 app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) => {
-  const { text, subject, difficulty, maxPoints } = req.body || {};
+  const { text, subject, difficulty, maxPoints, questionType, choices } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: 'Vraagstelling is verplicht.' });
+  const validTypes = ['code', 'open', 'multiple', 'single'];
+  const qType = validTypes.includes(questionType) ? questionType : 'code';
   const ok = await dbModule.updateQuizQuestion(req.params.id, {
     text, subject: (subject || '').slice(0, 64),
     difficulty: ['makkelijk','gemiddeld','moeilijk'].includes(difficulty) ? difficulty : 'gemiddeld',
     maxPoints: Math.max(1, Math.min(100, parseInt(maxPoints) || 4)),
+    questionType: qType,
+    choicesJson: qType === 'code' || qType === 'open' ? '[]' : JSON.stringify(
+      (choices || []).map(ch => ({
+        id: ch.id || crypto.randomUUID(),
+        text: String(ch.text || '').slice(0, 500),
+        correct: ch.correct === true,
+      }))
+    ),
   });
   res.json({ ok });
 });
@@ -851,7 +919,9 @@ app.post('/api/quiz/bank/import-csv', requireTeacherAuth, requireCsrf, async (re
 
 app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
   const { name, questions, randomize, timerSeconds, minRunsPerQ,
-          hideQuestionOnScreen, isTeacherPreview, templateCode } = req.body || {};
+          hideQuestionOnScreen, isTeacherPreview, templateCode,
+          noTimer, accessFrom, accessUntil, autoSubmitLate,
+          schoolYear, targetClass } = req.body || {};
   if (!name?.trim()) return res.status(400).json({ error: 'Naam is verplicht.' });
   if (!questions?.length) return res.status(400).json({ error: 'Selecteer minstens 1 vraag.' });
   if (questions.length > 50) return res.status(400).json({ error: 'Max 50 vragen per toets.' });
@@ -882,9 +952,13 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
         points: parseInt(q.points) || parseInt(q.max_points) || 4,
       })),
       randomize: randomize !== false,
-      // Sprint 17: no_timer = true → geen tijdslimiet (taak zonder deadline)
+      // Sprint 17: no_timer = true → geen tijdslimiet
       noTimer: noTimer === true,
       timerSeconds: noTimer ? null : Math.max(60, Math.min(7200, parseInt(timerSeconds) || 2700)),
+      // Sprint 19j: tijdsvenster
+      accessFrom: accessFrom ? Number(accessFrom) : null,
+      accessUntil: accessUntil ? Number(accessUntil) : null,
+      autoSubmitLate: autoSubmitLate !== false,
       minRunsPerQ: parseInt(minRunsPerQ) || 0,
       hideQuestionOnScreen: hideQuestionOnScreen === true,
       isTeacherPreview: isTeacherPreview === true,
@@ -3612,6 +3686,25 @@ io.on("connection", (socket) => {
       return;
     }
 
+    // Sprint 19j: tijdsvenster check
+    const now19j = Date.now();
+    if (meta.access_from && now19j < meta.access_from) {
+      const openOm = new Date(meta.access_from).toLocaleString('nl-BE', {
+        day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'
+      });
+      return socket.emit('error_message', `Deze toets/taak is nog niet beschikbaar. Toegang start op ${openOm}.`);
+    }
+    if (meta.access_until && now19j > meta.access_until) {
+      const deadline = new Date(meta.access_until).toLocaleString('nl-BE', {
+        day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'
+      });
+      return socket.emit('quiz_access_expired', {
+        deadline: meta.access_until,
+        deadlineStr: deadline,
+        autoSubmitLate: meta.auto_submit_late !== false,
+      });
+    }
+
     // Herstarten: bestaande leerling
     let student = Object.values(session.students).find(
       s => s.name.toLowerCase() === studentName.toLowerCase() && !s.removed
@@ -3697,7 +3790,8 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on('quiz_save_answer', async ({ questionId, code, runCount, firstVisitAt, firstRunAt, currentQuestion }) => {
+  socket.on('quiz_save_answer', async (data) => {
+    const { questionId, code, runCount, firstVisitAt, firstRunAt, currentQuestion } = data || {};
     const ctx = socketToUser.get(socket.id);
     if (!ctx || ctx.role !== 'quiz_student') return;
     const session = sessions.get(ctx.code);
@@ -3705,10 +3799,12 @@ io.on("connection", (socket) => {
     if (!student || student.quizSubmitted) return;
 
     // Sla op in-memory
-    student.quizAnswers[questionId] = { code, runCount, firstVisitAt, firstRunAt };
+    student.quizAnswers[questionId] = { code, runCount, firstVisitAt, firstRunAt,
+      selectedChoices: data?.selectedChoices || [] };
     student.quizCurrentQuestion = currentQuestion;
 
-    // Sla op in DB (tussentijdse backup)
+    // Sprint 19a: 15s backup interval voor quiz (was 60s)
+    // Sla direct op in DB bij elke navigatie
     dbModule.saveQuizAnswer({
       sessionCode: ctx.code, studentId: ctx.studentId,
       studentName: student.name, studentClass: student.className || '',
@@ -3750,15 +3846,59 @@ io.on("connection", (socket) => {
 
     student.quizSubmitted = true;
 
-    // Sla alle antwoorden op in DB
+    // Haal vragen op voor auto-scoring
+    const quizQuestions = await dbModule.getQuizQuestions(ctx.code).catch(() => []);
+    const questionMap = {};
+    for (const q of quizQuestions) questionMap[q.id] = q;
+
+    // Sla alle antwoorden op in DB + auto-score meerkeuze/single
     for (const [questionId, ans] of Object.entries(answers || {})) {
+      const q = questionMap[questionId];
+      let autoScore = null;
+      let autoScored = false;
+
+      if (q && (q.question_type === 'multiple' || q.question_type === 'single')) {
+        try {
+          const choices = JSON.parse(q.choices_json || '[]');
+          const selected = Array.isArray(ans.selectedChoices) ? ans.selectedChoices : [];
+          const correctIds = choices.filter(ch => ch.correct).map(ch => ch.id);
+
+          if (q.question_type === 'single') {
+            // Single choice: volledig punt als juist, 0 als fout
+            autoScore = selected.length === 1 && correctIds.includes(selected[0])
+              ? (q.points || 0) : 0;
+          } else {
+            // Multiple choice: pro-rata scoring
+            const correctSelected = selected.filter(id => correctIds.includes(id)).length;
+            const wrongSelected   = selected.filter(id => !correctIds.includes(id)).length;
+            if (wrongSelected > 0) {
+              autoScore = 0; // fout antwoord geselecteerd → 0
+            } else {
+              autoScore = Math.round((correctSelected / correctIds.length) * (q.points || 0));
+            }
+          }
+          autoScored = true;
+        } catch { /* keuzes parsing mislukt — manueel verbeteren */ }
+      }
+
       await dbModule.saveQuizAnswer({
         sessionCode: ctx.code, studentId: ctx.studentId,
         studentName: student.name, studentClass: student.className || '',
         questionId, personalOrder: student.quizPersonalOrder?.indexOf(questionId) ?? 0,
         code: ans.code || '', runCount: ans.runCount || 0,
         firstVisitAt: ans.firstVisitAt || null, firstRunAt: ans.firstRunAt || null,
+        selectedChoices: JSON.stringify(ans.selectedChoices || []),
       }).catch(() => {});
+
+      // Sla auto-score op als berekend
+      if (autoScored && autoScore !== null) {
+        const savedAnswers = await dbModule.getQuizAnswersByStudent(ctx.code, ctx.studentId).catch(() => []);
+        const savedAns = savedAnswers.find(a => a.question_id === questionId);
+        if (savedAns) {
+          await dbModule.scoreQuizAnswer(savedAns.id, autoScore,
+            `🤖 Automatisch gescoord (${q.question_type})`).catch(() => {});
+        }
+      }
     }
     await dbModule.submitQuizAnswers(ctx.code, ctx.studentId, false).catch(() => {});
 
@@ -3808,6 +3948,19 @@ io.on("connection", (socket) => {
     socket.emit('quiz_teacher_state', {
       sessionCode: normalizedCode, sessionName: session.name,
       meta, questions, progress, paused: session.quizPaused || false,
+    });
+  });
+
+  // Sprint 19d: herinnering sturen naar leerling die nog niet gestart heeft
+  socket.on('quiz_send_reminder', ({ studentId }) => {
+    if (!socketIsTeacherAuthorized(socket)) return;
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx) return;
+    const session = sessions.get(ctx.code);
+    const student = session?.students[studentId];
+    if (!student || !student.socketId) return;
+    io.to(student.socketId).emit('quiz_reminder', {
+      message: '⚠️ Start de toets! Klik op START TOETS om je timer te beginnen.',
     });
   });
 

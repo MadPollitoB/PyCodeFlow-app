@@ -1,111 +1,167 @@
 #!/usr/bin/env node
 /**
  * PyCodeFlow — Leerkrachtenaccount beheer (CLI)
+ * Sprint 12+: volledig herschreven voor PostgreSQL
  *
- * Gebruik:
- *   node web/scripts/manage-teacher.js add <gebruikersnaam> <wachtwoord> [weergavenaam]
- *   node web/scripts/manage-teacher.js delete <gebruikersnaam>
- *   node web/scripts/manage-teacher.js list
- *   node web/scripts/manage-teacher.js reset-password <gebruikersnaam> <nieuwWachtwoord>
- *
- * Voer uit vanuit de map waar docker-compose.yml staat, of stel DB_DIR in:
- *   DB_DIR=/volume3/docker/pycodeflow/web/data node web/scripts/manage-teacher.js list
+ * Gebruik (vanuit de web/ map in de container):
+ *   node scripts/manage-teacher.js list
+ *   node scripts/manage-teacher.js add <gebruikersnaam> <wachtwoord> [rol: teacher|admin]
+ *   node scripts/manage-teacher.js delete <gebruikersnaam>
+ *   node scripts/manage-teacher.js reset-password <gebruikersnaam> <nieuwWachtwoord>
+ *   node scripts/manage-teacher.js set-role <gebruikersnaam> <rol: teacher|admin>
  */
 'use strict';
 
+require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const crypto = require('crypto');
-const path   = require('path');
+const { Pool } = require('pg');
 
-// Zet DB_DIR zodat database.js de juiste locatie vindt
-if (!process.env.DB_DIR) {
-  process.env.DB_DIR = path.join(__dirname, '..', 'data');
-}
+// Verbinding — zelfde logica als database.js
+const connectionString = process.env.DATABASE_URL ||
+  (() => {
+    const pw = process.env.POSTGRES_PASSWORD;
+    if (!pw) {
+      console.error('FOUT: POSTGRES_PASSWORD of DATABASE_URL moet ingesteld zijn in .env');
+      process.exit(1);
+    }
+    return `postgresql://pycodeflow:${encodeURIComponent(pw)}@postgres:5432/pycodeflow`;
+  })();
 
-const db = require('../db/database');
+const pool = new Pool({ connectionString, connectionTimeoutMillis: 5000 });
 
 function hashPassword(password) {
-  const salt   = crypto.randomBytes(16);
+  // Zelfde formaat als server.js: scrypt$N$r$p$saltBase64$hashBase64
+  const salt = crypto.randomBytes(16);
   const params = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
-  const key    = crypto.scryptSync(password, salt, 64, params);
-  return `scrypt$${params.N}$${params.r}$${params.p}$${salt.toString('base64')}$${key.toString('base64')}`;
+  const derivedKey = crypto.scryptSync(String(password), salt, 64, params);
+  return `scrypt$${params.N}$${params.r}$${params.p}$${salt.toString('base64')}$${derivedKey.toString('base64')}`;
 }
 
-const [,, cmd, ...args] = process.argv;
+async function run() {
+  const [,, cmd, arg1, arg2, arg3] = process.argv;
 
-switch (cmd) {
-  case 'add': {
-    const [username, password, displayName = ''] = args;
-    if (!username || !password) {
-      console.error('Gebruik: manage-teacher.js add <gebruikersnaam> <wachtwoord> [weergavenaam]');
-      process.exit(1);
-    }
-    const existing = db.getTeacherByUsername(username);
-    if (existing) {
-      console.error(`Fout: gebruiker "${username}" bestaat al.`);
-      process.exit(1);
-    }
-    const hash = hashPassword(password);
-    const id   = db.createTeacher(username, hash, displayName || username);
-    console.log(`✅ Leerkracht aangemaakt: ${username} (id: ${id})`);
-    break;
+  if (!cmd) {
+    console.log('Gebruik: node scripts/manage-teacher.js <list|add|delete|reset-password|set-role> [args]');
+    process.exit(0);
   }
 
-  case 'delete': {
-    const [username] = args;
-    if (!username) {
-      console.error('Gebruik: manage-teacher.js delete <gebruikersnaam>');
-      process.exit(1);
+  try {
+    switch (cmd) {
+
+      case 'list': {
+        const r = await pool.query(
+          'SELECT username, display_name, role, created_at FROM teachers ORDER BY created_at'
+        );
+        if (r.rows.length === 0) {
+          console.log('Geen leerkrachten gevonden.');
+        } else {
+          console.log('\nLeerkrachten:');
+          r.rows.forEach(t => {
+            const datum = new Date(Number(t.created_at)).toLocaleDateString('nl-BE');
+            console.log(`  ${t.username.padEnd(20)} ${t.role.padEnd(8)} ${datum}`);
+          });
+        }
+        break;
+      }
+
+      case 'add': {
+        const username = arg1;
+        const password = arg2;
+        const role     = ['admin', 'teacher'].includes(arg3) ? arg3 : 'teacher';
+        if (!username || !password) {
+          console.error('Gebruik: node scripts/manage-teacher.js add <gebruikersnaam> <wachtwoord> [teacher|admin]');
+          process.exit(1);
+        }
+        if (password.length < 8) {
+          console.error('FOUT: wachtwoord moet minimaal 8 tekens zijn.');
+          process.exit(1);
+        }
+        // Check of gebruiker al bestaat
+        const exists = await pool.query(
+          'SELECT 1 FROM teachers WHERE LOWER(username) = LOWER($1)', [username]
+        );
+        if (exists.rows.length > 0) {
+          console.error(`Fout: gebruiker "${username}" bestaat al.`);
+          process.exit(1);
+        }
+        await pool.query(
+          'INSERT INTO teachers (id, username, pass_hash, display_name, role, created_at) VALUES ($1,$2,$3,$4,$5,$6)',
+          [crypto.randomUUID(), username, hashPassword(password), username, role, Date.now()]
+        );
+        console.log(`✅ Leerkracht aangemaakt: ${username} (${role})`);
+        break;
+      }
+
+      case 'delete': {
+        const username = arg1;
+        if (!username) {
+          console.error('Gebruik: node scripts/manage-teacher.js delete <gebruikersnaam>');
+          process.exit(1);
+        }
+        const r = await pool.query(
+          'DELETE FROM teachers WHERE LOWER(username) = LOWER($1)', [username]
+        );
+        if (r.rowCount > 0) {
+          console.log(`✅ Leerkracht verwijderd: ${username}`);
+        } else {
+          console.error(`Fout: gebruiker "${username}" niet gevonden.`);
+        }
+        break;
+      }
+
+      case 'reset-password': {
+        const username = arg1;
+        const password = arg2;
+        if (!username || !password) {
+          console.error('Gebruik: node scripts/manage-teacher.js reset-password <gebruikersnaam> <nieuwWachtwoord>');
+          process.exit(1);
+        }
+        if (password.length < 8) {
+          console.error('FOUT: wachtwoord moet minimaal 8 tekens zijn.');
+          process.exit(1);
+        }
+        const r = await pool.query(
+          'UPDATE teachers SET pass_hash = $1 WHERE LOWER(username) = LOWER($2)',
+          [hashPassword(password), username]
+        );
+        if (r.rowCount > 0) {
+          console.log(`✅ Wachtwoord bijgewerkt voor: ${username}`);
+        } else {
+          console.error(`Fout: gebruiker "${username}" niet gevonden.`);
+        }
+        break;
+      }
+
+      case 'set-role': {
+        const username = arg1;
+        const role     = arg2;
+        if (!username || !['teacher', 'admin'].includes(role)) {
+          console.error('Gebruik: node scripts/manage-teacher.js set-role <gebruikersnaam> <teacher|admin>');
+          process.exit(1);
+        }
+        const r = await pool.query(
+          'UPDATE teachers SET role = $1 WHERE LOWER(username) = LOWER($2)',
+          [role, username]
+        );
+        if (r.rowCount > 0) {
+          console.log(`✅ Rol bijgewerkt: ${username} → ${role}`);
+        } else {
+          console.error(`Fout: gebruiker "${username}" niet gevonden.`);
+        }
+        break;
+      }
+
+      default:
+        console.error(`Onbekend commando: ${cmd}`);
+        console.log('Beschikbare commando\'s: list, add, delete, reset-password, set-role');
+        process.exit(1);
     }
-    const ok = db.deleteTeacher(username);
-    if (ok) console.log(`✅ Leerkracht verwijderd: ${username}`);
-    else    console.error(`Fout: gebruiker "${username}" niet gevonden.`);
-    break;
+  } catch (e) {
+    console.error('Database fout:', e.message);
+    process.exit(1);
+  } finally {
+    await pool.end();
   }
-
-  case 'list': {
-    const teachers = db.listTeachers();
-    if (!teachers.length) {
-      console.log('Geen leerkrachten gevonden in de database.');
-      break;
-    }
-    console.log(`\n${'Gebruikersnaam'.padEnd(20)} ${'Weergavenaam'.padEnd(20)} ${'Aangemaakt'.padEnd(22)} Laatste login`);
-    console.log('─'.repeat(80));
-    for (const t of teachers) {
-      const created   = new Date(t.created_at).toLocaleString('nl-BE');
-      const lastLogin = t.last_login ? new Date(t.last_login).toLocaleString('nl-BE') : 'nooit';
-      console.log(`${t.username.padEnd(20)} ${t.display_name.padEnd(20)} ${created.padEnd(22)} ${lastLogin}`);
-    }
-    console.log();
-    break;
-  }
-
-  case 'reset-password': {
-    const [username, newPassword] = args;
-    if (!username || !newPassword) {
-      console.error('Gebruik: manage-teacher.js reset-password <gebruikersnaam> <nieuwWachtwoord>');
-      process.exit(1);
-    }
-    const teacher = db.getTeacherByUsername(username);
-    if (!teacher) {
-      console.error(`Fout: gebruiker "${username}" niet gevonden.`);
-      process.exit(1);
-    }
-    const hash = hashPassword(newPassword);
-    db.updatePassHash(username, hash);
-    console.log(`✅ Wachtwoord bijgewerkt voor: ${username}`);
-    break;
-  }
-
-  default:
-    console.log(`
-PyCodeFlow — Leerkrachtenaccount beheer
-
-Commando's:
-  add <gebruikersnaam> <wachtwoord> [weergavenaam]   Maak een nieuw account aan
-  delete <gebruikersnaam>                             Verwijder een account
-  list                                                Toon alle accounts
-  reset-password <gebruikersnaam> <wachtwoord>        Stel wachtwoord opnieuw in
-    `);
 }
 
-db.close();
+run();

@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets verbeteren</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.13.0"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.14.0"/>
   <style>
     .review-layout { display:grid; grid-template-columns:280px 1fr; gap:20px; }
     @media(max-width:900px){ .review-layout { grid-template-columns:1fr; } }
@@ -79,7 +79,7 @@
 
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/app.js?v=v2026.2.13.0"></script>
+<script src="/app.js?v=v2026.2.14.0"></script>
 <script>
 const params = new URLSearchParams(location.search);
 const sessionCode = params.get('code') || prompt('Toetscode:');
@@ -233,6 +233,50 @@ async function selectQuestion(idx) {
   const code = ans?.code || '';
   const score = ans?.score !== null && ans?.score !== undefined ? ans.score : '';
   const comment = ans?.teacher_comment || '';
+  const qType = q.question_type || 'code';
+  const isAutoScored = ans?.auto_scored;
+
+  // Bouw antwoordweergave per vraagtype
+  let answerHtml = '';
+  if (qType === 'open') {
+    answerHtml = `<div class="card" style="padding:14px;margin-bottom:14px;">
+      <div style="font-size:0.78rem;color:var(--muted);margin-bottom:6px;">✏️ Open antwoord:</div>
+      <div style="font-size:0.93rem;line-height:1.7;white-space:pre-wrap;padding:10px;
+        background:var(--surface-soft);border-radius:8px;min-height:60px;">
+        ${ans?.code ? esc(ans.code) : '<span style="color:var(--muted);font-style:italic;">(geen antwoord)</span>'}
+      </div></div>`;
+  } else if (qType === 'single' || qType === 'multiple') {
+    try {
+      const choices = JSON.parse(q.choices_json || '[]');
+      const selected = JSON.parse(ans?.selected_choices || '[]');
+      const choiceRows = choices.map(ch => {
+        const wasSelected = selected.includes(ch.id);
+        const isCorrect   = ch.correct === true;
+        let icon='○', bg='var(--surface-soft)', border='var(--border)', color='inherit';
+        if (wasSelected && isCorrect)   { icon='✅'; bg='#d1fae5'; border='#6ee7b7'; }
+        else if (wasSelected && !isCorrect){ icon='❌'; bg='#fee2e2'; border='#fca5a5'; }
+        else if (!wasSelected && isCorrect){ icon='☑'; bg='#fef3c7'; border='#d97706'; color='#92400e'; }
+        return `<div style="padding:10px 12px;border:1.5px solid ${border};border-radius:8px;
+          background:${bg};color:${color};display:flex;gap:10px;align-items:flex-start;margin-bottom:6px;">
+          <span style="font-size:1.1rem;flex-shrink:0;">${icon}</span>
+          <span style="font-size:0.93rem;line-height:1.5;">${esc(ch.text)}</span>
+        </div>`;
+      }).join('');
+      answerHtml = `<div class="card" style="padding:14px;margin-bottom:14px;">
+        <div style="font-size:0.78rem;color:var(--muted);margin-bottom:10px;">
+          ${qType==='single'?'◉ Single choice':'☑ Meerkeuze'}
+          ${isAutoScored ? ' · <span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:6px;font-size:0.75rem;font-weight:700;">🤖 Auto-gescoord</span>' : ''}
+        </div>
+        ${choiceRows}
+        <div style="margin-top:8px;font-size:0.78rem;color:var(--muted);">
+          ✅ Correct gekozen &nbsp; ❌ Fout gekozen &nbsp; ☑ Correct maar niet gekozen
+        </div>
+      </div>`;
+    } catch { answerHtml = '<p class="muted">Keuzes konden niet worden geladen.</p>'; }
+  }
+
+  const codeEditorHtml = qType === 'code' ? `
+    <div class="editor-shell card" style="margin-bottom:12px;">` : '';
 
   document.getElementById('q-detail').innerHTML = `
     ${simHtml}
@@ -241,10 +285,12 @@ async function selectQuestion(idx) {
       <span class="muted" style="font-size:0.82rem;">
         ${esc(q.subject || '')} · Max ${q.points} punten
         ${ans ? ` · Ingediend ${new Date(ans.submitted_at||ans.saved_at).toLocaleTimeString('nl-BE',{hour:'2-digit',minute:'2-digit'})}
-          ${ans.auto_submitted ? '(timer)' : '(handmatig)'} · ${ans.run_count} run${ans.run_count!==1?'s':''}` : ' · Niet beantwoord'}
+          ${ans.auto_submitted ? '(timer)' : '(handmatig)'}
+          ${qType==='code'?` · ${ans.run_count} run${ans.run_count!==1?'s':''}`:''}` : ' · Niet beantwoord'}
       </span>
     </div>
-    <div class="editor-shell card" style="margin-bottom:12px;">
+    ${answerHtml}
+    ${qType !== 'code' ? '' : `<div class="editor-shell card" style="margin-bottom:12px;">
       <div class="editor-toolbar">
         <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
         <div class="toolbar-spacer"></div>
@@ -265,7 +311,7 @@ async function selectQuestion(idx) {
         style="min-height:50px;max-height:180px;overflow-y:auto;white-space:pre-wrap;
           font-family:Consolas,monospace;font-size:0.88rem;"></div>
     </div>
-    ${history.length > 0 ? `
+    ${history.length > 0 && qType === 'code' ? `
     <details style="margin-bottom:12px;">
       <summary style="cursor:pointer;font-size:0.85rem;color:var(--muted);">
         📜 Run history (${history.length} runs)
@@ -299,14 +345,14 @@ async function selectQuestion(idx) {
       ${idx < _questions.length - 1 ? `<button class="btn btn-muted small" onclick="saveAndNext('${ans?.id||''}',${idx})">💾 Opslaan & volgende →</button>` : ''}
     </div>`;
 
-  // Laad code in editor
+  // Laad code in editor (enkel bij code-vragen)
   _originalCode = code;
-  if (window.editorStore?.quiz) {
+  if (qType === 'code' && window.editorStore?.quiz) {
     editorStore.quiz.setValue(code || '// Geen antwoord ingediend');
     editorStore.quiz.updateOptions({ readOnly: true });
   }
-  // Run output leegmaken
-  document.getElementById('review-output').textContent = '';
+  const out = document.getElementById('review-output');
+  if (out) out.textContent = '';
 }
 
 function toggleEditMode() {
@@ -445,5 +491,6 @@ function exportAll() {
 
 init();
 </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 </body>
 </html>

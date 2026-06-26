@@ -1,11 +1,5 @@
-# PyCodeFlow — docker-compose.yml
-# Basis configuratie voor productie op Synology NAS
-# Gebruik: docker compose up -d
-# Of via: bash pycodeflow.sh
-
 services:
 
-  # ── PostgreSQL database ──────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: pycodeflow-postgres-1
@@ -26,7 +20,6 @@ services:
       retries: 5
       start_period: 30s
 
-  # ── Web server (Node.js) ─────────────────────────────────────────────────
   web:
     build: ./web
     container_name: pycodeflow-web-1
@@ -47,21 +40,21 @@ services:
       - runner_internal
     volumes:
       - ./logs:/app/logs
-    # Geen data/ volume meer nodig — SQLite is vervangen door PostgreSQL
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
-  # ── Python runner ────────────────────────────────────────────────────────
   runner:
     build: ./runner
     container_name: pycodeflow-runner-1
     restart: unless-stopped
     env_file:
       - .env
-
-    # Geen externe netwerktoegang voor de runner
     networks:
       - runner_internal
-
-    # Beveiliging
     read_only: true
     tmpfs:
       - /tmp:size=64m,noexec,nosuid,nodev
@@ -73,6 +66,16 @@ services:
     pids_limit: 128
     mem_limit: 256m
     cpus: 1.0
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: pycodeflow-cloudflared-1
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - web
+    networks:
+      - pycodeflow
 
 networks:
   pycodeflow:

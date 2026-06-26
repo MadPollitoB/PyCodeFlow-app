@@ -1,20 +1,37 @@
 /**
  * PyCodeFlow — PostgreSQL database module
- * Sprint 12a: migratie van SQLite (better-sqlite3) naar PostgreSQL (pg)
+ * Sprint 12a: migratie van SQLite naar PostgreSQL (pg)
+ * Sprint 17: DATABASE_URL automatisch opgebouwd uit POSTGRES_PASSWORD
  *
- * Gebruik DATABASE_URL in .env:
- *   DATABASE_URL=postgresql://pycodeflow:wachtwoord@postgres:5432/pycodeflow
+ * In .env is enkel dit nodig:
+ *   POSTGRES_PASSWORD=jouwwachtwoord
  *
- * Fallback voor lokale ontwikkeling zonder PostgreSQL: SQLite (zie comment onderaan)
+ * DATABASE_URL wordt automatisch opgebouwd als die niet ingesteld is.
+ * Handig: wachtwoord hoeft maar op één plek ingesteld te worden.
  */
 'use strict';
 
 const { Pool } = require('pg');
 const crypto   = require('crypto');
 
+// ── Connection string ──────────────────────────────────────────────────────────
+// Bouw DATABASE_URL automatisch op uit POSTGRES_PASSWORD als die niet ingesteld is.
+// Dit voorkomt dat het wachtwoord op twee plaatsen in .env moet staan.
+const connectionString = process.env.DATABASE_URL ||
+  (() => {
+    const pw = process.env.POSTGRES_PASSWORD;
+    if (!pw) {
+      console.error('[db] FATALE FOUT: POSTGRES_PASSWORD of DATABASE_URL moet ingesteld zijn in .env');
+      process.exit(1);
+    }
+    const url = `postgresql://pycodeflow:${encodeURIComponent(pw)}@postgres:5432/pycodeflow`;
+    console.log('[db] DATABASE_URL automatisch opgebouwd uit POSTGRES_PASSWORD');
+    return url;
+  })();
+
 // ── Connection pool ────────────────────────────────────────────────────────────
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString,
   max: 10,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
@@ -117,19 +134,34 @@ async function initSchema() {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_students_name_class
       ON students(name, class_id) WHERE class_id IS NOT NULL;
 
+    -- Sprint 19g: sessie-config persistent
+    DO $$ BEGIN
+      ALTER TABLE sessions ADD COLUMN config_json TEXT NOT NULL DEFAULT '{}';
+    EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
     -- ══ Sprint 16: Toetsmodule ════════════════════════════════════════════════
 
     CREATE TABLE IF NOT EXISTS quiz_bank (
-      id           TEXT PRIMARY KEY,
-      text         TEXT NOT NULL,
-      subject      TEXT NOT NULL DEFAULT '',
-      difficulty   TEXT NOT NULL DEFAULT 'gemiddeld',
-      max_points   INTEGER NOT NULL DEFAULT 4,
+      id              TEXT PRIMARY KEY,
+      text            TEXT NOT NULL,
+      subject         TEXT NOT NULL DEFAULT '',
+      difficulty      TEXT NOT NULL DEFAULT 'gemiddeld',
+      max_points      INTEGER NOT NULL DEFAULT 4,
+      question_type   TEXT NOT NULL DEFAULT 'code',
+      -- 'code' = Python editor, 'open' = vrije tekst,
+      -- 'multiple' = meerdere juiste, 'single' = één juiste
+      choices_json    TEXT NOT NULL DEFAULT '[]',
+      -- JSON: [{"id":"uuid","text":"...","correct":true/false}]
       created_by   TEXT REFERENCES teachers(id) ON DELETE SET NULL,
       created_at   BIGINT NOT NULL,
       updated_at   BIGINT NOT NULL,
       archived     BOOLEAN NOT NULL DEFAULT false
     );
+    -- Migratie: kolommen toevoegen als ze nog niet bestaan
+    DO $$ BEGIN
+      BEGIN ALTER TABLE quiz_bank ADD COLUMN question_type TEXT NOT NULL DEFAULT 'code'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE quiz_bank ADD COLUMN choices_json TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+    END $$;
     CREATE INDEX IF NOT EXISTS idx_quiz_bank_subject ON quiz_bank(subject);
     CREATE INDEX IF NOT EXISTS idx_quiz_bank_archived ON quiz_bank(archived);
 
@@ -140,8 +172,14 @@ async function initSchema() {
       order_index      INTEGER NOT NULL,
       text_snapshot    TEXT NOT NULL,
       subject          TEXT NOT NULL DEFAULT '',
-      points           INTEGER NOT NULL DEFAULT 4
+      points           INTEGER NOT NULL DEFAULT 4,
+      question_type    TEXT NOT NULL DEFAULT 'code',
+      choices_json     TEXT NOT NULL DEFAULT '[]'
     );
+    DO $$ BEGIN
+      BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN question_type TEXT NOT NULL DEFAULT 'code'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN choices_json TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+    END $$;
     CREATE INDEX IF NOT EXISTS idx_quiz_snapshots_session
       ON quiz_question_snapshots(session_code);
 
@@ -149,18 +187,21 @@ async function initSchema() {
       session_code           TEXT PRIMARY KEY
                              REFERENCES sessions(code) ON DELETE CASCADE,
       randomize              BOOLEAN NOT NULL DEFAULT true,
-      timer_seconds          INTEGER,                          -- NULL = geen timer (taak zonder tijdslimiet)
-      no_timer               BOOLEAN NOT NULL DEFAULT false,   -- Sprint 17: expliciet geen timer
+      timer_seconds          INTEGER,
+      no_timer               BOOLEAN NOT NULL DEFAULT false,
       individual_timer       BOOLEAN NOT NULL DEFAULT true,
       min_runs_per_q         INTEGER NOT NULL DEFAULT 0,
       hide_question_on_screen BOOLEAN NOT NULL DEFAULT false,
       results_released       BOOLEAN NOT NULL DEFAULT false,
       warning_shown          BOOLEAN NOT NULL DEFAULT false,
       is_teacher_preview     BOOLEAN NOT NULL DEFAULT false,
-      school_year            TEXT NOT NULL DEFAULT '2025-2026', -- Sprint 17b
-      target_class           TEXT NOT NULL DEFAULT '',          -- Sprint 17b
-      archived               BOOLEAN NOT NULL DEFAULT false,    -- Sprint 17b
-      archived_at            BIGINT,                            -- Sprint 17b
+      school_year            TEXT NOT NULL DEFAULT '2025-2026',
+      target_class           TEXT NOT NULL DEFAULT '',
+      archived               BOOLEAN NOT NULL DEFAULT false,
+      archived_at            BIGINT,
+      access_from            BIGINT,   -- Sprint 19j: tijdsvenster start (NULL = direct)
+      access_until           BIGINT,   -- Sprint 19j: tijdsvenster einde (NULL = geen limiet)
+      auto_submit_late       BOOLEAN NOT NULL DEFAULT true,  -- Sprint 19j: auto-submit bij deadline
       created_at             BIGINT NOT NULL
     );
     -- Migratie: voeg kolommen toe als ze nog niet bestaan (bij update)
@@ -171,6 +212,9 @@ async function initSchema() {
       BEGIN ALTER TABLE quiz_meta ADD COLUMN target_class TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE quiz_meta ADD COLUMN archived BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE quiz_meta ADD COLUMN archived_at BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE quiz_meta ADD COLUMN access_from BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE quiz_meta ADD COLUMN access_until BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE quiz_meta ADD COLUMN auto_submit_late BOOLEAN NOT NULL DEFAULT true; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
 
     CREATE TABLE IF NOT EXISTS quiz_answers (
@@ -191,8 +235,15 @@ async function initSchema() {
       auto_submitted   BOOLEAN NOT NULL DEFAULT false,
       score            INTEGER,
       teacher_comment  TEXT NOT NULL DEFAULT '',
+      selected_choices TEXT NOT NULL DEFAULT '[]',
+      -- JSON array van gekozen choice IDs (bij multiple/single)
+      auto_scored      BOOLEAN NOT NULL DEFAULT false,
       UNIQUE(session_code, student_id, question_id)
     );
+    DO $$ BEGIN
+      BEGIN ALTER TABLE quiz_answers ADD COLUMN selected_choices TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE quiz_answers ADD COLUMN auto_scored BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
+    END $$;
     CREATE INDEX IF NOT EXISTS idx_quiz_answers_session
       ON quiz_answers(session_code);
     CREATE INDEX IF NOT EXISTS idx_quiz_answers_student
@@ -314,8 +365,8 @@ module.exports = {
     await query(`
       INSERT INTO sessions
         (code, id, name, mode, editor_assist, created_at, closed, blocked, deleted,
-         shared_code, announcement, workspace_mode, students_json)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         shared_code, announcement, workspace_mode, students_json, config_json)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
       ON CONFLICT (code) DO UPDATE SET
         name           = EXCLUDED.name,
         closed         = EXCLUDED.closed,
@@ -324,7 +375,8 @@ module.exports = {
         shared_code    = EXCLUDED.shared_code,
         announcement   = EXCLUDED.announcement,
         workspace_mode = EXCLUDED.workspace_mode,
-        students_json  = EXCLUDED.students_json
+        students_json  = EXCLUDED.students_json,
+        config_json    = EXCLUDED.config_json
     `, [
       session.code,
       session.id,
@@ -339,6 +391,7 @@ module.exports = {
       session.announcement  || '',
       session.classWorkspaceMode || 'shared',
       JSON.stringify(students),
+      JSON.stringify(session.config || {}),
     ]);
   },
 
@@ -358,6 +411,7 @@ module.exports = {
       deleted:            row.deleted  === 1,
       sharedCode:         row.shared_code,
       announcement:       row.announcement,
+      config:             (() => { try { return JSON.parse(row.config_json || '{}'); } catch { return {}; } })(),
       classWorkspaceMode: row.workspace_mode,
       students:           JSON.parse(row.students_json || '{}'),
       teacherSocketId: null, selectedStudentId: null,
@@ -644,22 +698,27 @@ module.exports = {
     return r.rows.map(r => r.subject);
   },
 
-  async createQuizQuestion({ text, subject = '', difficulty = 'gemiddeld', maxPoints = 4, createdBy = null }) {
+  async createQuizQuestion({ text, subject = '', difficulty = 'gemiddeld', maxPoints = 4,
+                               questionType = 'code', choicesJson = '[]', createdBy = null }) {
     const id = crypto.randomUUID();
     const now = Date.now();
     await query(
-      `INSERT INTO quiz_bank (id, text, subject, difficulty, max_points, created_by, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [id, text.trim(), subject.trim(), difficulty, maxPoints, createdBy, now, now]
+      `INSERT INTO quiz_bank (id, text, subject, difficulty, max_points,
+         question_type, choices_json, created_by, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [id, text.trim(), subject.trim(), difficulty, maxPoints,
+       questionType, choicesJson, createdBy, now, now]
     );
     return id;
   },
 
-  async updateQuizQuestion(id, { text, subject, difficulty, maxPoints }) {
+  async updateQuizQuestion(id, { text, subject, difficulty, maxPoints, questionType, choicesJson }) {
     const r = await query(
-      `UPDATE quiz_bank SET text=$1, subject=$2, difficulty=$3, max_points=$4, updated_at=$5
-       WHERE id=$6`,
-      [text.trim(), subject.trim(), difficulty, maxPoints, Date.now(), id]
+      `UPDATE quiz_bank SET text=$1, subject=$2, difficulty=$3, max_points=$4,
+         question_type=$5, choices_json=$6, updated_at=$7
+       WHERE id=$8`,
+      [text.trim(), subject.trim(), difficulty, maxPoints,
+       questionType || 'code', choicesJson || '[]', Date.now(), id]
     );
     return r.rowCount > 0;
   },
@@ -704,7 +763,7 @@ module.exports = {
 
   async createQuizSession({ sessionCode, questions, randomize, timerSeconds,
                              noTimer, minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
-                             schoolYear, targetClass }) {
+                             schoolYear, targetClass, accessFrom, accessUntil, autoSubmitLate }) {
     const now = Date.now();
     // noTimer = true → geen tijdslimiet (taak)
     // timerSeconds = null + noTimer = false → gebruik standaard 2700s
@@ -718,19 +777,23 @@ module.exports = {
     await query(
       `INSERT INTO quiz_meta (session_code, randomize, timer_seconds, no_timer, individual_timer,
         min_runs_per_q, hide_question_on_screen, results_released, is_teacher_preview,
-        school_year, target_class, created_at)
-       VALUES ($1,$2,$3,$4,true,$5,$6,false,$7,$8,$9,$10)`,
+        school_year, target_class, access_from, access_until, auto_submit_late, created_at)
+       VALUES ($1,$2,$3,$4,true,$5,$6,false,$7,$8,$9,$10,$11,$12,$13)`,
       [sessionCode, randomize, effectiveTimer, noTimer || false,
        minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
-       schoolYear || currentYear, targetClass || '', now]
+       schoolYear || currentYear, targetClass || '',
+       accessFrom || null, accessUntil || null, autoSubmitLate !== false,
+       now]
     );
     // Schrijf vraag-snapshots
     for (const q of questions) {
       await query(
         `INSERT INTO quiz_question_snapshots
-           (id, session_code, bank_question_id, order_index, text_snapshot, subject, points)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [crypto.randomUUID(), sessionCode, q.bankId, q.orderIndex, q.text, q.subject, q.points]
+           (id, session_code, bank_question_id, order_index, text_snapshot, subject, points,
+            question_type, choices_json)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [crypto.randomUUID(), sessionCode, q.bankId, q.orderIndex, q.text, q.subject, q.points,
+         q.questionType || 'code', q.choicesJson || '[]']
       );
     }
   },
@@ -756,22 +819,24 @@ module.exports = {
 
   async saveQuizAnswer({ sessionCode, studentId, studentName, studentClass,
                           questionId, personalOrder, code, runCount,
-                          firstVisitAt, firstRunAt }) {
+                          firstVisitAt, firstRunAt, selectedChoices = '[]' }) {
     const now = Date.now();
     await query(
       `INSERT INTO quiz_answers
          (id, session_code, student_id, student_name, student_class,
           question_id, personal_order, code, run_count,
-          first_visit_at, first_run_at, saved_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          first_visit_at, first_run_at, saved_at, selected_choices)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        ON CONFLICT (session_code, student_id, question_id) DO UPDATE SET
-         code          = EXCLUDED.code,
-         run_count     = EXCLUDED.run_count,
-         first_run_at  = COALESCE(quiz_answers.first_run_at, EXCLUDED.first_run_at),
-         first_visit_at= COALESCE(quiz_answers.first_visit_at, EXCLUDED.first_visit_at),
-         saved_at      = EXCLUDED.saved_at`,
+         code             = EXCLUDED.code,
+         run_count        = EXCLUDED.run_count,
+         selected_choices = EXCLUDED.selected_choices,
+         first_run_at     = COALESCE(quiz_answers.first_run_at, EXCLUDED.first_run_at),
+         first_visit_at   = COALESCE(quiz_answers.first_visit_at, EXCLUDED.first_visit_at),
+         saved_at         = EXCLUDED.saved_at`,
       [crypto.randomUUID(), sessionCode, studentId, studentName, studentClass,
-       questionId, personalOrder, code, runCount, firstVisitAt, firstRunAt, now]
+       questionId, personalOrder, code, runCount, firstVisitAt, firstRunAt, now,
+       selectedChoices]
     );
   },
 

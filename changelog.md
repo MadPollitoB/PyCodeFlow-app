@@ -1,3 +1,113 @@
+## v2026.2.16.0 — Sprint 19: Betrouwbaarheid & uitbreidingen
+
+### 19a — Quiz backup 15s + vrije editor localStorage + versie-endpoint
+- Quiz tussentijdse backup: antwoorden worden nu bij **elke navigatie** naar DB geschreven
+- Vrije editor (`free-editor.html`): code bewaard in `localStorage`, hersteld bij pagina-verversing
+- `/api/version` endpoint uitgebreid met `uptime` en `node` versie
+
+### 19b — Schoollogo + schoolinfo
+- Nieuw endpoint `/api/school-info` retourneert schoolnaam en logo URL
+- Nieuw endpoint `/school-logo` serveert het logo bestand
+- PDF export gebruikt `SCHOOL_NAME` uit `.env` als header
+
+### 19d — Quiz reminder voor niet-gestarte leerlingen
+- Leerkracht kan leerling een herinnering sturen via `quiz_send_reminder` socket event
+- Leerling ziet opvallende rode banner: "⚠️ Start de toets!"
+
+### 19e — Servercrash notificatie
+- `health-monitor.sh`: controleert elke 5 minuten of de server bereikbaar is
+- Automatische herstart poging bij crash
+- Webhook notificatie bij falen (optioneel via `WEBHOOK_URL` in `.env`)
+- Installeerbaar via `pycodeflow.sh` → optie 15
+- Docker-compose.yml: healthcheck toegevoegd aan web container
+
+### 19f — Markdown rendering in vraagstellingen
+- `marked.js` (v9.1.6 via CDN) geladen in alle quiz-pagina's
+- Vraagstellingen worden gerenderd als Markdown bij leerling
+- Markdown preview in vragenbank (`quiz-bank.html`) via 👁 knop
+- Ondersteunt: **vet**, `code`, lijsten, codeblokken
+
+### 19g — Sessie-config persistent na herstart
+- `config_json` kolom toegevoegd aan `sessions` tabel
+- `persistSession()` slaat editor-configuratie op
+- `loadActiveSessions()` herstelt configuratie bij serverstart
+- Schakelknoppen (auto-indent, autocomplete, ...) blijven bewaard na herstart
+
+### 19i — Automatische PostgreSQL backup
+- `scripts/backup-db.sh`: dagelijkse backup om 02:00 via cron
+- 7 dagen bewaren, oudere backups automatisch verwijderd
+- Logging van succes/falen in `backups/backup.log`
+- Webhook notificatie bij mislukte backup
+- `pycodeflow.sh` → optie 16: backup beheren (nu backuppen / cronjob / restore)
+
+### 19j — Tijdsvenster voor toetsen/taken
+- `quiz_meta`: kolommen `access_from`, `access_until`, `auto_submit_late` toegevoegd
+- Toets aanmaken: datumvelden voor "beschikbaar vanaf" en "deadline"
+- Server checkt tijdsvenster bij joinen: te vroeg → foutmelding met openingstijd
+- Server checkt tijdsvenster bij joinen: te laat → "TAAK NIET TIJDIG INGELEVERD" scherm
+- Deadline interval (elke minuut): auto-submit bij verlopen tijdsvenster
+- Leerlingen die bezig zijn bij deadline worden automatisch ingediend
+- `docker-compose.yml`: healthcheck op web container
+
+### Database
+`sessions.config_json` · `quiz_meta.access_from` · `quiz_meta.access_until` ·
+`quiz_meta.auto_submit_late`
+Alle via `ALTER TABLE ... IF NOT EXISTS` bij serverstart.
+
+### pycodeflow.sh
+Nieuw menu-item 15: Health monitor instellen
+Nieuw menu-item 16: Database backup beheren
+
+### Bestanden
+`server.js` · `database.js` · `app.js` · `docker-compose.yml` ·
+`pycodeflow.sh` · `health-monitor.sh` · `backup-db.sh` ·
+`quiz-teacher.html` · `quiz-student.html` · `quiz-bank.html` ·
+`quiz-review.html` · `quiz-teacher.html`
+
+---
+
+## v2026.2.15.0 — Sprint 18: Vraagtypen + navigatiefix
+
+### Sprint 18a — Vraagtypen: open + meerkeuze + single choice
+
+**Vragenbank** (`quiz-bank.html`): vier vraagtypen selecteerbaar bij aanmaken:
+- 🐍 Python code (bestaand — Monaco editor + run)
+- ✏️ Open vraag (vrije tekst, max 2000 tekens)
+- ◉ Single choice (radio — één juist antwoord)
+- ☑ Meerkeuze (checkbox — meerdere juiste antwoorden)
+
+Antwoordopties beheer: opties toevoegen/verwijderen, juiste aanduiden.
+Vraagtype-badge zichtbaar op elke vraagkaart.
+
+**Leerling quizscherm** (`quiz-student.html`): scherm past zich automatisch aan per vraagtype.
+Open vraag: textarea met tekenteller. Meerkeuze/single: klikbare opties met visuele feedback.
+
+**Verbetermodule** (`quiz-review.html`): per vraagtype andere weergave.
+Meerkeuze/single: kleurgecodeerde weergave (✅ correct gekozen, ❌ fout gekozen, ☑ gemist).
+
+### Sprint 18b — Automatische scoring meerkeuze/single
+
+Bij indiening: server berekent automatisch score voor meerkeuze en single choice.
+- Single: volledig punt bij juist antwoord, 0 bij fout
+- Meerkeuze: pro-rata (fout antwoord geselecteerd → 0; gedeeltelijk correct → proportioneel)
+- Badge 🤖 Auto-gescoord zichtbaar in verbetermodule
+- Leerkracht kan score altijd overschrijven
+
+### Navigatiefix
+
+Knop "👤 Beheer" (→ admin.html) toegevoegd aan navigatiebalk in teacher-sessions.html.
+
+### Database
+`quiz_bank` + `quiz_question_snapshots`: `question_type`, `choices_json` kolommen.
+`quiz_answers`: `selected_choices`, `auto_scored` kolommen.
+Automatische `ALTER TABLE IF NOT EXISTS` bij serverstart.
+
+### Bestanden
+`server.js` · `database.js` · `quiz-bank.html` · `quiz-student.html` ·
+`quiz-review.html` · `teacher-sessions.html`
+
+---
+
 ## v2026.2.14.0 — Sprint 17: Log rotatie + Toets-archief
 
 ### Sprint 17a — Log rotatie

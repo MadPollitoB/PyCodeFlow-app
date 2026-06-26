@@ -1390,6 +1390,20 @@
 
   // ── Vrije editor pagina ────────────────────────────────────────────────────
   if (page === 'free-editor.html') {
+    // Sprint 19a: code bewaren in localStorage
+    (async () => {
+      await ensureEditor('free', '', true, false, {});
+      // Herstel opgeslagen code
+      const savedCode = localStorage.getItem('pycodeflow_free_code');
+      if (savedCode && editorStore['free']) {
+        editorStore['free'].setValue(savedCode);
+      }
+      // Elke 5s opslaan
+      setInterval(() => {
+        const code = editorStore['free']?.getValue();
+        if (code !== undefined) localStorage.setItem('pycodeflow_free_code', code);
+      }, 5000);
+    })();
     const name = getLS('freeStudentName', '');
     const className = getLS('freeStudentClass', '');
 

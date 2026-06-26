@@ -103,6 +103,32 @@
           </select>
         </div>
       </div>
+      <!-- Sprint 19j: tijdsvenster -->
+      <div style="margin-top:14px;padding:14px;background:var(--surface-soft);border-radius:10px;border:1.5px solid var(--border);">
+        <label style="font-size:0.85rem;font-weight:700;display:block;margin-bottom:10px;">
+          ⏰ Tijdsvenster (optioneel)
+          <span style="font-size:0.78rem;font-weight:400;color:var(--muted);">— voor thuistaken of geplande toetsen</span>
+        </label>
+        <div class="form-row-2">
+          <div>
+            <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Beschikbaar vanaf</label>
+            <input type="datetime-local" id="quiz-access-from"
+              style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;"/>
+          </div>
+          <div>
+            <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Deadline (tot)</label>
+            <input type="datetime-local" id="quiz-access-until"
+              style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;"/>
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;font-size:0.85rem;">
+          <input type="checkbox" id="quiz-auto-submit" checked/>
+          Bij deadline automatisch indienen (ook voor leerlingen die bezig zijn)
+        </label>
+        <p style="font-size:0.78rem;color:var(--muted);margin:6px 0 0;">
+          Leeg laten = geen tijdsbeperking. Leerlingen kunnen altijd joinen zolang de sessie open is.
+        </p>
+      </div>
       <div style="margin-top:16px;display:flex;flex-direction:column;gap:10px;">
         <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
           <input type="checkbox" id="quiz-hide-question"/>
@@ -284,6 +310,16 @@ async function createQuiz() {
   const randomize = document.querySelector('[name=quiz-order]:checked').value === 'random';
   const schoolYear = document.getElementById('quiz-school-year').value.trim();
   const targetClass = document.getElementById('quiz-target-class').value;
+  // Sprint 19j: tijdsvenster
+  const accessFromEl = document.getElementById('quiz-access-from');
+  const accessUntilEl = document.getElementById('quiz-access-until');
+  const accessFrom = accessFromEl?.value ? new Date(accessFromEl.value).getTime() : null;
+  const accessUntil = accessUntilEl?.value ? new Date(accessUntilEl.value).getTime() : null;
+  const autoSubmitLate = document.getElementById('quiz-auto-submit')?.checked !== false;
+  if (accessFrom && accessUntil && accessFrom >= accessUntil) {
+    alert('Deadline moet na de startdatum liggen.');
+    return;
+  }
   const hideQuestionOnScreen = document.getElementById('quiz-hide-question').checked;
   const minRunsPerQ = document.getElementById('quiz-min-runs').checked ? 1 : 0;
   const isTeacherPreview = document.getElementById('quiz-is-preview').checked;
@@ -294,7 +330,8 @@ async function createQuiz() {
   const r = await fetch('/api/quiz', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ name, questions, randomize, timerSeconds, noTimer, minRunsPerQ,
-                           hideQuestionOnScreen, isTeacherPreview, schoolYear, targetClass }),
+                           hideQuestionOnScreen, isTeacherPreview, schoolYear, targetClass,
+                           accessFrom, accessUntil, autoSubmitLate }),
   });
   const data = await r.json();
   if (data.ok) {
@@ -341,5 +378,6 @@ function toggleTimer(val) {
   } catch {}
 })();
 </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 </body>
 </html>
