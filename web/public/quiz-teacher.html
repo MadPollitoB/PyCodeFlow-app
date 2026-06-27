@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="nl" data-theme="light">
+<html lang="nl">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>PyCodeFlow — Toets aanmaken</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.14.0"/>
+  <title>PyCodeFlow — Nieuwe toets aanmaken</title>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.23.0"/>
   <style>
     .wizard-steps { display:flex; gap:0; margin-bottom:28px; }
     .wizard-step { flex:1; padding:12px; text-align:center; background:var(--surface-soft);
@@ -29,6 +29,7 @@
     .preview-badge { font-size:0.72rem; background:#fef3c7; color:#92400e;
       padding:2px 8px; border-radius:6px; font-weight:700; }
   </style>
+  <link rel="icon" href="/assets/favicon.png" type="image/png">
 </head>
 <body>
 <div class="topbar">
@@ -36,14 +37,24 @@
     <div class="logo-group">
       <img src="/assets/logo.svg" class="logo-small" alt=""/>
       <span>PyCodeFlow</span>
+      <span class="badge" style="margin-left:8px;">Nieuwe toets</span>
     </div>
     <div class="top-actions">
       <a href="/teacher-sessions.html" class="btn btn-muted small">← Sessies</a>
       <a href="/quiz-bank.html" class="btn btn-muted small">📋 Vragenbank</a>
-      <button class="dark-toggle" id="dark-mode-toggle">🌙</button>
+      
     </div>
   </div>
 </div>
+
+<div class="subnav"><div class="subnav-inner">
+  <a href="/quiz-bank.html">📋 Vragenbank</a>
+  <a href="/quiz-teacher.html" class="active">📝 Nieuwe toets</a>
+  <a href="/quiz-archive.html">📦 Archief</a>
+  <div class="subnav-sep"></div>
+  <a href="/admin.html">👤 Beheer</a>
+  <a href="/monitoring.html">⚙️ Systeem</a>
+</div></div>
 
 <div class="screen" style="max-width:850px;margin:0 auto;padding:28px 20px;">
   <h1 style="margin:0 0 6px;">Nieuwe toets aanmaken</h1>
@@ -182,14 +193,15 @@
   <!-- Stap 3: Bevestigen -->
   <div id="step-3" style="display:none;">
     <div class="card" style="padding:24px;" id="confirm-panel"></div>
-    <div style="margin-top:16px;display:flex;gap:10px;">
-      <button class="btn btn-muted small" onclick="goStep(2)">← Terug</button>
-      <button class="btn btn-primary" onclick="createQuiz()">✅ Toets aanmaken</button>
+    <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
+      <button class="btn btn-muted small" onclick="goStep(2)" id="back-btn">← Terug</button>
+      <button class="btn btn-primary" onclick="createQuiz()" id="create-btn">✅ Toets aanmaken</button>
+      <span id="create-status" style="font-size:0.85rem;color:var(--muted);display:none;">⏳ Bezig met aanmaken…</span>
     </div>
   </div>
 </div>
 
-<script src="/app.js?v=v2026.2.14.0"></script>
+<script src="/app.js?v=v2026.2.23.0"></script>
 <script>
 let _bank = [];
 let _selected = {}; // { id: { ...question, points: override } }
@@ -280,72 +292,104 @@ function goStep(n) {
 function renderConfirm() {
   const ids = Object.keys(_selected);
   const total = ids.reduce((s, id) => s + (_selected[id].points || 0), 0);
+  const timerType = document.querySelector('[name=quiz-timer-type]:checked')?.value;
+  const noTimer = timerType === 'notimer';
   const mins = parseInt(document.getElementById('quiz-timer-min').value) || 45;
-  const random = document.querySelector('[name=quiz-order]:checked').value === 'random';
+  const random = document.querySelector('[name=quiz-order]:checked')?.value === 'random';
   const isPreview = document.getElementById('quiz-is-preview').checked;
+  const schoolYear = document.getElementById('quiz-school-year').value.trim();
+  const targetClassEl = document.getElementById('quiz-target-class');
+  const targetClassName = targetClassEl.options[targetClassEl.selectedIndex]?.text || '—';
   document.getElementById('confirm-panel').innerHTML = `
     <h3 style="margin:0 0 16px;">Bevestig toets</h3>
     ${isPreview ? '<div style="background:#fef3c7;color:#92400e;padding:10px;border-radius:8px;margin-bottom:14px;font-weight:700;">⚠️ PREVIEW MODE — antwoorden worden niet opgeslagen</div>' : ''}
     <table style="width:100%;font-size:0.9rem;border-collapse:collapse;">
-      <tr><td style="padding:6px 0;color:var(--muted);">Naam</td><td><strong>${esc(document.getElementById('quiz-name').value)}</strong></td></tr>
+      <tr><td style="padding:6px 0;color:var(--muted);width:140px;">Naam</td><td><strong>${esc(document.getElementById('quiz-name').value)}</strong></td></tr>
       <tr><td style="padding:6px 0;color:var(--muted);">Timer</td><td><strong>${noTimer ? '∞ Geen tijdslimiet (taak)' : mins + ' minuten'}</strong></td></tr>
       <tr><td style="padding:6px 0;color:var(--muted);">Volgorde</td><td><strong>${random ? '🔀 Random per leerling' : '📋 Vast voor iedereen'}</strong></td></tr>
       <tr><td style="padding:6px 0;color:var(--muted);">Vragen</td><td><strong>${ids.length} vragen · ${total} punten</strong></td></tr>
+      ${schoolYear ? `<tr><td style="padding:6px 0;color:var(--muted);">Schooljaar</td><td><strong>${esc(schoolYear)}</strong></td></tr>` : ''}
+      <tr><td style="padding:6px 0;color:var(--muted);">Klas</td><td><strong>${esc(targetClassName)}</strong></td></tr>
     </table>
-    <div style="margin-top:14px;">
+    <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">
       ${ids.map((id, i) => {
         const q = _selected[id];
-        return `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:0.88rem;">
-          <strong>${i+1}.</strong> ${esc(q.text.slice(0,80))}... <span class="muted">(${q.points}pt)</span>
+        return `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.88rem;">
+          <strong>${i+1}.</strong> ${esc(q.text.slice(0,90))}${q.text.length > 90 ? '…' : ''} <span class="muted">(${q.points}pt)</span>
         </div>`;
       }).join('')}
     </div>`;
 }
 
 async function createQuiz() {
+  const createBtn  = document.getElementById('create-btn');
+  const backBtn    = document.getElementById('back-btn');
+  const statusEl   = document.getElementById('create-status');
+
+  // 22h: guard: al bezig?
+  if (createBtn.disabled) return;
+
   const name = document.getElementById('quiz-name').value.trim();
-  const timerType = document.querySelector('[name=quiz-timer-type]:checked').value;
-  const noTimer = timerType === 'notimer';
+  if (!name) { alert('Voer een naam in voor de toets.'); return; }
+  if (!Object.keys(_selected).length) { alert('Selecteer minstens 1 vraag.'); return; }
+
+  const timerType    = document.querySelector('[name=quiz-timer-type]:checked')?.value;
+  const noTimer      = timerType === 'notimer';
   const timerSeconds = noTimer ? null : (parseInt(document.getElementById('quiz-timer-min').value) || 45) * 60;
-  const randomize = document.querySelector('[name=quiz-order]:checked').value === 'random';
-  const schoolYear = document.getElementById('quiz-school-year').value.trim();
-  const targetClass = document.getElementById('quiz-target-class').value;
-  // Sprint 19j: tijdsvenster
-  const accessFromEl = document.getElementById('quiz-access-from');
+  const randomize    = document.querySelector('[name=quiz-order]:checked')?.value === 'random';
+  const schoolYear   = document.getElementById('quiz-school-year').value.trim();
+  const targetClass  = document.getElementById('quiz-target-class').value;
+  const accessFromEl  = document.getElementById('quiz-access-from');
   const accessUntilEl = document.getElementById('quiz-access-until');
-  const accessFrom = accessFromEl?.value ? new Date(accessFromEl.value).getTime() : null;
-  const accessUntil = accessUntilEl?.value ? new Date(accessUntilEl.value).getTime() : null;
-  const autoSubmitLate = document.getElementById('quiz-auto-submit')?.checked !== false;
+  const accessFrom    = accessFromEl?.value  ? new Date(accessFromEl.value).getTime()  : null;
+  const accessUntil   = accessUntilEl?.value ? new Date(accessUntilEl.value).getTime() : null;
+  const autoSubmitLate        = document.getElementById('quiz-auto-submit')?.checked !== false;
+  const hideQuestionOnScreen  = document.getElementById('quiz-hide-question').checked;
+  const minRunsPerQ           = document.getElementById('quiz-min-runs').checked ? 1 : 0;
+  const isTeacherPreview      = document.getElementById('quiz-is-preview').checked;
+
   if (accessFrom && accessUntil && accessFrom >= accessUntil) {
-    alert('Deadline moet na de startdatum liggen.');
-    return;
+    alert('Deadline moet na de startdatum liggen.'); return;
   }
-  const hideQuestionOnScreen = document.getElementById('quiz-hide-question').checked;
-  const minRunsPerQ = document.getElementById('quiz-min-runs').checked ? 1 : 0;
-  const isTeacherPreview = document.getElementById('quiz-is-preview').checked;
+
   const questions = Object.values(_selected).map(q => ({
     id: q.id, text: q.text, subject: q.subject, points: q.points, max_points: q.max_points,
   }));
 
-  const r = await fetch('/api/quiz', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ name, questions, randomize, timerSeconds, noTimer, minRunsPerQ,
-                           hideQuestionOnScreen, isTeacherPreview, schoolYear, targetClass,
-                           accessFrom, accessUntil, autoSubmitLate }),
-  });
-  const data = await r.json();
-  if (data.ok) {
-    const previewUrl = `/quiz-student.html?code=${data.code}&name=${encodeURIComponent('Leerkracht Test')}`;
-    if (isTeacherPreview) {
-      if (confirm(`Toets aangemaakt! Code: ${data.code}\nWil je de preview openen als leerling?`)) {
-        window.open(previewUrl, '_blank');
+  // 22h: loading state
+  createBtn.disabled    = true;
+  backBtn.disabled      = true;
+  createBtn.textContent = '⏳ Bezig…';
+  statusEl.style.display = 'inline';
+
+  try {
+    const r = await fetch('/api/quiz', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name, questions, randomize, timerSeconds, noTimer, minRunsPerQ,
+                             hideQuestionOnScreen, isTeacherPreview, schoolYear, targetClass,
+                             accessFrom, accessUntil, autoSubmitLate }),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      const previewUrl = `/quiz-student.html?code=${data.code}&name=${encodeURIComponent('Leerkracht Test')}`;
+      if (isTeacherPreview) {
+        if (confirm(`Toets aangemaakt! Code: ${data.code}\nWil je de preview openen als leerling?`)) {
+          window.open(previewUrl, '_blank');
+        }
+      } else {
+        alert(`Toets aangemaakt!\nSessiecode: ${data.code}\n\nDeel deze code met de leerlingen.`);
+        location.href = '/teacher-sessions.html';
       }
     } else {
-      alert(`Toets aangemaakt!\nSessiecode: ${data.code}\n\nDeel deze code met de leerlingen.`);
-      location.href = '/teacher-sessions.html';
+      alert('Fout bij aanmaken: ' + (data.error || 'Onbekende fout'));
     }
-  } else {
-    alert('Fout: ' + data.error);
+  } catch(e) {
+    alert('Netwerkfout: ' + e.message);
+  } finally {
+    createBtn.disabled    = false;
+    backBtn.disabled      = false;
+    createBtn.textContent = '✅ Toets aanmaken';
+    statusEl.style.display = 'none';
   }
 }
 

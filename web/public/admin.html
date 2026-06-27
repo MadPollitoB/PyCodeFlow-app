@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="nl" data-theme="light">
+<html lang="nl">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Beheer</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.10.0"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.23.4"/>
   <style>
     .admin-tabs { display:flex; gap:8px; margin-bottom:24px; border-bottom:2px solid var(--border); padding-bottom:0; }
     .admin-tab  { padding:10px 20px; cursor:pointer; border:none; background:none; font-weight:700; font-size:0.95rem; color:var(--muted); border-bottom:3px solid transparent; margin-bottom:-2px; }
@@ -27,20 +27,30 @@
     .import-result.ok { background:#d1fae5; color:#065f46; }
     .import-result.err { background:#fee2e2; color:#991b1b; }
   </style>
+  <link rel="icon" href="/assets/favicon.png" type="image/png">
 </head>
 <body>
 <div class="topbar">
   <div class="logo-group">
-    <img src="/favicon.ico" width="28" height="28" alt=""/>
+    <img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/>
     <span style="font-weight:800;font-size:1.1rem;">PyCodeFlow</span>
     <span class="badge" style="margin-left:8px;">Beheer</span>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
     <a href="/teacher-sessions.html" class="btn btn-muted small">← Sessies</a>
     <a href="/monitoring.html" class="btn btn-muted small">📊 Monitoring</a>
-    <button class="dark-toggle" id="dark-mode-toggle">🌙</button>
+    
   </div>
 </div>
+
+<div class="subnav"><div class="subnav-inner">
+  <a href="/quiz-bank.html">📋 Vragenbank</a>
+  <a href="/quiz-teacher.html">📝 Nieuwe toets</a>
+  <a href="/quiz-archive.html">📦 Archief</a>
+  <div class="subnav-sep"></div>
+  <a href="/admin.html" class="active">👤 Beheer</a>
+  <a href="/monitoring.html">⚙️ Systeem</a>
+</div></div>
 
 <div class="screen" style="max-width:1100px;margin:0 auto;padding:28px 20px;">
   <h1 style="margin:0 0 8px;">Gebruikersbeheer</h1>
@@ -85,6 +95,18 @@
 
   <!-- LEERLINGEN -->
   <div class="admin-panel" id="panel-students">
+    <!-- 22c: Handmatig leerling toevoegen -->
+    <div class="inline-form" style="margin-bottom:12px;">
+      <div><label>Naam</label><input id="new-student-name" placeholder="Emma Janssens" style="width:180px;"/></div>
+      <div>
+        <label>Klas</label>
+        <select id="new-student-class" style="padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:0.88rem;background:var(--surface);color:var(--text);">
+          <option value="">— Geen klas —</option>
+        </select>
+      </div>
+      <button class="btn btn-soft small" onclick="addStudentManual()">+ Toevoegen</button>
+    </div>
+
     <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
       <select id="student-class-filter" onchange="loadStudents()" style="padding:8px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface);color:var(--text);font-size:0.88rem;">
         <option value="">Alle klassen</option>
@@ -98,6 +120,11 @@
       <button class="btn btn-soft small" style="margin-top:8px;" onclick="importCSV()">Importeren</button>
       <div class="import-result" id="import-result"></div>
     </div>
+    <!-- 22b: laad-indicator -->
+    <div id="students-loading" style="display:none;padding:24px;text-align:center;color:var(--muted);font-size:0.9rem;">
+      ⏳ Leerlingen laden…
+    </div>
+    <div id="students-error" style="display:none;padding:16px;background:#fee2e2;color:#991b1b;border-radius:8px;margin-bottom:12px;font-size:0.88rem;"></div>
     <table class="admin-table">
       <thead><tr><th>Naam</th><th>Klas</th><th>Status</th><th>Bron</th><th>Laatste sessie</th><th>Acties</th></tr></thead>
       <tbody id="students-tbody"></tbody>
@@ -106,8 +133,24 @@
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=v2026.2.10.0"></script>
+<script src="/app.js?v=v2026.2.23.4"></script>
 <script>
+
+// 23o: apiFetch wrapper met CSRF token (zelfde als app.js)
+let _csrfToken = null;
+async function getCSRFToken() {
+  if (_csrfToken) return _csrfToken;
+  try { const r = await fetch('/api/csrf-token'); if (r.ok) { const d = await r.json(); _csrfToken = d.token; } } catch {}
+  return _csrfToken || '';
+}
+async function apiFetch(url, options = {}) {
+  const token = await getCSRFToken();
+  return fetch(url, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...(token ? { 'X-CSRF-Token': token } : {}), ...(options.headers || {}) },
+  });
+}
+
 // ── Tab navigatie ─────────────────────────────────────────────────────────────
 document.querySelectorAll('.admin-tab').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -151,32 +194,32 @@ async function addTeacher() {
   const p = document.getElementById('new-teacher-password').value;
   const d = document.getElementById('new-teacher-display').value.trim();
   const r = document.getElementById('new-teacher-role').value;
-  if (!u || !p) return alert('Gebruikersnaam en wachtwoord zijn verplicht.');
-  if (p.length < 8) return alert('Wachtwoord moet minimaal 8 tekens bevatten.');
-  const res = await fetch('/api/admin/teachers', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username:u, password:p, displayName:d, role:r }) });
+  if (!u || !p) return pyToast('Gebruikersnaam en wachtwoord zijn verplicht.', 'warn');
+  if (p.length < 8) return pyToast('Wachtwoord moet minimaal 8 tekens bevatten.', 'warn');
+  const res = await apiFetch('/api/admin/teachers', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username:u, password:p, displayName:d, role:r }) });
   const data = await res.json();
   if (data.ok) { loadTeachers(); ['new-teacher-username','new-teacher-password','new-teacher-display'].forEach(id => document.getElementById(id).value = ''); }
-  else alert('Fout: ' + (data.error || 'onbekend'));
+  else pyToast('Fout: ' + (data.error || 'onbekend'), 'error');
 }
 
 async function resetPwd(username) {
   const pwd = prompt(`Nieuw wachtwoord voor ${username} (min. 8 tekens):`);
   if (!pwd || pwd.length < 8) return;
-  const res = await fetch(`/api/admin/teachers/${encodeURIComponent(username)}/password`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: pwd }) });
+  const res = await apiFetch(`/api/admin/teachers/${encodeURIComponent(username)}/password`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: pwd }) });
   const data = await res.json();
-  alert(data.ok ? 'Wachtwoord bijgewerkt.' : 'Fout: ' + data.error);
+  data.ok ? pyToast('Wachtwoord bijgewerkt.', 'success') : pyToast('Fout: ' + data.error, 'error');
 }
 
 async function toggleRole(username, currentRole) {
   const newRole = currentRole === 'admin' ? 'teacher' : 'admin';
-  if (!confirm(`Rol van ${username} wijzigen naar ${newRole}?`)) return;
-  await fetch(`/api/admin/teachers/${encodeURIComponent(username)}/role`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ role: newRole }) });
+  if (!await pyConfirm({ title: 'Rol wijzigen', body: `Rol van ${username} wijzigen naar ${newRole}?`, confirmLabel: 'Wijzigen' })) return;
+  await apiFetch(`/api/admin/teachers/${encodeURIComponent(username)}/role`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ role: newRole }) });
   loadTeachers();
 }
 
 async function deleteTeacher(username) {
-  if (!confirm(`Leerkracht "${username}" verwijderen? Dit kan niet ongedaan worden.`)) return;
-  await fetch(`/api/admin/teachers/${encodeURIComponent(username)}`, { method:'DELETE' });
+  if (!await pyConfirm({ title: 'Leerkracht verwijderen', body: `Leerkracht "${username}" verwijderen? Dit kan niet ongedaan worden.`, confirmLabel: 'Verwijderen', danger: true })) return;
+  await apiFetch(`/api/admin/teachers/${encodeURIComponent(username)}`, { method:'DELETE' });
   loadTeachers();
 }
 
@@ -202,24 +245,24 @@ async function loadClasses() {
 async function addClass() {
   const name = document.getElementById('new-class-name').value.trim();
   const year = document.getElementById('new-class-year').value.trim();
-  if (!name) return alert('Naam is verplicht.');
-  const res = await fetch('/api/admin/classes', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, schoolYear: year }) });
+  if (!name) return pyToast('Naam is verplicht.', 'warn');
+  const res = await apiFetch('/api/admin/classes', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, schoolYear: year }) });
   const data = await res.json();
   if (data.ok) { document.getElementById('new-class-name').value = ''; loadClasses(); }
-  else alert('Fout: ' + data.error);
+  else pyToast('Fout: ' + data.error, 'error');
 }
 
 async function archiveClass(id) {
-  if (!confirm('Klas archiveren?')) return;
-  await fetch(`/api/admin/classes/${id}/archive`, { method:'PUT' });
+  if (!await pyConfirm({ title: 'Klas archiveren', body: 'De klas wordt verborgen maar data blijft bewaard. Herstelbaar via "Toon gearchiveerd".', confirmLabel: 'Archiveren' })) return;
+  await apiFetch(`/api/admin/classes/${id}/archive`, { method:'PUT' });
   loadClasses();
 }
 
 async function deleteClass(id, name) {
-  if (!confirm(`Klas "${name}" verwijderen? Enkel mogelijk als de klas leeg is.`)) return;
-  const res = await fetch(`/api/admin/classes/${id}`, { method:'DELETE' });
+  if (!await pyConfirm({ title: 'Klas verwijderen', body: `Klas "${name}" verwijderen? Enkel mogelijk als de klas leeg is.`, confirmLabel: 'Verwijderen', danger: true })) return;
+  const res = await apiFetch(`/api/admin/classes/${id}`, { method:'DELETE' });
   const data = await res.json();
-  if (!data.ok) alert('Kan klas niet verwijderen — verwijder eerst alle leerlingen.');
+  if (!data.ok) pyToast('Kan klas niet verwijderen — verwijder eerst alle leerlingen.', 'error');
   else loadClasses();
 }
 
@@ -227,19 +270,64 @@ async function deleteClass(id, name) {
 let _allStudents = [];
 
 async function loadClassFilter() {
-  const r = await fetch('/api/classes');
-  const classes = await r.json();
-  const sel = document.getElementById('student-class-filter');
-  const cur = sel.value;
-  sel.innerHTML = '<option value="">Alle klassen</option>' + classes.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join('');
-  if (cur) sel.value = cur;
+  try {
+    const r = await fetch('/api/classes');
+    const classes = await r.json();
+    // Filter dropdown
+    const sel = document.getElementById('student-class-filter');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">Alle klassen</option>' + classes.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join('');
+    if (cur) sel.value = cur;
+    // Handmatig toevoegen dropdown
+    const newSel = document.getElementById('new-student-class');
+    if (newSel) {
+      newSel.innerHTML = '<option value="">— Geen klas —</option>' + classes.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join('');
+    }
+  } catch(e) { console.error('[admin] loadClassFilter:', e); }
 }
 
+// 22c: handmatig leerling toevoegen
+async function addStudentManual() {
+  const name    = document.getElementById('new-student-name').value.trim();
+  const classId = document.getElementById('new-student-class').value;
+  if (!name) return pyToast('Naam is verplicht.', 'warn');
+  try {
+    const r    = await fetch('/api/admin/students', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name, classId: classId || null, source:'manual', status:'active' }),
+    });
+    const data = await r.json();
+    if (data.ok || data.id) {
+      document.getElementById('new-student-name').value = '';
+      document.getElementById('new-student-class').value = '';
+      await loadStudents();
+    } else {
+      pyToast('Fout bij toevoegen: ' + (data.error || 'onbekend'), 'error');
+    }
+  } catch(e) { pyToast('Netwerkfout: ' + e.message, 'error'); }
+}
+
+// 22b: proper loading + error handling
 async function loadStudents() {
-  const classId = document.getElementById('student-class-filter').value;
-  const r = await fetch(`/api/admin/students${classId ? '?classId=' + classId : ''}`);
-  _allStudents = await r.json();
-  renderStudentTable(_allStudents);
+  const classId    = document.getElementById('student-class-filter').value;
+  const loadingEl  = document.getElementById('students-loading');
+  const errorEl    = document.getElementById('students-error');
+  const tbody      = document.getElementById('students-tbody');
+  loadingEl.style.display = 'block';
+  errorEl.style.display   = 'none';
+  tbody.innerHTML = '';
+  try {
+    const r = await fetch(`/api/admin/students${classId ? '?classId=' + classId : ''}`);
+    if (!r.ok) throw new Error(`Server antwoordde ${r.status}`);
+    _allStudents = await r.json();
+    renderStudentTable(_allStudents);
+  } catch(e) {
+    errorEl.textContent = '⚠️ Kon leerlingen niet laden: ' + e.message + ' — herlaad de pagina.';
+    errorEl.style.display = 'block';
+    tbody.innerHTML = '';
+  } finally {
+    loadingEl.style.display = 'none';
+  }
 }
 
 function filterStudents() {
@@ -271,27 +359,27 @@ function renderStudentTable(students) {
 }
 
 async function setStudentStatus(id, status) {
-  await fetch(`/api/admin/students/${id}/status`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status }) });
+  await apiFetch(`/api/admin/students/${id}/status`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status }) });
   loadStudents();
 }
 
 async function editNote(id, currentNote) {
   const note = prompt('Notitie (max 500 tekens):', currentNote);
   if (note === null) return;
-  await fetch(`/api/admin/students/${id}/notes`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ notes: note }) });
+  await apiFetch(`/api/admin/students/${id}/notes`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ notes: note }) });
   loadStudents();
 }
 
 async function deleteStudent(id, name) {
-  if (!confirm(`Leerling "${name}" verwijderen?`)) return;
-  await fetch(`/api/admin/students/${id}`, { method:'DELETE' });
+  if (!await pyConfirm({ title: 'Leerling verwijderen', body: `Leerling "${name}" definitief verwijderen?`, confirmLabel: 'Verwijderen', danger: true })) return;
+  await apiFetch(`/api/admin/students/${id}`, { method:'DELETE' });
   loadStudents();
 }
 
 async function importCSV() {
   const csv = document.getElementById('csv-input').value.trim();
-  if (!csv) return alert('Voer CSV-data in.');
-  const res = await fetch('/api/admin/students/import-csv', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ csv }) });
+  if (!csv) return pyToast('Voer CSV-data in.', 'warn');
+  const res = await apiFetch('/api/admin/students/import-csv', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ csv }) });
   const data = await res.json();
   const el = document.getElementById('import-result');
   el.style.display = 'block';

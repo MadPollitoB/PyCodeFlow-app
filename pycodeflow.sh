@@ -455,6 +455,16 @@ actie_start() {
   header
   stap "Start PyCodeFlow"
   echo ""
+  # 23p: retroactieve log cleanup bij start (logs ouder dan 7 dagen)
+  LOG_DIR="$BASE/logs"
+  if [[ -d "$LOG_DIR" ]]; then
+    old_logs=$(find "$LOG_DIR" -name "*.log" -mtime +7 2>/dev/null | wc -l)
+    if [[ "$old_logs" -gt 0 ]]; then
+      info "Log cleanup: $old_logs logbestand(en) ouder dan 7 dagen verwijderen..."
+      find "$LOG_DIR" -name "*.log" -mtime +7 -delete 2>/dev/null
+      ok "Log cleanup klaar."
+    fi
+  fi
   $COMPOSE --project-directory "$BASE" up -d
   echo ""
   ok "Gestart."
@@ -1142,6 +1152,199 @@ actie_logs_cleanup() {
   pauze
 }
 
+actie_opschonen() {
+  header
+  stap "Mappenstructuur opschonen"
+  echo ""
+  echo -e "  Controleert de servermap op verouderde, ongebruikte of overbodige"
+  echo -e "  bestanden en verwijdert ze na bevestiging."
+  echo ""
+  echo -e "  ${DIM}Bijgehouden per sprint. Laatste update: v2026.2.23.0${RESET}"
+  echo ""
+
+  local BASE_PUB="$BASE/web/public"
+  local BASE_SCR="$BASE/web/scripts"
+  local BASE_WEB="$BASE/web"
+  local totaal_verwijderd=0
+  local totaal_bytes=0
+  local had_werk=0
+
+  # ── Hulpfuncties ─────────────────────────────────────────────────────────────
+  check_bestand() {
+    local pad="$1"
+    local reden="$2"
+    local sprint="$3"
+    if [[ -f "$pad" ]]; then
+      local grootte
+      grootte=$(du -sh "$pad" 2>/dev/null | cut -f1)
+      echo -e "  ${ROOD}✗${RESET} $(basename "$pad")  ${DIM}($grootte)${RESET}"
+      echo -e "    ${DIM}Reden: $reden${RESET}"
+      echo -e "    ${DIM}Sprint: $sprint${RESET}"
+      had_werk=1
+    fi
+  }
+
+  check_map() {
+    local pad="$1"
+    local reden="$2"
+    local sprint="$3"
+    if [[ -d "$pad" ]]; then
+      local grootte
+      grootte=$(du -sh "$pad" 2>/dev/null | cut -f1)
+      echo -e "  ${ROOD}✗${RESET} $(basename "$pad")/  ${DIM}($grootte)${RESET}"
+      echo -e "    ${DIM}Reden: $reden${RESET}"
+      echo -e "    ${DIM}Sprint: $sprint${RESET}"
+      had_werk=1
+    fi
+  }
+
+  verwijder_bestand() {
+    local pad="$1"
+    if [[ -f "$pad" ]]; then
+      local bytes
+      bytes=$(stat -c%s "$pad" 2>/dev/null || echo 0)
+      rm -f "$pad"
+      totaal_verwijderd=$((totaal_verwijderd + 1))
+      totaal_bytes=$((totaal_bytes + bytes))
+      ok "Verwijderd: $(basename "$pad")"
+    fi
+  }
+
+  verwijder_map() {
+    local pad="$1"
+    if [[ -d "$pad" ]]; then
+      local bytes
+      bytes=$(du -sb "$pad" 2>/dev/null | cut -f1 || echo 0)
+      rm -rf "$pad"
+      totaal_verwijderd=$((totaal_verwijderd + 1))
+      totaal_bytes=$((totaal_bytes + bytes))
+      ok "Verwijderd: $(basename "$pad")/"
+    fi
+  }
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # CATALOGUS: verouderde bestanden per sprint
+  # Voeg hier bij elke sprint nieuwe entries toe.
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  echo -e "  ${BOLD}── Analyse ──────────────────────────────────────${RESET}"
+  echo ""
+
+  # Sprint 22k / 23: legacy Python cache
+  check_map  "$BASE/runner/__pycache__" \
+    "Python bytecode cache — wordt automatisch herschapen" "22k"
+
+  # Sprint 23 / Legacy Windows scripts
+  check_bestand "$BASE/start.bat" \
+    "Windows opstartscript — vervangen door pycodeflow.sh" "23"
+  check_bestand "$BASE/stop.bat" \
+    "Windows stopscript — vervangen door pycodeflow.sh" "23"
+
+  # Sprint 23 / Legacy migration scripts (eenmalig gebruik, migratie voltooid)
+  check_bestand "$BASE_SCR/migrate-env-to-db.js" \
+    "Eenmalig migratiescript (env → SQLite DB) — migratie al voltooid (sprint 4)" "23"
+  check_bestand "$BASE_SCR/migrate-sqlite-to-pg.js" \
+    "Eenmalig migratiescript (SQLite → PostgreSQL) — migratie al voltooid (sprint 12a)" "23"
+  check_bestand "$BASE_SCR/hash-password.js" \
+    "Wachtwoord-hash hulpscript — vervangen door manage-teacher.js" "23"
+
+  # Sprint 23 / Legacy run wrapper (enkel nodig vóór runner/app.py sandbox, nu ongebruikt)
+  check_bestand "$BASE_WEB/run_wrapper.py" \
+    "Legacy Python run-wrapper — niet meer gerefereerd in server.js of runner/app.py" "23"
+
+  # Sprint 23 / SQLite legacy bestanden in data/
+  if [[ -d "$BASE/data" ]]; then
+    local db_count
+    db_count=$(find "$BASE/data" -name "*.db" -o -name "*.db-shm" -o -name "*.db-wal" 2>/dev/null | wc -l)
+    if [[ "$db_count" -gt 0 ]]; then
+      echo -e "  ${ROOD}✗${RESET} data/*.db / .db-shm / .db-wal  ${DIM}(${db_count} bestanden)${RESET}"
+      echo -e "    ${DIM}Reden: SQLite legacy — volledig vervangen door PostgreSQL (sprint 12a)${RESET}"
+      echo -e "    ${DIM}Sprint: 23${RESET}"
+      had_werk=1
+    fi
+  fi
+
+  # Stale logs ouder dan LOG_RETENTION_DAYS
+  local LOG_DIR="$BASE/logs"
+  local retention_days="${LOG_RETENTION_DAYS:-7}"
+  if [[ -d "$LOG_DIR" ]]; then
+    local stale_logs
+    stale_logs=$(find "$LOG_DIR" -name "*.log" -mtime "+${retention_days}" 2>/dev/null | wc -l)
+    if [[ "$stale_logs" -gt 0 ]]; then
+      local stale_size
+      stale_size=$(find "$LOG_DIR" -name "*.log" -mtime "+${retention_days}" -exec du -ch {} + 2>/dev/null | tail -1 | cut -f1)
+      echo -e "  ${ROOD}✗${RESET} logs/ — ${stale_logs} stale logbestand(en) ouder dan ${retention_days} dagen  ${DIM}(${stale_size})${RESET}"
+      echo -e "    ${DIM}Reden: Verlopen retentieperiode (LOG_RETENTION_DAYS=${retention_days})${RESET}"
+      echo -e "    ${DIM}Sprint: 17a / 23p${RESET}"
+      had_werk=1
+    fi
+  fi
+
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  if [[ "$had_werk" -eq 0 ]]; then
+    echo ""
+    echo -e "  ${GROEN}✅  Alles al netjes — geen verouderde bestanden gevonden.${RESET}"
+    echo ""
+    pauze; return
+  fi
+
+  echo ""
+  echo -e "${BOLD}──────────────────────────────────────────────${RESET}"
+  read -rp "  Bovenstaande bestanden verwijderen? (j/n): " bevestig
+  if [[ ! "$bevestig" =~ ^[jJ]$ ]]; then
+    warn "Geannuleerd — niets verwijderd."
+    echo ""
+    pauze; return
+  fi
+
+  echo ""
+  stap "Verwijderen..."
+  echo ""
+
+  # Verwijder Python cache
+  verwijder_map  "$BASE/runner/__pycache__"
+
+  # Verwijder Windows scripts
+  verwijder_bestand "$BASE/start.bat"
+  verwijder_bestand "$BASE/stop.bat"
+
+  # Verwijder legacy migration scripts
+  verwijder_bestand "$BASE_SCR/migrate-env-to-db.js"
+  verwijder_bestand "$BASE_SCR/migrate-sqlite-to-pg.js"
+  verwijder_bestand "$BASE_SCR/hash-password.js"
+
+  # Verwijder legacy run wrapper
+  verwijder_bestand "$BASE_WEB/run_wrapper.py"
+
+  # Verwijder SQLite legacy bestanden
+  if [[ -d "$BASE/data" ]]; then
+    find "$BASE/data" -name "*.db" -o -name "*.db-shm" -o -name "*.db-wal" \
+      2>/dev/null | while read -r f; do verwijder_bestand "$f"; done
+  fi
+
+  # Verwijder stale logbestanden
+  if [[ -d "$LOG_DIR" ]]; then
+    local stale_count
+    stale_count=$(find "$LOG_DIR" -name "*.log" -mtime "+${retention_days}" 2>/dev/null | wc -l)
+    if [[ "$stale_count" -gt 0 ]]; then
+      find "$LOG_DIR" -name "*.log" -mtime "+${retention_days}" -delete 2>/dev/null
+      totaal_verwijderd=$((totaal_verwijderd + stale_count))
+      ok "${stale_count} stale logbestand(en) verwijderd"
+    fi
+  fi
+
+  echo ""
+  local mb=$(( totaal_bytes / 1024 / 1024 ))
+  echo -e "  ${GROEN}╔══════════════════════════════════════════╗${RESET}"
+  echo -e "  ${GROEN}║  ✅  Opschonen voltooid                  ║${RESET}"
+  echo -e "  ${GROEN}╚══════════════════════════════════════════╝${RESET}"
+  echo ""
+  ok "${totaal_verwijderd} item(s) verwijderd · ~${mb} MB vrijgemaakt"
+  echo ""
+  pauze
+}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  HOOFDMENU
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1180,6 +1383,7 @@ while true; do
   echo -e "  ${BOLD}15)${RESET} 🔔  Health monitor instellen (crash notificatie)"
   echo -e "  ${BOLD}16)${RESET} 💾  Database backup beheren"
   echo -e "  ${BOLD}17)${RESET} 🔑  Wachtwoord leerkracht resetten"
+  echo -e "  ${BOLD}18)${RESET} 🧹  Mappenstructuur opschonen"
   echo -e "  ${BOLD} q)${RESET} ✖   Afsluiten"
   echo ""
   echo -e "${BOLD}──────────────────────────────────────────────${RESET}"
@@ -1204,6 +1408,7 @@ while true; do
     15) actie_health_monitor ;;
     16) actie_backup ;;
     17) actie_wachtwoord_reset ;;
+    18) actie_opschonen ;;
     q|Q) echo -e "${GROEN}Tot later!${RESET}"; echo ""; exit 0 ;;
     *) err "Ongeldige keuze."; sleep 1 ;;
   esac

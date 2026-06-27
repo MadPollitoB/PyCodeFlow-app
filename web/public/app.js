@@ -1,5 +1,13 @@
 (() => {
-  const socket = io();
+  // Socket.IO enkel initialiseren op pagina's die het effectief gebruiken
+  // (niet op quiz-bank, quiz-teacher, quiz-archive, admin, monitoring)
+  const _socketPages = ['teacher-app.html', 'student-app.html', 'teacher-sessions.html',
+                        'free-editor.html', 'teacher-grid.html', 'quiz-student.html',
+                        'quiz-review.html', 'index.html', ''];
+  const _currentPage = location.pathname.split('/').pop() || 'index.html';
+  const socket = _socketPages.includes(_currentPage) && typeof io !== 'undefined'
+    ? io()
+    : { on: () => {}, emit: () => {}, off: () => {}, connected: false };
   const page = location.pathname.split('/').pop() || 'index.html';
 
   // Sprint 10T: verbindingsstatus indicator
@@ -53,7 +61,6 @@
         <table style="width:100%;border-collapse:collapse;font-size:0.88rem;">
           <tr><td style="padding:6px 0;color:var(--muted);">Run code</td><td style="text-align:right;"><kbd>Ctrl+Enter</kbd></td></tr>
           <tr><td style="padding:6px 0;color:var(--muted);">Editor thema wisselen</td><td style="text-align:right;"><kbd>Ctrl+Shift+T</kbd></td></tr>
-          <tr><td style="padding:6px 0;color:var(--muted);">Interface dark/light</td><td style="text-align:right;"><kbd>Ctrl+Shift+D</kbd></td></tr>
           <tr><td style="padding:6px 0;color:var(--muted);">Sneltoetsen tonen</td><td style="text-align:right;"><kbd>Ctrl+?</kbd></td></tr>
           <tr><td style="padding:6px 0;color:var(--muted);">Live control verlaten</td><td style="text-align:right;"><kbd>Escape</kbd></td></tr>
         </table>
@@ -64,10 +71,6 @@
   document.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === '?') { e.preventDefault(); toggleShortcutsOverlay(); }
     if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'T') { e.preventDefault(); toggleEditorTheme('teacher'); toggleEditorTheme('free'); toggleEditorTheme('student'); }
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'D') {
-      e.preventDefault();
-      document.getElementById('dark-mode-toggle')?.click();
-    }
   });
 
   // ── Editor thema systeem (los van interface dark/light) ──────────────────────
@@ -153,32 +156,7 @@
     });
   });
 
-  // ── Dark mode initialisatie ─────────────────────────────────────────────────
-  (function initDarkMode() {
-    // Interface dark/light mode — enkel de pagina-achtergrond en panelen
-    const saved = localStorage.getItem('pycodeflow_theme') || 'light';
-    if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-
-    function setInterfaceTheme(theme) {
-      document.documentElement.setAttribute('data-theme', theme);
-      localStorage.setItem('pycodeflow_theme', theme);
-      const btn = document.getElementById('dark-mode-toggle');
-      if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
-    }
-
-    // Correcte knop-toestand bij laden
-    document.addEventListener('DOMContentLoaded', () => {
-      const btn = document.getElementById('dark-mode-toggle');
-      if (btn) btn.textContent = saved === 'dark' ? '☀️' : '🌙';
-    });
-
-    document.addEventListener('click', e => {
-      const btn = e.target.closest('#dark-mode-toggle');
-      if (!btn) return;
-      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-      setInterfaceTheme(isDark ? 'light' : 'dark');
-    });
-  })();
+  // Dark mode verwijderd (sprint 23q) — altijd licht thema
 
   const editorStore = {
     teacher: null,
@@ -554,9 +532,8 @@
       }
     });
     monacoThemeReady = true;
-    // Zet correct thema op basis van huidige dark/light voorkeur
-    const isDarkNow = document.documentElement.getAttribute('data-theme') === 'dark';
-    monaco.editor.setTheme(isDarkNow ? 'pycodeflow-dark' : 'vs');
+    // Altijd dark editor thema (interface dark mode verwijderd in sprint 23q)
+    monaco.editor.setTheme('pycodeflow-dark');
   }
 
   function loadMonaco() {
@@ -1627,23 +1604,16 @@
 
     // Snippet sturen/wissen
     // Annotatie panel toggle
-    // Sprint 10N: overzichtsmodus (grid view)
-    let _gridViewActive = false;
+    // Sprint 10N: grid-overzicht in nieuw tabblad
     qs('teacher-grid-view-btn')?.addEventListener('click', () => {
-      _gridViewActive = !_gridViewActive;
-      const btn = qs('teacher-grid-view-btn');
-      const gridPanel = qs('teacher-grid-view-panel');
-      const studentList = qs('teacher-student-list');
-      if (!gridPanel) return;
-      if (_gridViewActive) {
-        btn && (btn.textContent = '≡ Lijst');
-        studentList && studentList.classList.add('hidden');
-        gridPanel.classList.remove('hidden');
-        renderGridView(window._lastTeacherSessionData);
-      } else {
-        btn && (btn.textContent = '⊞ Overzicht');
-        studentList && studentList.classList.remove('hidden');
-        gridPanel.classList.add('hidden');
+      const code = window._currentSessionCode || '';
+      window.open('/teacher-grid.html?code=' + code, '_blank', 'width=1400,height=900,resizable=yes');
+    });
+
+    // Luister naar selectie vanuit het grid-venster
+    window.addEventListener('message', (evt) => {
+      if (evt.data?.type === 'pycf_select_student' && evt.data.studentId) {
+        socket.emit('teacher_select_student', { studentId: evt.data.studentId });
       }
     });
 
@@ -1836,6 +1806,7 @@
 
     socket.on('teacher_session_data', async data => {
       window._lastTeacherSessionData = data;
+    window._currentSessionCode = data.code || '';
     // Sprint 13A: update sessie-config paneel
     if (data.config) updateSessionConfigPanel(data.config);
       ['teacher-session-code','teacher-session-code-top'].forEach(id=>{ const el = qs(id); if (el) el.textContent = data.session.code; });
@@ -2654,4 +2625,135 @@ async function applyStudentState(data) {
 }
 
 window.addEventListener('DOMContentLoaded', injectFooter);
+
+// ── Sprint 24a: pyToast + pyConfirm — vervangt browser alert/confirm ────────
+
+// CSS eenmalig injecteren
+(function injectModalCSS() {
+  if (document.getElementById('py-modal-css')) return;
+  const style = document.createElement('style');
+  style.id = 'py-modal-css';
+  style.textContent = `
+    /* Toast */
+    #py-toast-container {
+      position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+      display: flex; flex-direction: column; gap: 10px; pointer-events: none;
+    }
+    .py-toast {
+      min-width: 260px; max-width: 400px; padding: 12px 16px;
+      border-radius: 12px; font-size: 0.9rem; font-weight: 600;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+      display: flex; align-items: flex-start; gap: 10px;
+      pointer-events: auto; cursor: pointer;
+      animation: py-toast-in 0.2s ease;
+    }
+    @keyframes py-toast-in {
+      from { opacity: 0; transform: translateX(24px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    .py-toast-success { background: #d1fae5; color: #065f46; border-left: 4px solid #10b981; }
+    .py-toast-error   { background: #fee2e2; color: #991b1b; border-left: 4px solid #ef4444; }
+    .py-toast-warn    { background: #fef3c7; color: #92400e; border-left: 4px solid #f59e0b; }
+    .py-toast-info    { background: #eff6ff; color: #1e40af; border-left: 4px solid #3b82f6; }
+
+    /* Confirm modal */
+    #py-modal-overlay {
+      position: fixed; inset: 0; z-index: 10000;
+      background: rgba(0,0,0,0.45);
+      display: flex; align-items: center; justify-content: center;
+      animation: py-overlay-in 0.15s ease;
+    }
+    @keyframes py-overlay-in {
+      from { opacity: 0; } to { opacity: 1; }
+    }
+    #py-modal-box {
+      background: #fff; border-radius: 16px;
+      padding: 28px 28px 22px; max-width: 440px; width: calc(100% - 40px);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+      animation: py-modal-in 0.18s ease;
+    }
+    @keyframes py-modal-in {
+      from { opacity: 0; transform: scale(0.95) translateY(-8px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    #py-modal-title {
+      font-size: 1.1rem; font-weight: 800; color: #233a63; margin: 0 0 10px;
+    }
+    #py-modal-body {
+      font-size: 0.92rem; color: #5f7392; line-height: 1.6; margin: 0 0 22px;
+      white-space: pre-wrap;
+    }
+    #py-modal-actions {
+      display: flex; gap: 10px; justify-content: flex-end;
+    }
+  `;
+  document.head.appendChild(style);
+})();
+
+// Toast — type: 'success' | 'error' | 'warn' | 'info'
+window.pyToast = function(message, type, duurMs) {
+  type   = type   || 'info';
+  duurMs = duurMs || 4000;
+  var icons = { success: '✅', error: '❌', warn: '⚠️', info: 'ℹ️' };
+  var container = document.getElementById('py-toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'py-toast-container';
+    document.body.appendChild(container);
+  }
+  var toast = document.createElement('div');
+  toast.className = 'py-toast py-toast-' + type;
+  toast.innerHTML = '<span>' + icons[type] + '</span><span>' + message + '</span>';
+  toast.onclick = function() { if (toast.parentNode) toast.parentNode.removeChild(toast); };
+  container.appendChild(toast);
+  setTimeout(function() { if (toast.parentNode) toast.parentNode.removeChild(toast); }, duurMs);
+};
+
+// Confirm modal — geeft Promise<boolean>
+window.pyConfirm = function(opties) {
+  var title        = opties.title        || 'Bevestigen';
+  var body         = opties.body         || '';
+  var confirmLabel = opties.confirmLabel || 'Bevestigen';
+  var danger       = opties.danger       || false;
+
+  return new Promise(function(resolve) {
+    // Verwijder eerder open modal
+    var existing = document.getElementById('py-modal-overlay');
+    if (existing) existing.parentNode.removeChild(existing);
+
+    var overlay = document.createElement('div');
+    overlay.id  = 'py-modal-overlay';
+    overlay.innerHTML =
+      '<div id="py-modal-box">' +
+        '<div id="py-modal-title">' + title + '</div>' +
+        '<div id="py-modal-body">'  + body  + '</div>' +
+        '<div id="py-modal-actions">' +
+          '<button id="py-modal-cancel" class="btn btn-muted small">Annuleren</button>' +
+          '<button id="py-modal-confirm" class="btn ' + (danger ? 'btn-danger' : 'btn-primary') + ' small">' + confirmLabel + '</button>' +
+        '</div>' +
+      '</div>';
+
+    function close(result) {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    }
+
+    function onKey(e) {
+      if (e.key === 'Escape') close(false);
+      if (e.key === 'Enter' && document.activeElement === document.getElementById('py-modal-confirm')) close(true);
+    }
+
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) close(false); });
+    document.body.appendChild(overlay);
+    document.addEventListener('keydown', onKey);
+
+    var cancelBtn  = document.getElementById('py-modal-cancel');
+    var confirmBtn = document.getElementById('py-modal-confirm');
+    cancelBtn.addEventListener('click',  function() { close(false); });
+    confirmBtn.addEventListener('click', function() { close(true);  });
+    cancelBtn.focus();
+  });
+};
+
 })();

@@ -8,6 +8,14 @@
 
 | Sprint | Prio | Inhoud | Status | Inschatting |
 |---|---|---|---|---|
+| **24a** | 🟠 UX-1 | Vervang alle browser `confirm()` / `alert()` dialogen door mooie in-app modals | 🔄 Gepland | ~1.5 dag |
+| **24b** | 🟠 UX-2 | Vragenbank: code-snippet in vraagstelling staat inline ipv als Python code-blok | 🔄 Gepland | ~0.5 dag |
+| **24c** | 🔴 BUG-1 | Single/meerkeuze layout kapot: radio/checkbox gecentreerd, tekstveld onzichtbaar, knoppen buiten kaart | 🔄 Gepland | ~1 dag |
+| **24d** | 🔴 BUG-2 | Wisselen tussen single/multiple verandert radio→checkbox niet in bestaande opties | 🔄 Gepland | ~0.5 dag |
+| **24e** | 🟠 UX-3 | "Nieuwe toets" pagina: layout trekt op niets (checkboxes, kolommen, spacing) | 🔄 Gepland | ~1 dag |
+| **24f** | 🟠 UX-4 | Sessieoverzicht: lopende sessies layout trekt op niets (meta-grid, knoppen) | 🔄 Gepland | ~1 dag |
+| **24g** | 🟠 UX-5 | Monitoring: database-viewer met tabeloverzicht (grid) + klikbare tabelinhoud | 🔄 Gepland | ~1.5 dag |
+| **24h** | 🟠 UX-6 | admin.html topbar: "← Sessies" en "Monitoring" staan nog als losse knoppen boven de subnav ipv erin verwerkt | 🔄 Gepland | ~0.5 dag |
 | **16a-f** | — | Toetsmodule (volledig) | ✅ Afgerond (v2026.2.13.0) | ~10 dagen |
 | ~~**16b**~~ | — | Toetsmodule: toets aanmaken + sessie type quiz | ✅ Afgerond (v2026.2.13.0) | ~2 dagen |
 | ~~**16c**~~ | — | Toetsmodule: leerling quizscherm + timer + auto-submit | ✅ Afgerond (v2026.2.13.0) | ~2 dagen |
@@ -16,6 +24,25 @@
 | ~~**16f**~~ | — | Toetsmodule: monitoring + stresstest + check-deployment | ✅ Afgerond (v2026.2.13.0) | ~0.5 dag |
 | **17a** | — | Log rotatie (7 dagen auto-cleanup) | ✅ Afgerond (v2026.2.14.0) | ~0.5 dag |
 | **17b** | — | Toets/taak archief: beheer + opvragen per jaar/klas | ✅ Afgerond (v2026.2.14.0) | ~2 dagen |
+| **23q** | 🟠 UX-7 | Dark/light mode volledig verwijderen uit de applicatie | ✅ Afgerond |
+| **23r** | 🟡 TECH-4 | Optie 18: Mappenstructuur opschonen (sprint-catalogus) toevoegen aan pycodeflow.sh | ✅ Afgerond | ~1 dag |
+| **23a** | 🔴 BUG-1 | selected_choices worden NIET opgeslagen in DB bij single/meerkeuze antwoorden | ✅ Afgerond | ~0.5 dag |
+| **23b** | 🔴 BUG-2 | isCode-opties in single/meerkeuze worden niet gerenderd bij leerling én bij verbeteren | ✅ Afgerond | ~1 dag |
+| **23c** | 🔴 BUG-3 | teacher-start.html route bestaat in server.js maar bestand ontbreekt → 500 error | ✅ Afgerond | ~0.5 dag |
+| **23d** | 🔴 BUG-4 | student-app.html: app.js versie-querystring kapot (?v2026 i.p.v. ?v=v2026) → stale cache | ✅ Afgerond | ~0.5 dag |
+| **23e** | 🟠 BUG-5 | quiz-student: open antwoord mist maxlength op textarea + Enter-toets niet geblokkeerd op form-level | ✅ Afgerond | ~0.5 dag |
+| **23f** | 🟠 BUG-6 | admin.html logo gebruikt /favicon.ico (ontbreekt op schijf) → gebroken afbeelding | ✅ Afgerond | ~0.5 dag |
+| **23g** | 🟠 BUG-7 | Engelstalige placeholder "Input unavailable" in student-app.html en teacher-app.html | ✅ Afgerond | ~0.5 dag |
+| **23h** | 🟠 UX-1 | Inconsistente CSS-versiestrings: monitoring.html "monitor1", teacher-login.html "blockfix2", index.html geen versie | ✅ Afgerond | ~0.5 dag |
+| **23i** | 🟠 UX-2 | Subnav (22j) enkel op teacher-sessions — ontbreekt op alle andere leerkrachtpagina's | ✅ Afgerond | ~1 dag |
+| **23j** | 🟠 UX-3 | 8 pagina's zonder favicon-tag (quiz-*, teacher-sessions, teacher-login, teacher-grid) | ✅ Afgerond | ~0.5 dag |
+| **23k** | 🟠 UX-4 | Pagina-titels generiek of inconsistent: "Leerling", "Leerkracht", "Leerkrachtenplatform" ≠ title-tag | ✅ Afgerond | ~0.5 dag |
+| **23l** | 🟠 UX-5 | monitoring.html header: "👤 Gebruikersbeheer" knop staat buiten topbar-inner (broken layout) | ✅ Afgerond | ~0.5 dag |
+| **23m** | 🟠 UX-6 | teacher-sessions h1 is "Leerkrachtenplatform" maar <title> en badge zijn "Sessies" — inconsistent | ✅ Afgerond | ~0.5 dag |
+| **23n** | 🟡 TECH-1 | styles.css: dubbele dark-mode CSS blokken (24× `[data-theme="dark"]`) → opsplitsen en dedupliceren | ✅ Afgerond (samen met 23q) | ~1 dag |
+| **23o** | 🟡 TECH-2 | admin.html en quiz-bank/teacher pagina's: raw fetch() zonder CSRF token i.p.v. apiFetch() | ✅ Afgerond | ~1 dag |
+| **23p** | 🟡 TECH-3 | 65 logbestanden > 7 dagen in /logs/ — log-rotatie draait niet retroactief bij deploy | ✅ Afgerond | ~0.5 dag |
+| **22a–k** | — | Bugfix & UX ronde (alle subtaken) | ✅ Afgerond (v2026.2.22.0) | ~6.5 dagen |
 | **18a** | 🔴 P1-1 | Vraagtypen: open vraag + meerkeuze + single choice | 🔄 Gepland | ~3 dagen |
 | **18b** | 🔴 P1-2 | Automatische scoring meerkeuze/single choice | 🔄 Gepland | ~1 dag |
 | **19a ✅** | 🔴 P1-3 | ✅ Afgerond (v2026.2.16.0) | 🔄 Gepland | ~0.5 dag |
@@ -33,6 +60,667 @@
 | **21** | 🟠 P2-3 | Systeembeheer (monitoring.html) volledig up-to-date | ✅ Afgerond (v2026.2.17.0) | ~1.5 dag |
 | **14** | ⏸ Uitgesteld | Google OAuth leerlingen | ⏸ Uitgesteld (later) | ~3 dagen |
 | **15** | ⏸ Uitgesteld | Smartschool SSO | ⏸ Uitgesteld (optioneel) | ~1 week |
+
+---
+
+### Sprint 24 — UI/UX ronde 2 *(~5.5 dagen)*
+
+**Aangemeld:** 27/06/2026
+**Status:** 🔄 Gepland
+**Versie:** gepland voor v2026.2.24.0
+
+---
+
+#### 24a — Vervang confirm() / alert() door in-app modals *(~1.5 dag)*
+
+**Probleem:** Alle bevestigings- en foutdialogen gebruiken browser-native `confirm()` / `alert()`. Die zien er lelijk uit, zijn niet te stylen en inconsistent met de rest van de UI.
+
+**Aanpak:**
+- `window.pyConfirm({ title, body, confirmLabel, danger })` → `Promise<boolean>` — vervangt `confirm()`
+- `window.pyToast(message, type, duurMs)` — vervangt `alert()` voor foutmeldingen, verschijnt rechtsonder
+- CSS in `styles.css`: modal overlay + toast container
+- Omschakelen in: `quiz-bank.html`, `admin.html`, `quiz-review.html`
+- Keyboard: `Escape` annuleert, `Enter` bevestigt (enkel als confirm-knop focus heeft), focus trap in modal
+
+**Betrokken bestanden:** `app.js` · `styles.css` · `quiz-bank.html` · `admin.html` · `quiz-review.html`
+
+---
+
+#### 24b — Code-snippet in vraagstelling renderen als Python code-blok *(~0.5 dag)*
+
+**Probleem:** Als een vraagstelling een code-fragment bevat (ingevoerd met backticks in Markdown), wordt het in de vragenbank-kaart getoond als gewone inline tekst — niet als opgemaakt code-blok.
+
+**Oorzaak:** De `.q-text` div gebruikt `white-space:pre-wrap` en `esc()` maar geen Markdown rendering. Enkel de Preview-knop rendert Markdown; de kaartweergave niet.
+
+**Aanpak:**
+- Gebruik `marked.parse()` ook in `renderQuestions()` voor de `.q-text` div
+- Begrens de hoogte van lange code-blokken in de kaart (`max-height: 120px; overflow:auto`)
+- Zorg dat `<pre><code>` blokken in de kaart een donkere achtergrond krijgen (Consolas, #1e1e1e)
+
+**Betrokken bestanden:** `quiz-bank.html`
+
+---
+
+#### 24c — Single/meerkeuze keuze-opties layout kapot *(~1 dag)*
+
+**Probleem (zie screenshot):**
+1. Radio/checkbox staat gecentreerd in een leeg groot vlak — tekstveld is onzichtbaar of buiten de kaart
+2. "Opti" en "</> Code" knoppen staan buiten de kaartrand rechts
+3. De hele `.choice-row` layout klopt niet: flex-richting, breedte en zichtbaarheid van inputs zijn verkeerd
+
+**Oorzaak:** De `.choice-body` en `.choice-text-input` CSS mist `width:100%` of `min-width:0` binnen de flex-container, waardoor het tekstveld inkrimpt tot nul breedte. De knoppen rechts staan buiten de padding van de `.form-panel`.
+
+**Aanpak:**
+- Fix `.choice-row` flex layout: `display:flex; align-items:flex-start; gap:8px; width:100%; box-sizing:border-box`
+- Fix `.choice-body`: `flex:1; min-width:0; display:flex; flex-direction:column; gap:6px`
+- Fix `.choice-text-input`: `width:100%; box-sizing:border-box`
+- Verplaats "Opti" en "</> Code" knoppen binnen de kaart (niet rechts erbuiten)
+- Visueel: optie-rijen als lichte cards binnen het keuze-panel
+
+**Betrokken bestanden:** `quiz-bank.html` (CSS + `renderChoices()`)
+
+---
+
+#### 24d — Wisselen single↔meerkeuze verandert radio/checkbox niet *(~0.5 dag)*
+
+**Probleem:** Als je van "Single choice" naar "Meerkeuze" wisselt (of omgekeerd), blijven de bestaande opties radio-buttons of checkboxes tonen van het vorige type. `onTypeChange()` roept `renderChoices()` aan maar de bestaande `_choices` array wordt niet opnieuw gerenderd met het juiste input-type.
+
+**Oorzaak:** `onTypeChange()` roept `renderChoices()` enkel aan als `_choices.length === 0`. Als er al opties zijn, wordt niet opnieuw gerenderd.
+
+**Fix:**
+```js
+function onTypeChange(type) {
+  const panel = document.getElementById('choices-panel');
+  panel.style.display = ['single','multiple'].includes(type) ? 'block' : 'none';
+  if (['single','multiple'].includes(type)) {
+    if (_choices.length === 0) {
+      _choices = [
+        { id: crypto.randomUUID(), text:'', isCode:false, correct:false },
+        { id: crypto.randomUUID(), text:'', isCode:false, correct:false },
+      ];
+    }
+    renderChoices(); // altijd opnieuw renderen bij type-wissel
+  }
+}
+```
+
+**Betrokken bestanden:** `quiz-bank.html`
+
+---
+
+#### 24e — "Nieuwe toets" pagina layout *(~1 dag)*
+
+**Probleem (zie screenshot):**
+- Checkboxes voor "Vraagstelling verbergen", "Min. 1 run" en "Test als leerkracht" staan als losse lege vakjes zonder label naast elkaar — labels staan rechts los in de ruimte
+- Timer radio-buttons en vraagvolgorde staan in een onlogische grid
+- Tijdsvenster-sectie heeft inconsistente opmaak
+- Algemeen: te veel witruimte, inconsistente card-stijlen
+
+**Aanpak:**
+- Elke checkbox-optie wordt een `checkbox-row` card (label + checkbox samen, zoals in de rest van de app)
+- Timer en volgorde in een duidelijke 2-koloms grid met visuele scheiding
+- Tijdsvenster-sectie consistent met de card-stijl uit de rest van de wizard
+- Responsief: op smal scherm alles 1 kolom
+
+**Betrokken bestanden:** `quiz-teacher.html` · `styles.css`
+
+---
+
+#### 24f — Sessieoverzicht lopende sessies layout *(~1 dag)*
+
+**Probleem (zie screenshot):**
+- Sessiekaarten tonen een nette meta-grid (Type, Leerlingen, Code, Codehulp) — dit ziet er goed uit
+- Maar: de kaarten in het overzicht lijken te breed/te groot ten opzichte van de beschikbare ruimte
+- De subnav ontbreekt op de sessie-pagina bij lopende sessies weergave
+- Sessie-code badge (goud) is correct maar de kaart-layout heeft te veel padding en inconsistente font-groottes
+
+**Aanpak:**
+- Sessiekaarten compacter maken: minder padding, kleinere meta-grid items
+- Subnav aanwezig op alle leerkrachtpagina's (24f lost dit ook op voor teacher-sessions)
+- Code-badge prominenter tonen
+- Actieknoppen (Open, Waarnemen, Blokkeren, Verwijderen) op één rij, consistent gestyled
+
+**Betrokken bestanden:** `teacher-sessions.html` · `styles.css`
+
+---
+
+#### 24g — Database-viewer in monitoring.html *(~1.5 dag)*
+
+**Probleem:** De monitoring-pagina toont enkel "● Verbonden · 17 tabellen" als PostgreSQL-status. Er is geen manier om de structuur of inhoud van de database te bekijken zonder SSH/pgAdmin.
+
+**Gewenste werking:**
+
+1. **Tabeloverzicht — grid van blokken** (altijd zichtbaar in de PostgreSQL-sectie)
+   - Eén blokje per tabel, in een responsive grid (3–4 kolommen op breed scherm)
+   - Per blokje: tabelnaam, aantal rijen, kolommen (als kleine badges), klikbaar
+   - Kleurcodering per categorie: kern (blauw), quiz (groen), systeem (grijs)
+
+2. **Tabelinhoud — op klik** (onder het grid, volledige breedte)
+   - Klik op een tabelblok → sectie opent onder het volledige grid
+   - Toont een scrollbare tabel met kolomhoofd + rijen (max. 100 rijen, pagineerbaar)
+   - Zoekbalk om te filteren op waarde in een willekeurige kolom
+   - Sluitknop + highlight op het geselecteerde blok
+   - Lange waarden (JSON, code) ingekort met "..." en tooltip op hover
+
+**Benodigde API-endpoints (server.js):**
+
+```js
+// Alle tabellen met kolominfo en rij-aantallen
+GET /api/admin/db/tables
+→ [{ name, rowCount, columns: [{ name, type }], category }]
+
+// Inhoud van één tabel (gepagineerd, optioneel gefilterd)
+GET /api/admin/db/tables/:name/rows?limit=100&offset=0&search=
+→ { columns: [...], rows: [...], total }
+```
+
+**Beveiliging:**
+- Beide endpoints achter `requireTeacherAuth` + enkel Admin-rol toegestaan
+- Whitelist van toegestane tabelnamen (exact de 17 bekende tabellen) — geen vrije SQL-input
+- Gevoelige kolommen (`password_hash`, `cookie_secret`) worden server-side gemaskeerd als `••••••`
+- Maximaal 100 rijen per request, geen export mogelijk vanuit deze viewer
+
+**Betrokken bestanden:** `monitoring.html` · `server.js` · `database.js`
+
+---
+
+#### 24h — admin.html topbar opruimen *(~0.5 dag)*
+
+**Probleem (zie screenshot):** De topbar van `admin.html` toont nog "← Sessies" en "📊 Monitoring" als losse knoppen in de primaire topbar — dit was de oude structuur van vóór sprint 22j. De subnav staat er wél al correct onder, maar de topbar-knoppen dupliceren en storen.
+
+**Huidig:**
+```
+[PyCodeFlow] [Beheer]          ← primaire topbar
+[← Sessies] [📊 Monitoring]   ← losse knoppen, VERKEERD
+[Vragenbank][Nieuwe toets]...  ← subnav (correct)
+```
+
+**Gewenst:**
+```
+[PyCodeFlow] [Beheer]   [Afmelden]  ← primaire topbar, clean
+[Vragenbank][Nieuwe toets][Archief][Beheer*][Systeem]  ← subnav met active op Beheer
+```
+
+**Fix:** "← Sessies" en "📊 Monitoring" verwijderen uit de primaire topbar van `admin.html`. "Afmelden"-knop toevoegen aan de primaire topbar (ontbreekt ook). De subnav bevat al een link naar Systeem (= monitoring) en de sessies zijn bereikbaar via het logo/breadcrumb.
+
+**Betrokken bestanden:** `admin.html`
+
+---
+
+### Sprint 23 — Senior tester audit *(~9 dagen)*
+
+**Aangemeld:** 27/06/2026 — resultaat van volledige code-review over alle pagina's, server-endpoints en database.
+**Status:** ✅ Afgerond (v2026.2.23.0) · Hotfix v2026.2.23.1
+**Impact:** Mix van kritieke dataverlies-bugs (23a, 23b), een 500-error route (23c), en een reeks layout/consistentieproblemen.
+**Volgorde:** 23a en 23b zijn blokkend voor sprint 18b (automatische scoring). 23c is blokkend voor elke omgeving die /teacher-start.html aanroept.
+
+---
+
+#### 23q 🟠 — Dark/light mode volledig verwijderen *(~1 dag)*
+
+**Beslissing:** de dark/light mode toggle werkt niet zoals gewenst en wordt volledig uit de applicatie verwijderd. De app gebruikt voortaan altijd het lichte thema.
+
+**Wat er weg moet:**
+
+**HTML (alle pagina's):**
+- `<button class="dark-toggle" id="dark-mode-toggle">🌙</button>` — verwijderen op elke pagina
+- `data-theme="light"` attribuut op `<html>` — verwijderen (of laten staan als neutrale standaard zonder CSS-effect)
+
+**styles.css:**
+- Alle `[data-theme="dark"] { ... }` blokken verwijderen — dit zijn 24 blokken verspreid door de stylesheet (zie ook 23n). Dit lost meteen 23n op.
+- `.dark-toggle` CSS-definitie verwijderen
+
+**app.js:**
+- Dark mode initialisatie (`localStorage.getItem('theme')`, `document.documentElement.setAttribute('data-theme', ...)`) verwijderen
+- `dark-mode-toggle` event listener verwijderen
+- `toggleEditorTheme()` functie verwijderen (of houden als puur editor-donker/licht, los van de UI-toggle)
+
+**Aandachtspunten:**
+- De Monaco editor-toolbar gebruikt `rgba(255,255,255,0.15)` voor zijn knoppen (donkere achtergrond). Die stijl is onafhankelijk van de dark-mode toggle en blijft behouden.
+- De statusbalk in de editor (`background:#007acc`) is ook onafhankelijk en blijft.
+- `localStorage`-key `theme` na verwijdering negeren (geen migratie nodig).
+- Na verwijdering: `[data-theme="dark"]` in `styles.css` volledig weggooien zodat de stylesheet ook meteen compacter wordt.
+
+**Betrokken bestanden:** alle `.html`-pagina's (15 stuks), `styles.css`, `app.js`
+
+---
+
+#### 23a 🔴 — selected_choices niet opgeslagen in DB *(~0.5 dag)*
+
+**Bevinding:** De `quiz_save_answer`-handler in `server.js` stuurt `selected_choices` **niet** mee naar `dbModule.saveQuizAnswer()`. De functiesignatuur in `database.js` accepteert `selectedChoices` en gebruikt het in de INSERT, maar de aanroeper geeft het nooit mee — de parameter valt terug op de default `'[]'`.
+
+Concreet: antwoorden op single choice en meerkeuze vragen worden **nooit** persistent opgeslagen. In-memory klopt het (tijdens de sessie), maar na een server-herstart of bij het openen van de verbetermodule zijn alle keuze-antwoorden leeg.
+
+**Fix:**
+```js
+// server.js — quiz_save_answer handler (lijn ~4103)
+dbModule.saveQuizAnswer({
+  sessionCode: ctx.code, studentId: ctx.studentId,
+  studentName: student.name, studentClass: student.className || '',
+  questionId, personalOrder: student.quizPersonalOrder?.indexOf(questionId) ?? 0,
+  code, runCount: runCount || 0,
+  firstVisitAt: firstVisitAt || null, firstRunAt: firstRunAt || null,
+  selectedChoices: JSON.stringify(data?.selectedChoices || []),  // ← ontbrak
+})
+```
+Hetzelfde ontbreekt in de auto-submit handler (lijn ~4179).
+
+**Betrokken bestanden:** `server.js`
+
+---
+
+#### 23b 🔴 — isCode-opties niet gerenderd bij leerling en verbeteren *(~1 dag)*
+
+**Bevinding:** In sprint 22e is de `isCode`-property per antwoordoptie toegevoegd in de vragenbank (zodat een optie als code-blok weergegeven kan worden). Maar noch `quiz-student.html` (leerling tijdens toets) noch `quiz-review.html` (leerkracht verbetermodule) houdt rekening met `isCode`.
+
+**quiz-student.html — renderChoices():** toont altijd `${escHtml(ch.text)}` als gewone tekst.
+**quiz-review.html — choiceRows:** zelfde probleem, `ch.text` altijd als `<span>`.
+
+**Fix:** voeg `isCode`-check toe aan beide renderers:
+```js
+const textHtml = ch.isCode
+  ? `<pre style="background:#1e1e1e;color:#d4d4d4;padding:8px;border-radius:6px;
+       font-family:Consolas,monospace;font-size:0.85rem;margin:0;overflow:auto;">${escHtml(ch.text)}</pre>`
+  : `<span style="font-size:0.95rem;line-height:1.5;">${escHtml(ch.text)}</span>`;
+```
+
+**Betrokken bestanden:** `quiz-student.html`, `quiz-review.html`
+
+---
+
+#### 23c 🔴 — teacher-start.html route zonder bestand → 500 *(~0.5 dag)*
+
+**Bevinding:** `server.js` heeft een GET-route op `/teacher-start.html` (lijn 441) die `sendFile` aanroept op een bestand dat **niet bestaat** in `web/public/`. Elke bezoeker van die URL krijgt een 500-fout.
+
+**Opties:**
+1. Route verwijderen als `/teacher-start.html` nergens meer gelinkt is.
+2. Redirect naar `/teacher-sessions.html`.
+
+Navraag in de HTML-bestanden toont dat `/teacher-start.html` nergens actief gelinkt wordt → optie 1 is verkieslijk.
+
+**Betrokken bestanden:** `server.js`
+
+---
+
+#### 23d 🟠 — student-app.html: kapotte versie-querystring op app.js *(~0.5 dag)*
+
+**Bevinding:** `student-app.html` laadt app.js als:
+```html
+<script src="/app.js?v2026.2.8.2"></script>
+```
+Het vraagteken staat er maar de `=` ontbreekt — de browser stuurt de querystring wél mee maar het is eigenlijk één string zonder key-value. Dit is geen technische breuk (browsers parsen het toch) maar:
+1. Het is inconsistent met alle andere pagina's die `?v=v2026.2.x.x` gebruiken.
+2. De versie is `v2026.2.8.2` — meer dan 10 sprints achter. Bij een cache-hit op de client kan een leerling verouderde JS draaien.
+
+**Fix:** versie bijwerken naar `?v=v2026.2.18.0` (of actueel) en `=` toevoegen.
+
+**Betrokken bestanden:** `student-app.html`
+
+---
+
+#### 23e 🟠 — quiz-student: open antwoord mist maxlength + Enter-fix *(~0.5 dag)*
+
+**Bevinding:**
+1. De open-antwoord-textarea toont "0 / 2000 tekens" als counter maar heeft geen `maxlength="2000"` attribuut — de limiet wordt dus niet afgedwongen. De leerling kan meer dan 2000 tekens invullen die dan toch opgeslagen worden.
+2. De textarea mist `onkeydown="event.stopPropagation()"` net als de fix uit sprint 22a — op sommige browsers/wrappers kan Enter nog steeds onderschept worden.
+
+**Fix:**
+```html
+<textarea id="quiz-open-answer" rows="8" maxlength="2000"
+  onkeydown="event.stopPropagation()"
+  oninput="updateOpenCount()" ...>
+```
+
+**Betrokken bestanden:** `quiz-student.html`
+
+---
+
+#### 23f 🟠 — admin.html logo: /favicon.ico ontbreekt op schijf *(~0.5 dag)*
+
+**Bevinding:** `admin.html` gebruikt `/favicon.ico` als logo-afbeelding in de topbar:
+```html
+<img src="/favicon.ico" width="28" height="28" alt=""/>
+```
+Maar `favicon.ico` **bestaat niet** op de webserver (enkel `assets/favicon.png`). Dit geeft een gebroken afbeelding in de topbar van het beheerscherm.
+
+**Fix:** vervang door `/assets/logo.svg` (zoals alle andere pagina's) en voeg een favicon-tag toe aan de `<head>`:
+```html
+<link rel="icon" href="/assets/favicon.png" type="image/png">
+```
+
+**Betrokken bestanden:** `admin.html`
+
+---
+
+#### 23g 🟠 — Engelstalige placeholders in NL applicatie *(~0.5 dag)*
+
+**Bevinding:** Twee inputvelden hebben een Engelstalige placeholder terwijl de rest van de applicatie volledig Nederlands is:
+- `student-app.html` lijn 71: `placeholder="Input unavailable"`
+- `teacher-app.html` lijn 224: `placeholder="Input unavailable"`
+
+Dit veld is de runtime-input voor leerlingen/leerkrachten bij een `input()`-call in Python. Het veld is standaard disabled en wordt pas actief bij een input-request.
+
+**Fix:** vervang door `placeholder="Invoer niet beschikbaar"`.
+
+**Betrokken bestanden:** `student-app.html`, `teacher-app.html`
+
+---
+
+#### 23h 🟠 — Inconsistente CSS-versiestrings *(~0.5 dag)*
+
+**Bevinding:** De `styles.css`-link gebruikt inconsistente versiestrings:
+
+| Pagina | Versiestring |
+|---|---|
+| monitoring.html | `?v=monitor1` |
+| teacher-login.html | `?v=blockfix2` |
+| index.html | *(geen versiestring)* |
+| student-start.html | `?v=v2026.2.11.0` |
+| student-app.html | `?v=v2026.2.12.0` |
+| overige pagina's | `?v=v2026.2.18.0` |
+
+Dit heeft als risico dat leerlingen of leerkrachten op machines met agressieve browser-caching verouderde CSS draaien, wat tot layout-breuken leidt na een update.
+
+**Fix:** alle pagina's bijwerken naar `?v=v2026.2.18.0`.
+
+**Betrokken bestanden:** `monitoring.html`, `teacher-login.html`, `index.html`, `student-start.html`, `student-app.html`, `free-editor.html`
+
+---
+
+#### 23i 🟠 — Subnav ontbreekt op alle leerkrachtpagina's behalve teacher-sessions *(~1 dag)*
+
+**Bevinding:** Sprint 22j voegde een secundaire navigatiebalk (`subnav`) toe aan `teacher-sessions.html`. Maar de subnav is **niet aanwezig** op:
+- `quiz-bank.html` — heeft eigen terugknop
+- `quiz-teacher.html` — heeft eigen terugknop
+- `quiz-archive.html` — heeft eigen terugknop
+- `admin.html` — heeft eigen terugknop
+- `quiz-review.html` — heeft eigen terugknop
+- `monitoring.html` — heeft eigen terugknop
+
+Gevolg: de leerkracht ziet de subnav enkel op de sessiepagina maar verliest die navigatiestructuur zodra ze doorklikken.
+
+**Aanpak:**
+- Extraheer subnav HTML + CSS naar een herbruikbaar component/fragment.
+- Voeg de subnav toe aan alle leerkrachtpagina's.
+- Markeer de actieve pagina met `class="active"` per pagina.
+- Zorg dat de subnav correct omgaat met de `position: sticky` offset zonder de page-content te bedekken.
+
+**Betrokken bestanden:** alle leerkrachtpagina's, `styles.css`
+
+---
+
+#### 23j 🟠 — 8 pagina's zonder favicon-tag *(~0.5 dag)*
+
+**Bevinding:** De volgende pagina's missen een `<link rel="icon">` in de `<head>`:
+`quiz-bank.html`, `quiz-teacher.html`, `quiz-archive.html`, `quiz-review.html`, `quiz-student.html`, `teacher-sessions.html`, `teacher-login.html`, `teacher-grid.html`
+
+**Fix:** voeg toe aan elke `<head>`:
+```html
+<link rel="icon" href="/assets/favicon.png" type="image/png">
+```
+
+**Betrokken bestanden:** de 8 bovenstaande HTML-bestanden
+
+---
+
+#### 23k 🟠 — Generieke/inconsistente paginatitels *(~0.5 dag)*
+
+**Bevinding:** Meerdere pagina's hebben een generieke of inconsistente `<title>`:
+
+| Pagina | Huidige title | Verwacht |
+|---|---|---|
+| `student-app.html` | `Leerling` | `PyCodeFlow — Leerling` |
+| `teacher-app.html` | `Leerkracht` | `PyCodeFlow — Sessie actief` |
+| `teacher-sessions.html` | `PyCodeFlow — Sessies` maar h1 = "Leerkrachtenplatform" | `<h1>` aanpassen naar "Sessies" |
+| `monitoring.html` | `Systeembeheer — PyCodeFlow` | `PyCodeFlow — Systeembeheer` (volgorde omgekeerd) |
+
+**Betrokken bestanden:** `student-app.html`, `teacher-app.html`, `teacher-sessions.html`, `monitoring.html`
+
+---
+
+#### 23l 🟠 — monitoring.html: "Gebruikersbeheer"-knop buiten topbar-inner *(~0.5 dag)*
+
+**Bevinding:** In `monitoring.html` staat de "👤 Gebruikersbeheer"-knop **buiten** de `</div>` die de `topbar-inner` sluit:
+```html
+<button class="dark-toggle" ...>🌙</button>
+</div>  ← sluit topbar-inner
+<a href="/admin.html" ...>👤 Gebruikersbeheer</a>  ← BUITEN de topbar!
+</div>  ← sluit topbar
+```
+Dit veroorzaakt een layout-breuk: de knop verschijnt buiten de balk, op een onverwachte positie.
+
+**Fix:** `<a href="/admin.html"...>` verplaatsen naar binnen `top-actions`, of verwijderen en vervangen door een link in de subnav (23i).
+
+**Betrokken bestanden:** `monitoring.html`
+
+---
+
+#### 23m 🟠 — teacher-sessions: h1 en title inconsistent *(~0.5 dag)*
+
+**Bevinding:** Na sprint 22j heeft `teacher-sessions.html`:
+- `<title>PyCodeFlow — Sessies</title>` ✓
+- `<span class="badge">` in topbar ontbreekt (andere pagina's hebben badge)
+- `<h1>Leerkrachtenplatform</h1>` — zou `<h1>Sessies</h1>` moeten zijn voor consistentie
+
+**Fix:** `<h1>` aanpassen naar "Sessies", badge toevoegen aan topbar.
+
+**Betrokken bestanden:** `teacher-sessions.html`
+
+---
+
+#### 23n 🟡 — styles.css: duplicate dark-mode CSS-blokken *(~1 dag)*
+
+**Bevinding:** `styles.css` bevat 24 declaraties van `[data-theme="dark"]`. Sommige selectors worden dubbel gedefinieerd (bv. `[data-theme="dark"] input, [data-theme="dark"] textarea` verschijnt twee keer). Dit vergroot de CSS onnodig, kan specificiteitsproblemen veroorzaken en maakt onderhoud moeilijker.
+
+**Aanpak:**
+- Alle dark-mode regels samenvoegen in één geconsolideerd blok onderaan de stylesheet.
+- Duplicaten verwijderen.
+- Volgorde bewaken (specifiekere selectors na algemenere).
+
+**Betrokken bestanden:** `styles.css`
+
+---
+
+#### 23o 🟡 — admin.html en quiz-bank.html: raw fetch() zonder CSRF-token *(~1 dag)*
+
+**Bevinding:** `app.js` definieert een `apiFetch()`-wrapper die automatisch de CSRF-token meestuurt. `admin.html` en `quiz-bank.html` importeren `app.js` maar doen alle muterende requests (`POST`, `PUT`, `DELETE`) met raw `fetch()` — zonder `X-CSRF-Token` header.
+
+De server valideert CSRF via `requireCsrf` middleware op alle muterende endpoints. In de huidige implementatie valideert `validateCsrf()` ook `SameSite=Strict` cookies als fallback, waardoor het in de praktijk werkt — maar dit is een fragiele beveiliging die breekt bij cross-origin embeds of bij aanpassing van de cookieconfiguratie.
+
+**Fix:** vervang alle `fetch(url, { method:'POST'|'PUT'|'DELETE', ... })` in `admin.html` en `quiz-bank.html` door `apiFetch(url, ...)` (de wrapper in app.js).
+
+**Betrokken bestanden:** `admin.html`, `quiz-bank.html`, `quiz-teacher.html`
+
+---
+
+#### 23p 🟡 — 65 logbestanden ouder dan 7 dagen in /logs/ *(~0.5 dag)*
+
+**Bevinding:** De log-rotatie uit sprint 17a draait bij serverstart en daarna nachtelijks. Maar de bestaande 65 logbestanden (sommige van mei 2026) worden **niet retroactief** opgeruimd bij een nieuwe deploy — ze blijven staan tot de volgende nachtelijke cleanup. Op een NAS met weinig schijfruimte kan dit bij een fresh deploy een probleem zijn.
+
+**Fix:**
+- Voeg een eenmalige cleanup toe in `pycodeflow.sh` deploy-stap: `find logs/ -name "*.log" -mtime +7 -delete`.
+- Documenteer in `install.md` dat logbestanden pas na de eerste nacht opgeruimd worden.
+
+**Betrokken bestanden:** `pycodeflow.sh`, `install.md`
+
+---
+
+### Sprint 22 — Bugfix & UX ronde *(~6.5 dagen)*
+
+**Aangemeld:** 27/06/2026
+**Status:** 🔄 Gepland
+**Impact:** Kritische bugfixes op de vragenbank, toetsmodule en beheerpagina's. Enkele UX- en technische schuld-items.
+**Vereiste voorbereiding:** Sprint 18a (vraagtypen) kan parallel lopen, maar 22e en 22f blokkeren 18b (automatische scoring).
+**Risico:** Matig — raakt aan editor-integratie, routinglogica en navigatiestructuur.
+
+---
+
+#### 22a — Python-code editor: Enter-toets werkt niet *(~0.5 dag)*
+
+**Probleem:** In de tekstgebieden die Python-code opnemen (vraagstelling met code-blok, modeloplossing) wordt de Enter-toets onderschept of genegeerd — nieuwe regels invoegen is niet mogelijk.
+
+**Oorzaak (vermoedelijk):** Een `keydown`-handler op het formulier of de parent-container die `Enter` naar een submit-event mapt, of een conflict met de Monaco-instantie die niet correct geïnitialiseerd is in formuliercontext.
+
+**Aanpak:**
+- Controleer alle `keydown`/`keypress` listeners op het vraagformulier.
+- Zorg dat de code-editor widget de Enter-toets zelf afhandelt en event propagation stopt (`e.stopPropagation()`).
+- Voeg expliciete `e.preventDefault()` toe aan form-submit handlers zodat Enter enkel werkt binnen het editor-veld.
+
+**Betrokken bestanden:** `quiz-bank.html`, `app.js`
+
+---
+
+#### 22b — Leerlingenoverzicht blijft laden *(~0.5 dag)*
+
+**Probleem:** Het extra overzichtsscherm met de leerlingenlijst toont oneindig de laadspinner en laadt nooit data.
+
+**Oorzaak (vermoedelijk):** API-call naar `/api/admin/students` faalt stil (netwerkerror, 401, of lege response) waardoor de Promise nooit resolved en de spinner nooit verborgen wordt.
+
+**Aanpak:**
+- Voeg `try/catch` toe rond alle fetch-calls voor het leerlingenoverzicht.
+- Verberg spinner altijd in een `finally`-blok.
+- Toon een duidelijke foutmelding als data niet geladen kan worden.
+- Controleer of het API-endpoint bestaat en auth-token correct meegestuurd wordt.
+
+**Betrokken bestanden:** `admin.html`, `server.js` (endpoint `/api/admin/students`)
+
+---
+
+#### 22c — Klasbeheer: leerlingen handmatig toevoegen werkt niet *(~0.5 dag)*
+
+**Probleem:** Via het Klasbeheer-tabblad is er geen werkende manier om individuele leerlingen handmatig toe te voegen aan een klas.
+
+**Aanpak:**
+- Controleer of de "Toevoegen"-knop een correcte POST stuurt naar `/api/admin/students` of `/api/classes/:id/students`.
+- Voeg client-side validatie toe (naam verplicht, klas geselecteerd).
+- Zorg dat na succesvolle toevoeging de lijst automatisch herlaadt.
+- Eenvoudig inline formulier: Naam + Klas + [+ Toevoegen]-knop, zonder modaal.
+
+**Betrokken bestanden:** `admin.html`, `server.js`
+
+---
+
+#### 22d — Preview toont plain tekst i.p.v. gerenderde Markdown *(~0.5 dag)*
+
+**Probleem:** De Preview-knop bij het aanmaken van een vraag toont de ruwe Markdown-tekst (bv. `**code**`) in plaats van de gerenderde opmaak.
+
+**Aanpak:**
+- Integreer **marked.js** (CDN) als lichtgewicht Markdown-renderer.
+- De Preview-knop roept `marked.parse(vraagstellingText)` aan en toont het resultaat als `innerHTML` in een preview-div.
+- Voeg basis CSS toe voor Markdown-elementen (`code`, `strong`, `em`, `pre`).
+- Saniteer de preview-output met DOMPurify om XSS te vermijden.
+
+**Betrokken bestanden:** `quiz-bank.html`, `styles.css`
+
+---
+
+#### 22e — Single choice / meerkeuze: UI kapot + opties toevoegen werkt niet *(~1 dag)*
+
+**Probleem (meerdere sub-bugs):**
+1. De UI voor single choice en meerkeuze ziet er visueel niet verzorgd uit.
+2. Het toevoegen van antwoordopties via "+ Optie toevoegen" werkt niet of toont lege opties zonder invoerveld.
+3. Er is geen manier om een code-blok toe te voegen als antwoordoptie.
+
+**Aanpak:**
+- Herstel de dynamische optie-rendering: elke optie krijgt een tekstveld + radio (single) of checkbox (meerkeuze) + verwijder-knop (×).
+- Voeg per optie een toggle toe om te wisselen tussen gewone tekst en code-blok (klein `<>` icoontje dat een monospace `<textarea>` activeert).
+- Zorg dat de correcte optie gemarkeerd kan worden.
+- Visuele fix: gebruik de card-stijl consistent met de rest van de vragenbank UI.
+- Sla opties op als JSON array: `[{ text: "...", isCode: false, isCorrect: true }, ...]`.
+
+**Betrokken bestanden:** `quiz-bank.html`, `server.js`, `database.js`, `styles.css`
+
+---
+
+#### 22f — Vragen verwijderen: archivering vs. definitief verwijderen *(~1 dag)*
+
+**Probleem:** De verwijder-actie op vragen werkt niet, en er is geen onderscheid tussen een vraag die al in een toets gebruikt is (archiveren) en een vraag die nergens aan gekoppeld is (definitief verwijderen).
+
+**Aanpak:**
+- Voeg een `archived`-veld toe aan de `quiz_bank` tabel.
+- Bij verwijderpoging: controleer server-side of de vraag voorkomt in `quiz_meta` of `quiz_answers`. Zo ja → archiveer. Zo nee → verwijder definitief.
+- Toon in de vragenbank een toggle "Toon gearchiveerd" (knop bestaat al visueel maar werkt niet).
+- Gearchiveerde vragen zijn herstelbaar via een "Herstellen"-knop.
+- Voeg API-endpoint toe: `DELETE /api/quiz/bank/:id` met bovenstaande logica.
+
+**Database-aanpassing:**
+```sql
+ALTER TABLE quiz_bank ADD COLUMN archived BOOLEAN DEFAULT FALSE;
+```
+
+**Betrokken bestanden:** `quiz-bank.html`, `server.js`, `database.js`
+
+---
+
+#### 22g — Layout "Nieuwe toets maken" ziet er niet uit *(~0.5 dag)*
+
+**Probleem:** Het scherm voor het aanmaken van een nieuwe toets heeft een onafgewerkte, inconsistente layout.
+
+**Aanpak:**
+- Pas het formulier aan zodat het de card-stijl volgt die ook in de vragenbank en het beheerscherm gebruikt wordt.
+- Logische volgorde: naam → klas → vragen → timer → instellingen → aanmaken.
+- Consistente margins, padding en font-gebruik.
+
+**Betrokken bestanden:** `quiz-teacher.html`, `styles.css`
+
+---
+
+#### 22h — Toets aanmaken: bevestigen werkt niet *(~0.5 dag)*
+
+**Probleem:** De bevestigingsknop bij het aanmaken van een toets doet niets (geen POST, geen foutmelding, geen redirect).
+
+**Aanpak:**
+- Controleer de event listener op de bevestigingsknop.
+- Voeg expliciete client-side validatie toe met zichtbare foutmeldingen.
+- Zorg dat de POST naar het correcte endpoint verstuurd wordt met de juiste body.
+- Voeg een loading-state toe op de knop tijdens het versturen.
+- Redirect na succes naar het toetsenoverzicht.
+
+**Betrokken bestanden:** `quiz-teacher.html`, `server.js`
+
+---
+
+#### 22i — Paginaheaders nieuwe schermen zijn leeg/incorrect *(~0.5 dag)*
+
+**Probleem:** Nieuwe schermen (vragenbank, toets aanmaken, archief) tonen geen correcte `<title>` en `<h1>`/breadcrumb-header.
+
+**Aanpak:**
+- Herstel de `<title>`-tag in elke HTML-pagina.
+- Voeg een consistente paginaheader-component toe (`<h1>` met terugknop en paginanaam) op alle nieuwe schermen.
+- Breadcrumb toont de juiste context (bv. "Vragenbank › Nieuwe vraag").
+
+**Betrokken bestanden:** `quiz-bank.html`, `quiz-teacher.html`, `quiz-archive.html`, `quiz-review.html`
+
+---
+
+#### 22j — Leerkrachten-header herstructureren *(~1 dag)*
+
+**Probleem:** De navigatiebalk op het leerkrachtenplatform is te uitgebreid geworden en bevat te veel items op één rij.
+
+**Voorstel:**
+- Splits de navigatie op in twee niveaus:
+  - **Primaire balk** (altijd zichtbaar): Home, Sessies, Afmelden + thema-toggle.
+  - **Secundaire balk / cubegrid** (contextafhankelijk): Beheer, Vragenbank, Archief, Nieuwe toets, Systeem — als icon-grid of dropdown.
+- Overweeg een zijbalk of hamburgermenu voor de beheergerichte items.
+- Actieve pagina visueel gemarkeerd.
+
+**Betrokken bestanden:** `teacher-app.html`, `teacher-sessions.html`, `quiz-bank.html`, `admin.html`, `styles.css`
+
+---
+
+#### 22k — Opschonen mappenstructuur *(~0.5 dag)*
+
+**Probleem:** De projectmap bevat verouderde bestanden, dubbele scripts en ongebruikte HTML-pagina's.
+
+**Aanpak:**
+- Inventariseer alle bestanden in `web/public/` en `web/scripts/`.
+- Verwijder bestanden die niet meer gerefereerd worden vanuit `server.js`, andere HTML-pagina's of `package.json`.
+- Controleer of `teacher-grid.html` nog actief gebruikt wordt of vervangen is.
+- Voeg `runner/__pycache__/` toe aan `.gitignore`.
+- Ruim `web/templates.json` op (verouderde templates).
+- Documenteer verwijderde bestanden in het commit-bericht.
+
+**Betrokken bestanden:** `web/public/`, `runner/__pycache__/`, `.gitignore`, `web/templates.json`
 
 ---
 

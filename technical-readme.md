@@ -1,7 +1,7 @@
 # PyCodeFlow — Technische documentatie
 
 > Interne werking, architectuur, API-referentie en ontwikkelaarsinformatie.
-> Versie: v2026.2.17.0
+> Versie: v2026.2.23.0
 
 ---
 
@@ -40,7 +40,7 @@ Browser (leerling / leerkracht)
 | Runner | Python + Flask + Gunicorn | Python 3.12 |
 | Database | PostgreSQL via `pg` Pool | PG 16 |
 | PDF export | pdfkit | ^0.15 |
-| Markdown | marked.js | 9.1.6 (CDN) |
+| Markdown | marked.js | 9.1.6 (CDN — preview in vragenbank) |
 | Tunnel | Cloudflare Tunnel (cloudflared) | latest |
 | Deployment | Docker Compose | — |
 
@@ -50,7 +50,7 @@ Browser (leerling / leerkracht)
 
 ```
 pycodeflow/
-├── pycodeflow.sh              ← Beheertool (16 menu-opties)
+├── pycodeflow.sh              ← Beheertool (17 menu-opties)
 ├── .env                       ← Geheimen (NOOIT in git)
 ├── .env.example               ← Template
 ├── .gitignore
@@ -79,7 +79,7 @@ pycodeflow/
 │       ├── teacher-app.html, student-start.html, student-app.html
 │       ├── free-editor.html, monitoring.html, admin.html
 │       ├── quiz-bank.html, quiz-teacher.html, quiz-student.html
-│       ├── quiz-review.html, quiz-archive.html
+│       ├── quiz-review.html, quiz-archive.html, teacher-grid.html
 │       └── assets/            ← Optioneel schoollogo
 ├── runner/
 │   ├── app.py                 ← Flask + subprocess sandbox
@@ -173,6 +173,7 @@ pycodeflow/
 | GET | `/api/quiz/:code/pdf/answers` | PDF antwoorden |
 | GET | `/api/quiz/:code/pdf/overview` | PDF klasoverzicht |
 | GET | `/api/quiz/archive` | Toets-archief |
+| PUT | `/api/quiz/bank/:id/unarchive` | Vraag herstellen uit archief |
 
 ---
 
@@ -265,7 +266,7 @@ BLOCKED_MODULES = {
 | Runner sandbox: rlimits + geblokkeerde modules | ✅ |
 | Docker memory limiet runner (256MB) | ✅ |
 
-**Beveiligingsscore: ~98/100**
+**Beveiligingsscore: ~99/100** *(CSRF op alle muterende endpoints — sprint 23o)*
 
 ---
 
@@ -293,4 +294,4 @@ BLOCKED_MODULES = {
 
 ---
 
-*PyCodeFlow · Atheneum Hoboken · technical-readme.md · v2026.2.17.0*
+*PyCodeFlow · Atheneum Hoboken · technical-readme.md · v2026.2.23.0*

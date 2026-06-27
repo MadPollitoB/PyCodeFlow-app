@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="nl" data-theme="light">
+<html lang="nl">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.14.0"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.23.0"/>
   <style>
     .quiz-topbar { background:var(--primary); color:#fff; padding:10px 20px;
       display:flex; align-items:center; justify-content:space-between; }
@@ -51,6 +51,7 @@
     /* Editor wrapper */
     .quiz-editor-wrap { padding:0 16px; }
   </style>
+  <link rel="icon" href="/assets/favicon.png" type="image/png">
 </head>
 <body>
 <!-- Startscherm -->
@@ -135,10 +136,11 @@
     <div id="panel-open" style="display:none;">
       <div class="card" style="padding:16px;">
         <label style="font-size:0.85rem;color:var(--muted);display:block;margin-bottom:8px;">Jouw antwoord:</label>
-        <textarea id="quiz-open-answer" rows="8"
+        <textarea id="quiz-open-answer" rows="8" maxlength="2000"
           style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;
-            font-size:0.95rem;font-family:inherit;resize:vertical;"
+            font-size:0.95rem;font-family:inherit;resize:vertical;box-sizing:border-box;"
           placeholder="Schrijf hier jouw antwoord..."
+          onkeydown="event.stopPropagation()"
           oninput="updateOpenCount()"></textarea>
         <div style="text-align:right;font-size:0.78rem;color:var(--muted);margin-top:4px;">
           <span id="open-char-count">0</span> / 2000 tekens
@@ -202,7 +204,7 @@
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=v2026.2.14.0"></script>
+<script src="/app.js?v=v2026.2.23.0"></script>
 <script>
 // ── Quiz student logica ──────────────────────────────────────────────────────
 const socket = io();
@@ -393,17 +395,25 @@ function renderChoices(choices, type, selected = []) {
     ? '◉ Kies het juiste antwoord:'
     : '☑ Selecteer alle juiste antwoorden:';
   const list = document.getElementById('quiz-choices-list');
-  list.innerHTML = choices.map((ch, i) => `
+  list.innerHTML = choices.map((ch, i) => {
+    // 23b: isCode-opties renderen als code-blok
+    const textHtml = ch.isCode
+      ? `<pre style="background:#1e1e1e;color:#d4d4d4;padding:8px 12px;border-radius:6px;
+           font-family:Consolas,monospace;font-size:0.85rem;margin:0;overflow-x:auto;white-space:pre-wrap;">${escHtml(ch.text)}</pre>`
+      : `<span style="font-size:0.95rem;line-height:1.5;">${escHtml(ch.text)}</span>`;
+    const isSelected = _selectedChoices.includes(ch.id);
+    return `
     <label style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;
       border:2px solid var(--border);border-radius:10px;cursor:pointer;
-      ${_selectedChoices.includes(ch.id) ? 'border-color:var(--primary);background:#eff6ff;' : ''}">
+      ${isSelected ? 'border-color:var(--primary);background:#eff6ff;' : ''}">
       <input type="${type === 'single' ? 'radio' : 'checkbox'}"
         name="quiz-choice" value="${ch.id}"
-        ${_selectedChoices.includes(ch.id) ? 'checked' : ''}
+        ${isSelected ? 'checked' : ''}
         onchange="onChoiceChange(this, '${type}')"
-        style="margin-top:2px;width:16px;height:16px;flex-shrink:0;"/>
-      <span style="font-size:0.95rem;line-height:1.5;">${escHtml(ch.text)}</span>
-    </label>`).join('');
+        style="margin-top:${ch.isCode ? '10px' : '2px'};width:16px;height:16px;flex-shrink:0;"/>
+      <div style="flex:1;min-width:0;">${textHtml}</div>
+    </label>`;
+  }).join('');
 }
 
 function onChoiceChange(input, type) {

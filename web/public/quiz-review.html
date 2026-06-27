@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="nl" data-theme="light">
+<html lang="nl">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets verbeteren</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.14.0"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.23.0"/>
   <style>
     .review-layout { display:grid; grid-template-columns:280px 1fr; gap:20px; }
     @media(max-width:900px){ .review-layout { grid-template-columns:1fr; } }
@@ -39,22 +39,33 @@
       border:1px solid var(--border); cursor:pointer; font-size:0.78rem; }
     .template-chip:hover { border-color:var(--primary); color:var(--primary); }
   </style>
+  <link rel="icon" href="/assets/favicon.png" type="image/png">
 </head>
 <body>
 <div class="topbar">
   <div class="topbar-inner">
     <div class="logo-group">
       <img src="/assets/logo.svg" class="logo-small" alt=""/>
-      <span>PyCodeFlow — Verbeteren</span>
+      <span>PyCodeFlow</span>
+      <span class="badge" style="margin-left:8px;">Toets verbeteren</span>
     </div>
     <div class="top-actions">
       <button class="btn btn-muted small" onclick="history.back()">← Terug</button>
       <button class="btn btn-soft small" onclick="releaseResults()">🔓 Vrijgeven</button>
       <button class="btn btn-soft small" onclick="exportAll()">⬇ Exporteer alles</button>
-      <button class="dark-toggle" id="dark-mode-toggle">🌙</button>
+      
     </div>
   </div>
 </div>
+
+<div class="subnav"><div class="subnav-inner">
+  <a href="/quiz-bank.html">📋 Vragenbank</a>
+  <a href="/quiz-teacher.html">📝 Nieuwe toets</a>
+  <a href="/quiz-archive.html">📦 Archief</a>
+  <div class="subnav-sep"></div>
+  <a href="/admin.html">👤 Beheer</a>
+  <a href="/monitoring.html">⚙️ Systeem</a>
+</div></div>
 
 <div class="screen" style="max-width:1200px;margin:0 auto;padding:20px;">
   <div style="margin-bottom:16px;">
@@ -79,7 +90,7 @@
 
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/app.js?v=v2026.2.14.0"></script>
+<script src="/app.js?v=v2026.2.23.0"></script>
 <script>
 const params = new URLSearchParams(location.search);
 const sessionCode = params.get('code') || prompt('Toetscode:');
@@ -253,13 +264,18 @@ async function selectQuestion(idx) {
         const wasSelected = selected.includes(ch.id);
         const isCorrect   = ch.correct === true;
         let icon='○', bg='var(--surface-soft)', border='var(--border)', color='inherit';
-        if (wasSelected && isCorrect)   { icon='✅'; bg='#d1fae5'; border='#6ee7b7'; }
+        if (wasSelected && isCorrect)    { icon='✅'; bg='#d1fae5'; border='#6ee7b7'; }
         else if (wasSelected && !isCorrect){ icon='❌'; bg='#fee2e2'; border='#fca5a5'; }
         else if (!wasSelected && isCorrect){ icon='☑'; bg='#fef3c7'; border='#d97706'; color='#92400e'; }
+        // 23b: isCode-opties tonen als code-blok
+        const textHtml = ch.isCode
+          ? `<pre style="background:#1e1e1e;color:#d4d4d4;padding:6px 10px;border-radius:6px;
+               font-family:Consolas,monospace;font-size:0.82rem;margin:0;overflow-x:auto;white-space:pre-wrap;">${esc(ch.text)}</pre>`
+          : `<span style="font-size:0.93rem;line-height:1.5;">${esc(ch.text)}</span>`;
         return `<div style="padding:10px 12px;border:1.5px solid ${border};border-radius:8px;
           background:${bg};color:${color};display:flex;gap:10px;align-items:flex-start;margin-bottom:6px;">
-          <span style="font-size:1.1rem;flex-shrink:0;">${icon}</span>
-          <span style="font-size:0.93rem;line-height:1.5;">${esc(ch.text)}</span>
+          <span style="font-size:1.1rem;flex-shrink:0;margin-top:${ch.isCode?'6px':'0'};">${icon}</span>
+          <div style="flex:1;min-width:0;">${textHtml}</div>
         </div>`;
       }).join('');
       answerHtml = `<div class="card" style="padding:14px;margin-bottom:14px;">

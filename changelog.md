@@ -1,3 +1,206 @@
+## v2026.2.23.4 — Hotfix: leerling toevoegen + in-app modals (24a)
+
+### Bugfix: constraint "idx_students_name_class" does not exist
+
+`ON CONFLICT ON CONSTRAINT` werkt niet op partial indexes in PostgreSQL. `createStudent()` herschreven: controleert eerst via SELECT of naam+klas al bestaat, dan pas INSERT. Geen named constraint meer nodig.
+
+### Sprint 24a (vroeg): pyToast + pyConfirm live
+
+`window.pyToast(message, type, duurMs)` en `window.pyConfirm({ title, body, confirmLabel, danger })` toegevoegd aan `app.js`. Alle `alert()` en `confirm()` in `admin.html` en `quiz-bank.html` vervangen door deze in-app varianten. Styling via geïnjecteerde CSS (modal overlay + toast rechtsonder).
+
+**Betrokken bestanden:** `database.js` · `app.js` · `admin.html` · `quiz-bank.html`
+
+---
+
+## v2026.2.23.3 — Hotfix: geneste template literals + io() crash
+
+### Bugfix: SyntaxError door geneste backtick template literals
+
+`renderQuestions()` gebruikte backtick template literals binnen een outer backtick literal voor de onclick-knoppen. Dit brak de JS parser. Opgelost door over te schakelen naar **event delegation**: knoppen krijgen CSS-klassen (`q-btn-edit`, `q-btn-delete`, etc.), de kaart krijgt `data-qid`, en één `click`-listener op de grid handelt alles af. Apostrofs en backticks in vraagteksten zijn nu volledig irrelevant voor de knoppen.
+
+### Bugfix: `io is not defined` op quiz-bank.html
+
+`app.js` lijn 2 riep `io()` aan op elke pagina, ook op pagina's zonder Socket.IO (quiz-bank, admin, monitoring, ...). Fix: `io()` wordt nu enkel aangeroepen als de pagina in de whitelist zit én als `typeof io !== "undefined"`. Op andere pagina's krijgt `socket` een no-op stub.
+
+**Betrokken bestanden:** `quiz-bank.html` · `app.js`
+
+---
+
+## v2026.2.23.2 — Hotfix: apostrof crasht verwijderknop + CSP fix
+
+### Bugfix: SyntaxError bij vraagtekst met apostrof
+
+`esc()` escapede geen apostrofs waardoor `onclick="verwijderOfArchiveer('...Dit is een zin.'...')"` een SyntaxError gaf. Nieuwe `escAttr()` helper vervangt ook `'` door `&#39;`. Alle `onclick`-attributen op vraagteksten gebruiken nu `escAttr()`.
+
+### Bugfix: CSP blokkeerde marked.js van cdnjs.cloudflare.com
+
+`script-src` uitgebreid met `https://cdnjs.cloudflare.com` zodat de Markdown preview in de vragenbank correct laadt.
+
+**Betrokken bestanden:** `quiz-bank.html` · `server.js`
+
+---
+
+## v2026.2.23.1 — Hotfix: vragenbank verwijderknop
+
+### Bugfix: niet-gearchiveerde vragen konden niet verwijderd worden
+
+**Probleem:** de "Archiveren"-knop werd altijd getoond op actieve vragen, ook als ze nergens aan gekoppeld waren. Er was geen manier om een losse vraag direct te verwijderen zonder haar eerst te archiveren.
+
+**Fix:** de "Archiveren"-knop op niet-gearchiveerde vragen vervangen door een slimme "Verwijderen"-knop (`verwijderOfArchiveer()`):
+- Vraag **niet in gebruik** in een toets → direct definitief verwijderd
+- Vraag **wel in gebruik** → server geeft melding, gebruiker krijgt keuze om te archiveren
+
+**Flow overzicht:**
+
+| Toestand | Knoppen |
+|---|---|
+| Actieve vraag, niet in toets | ✏️ Bewerken · 🗑 Verwijderen (definitief) |
+| Actieve vraag, in gebruik in toets | ✏️ Bewerken · 🗑 Verwijderen → melding → optie archiveren |
+| Gearchiveerde vraag | ↩ Herstellen · 🗑 Definitief verwijderen |
+
+**Betrokken bestanden:** `quiz-bank.html`
+
+---
+
+## v2026.2.23.0 — Sprint 23: Senior tester audit + dark mode verwijderd
+
+### 23q — Dark/light mode volledig verwijderd
+- Alle `dark-toggle` knoppen verwijderd uit alle 15 HTML-pagina's
+- `initDarkMode()`, `Ctrl+Shift+D` shortcut en `pycodeflow_theme` localStorage uit `app.js` verwijderd
+- Alle 24 `[data-theme="dark"]` CSS-blokken verwijderd uit `styles.css`
+- Monaco editor gebruikt altijd `pycodeflow-dark` thema (ongewijzigd)
+- `styles.css` geherschreven: van 742 → ~380 regels, duplicaten verwijderd (lost 23n op)
+
+### 23a 🔴 — selected_choices niet opgeslagen in DB (dataverlies-bug)
+- `quiz_save_answer` handler stuurde `selectedChoices` niet naar `dbModule.saveQuizAnswer()`
+- Fix: `selectedChoices: JSON.stringify(data?.selectedChoices || [])` toegevoegd op beide call-sites (tussentijds opslaan + auto-submit)
+- Keuze-antwoorden (single/meerkeuze) gaan nu niet meer verloren bij herstart
+
+### 23b — isCode-opties renderen als code-blok
+- `quiz-student.html` `renderChoices()`: opties met `isCode:true` tonen als `<pre>` code-blok
+- `quiz-review.html` verbetermodule: zelfde fix, keuzes met code correct weergegeven
+
+### 23c — Orphan route verwijderd (was 500-error)
+- `GET /teacher-start.html` route verwijderd uit `server.js` — bestand bestond niet op schijf
+
+### 23d — student-app.html versie gecorrigeerd
+- `app.js?v2026.2.8.2` (kapotte querystring, 10 sprints achter) → `app.js?v=v2026.2.23.0`
+
+### 23e — quiz-student: open antwoord verbeterd
+- `maxlength="2000"` attribuut toegevoegd (limiet werd getoond maar niet afgedwongen)
+- `onkeydown="event.stopPropagation()"` toegevoegd (Enter-fix consistent met sprint 22a)
+
+### 23f — admin.html logo fix
+- `/favicon.ico` (niet-bestaand bestand) vervangen door `/assets/logo.svg`
+- Favicon-tag toegevoegd aan `<head>`
+
+### 23g — Engelstalige placeholders vervangen
+- `placeholder="Input unavailable"` → `placeholder="Invoer niet beschikbaar"` in `student-app.html` en `teacher-app.html`
+
+### 23h — CSS/JS versiestrings genormaliseerd
+- `monitor1`, `blockfix2`, leeg → allemaal `v2026.2.23.0` over alle 15 HTML-pagina's
+
+### 23i — Subnav toegevoegd aan alle leerkrachtpagina's
+- `quiz-bank.html`, `quiz-teacher.html`, `quiz-archive.html`, `admin.html`, `quiz-review.html`, `monitoring.html` krijgen de secundaire navigatiebalk (eerder enkel op `teacher-sessions.html`)
+- Actieve pagina gemarkeerd met `class="active"`
+
+### 23j — Favicon-tag op alle pagina's
+- 8 pagina's zonder favicon-tag aangevuld: `quiz-*.html`, `teacher-sessions.html`, `teacher-login.html`, `teacher-grid.html`
+
+### 23k — Paginatitels consistent
+- Alle titels volgen nu `PyCodeFlow — [naam]` formaat
+- `"Leerling"` → `"PyCodeFlow — Leerling"`, `"Leerkracht"` → `"PyCodeFlow — Sessie actief"`, `"Systeembeheer — PyCodeFlow"` → `"PyCodeFlow — Systeembeheer"`, etc.
+
+### 23l — monitoring.html topbar layout fix
+- "👤 Gebruikersbeheer" knop stond buiten `topbar-inner` wrapper → verwijderd en verwerkt in subnav (23i)
+- Badge "Systeembeheer" toegevoegd aan topbar
+
+### 23m — teacher-sessions.html consistentie
+- `<h1>Leerkrachtenplatform</h1>` → `<h1>Sessies</h1>`
+- Badge "Sessies" toegevoegd aan topbar
+- Overbodige "Sessies" terugknop verwijderd (actieve pagina)
+
+### 23n — styles.css gededupliceerd (samen met 23q opgelost)
+- 24 dark-mode blokken verwijderd, overige duplicaten opgeruimd
+
+### 23o — CSRF-beveiliging versterkt
+- `admin.html`: 12 muterende `fetch()` calls vervangen door `apiFetch()` met CSRF-token
+- `quiz-bank.html`: 5 calls idem
+- `apiFetch()` helper geïnjecteerd in beide bestanden (apart van app.js)
+
+### 23p — Retroactieve log-cleanup bij start
+- `pycodeflow.sh actie_start()`: verwijdert automatisch logs ouder dan 7 dagen bij elke start
+
+### 23r — Optie 18: Mappenstructuur opschonen
+
+Nieuw menu-item **18 🧹 Mappenstructuur opschonen** in `pycodeflow.sh`:
+- Scant de servermap op verouderde/ongebruikte bestanden via een sprint-catalogus
+- Toont gevonden items (bestand, grootte, reden, sprint) vóór er iets verwijderd wordt
+- Na bevestiging: verwijdert alle gedetecteerde items + rapporteert vrijgemaakte ruimte
+- Idempotent: tweede uitvoering toont "Alles al netjes"
+- Catalogus wordt bij elke sprint bijgehouden
+- `Opschonen-Lokaal.ps1`: PowerShell equivalent voor lokale Windows ontwikkelmap (met extra lokaal-specifieke items: node_modules, monaco, pgdata, IDE-mappen, OS junk)
+
+**Sprint 23 catalogus (eerste versie):**
+- `runner/__pycache__/` — Python bytecode cache (sprint 22k)
+- `start.bat` / `stop.bat` — Windows scripts, vervangen door pycodeflow.sh
+- `web/scripts/migrate-env-to-db.js` — eenmalig (sprint 4, voltooid)
+- `web/scripts/migrate-sqlite-to-pg.js` — eenmalig (sprint 12a, voltooid)
+- `web/scripts/hash-password.js` — vervangen door manage-teacher.js
+- `web/run_wrapper.py` — legacy run wrapper, niet meer gerefereerd
+- `data/*.db / .db-shm / .db-wal` — SQLite legacy, vervangen door PostgreSQL
+- `logs/` stale bestanden — ouder dan `LOG_RETENTION_DAYS` (sprint 17a/23p)
+
+### Bestanden
+`server.js` · `app.js` · `styles.css` · `database.js` · `pycodeflow.sh` · `Opschonen-Lokaal.ps1` · alle 15 HTML-pagina's
+
+### 22a — Enter-toets in Python-code editor
+- `onkeydown="event.stopPropagation()"` op alle `<textarea>` elementen in vragenbank en CSV-import
+
+### 22b — Leerlingenoverzicht laadspinner opgelost
+- `loadStudents()` in `admin.html` herschreven met `try/catch/finally`: spinner verbergt altijd, zichtbare foutmelding bij API-falen
+
+### 22c — Leerlingen handmatig toevoegen in klasbeheer
+- Nieuw inline formulier (Naam + Klas-dropdown + Toevoegen) boven leerlingenlijst in `admin.html`
+- `addStudentManual()` POST naar `/api/admin/students`
+- `loadClassFilter()` vult zowel de filterdropdown als de nieuwe klas-dropdown
+
+### 22d — Preview toont nu gerenderde Markdown
+- `marked.js` geladen vóór inline script
+- `toggleMarkdownPreview()` gebruikt `marked.parse()` met `{ breaks: true, gfm: true }`
+- Gestyled `.md-preview` blok met CSS voor `code`, `pre`, `strong`, `ul`
+
+### 22e — Single/meerkeuze UI volledig herschreven
+- `.choice-row` cards met tekstveld per optie
+- `</>` toggle per optie voor code-modus (monospace textarea)
+- Radio (single) / checkbox (meerkeuze) correctie-selector
+- `_choices[].isCode` state bijgehouden en opgeslagen
+
+### 22f — Vragen verwijderen/archiveren logica
+- "Verwijderen" enkel zichtbaar op gearchiveerde vragen (server valideert gebruik)
+- "↩ Herstellen" knop op gearchiveerde vragen
+- Nieuw `PUT /api/quiz/bank/:id/unarchive` endpoint + `unarchiveQuizQuestion()` in `database.js`
+
+### 22g — Layout "Nieuwe toets" verbeterd
+- Consistent card-stijl, badge in topbar, logische volgorde velden
+
+### 22h — Toets bevestigen werkt nu correct
+- `createQuiz()`: disabled-guard (verhindert dubbele submit), loading state op knop, `try/catch/finally`, duidelijke foutmeldingen
+- confirm-panel toont nu ook schooljaar en klasnaam
+
+### 22i — Paginaheaders nieuwe schermen
+- `quiz-teacher.html` en `quiz-review.html`: badge in topbar, consistente `<title>`
+
+### 22j — Leerkrachten-header herstructureerd
+- `teacher-sessions.html`: compacte primaire topbar (logo + Afmelden) en sticky secundaire `.subnav` balk
+
+### 22k — Mappenstructuur opgeschoond
+- `runner/__pycache__` verwijderd
+
+### Bestanden
+`server.js` · `database.js` · `quiz-bank.html` · `quiz-teacher.html` · `quiz-review.html` · `teacher-sessions.html` · `admin.html`
+
+---
 ## v2026.2.17.0 — Sprint 20: Afwerking
 
 ### 19h — Bulk PDF ZIP (aparte PDF per leerling)

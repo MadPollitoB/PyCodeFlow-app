@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Leerkrachtenplatform</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.14.0"/>
+<title>PyCodeFlow — Sessies</title>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.23.0"/>
 <style>
   .free-session-panel { margin-top: 32px; }
   .free-student-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
@@ -14,24 +14,61 @@
   .free-student-meta { font-size: 0.85rem; color: var(--muted); }
   .free-empty { color: var(--muted); font-size: 0.9rem; padding: 12px 0; }
   .free-count-badge { font-size: 0.8rem; }
+
+  /* 22j: secundaire navigatiebalk */
+  .subnav {
+    background: var(--surface-soft);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 72px; z-index: 90;
+  }
+  .subnav-inner {
+    width: min(1320px, calc(100% - 32px));
+    margin: 0 auto;
+    display: flex; align-items: center; gap: 4px;
+    padding: 6px 0;
+    flex-wrap: wrap;
+  }
+  .subnav a {
+    display: flex; align-items: center; gap: 5px;
+    padding: 6px 12px; border-radius: 8px;
+    font-size: 0.83rem; font-weight: 600;
+    color: var(--muted); text-decoration: none;
+    border: 1.5px solid transparent;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .subnav a:hover { background: var(--surface); border-color: var(--border); color: var(--text); }
+  .subnav a.active { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); }
+  .subnav-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
 </style>
+  <link rel="icon" href="/assets/favicon.png" type="image/png">
 </head><body>
 <div class="topbar"><div class="topbar-inner">
-  <div class="logo-group"><img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/><span>PyCodeFlow</span></div>
+  <div class="logo-group">
+    <img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/>
+    <span>PyCodeFlow</span>
+    <span class="badge" style="margin-left:8px;">Sessies</span>
+  </div>
   <div class="top-actions">
-  <a href="/index.html" class="btn btn-muted small">Home</a>
-  <a href="/admin.html" class="btn btn-muted small">👤 Beheer</a>
-  <a href="/quiz-bank.html" class="btn btn-muted small">📋 Vragenbank</a>
-  <a href="/quiz-archive.html" class="btn btn-muted small">📦 Archief</a>
-  <a href="/quiz-teacher.html" class="btn btn-soft small">📝 Nieuwe toets</a>
-  <a href="/monitoring.html" class="btn btn-muted small">⚙️ Systeem</a>
-  <a href="/api/teacher-logout" class="btn btn-muted small">Afmelden</a>
+    <a href="/api/teacher-logout" class="btn btn-muted small">Afmelden</a>
+  </div>
+</div></div>
+
+<!-- 22j: secundaire navigatiebalk -->
+<div class="subnav">
+  <div class="subnav-inner">
+    <a href="/quiz-bank.html">📋 Vragenbank</a>
+    <a href="/quiz-teacher.html">📝 Nieuwe toets</a>
+    <a href="/quiz-archive.html">📦 Archief</a>
+    <div class="subnav-sep"></div>
+    <a href="/admin.html">👤 Beheer</a>
+    <a href="/monitoring.html">⚙️ Systeem</a>
+  </div>
 </div>
-<button class="dark-toggle" id="dark-mode-toggle" title="Wissel donker/licht thema">🌙</button></div></div>
 <div class="page">
 
 <div class="card screen">
-  <h1>Leerkrachtenplatform</h1>
+  <h1>Sessies</h1>
   <p class="muted">Maak een nieuwe sessie aan of open een lopende sessie.</p>
   <div class="grid-2" style="margin-top:24px;">
     <div class="panel">
@@ -124,4 +161,4 @@
   </div>
 
 </div>
-</div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=v2026.2.14.0"></script></body></html>
+</div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=v2026.2.23.0"></script></body></html>

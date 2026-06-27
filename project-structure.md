@@ -9,7 +9,8 @@
 ```
 /volume3/docker/pycodeflow/
 │
-├── pycodeflow.sh                  ← Beheertool (start/stop/setup/logs)
+├── pycodeflow.sh                  ← Beheertool (start/stop/setup/logs/opschonen)
+├── Opschonen-Lokaal.ps1           ← Windows: lokale map opschonen (PowerShell)
 ├── .env                           ← Geheimen — NOOIT in git!
 ├── .env.example                   ← Template voor .env
 ├── .gitignore                     ← Wat niet in git mag
@@ -255,3 +256,7 @@ LOG_RETENTION_DAYS=7
 ---
 
 *PyCodeFlow · Atheneum Hoboken · project-structure.md*
+
+---
+
+*PyCodeFlow · Atheneum Hoboken · project-structure.md · v2026.2.23.0*

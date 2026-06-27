@@ -613,11 +613,19 @@ module.exports = {
   },
 
   async createStudent(name, classId, source = 'manual', status = 'active') {
+    // Controleer eerst of leerling al bestaat (naam + klas combinatie)
+    // ON CONFLICT ON CONSTRAINT werkt niet met partial indexes in PostgreSQL
+    if (classId) {
+      const exists = await query(
+        `SELECT id FROM students WHERE name = $1 AND class_id = $2 LIMIT 1`,
+        [name, classId]
+      );
+      if (exists.rows.length > 0) return exists.rows[0].id;
+    }
     const id = crypto.randomUUID();
     await query(
       `INSERT INTO students (id, name, class_id, status, source, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT ON CONSTRAINT idx_students_name_class DO NOTHING`,
+       VALUES ($1, $2, $3, $4, $5, $6)`,
       [id, name, classId, status, source, Date.now()]
     );
     return id;
@@ -761,6 +769,11 @@ module.exports = {
 
   async archiveQuizQuestion(id) {
     await query(`UPDATE quiz_bank SET archived = true, updated_at = $1 WHERE id = $2`, [Date.now(), id]);
+  },
+
+  // 22f: gearchiveerde vraag herstellen
+  async unarchiveQuizQuestion(id) {
+    await query(`UPDATE quiz_bank SET archived = false, updated_at = $1 WHERE id = $2`, [Date.now(), id]);
   },
 
   async deleteQuizQuestion(id) {

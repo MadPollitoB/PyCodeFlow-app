@@ -74,9 +74,9 @@ const AUTH_RATE_LIMIT_BASE_DELAY_MS = Math.max(250, Number(process.env.POC_BASIC
 
 const VERSION = {
   year: process.env.APP_VERSION_YEAR || "2026",
-  major: process.env.APP_VERSION_MAJOR || "0",
-  minor: process.env.APP_VERSION_MINOR || "0",
-  build: process.env.APP_VERSION_BUILD || "0"
+  major: process.env.APP_VERSION_MAJOR || "2",
+  minor: process.env.APP_VERSION_MINOR || "23",
+  build: process.env.APP_VERSION_BUILD || "4"
 };
 const APP_VERSION = `${VERSION.year}.${VERSION.major}.${VERSION.minor}.${VERSION.build}`;
 
@@ -329,9 +329,10 @@ function socketIsTeacherAuthorized(socket) {
 app.use((req, res, next) => {
   // CSP: unsafe-inline nodig voor inline scripts in HTML-bestanden
   // unsafe-eval verwijderd (Sprint 12a-D) — Monaco ESM workers via blob: URLs
+  // cdnjs.cloudflare.com toegevoegd voor marked.js (quiz-bank preview)
   res.setHeader('Content-Security-Policy',
     "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline'; " +
+    "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; " +
     "style-src 'self' 'unsafe-inline'; " +
     "font-src 'self' data:; " +
     "img-src 'self' data:; " +
@@ -438,9 +439,7 @@ app.get('/teacher-sessions.html', requireTeacherAuth, (req, res) => {
 app.get('/teacher-app.html', requireTeacherAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'teacher-app.html'));
 });
-app.get('/teacher-start.html', requireTeacherAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'teacher-start.html'));
-});
+// teacher-start.html route verwijderd (sprint 23c) — bestand bestond niet
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -884,6 +883,12 @@ app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) 
 
 app.put('/api/quiz/bank/:id/archive', requireTeacherAuth, requireCsrf, async (req, res) => {
   await dbModule.archiveQuizQuestion(req.params.id);
+  res.json({ ok: true });
+});
+
+// 22f: herstellen van gearchiveerde vraag
+app.put('/api/quiz/bank/:id/unarchive', requireTeacherAuth, requireCsrf, async (req, res) => {
+  await dbModule.unarchiveQuizQuestion(req.params.id);
   res.json({ ok: true });
 });
 
@@ -1754,6 +1759,11 @@ app.get('/quiz-archive.html', requireTeacherAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'quiz-archive.html'));
 });
 
+// Route voor teacher-grid.html (grid-overzicht leerlingen in nieuw tabblad)
+app.get('/teacher-grid.html', requireTeacherAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'teacher-grid.html'));
+});
+
 // ── Sprint 20a: Audit log API ────────────────────────────────────────────────
 
 function getActorFromReq(req) {
@@ -1956,6 +1966,47 @@ app.get('/api/monitoring', requireTeacherAuth, async (req, res) => {
         running: freeRunning,
       },
       history: monitorHistory.slice(), // Ringbuffer snapshots voor grafiek
+      dbStats: await (async () => {
+        try {
+          const { Pool } = require('pg');
+          const pool = new Pool({
+            connectionString: process.env.DATABASE_URL ||
+              `postgresql://pycodeflow:${encodeURIComponent(process.env.POSTGRES_PASSWORD)}@postgres:5432/pycodeflow`,
+            max: 2, connectionTimeoutMillis: 3000,
+          });
+          const [tables, teachers, classes, students, sessionsDb] = await Promise.all([
+            pool.query(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public'`),
+            pool.query(`SELECT COUNT(*) FROM teachers`),
+            pool.query(`SELECT COUNT(*) FROM classes`),
+            pool.query(`SELECT COUNT(*) FROM students`),
+            pool.query(`SELECT COUNT(*) FROM sessions WHERE deleted=0`),
+          ]);
+          await pool.end();
+          return {
+            tableCount:   Number(tables.rows[0].count),
+            teacherCount: Number(teachers.rows[0].count),
+            classCount:   Number(classes.rows[0].count),
+            studentCount: Number(students.rows[0].count),
+            sessionCount: Number(sessionsDb.rows[0].count),
+          };
+        } catch { return null; }
+      })(),
+      quizStats: await (async () => {
+        try {
+          const [questions, sessions2, answers, runs] = await Promise.all([
+            dbModule.pool ? dbModule.pool.query(`SELECT COUNT(*) FROM quiz_bank WHERE archived=false`) : Promise.resolve({rows:[{count:0}]}),
+            dbModule.pool ? dbModule.pool.query(`SELECT COUNT(*) FROM quiz_meta`) : Promise.resolve({rows:[{count:0}]}),
+            dbModule.pool ? dbModule.pool.query(`SELECT COUNT(*) FROM quiz_answers`) : Promise.resolve({rows:[{count:0}]}),
+            dbModule.pool ? dbModule.pool.query(`SELECT ROUND(AVG(run_count),1) as avg FROM quiz_answers`) : Promise.resolve({rows:[{avg:0}]}),
+          ]);
+          return {
+            totalQuestions: Number(questions.rows[0].count || 0),
+            totalSessions:  Number(sessions2.rows[0].count || 0),
+            totalAnswers:   Number(answers.rows[0].count || 0),
+            avgRuns:        Number(runs.rows[0].avg || 0),
+          };
+        } catch { return null; }
+      })(),
     });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message || 'monitoring failed' });
@@ -4048,12 +4099,14 @@ io.on("connection", (socket) => {
 
     // Sprint 19a: 15s backup interval voor quiz (was 60s)
     // Sla direct op in DB bij elke navigatie
+    // 23a: selectedChoices meesturen zodat keuze-antwoorden persistent zijn
     dbModule.saveQuizAnswer({
       sessionCode: ctx.code, studentId: ctx.studentId,
       studentName: student.name, studentClass: student.className || '',
       questionId, personalOrder: student.quizPersonalOrder?.indexOf(questionId) ?? 0,
       code, runCount: runCount || 0,
       firstVisitAt: firstVisitAt || null, firstRunAt: firstRunAt || null,
+      selectedChoices: JSON.stringify(data?.selectedChoices || []),
     }).catch(e => console.error('[quiz] saveQuizAnswer:', e.message));
 
     socket.emit('quiz_answer_saved', { questionId });
@@ -4195,6 +4248,16 @@ io.on("connection", (socket) => {
   });
 
   // Sprint 19d: herinnering sturen naar leerling die nog niet gestart heeft
+  // Grid-overzicht in nieuw tabblad (teacher-grid.html)
+  socket.on('teacher_grid_observe', ({ code }) => {
+    if (!code) return;
+    const session = sessions.get(code.toUpperCase());
+    if (!session) return;
+    // Stuur huidige sessiedata naar dit socket (de grid viewer)
+    const data = buildTeacherData(session);
+    socket.emit('teacher_session_data', data);
+  });
+
   socket.on('quiz_send_reminder', ({ studentId }) => {
     if (!socketIsTeacherAuthorized(socket)) return;
     const ctx = socketToUser.get(socket.id);

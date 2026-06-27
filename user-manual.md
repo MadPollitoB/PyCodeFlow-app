@@ -43,6 +43,11 @@ Klik op "Verwijderen". Niet mogelijk als er actieve sessies lopen.
 
 ### Leerlingen beheren
 
+**Handmatig toevoegen:**
+1. Ga naar admin.html → tabblad Leerlingen
+2. Vul naam in en kies een klas
+3. Klik "+ Toevoegen"
+
 **Via CSV-import (aanbevolen):**
 1. Ga naar admin.html → tabblad Leerlingen → "📥 CSV-import"
 2. Voer gegevens in: één leerling per regel, formaat `naam,klas`
@@ -64,6 +69,13 @@ Sara Declercq,6B Informatica
 | ↩ Deblokkeren | Geblokkeerde leerling terug toelaten |
 | 🗒 Notitie | Vrije notitie toevoegen |
 | ✕ Verwijderen | Leerling volledig verwijderen |
+
+### Navigatie (leerkrachten)
+
+Elke leerkrachtpagina heeft een secundaire navigatiebalk met snelkoppelingen naar:
+- 📋 Vragenbank · 📝 Nieuwe toets · 📦 Archief · 👤 Beheer · ⚙️ Systeem
+
+De actieve pagina is gemarkeerd in blauw.
 
 ### Monitoring
 
@@ -161,7 +173,7 @@ Klik "✕ Sessie sluiten" → bevestig in het dialoogvenster. Leerlingen worden 
 
 ### Editor thema
 
-Klik ☀️/🌙 in de toolbar om tussen licht en donker te wisselen. Jouw keuze is onafhankelijk van de leerlingen.
+De Monaco code-editor heeft een donker thema. Klik ☀️ in de editor-toolbar om tussen licht en donker te wisselen. Dit geldt enkel voor de code-editor, niet voor de rest van de pagina.
 
 ### Sneltoetsen
 
@@ -223,7 +235,7 @@ Klik "Run" of druk `Ctrl+Enter`. De output verschijnt in het output-paneel recht
 
 ### Editor thema
 
-Klik ☀️/🌙 in de toolbar om tussen lichte en donkere editor te wisselen. Je voorkeur wordt onthouden.
+Klik ☀️ in de editor-toolbar om de code-editor tussen licht en donker te wisselen. Je voorkeur wordt onthouden.
 
 ### Hand opsteken
 
@@ -255,4 +267,4 @@ Bij een onderbroken verbinding wordt automatisch geprobeerd te herverbinden.
 
 ---
 
-*PyCodeFlow · Atheneum Hoboken*
+*PyCodeFlow · Atheneum Hoboken · user-manual.md · v2026.2.23.0*

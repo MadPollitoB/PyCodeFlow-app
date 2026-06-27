@@ -1,15 +1,16 @@
 <!DOCTYPE html>
-<html lang="nl" data-theme="light">
+<html lang="nl">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Vragenbank</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.13.0"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.23.4"/>
   <style>
     .qb-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px; }
     @media(max-width:900px){ .qb-grid { grid-template-columns:1fr; } }
-    .q-card { background:var(--surface); border:1.5px solid var(--border); border-radius:14px; padding:16px 18px; }
+    .q-card { background:var(--surface); border:1.5px solid var(--border); border-radius:14px; padding:16px 18px; transition:border-color .15s; }
     .q-card:hover { border-color:var(--primary); }
+    .q-card.archived-card { opacity:0.6; }
     .q-meta { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px; }
     .q-text { font-size:0.92rem; color:var(--text); line-height:1.6; white-space:pre-wrap; }
     .q-actions { display:flex; gap:6px; margin-top:12px; flex-wrap:wrap; }
@@ -28,8 +29,8 @@
     .form-row label { font-size:0.82rem; color:var(--muted); display:block; margin-bottom:4px; }
     .form-row input, .form-row select, .form-row textarea {
       width:100%; padding:8px 10px; border:1.5px solid var(--border);
-      border-radius:8px; font-size:0.88rem; background:var(--surface); color:var(--text); }
-    textarea.q-input { min-height:100px; resize:vertical; font-family:inherit; }
+      border-radius:8px; font-size:0.88rem; background:var(--surface); color:var(--text); box-sizing:border-box; }
+    textarea.q-input { min-height:120px; resize:vertical; font-family:inherit; line-height:1.6; }
     .csv-area { width:100%; min-height:120px; padding:10px; border:1.5px solid var(--border);
       border-radius:8px; font-family:Consolas,monospace; font-size:0.82rem; resize:vertical; }
     .tab-nav { display:flex; gap:0; border-bottom:2px solid var(--border); margin-bottom:20px; }
@@ -45,7 +46,54 @@
     .stat-chip { background:var(--surface-soft); border:1px solid var(--border);
       border-radius:10px; padding:8px 14px; font-size:0.85rem; }
     .stat-chip strong { color:var(--primary); }
+
+    /* 22e: choice opties styling */
+    .choice-row {
+      display:flex; align-items:flex-start; gap:8px; margin-bottom:8px;
+      background:var(--surface); border:1.5px solid var(--border); border-radius:10px; padding:10px 12px;
+    }
+    .choice-row .choice-selector { margin-top:6px; flex-shrink:0; }
+    .choice-body { flex:1; display:flex; flex-direction:column; gap:6px; }
+    .choice-text-input {
+      width:100%; padding:7px 10px; border:1.5px solid var(--border); border-radius:8px;
+      font-size:0.88rem; background:var(--surface); color:var(--text); box-sizing:border-box;
+    }
+    .choice-code-input {
+      width:100%; padding:8px 10px; border:1.5px solid var(--border); border-radius:8px;
+      font-family:Consolas,monospace; font-size:0.82rem; background:#1e1e1e; color:#d4d4d4;
+      resize:vertical; min-height:60px; box-sizing:border-box;
+    }
+    .choice-toggle-code {
+      font-size:0.75rem; padding:2px 8px; border-radius:6px; border:1px solid var(--border);
+      background:var(--surface-soft); color:var(--muted); cursor:pointer; align-self:flex-start;
+    }
+    .choice-toggle-code.active { background:#1e1e1e; color:#d4d4d4; border-color:#444; }
+    .choice-remove { background:none; border:none; cursor:pointer; color:var(--muted); font-size:1.1rem; flex-shrink:0; padding:4px; }
+    .choice-remove:hover { color:var(--error-fg); }
+
+    /* 22d: markdown preview */
+    .md-preview { padding:12px; background:var(--surface-soft); border-radius:8px;
+      margin-top:6px; border:1.5px solid var(--border); font-size:0.92rem; line-height:1.7; }
+    .md-preview code { background:var(--surface); padding:2px 5px; border-radius:4px;
+      font-family:Consolas,monospace; font-size:0.85em; border:1px solid var(--border); }
+    .md-preview pre { background:#1e1e1e; color:#d4d4d4; padding:12px; border-radius:8px;
+      overflow:auto; font-family:Consolas,monospace; font-size:0.85rem; }
+    .md-preview pre code { background:none; border:none; padding:0; }
+    .md-preview strong { color:var(--text); }
+    .md-preview ul, .md-preview ol { padding-left:20px; }
+
+    /* vraagtype radio cards */
+    .type-radio-group { display:flex; gap:8px; flex-wrap:wrap; }
+    .type-radio-label {
+      display:flex; align-items:center; gap:6px; cursor:pointer;
+      padding:8px 14px; border:1.5px solid var(--border); border-radius:10px;
+      font-size:0.88rem; transition:all .15s;
+    }
+    .type-radio-label:has(input:checked) {
+      border-color:var(--primary); background:var(--primary-soft); color:var(--primary); font-weight:700;
+    }
   </style>
+  <link rel="icon" href="/assets/favicon.png" type="image/png">
 </head>
 <body>
 <div class="topbar">
@@ -58,10 +106,19 @@
     <div class="top-actions">
       <a href="/teacher-sessions.html" class="btn btn-muted small">← Sessies</a>
       <a href="/admin.html" class="btn btn-muted small">👤 Beheer</a>
-      <button class="dark-toggle" id="dark-mode-toggle">🌙</button>
+      
     </div>
   </div>
 </div>
+
+<div class="subnav"><div class="subnav-inner">
+  <a href="/quiz-bank.html" class="active">📋 Vragenbank</a>
+  <a href="/quiz-teacher.html">📝 Nieuwe toets</a>
+  <a href="/quiz-archive.html">📦 Archief</a>
+  <div class="subnav-sep"></div>
+  <a href="/admin.html">👤 Beheer</a>
+  <a href="/monitoring.html">⚙️ Systeem</a>
+</div></div>
 
 <div class="screen" style="max-width:1100px;margin:0 auto;padding:28px 20px;">
   <h1 style="margin:0 0 6px;">Vragenbank</h1>
@@ -99,43 +156,58 @@
     <div class="form-panel">
       <h3 style="margin:0 0 16px;" id="form-title">Nieuwe vraag toevoegen</h3>
       <input type="hidden" id="edit-id"/>
-      <div style="margin-bottom:12px;">
-        <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Vraagtype</label>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border:1.5px solid var(--border);border-radius:8px;">
+
+      <!-- Vraagtype -->
+      <div style="margin-bottom:14px;">
+        <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:8px;">Vraagtype</label>
+        <div class="type-radio-group">
+          <label class="type-radio-label">
             <input type="radio" name="q-type" value="code" checked onchange="onTypeChange(this.value)"/> 🐍 Python code
           </label>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border:1.5px solid var(--border);border-radius:8px;">
+          <label class="type-radio-label">
             <input type="radio" name="q-type" value="open" onchange="onTypeChange(this.value)"/> ✏️ Open vraag
           </label>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border:1.5px solid var(--border);border-radius:8px;">
+          <label class="type-radio-label">
             <input type="radio" name="q-type" value="single" onchange="onTypeChange(this.value)"/> ◉ Single choice
           </label>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:6px 12px;border:1.5px solid var(--border);border-radius:8px;">
+          <label class="type-radio-label">
             <input type="radio" name="q-type" value="multiple" onchange="onTypeChange(this.value)"/> ☑ Meerkeuze
           </label>
         </div>
       </div>
-      <div style="margin-bottom:12px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-          <label style="font-size:0.82rem;color:var(--muted);">Vraagstelling <span style="font-size:0.75rem;">(Markdown ondersteund)</span></label>
-          <button type="button" class="btn btn-muted small" style="font-size:0.75rem;padding:2px 8px;"
-            onclick="toggleMarkdownPreview()">👁 Preview</button>
-        </div>
-        <textarea class="q-input" id="q-text" placeholder="Schrijf een functie die ...
 
-**Vet**, `code`, - lijsten zijn mogelijk"></textarea>
-        <div id="q-text-preview" style="display:none;padding:12px;background:var(--surface-soft);
-          border-radius:8px;margin-top:6px;border:1.5px solid var(--border);font-size:0.92rem;line-height:1.7;"></div>
+      <!-- Vraagstelling -->
+      <div style="margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <label style="font-size:0.82rem;color:var(--muted);">
+            Vraagstelling <span style="font-size:0.75rem;">(Markdown ondersteund)</span>
+          </label>
+          <button type="button" class="btn btn-muted small" style="font-size:0.75rem;padding:3px 10px;"
+            id="preview-toggle-btn" onclick="toggleMarkdownPreview()">👁 Preview</button>
+        </div>
+        <!-- 22a FIX: textarea zonder form-parent die Enter onderschept -->
+        <textarea class="q-input" id="q-text"
+          placeholder="Schrijf een functie die ...&#10;&#10;**Vet**, \`code\`, - lijsten zijn mogelijk"
+          onkeydown="event.stopPropagation()"></textarea>
+        <div id="q-text-preview" class="md-preview" style="display:none;"></div>
       </div>
-      <!-- Antwoordopties (enkel bij single/multiple) -->
-      <div id="choices-panel" style="display:none;margin-bottom:12px;">
-        <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:6px;">
-          Antwoordopties <span class="muted" id="choices-hint" style="font-size:0.78rem;">(selecteer de juiste)</span>
-        </label>
+
+      <!-- 22e: Antwoordopties (enkel bij single/multiple) -->
+      <div id="choices-panel" style="display:none;margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <label style="font-size:0.82rem;color:var(--muted);">
+            Antwoordopties — <span id="choices-hint" style="font-size:0.78rem;">selecteer de juiste</span>
+          </label>
+        </div>
         <div id="choices-list"></div>
         <button type="button" class="btn btn-muted small" style="margin-top:8px;" onclick="addChoice()">+ Optie toevoegen</button>
+        <p style="font-size:0.78rem;color:var(--muted);margin:6px 0 0;">
+          Klik op <strong>&lt;/&gt;</strong> om een optie als code-blok in te voeren.
+          Selecteer de <strong>correcte</strong> optie(s) via de keuzeknop.
+        </p>
       </div>
+
+      <!-- Meta -->
       <div class="form-row">
         <div>
           <label>Onderwerp</label>
@@ -170,66 +242,101 @@
         Formaat: <code>onderwerp,moeilijkheid,max_punten,vraag</code> — één vraag per regel.<br/>
         Duplicaten (zelfde vraagtekst) worden automatisch overgeslagen.
       </p>
-      <p style="font-size:0.82rem;color:var(--muted);margin:0 0 8px;">Voorbeeld:</p>
       <pre style="background:var(--surface);padding:10px;border-radius:8px;font-size:0.78rem;overflow:auto;">Functies,gemiddeld,4,"Schrijf een functie die twee getallen optelt."
 Lijsten,moeilijk,4,"Sorteer een lijst zonder .sort() te gebruiken."
 Lussen,makkelijk,2,"Druk de getallen 1 tot 10 af met een lus."</pre>
-      <textarea class="csv-area" id="csv-input" placeholder="Plak je CSV hier..."></textarea>
+      <textarea class="csv-area" id="csv-input" placeholder="Plak je CSV hier..." onkeydown="event.stopPropagation()"></textarea>
       <button class="btn btn-soft small" style="margin-top:10px;" onclick="importCSV()">📥 Importeren</button>
       <div id="import-result"></div>
     </div>
   </div>
 </div>
 
-<script src="/app.js?v=v2026.2.13.0"></script>
+<script src="/app.js?v=v2026.2.23.4"></script>
+<!-- 22d: marked.js voor Markdown preview — geladen VOOR inline script -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 <script>
-let _questions = [];
+'use strict';
 
+// 23o: apiFetch wrapper met CSRF token
+let _csrfToken = null;
+async function getCSRFToken() {
+  if (_csrfToken) return _csrfToken;
+  try { const r = await fetch('/api/csrf-token'); if (r.ok) { const d = await r.json(); _csrfToken = d.token; } } catch {}
+  return _csrfToken || '';
+}
+async function apiFetch(url, options = {}) {
+  const token = await getCSRFToken();
+  return fetch(url, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...(token ? { 'X-CSRF-Token': token } : {}), ...(options.headers || {}) },
+  });
+}
+
+
+
+let _questions = [];
+let _choices   = [];   // huidige antwoordopties
+let _previewOpen = false;
+
+// ── Tab navigatie ──────────────────────────────────────────────────────────────
 function switchTab(name) {
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-nav button').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
-  document.querySelectorAll('.tab-nav button')[['browse','add','csv'].indexOf(name)].classList.add('active');
+  const idx = ['browse','add','csv'].indexOf(name);
+  document.querySelectorAll('.tab-nav button')[idx].classList.add('active');
   if (name === 'browse') loadQuestions();
 }
 
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+// Voor gebruik in onclick="..." attributen: ook apostrofs escapen
+function escAttr(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
 
+// ── Data laden ─────────────────────────────────────────────────────────────────
 async function loadSubjects() {
-  const r = await fetch('/api/quiz/bank/subjects');
-  const subjects = await r.json();
-  const sel = document.getElementById('filter-subject');
-  const cur = sel.value;
-  sel.innerHTML = '<option value="">Alle onderwerpen</option>' +
-    subjects.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
-  if (cur) sel.value = cur;
-  // Datalist voor autocomplete
-  document.getElementById('subjects-list').innerHTML =
-    subjects.map(s => `<option value="${esc(s)}"></option>`).join('');
+  try {
+    const r = await fetch('/api/quiz/bank/subjects');
+    const subjects = await r.json();
+    const sel = document.getElementById('filter-subject');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">Alle onderwerpen</option>' +
+      subjects.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+    if (cur) sel.value = cur;
+    document.getElementById('subjects-list').innerHTML =
+      subjects.map(s => `<option value="${esc(s)}"></option>`).join('');
+  } catch(e) { console.error('[quiz-bank] loadSubjects:', e); }
 }
 
 async function loadQuestions() {
-  const subject = document.getElementById('filter-subject').value;
+  const subject    = document.getElementById('filter-subject').value;
   const difficulty = document.getElementById('filter-difficulty').value;
-  const archived = document.getElementById('show-archived').checked;
+  const archived   = document.getElementById('show-archived').checked;
   const params = new URLSearchParams();
-  if (subject) params.set('subject', subject);
+  if (subject)    params.set('subject', subject);
   if (difficulty) params.set('difficulty', difficulty);
-  if (archived) params.set('archived', 'true');
-  const r = await fetch('/api/quiz/bank?' + params);
-  _questions = await r.json();
+  if (archived)   params.set('archived', 'true');
+  try {
+    const r = await fetch('/api/quiz/bank?' + params);
+    _questions = await r.json();
+  } catch(e) {
+    _questions = [];
+    document.getElementById('q-grid').innerHTML =
+      '<div class="empty-state" style="grid-column:1/-1;">⚠️ Kon vragen niet laden. Herlaad de pagina.</div>';
+    return;
+  }
   renderQuestions(_questions);
   document.getElementById('q-count').textContent = `${_questions.length} vragen`;
-  // Stats
-  const total = _questions.length;
-  const byDiff = { makkelijk: 0, gemiddeld: 0, moeilijk: 0 };
+  const byDiff = { makkelijk:0, gemiddeld:0, moeilijk:0 };
   _questions.forEach(q => byDiff[q.difficulty] = (byDiff[q.difficulty]||0)+1);
   document.getElementById('stats-bar').innerHTML =
-    `<div class="stat-chip">Totaal: <strong>${total}</strong></div>` +
-    Object.entries(byDiff).map(([d,n]) => n > 0 ?
-      `<div class="stat-chip">${d}: <strong>${n}</strong></div>` : '').join('');
+    `<div class="stat-chip">Totaal: <strong>${_questions.length}</strong></div>` +
+    Object.entries(byDiff).map(([d,n]) => n > 0
+      ? `<div class="stat-chip">${d}: <strong>${n}</strong></div>` : '').join('');
 }
 
 function renderQuestions(qs) {
@@ -238,27 +345,46 @@ function renderQuestions(qs) {
     el.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">Geen vragen gevonden.</div>';
     return;
   }
-  el.innerHTML = qs.map(q => `
-    <div class="q-card ${q.archived ? 'opacity:0.5' : ''}">
+  const typeLabel = { code:'🐍 Code', open:'✏️ Open', single:'◉ Single', multiple:'☑ Keuze' };
+  el.innerHTML = qs.map((q, idx) => {
+    const typeLabel2 = { code:'🐍 Code', open:'✏️ Open', single:'◉ Single', multiple:'☑ Keuze' };
+    return `
+    <div class="q-card ${q.archived ? 'archived-card' : ''}" data-qid="${q.id}">
       <div class="q-meta">
         ${q.subject ? `<span class="badge">${esc(q.subject)}</span>` : ''}
         <span class="diff-badge diff-${q.difficulty}">${q.difficulty}</span>
         <span class="badge" style="background:#f0f9ff;color:#0369a1;font-size:0.72rem;">
-          ${{code:'🐍 Code',open:'✏️ Open',single:'◉ Single',multiple:'☑ Keuze'}[q.question_type]||'Code'}
+          ${typeLabel2[q.question_type] || 'Code'}
         </span>
         <span class="muted" style="font-size:0.78rem;margin-left:auto;">${q.max_points} pt</span>
-        ${q.archived ? '<span class="badge" style="background:#fee2e2;color:#991b1b;">Gearchiveerd</span>' : ''}
+        ${q.archived ? '<span class="badge" style="background:#fee2e2;color:#991b1b;font-size:0.72rem;">Gearchiveerd</span>' : ''}
       </div>
       <div class="q-text">${esc(q.text)}</div>
       <div class="q-actions">
-        <button class="btn btn-muted small" onclick="editQuestion('${q.id}')">✏️ Bewerken</button>
+        <button class="btn btn-muted small q-btn-edit">✏️ Bewerken</button>
         ${!q.archived
-          ? `<button class="btn btn-muted small" onclick="archiveQuestion('${q.id}')">📦 Archiveren</button>`
-          : `<button class="btn btn-muted small" onclick="deleteQuestion('${q.id}','${esc(q.text).slice(0,30)}')">🗑 Verwijderen</button>`}
+          ? '<button class="btn btn-muted small q-btn-delete">🗑 Verwijderen</button>'
+          : '<button class="btn btn-muted small q-btn-restore">↩ Herstellen</button>' +
+            '<button class="btn btn-danger small q-btn-destroy">🗑 Definitief verwijderen</button>'
+        }
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+  // Event delegation: knoppen op q-cards via data-qid op de parent card
+  document.getElementById('q-grid').addEventListener('click', function(e) {
+    const card = e.target.closest('[data-qid]');
+    if (!card) return;
+    const id = card.dataset.qid;
+    const q  = _questions.find(x => x.id === id);
+    if (!q) return;
+    if (e.target.closest('.q-btn-edit'))    { editQuestion(id); return; }
+    if (e.target.closest('.q-btn-delete'))  { verwijderOfArchiveer(id, q.text.slice(0,40)); return; }
+    if (e.target.closest('.q-btn-restore')) { unarchiveQuestion(id); return; }
+    if (e.target.closest('.q-btn-destroy')) { deleteQuestion(id, q.text.slice(0,40)); return; }
+  });
 }
 
+// ── Vraag bewerken ─────────────────────────────────────────────────────────────
 function editQuestion(id) {
   const q = _questions.find(x => x.id === id);
   if (!q) return;
@@ -268,15 +394,18 @@ function editQuestion(id) {
   document.getElementById('q-difficulty').value = q.difficulty;
   document.getElementById('q-points').value = q.max_points;
   document.getElementById('form-title').textContent = 'Vraag bewerken';
-  // Stel vraagtype in
   const typeRadio = document.querySelector(`[name=q-type][value="${q.question_type||'code'}"]`);
   if (typeRadio) { typeRadio.checked = true; onTypeChange(q.question_type||'code'); }
-  // Laad choices
   try { _choices = JSON.parse(q.choices_json || '[]'); } catch { _choices = []; }
   if (_choices.length === 0 && ['single','multiple'].includes(q.question_type)) {
-    _choices = [{id:crypto.randomUUID(),text:'',correct:false},{id:crypto.randomUUID(),text:'',correct:false}];
+    _choices = [
+      { id: crypto.randomUUID(), text:'', isCode:false, correct:false },
+      { id: crypto.randomUUID(), text:'', isCode:false, correct:false },
+    ];
   }
   renderChoices();
+  // Reset preview als die open stond
+  if (_previewOpen) toggleMarkdownPreview();
   switchTab('add');
 }
 
@@ -291,129 +420,210 @@ function cancelEdit() {
   if (codeRadio) { codeRadio.checked = true; onTypeChange('code'); }
   _choices = [];
   document.getElementById('choices-panel').style.display = 'none';
+  if (_previewOpen) toggleMarkdownPreview();
   switchTab('browse');
 }
 
-let _choices = []; // huidige antwoordopties
-
+// ── 22d: Markdown preview ──────────────────────────────────────────────────────
 function toggleMarkdownPreview() {
-  const preview = document.getElementById('q-text-preview');
+  const preview  = document.getElementById('q-text-preview');
   const textarea = document.getElementById('q-text');
-  if (preview.style.display === 'none') {
-    const text = textarea.value;
-    preview.innerHTML = window.marked ? window.marked.parse(text, {breaks:true}) : text;
+  const btn      = document.getElementById('preview-toggle-btn');
+  _previewOpen   = !_previewOpen;
+  if (_previewOpen) {
+    const raw = textarea.value;
+    // marked.js beschikbaar via CDN (geladen voor dit script)
+    preview.innerHTML = window.marked
+      ? window.marked.parse(raw, { breaks: true, gfm: true })
+      : raw.replace(/\n/g,'<br>');
     preview.style.display = 'block';
     textarea.style.display = 'none';
+    btn.textContent = '✎ Bewerken';
   } else {
     preview.style.display = 'none';
     textarea.style.display = '';
+    btn.textContent = '👁 Preview';
   }
 }
 
+// ── 22e: Vraagtype & keuze-opties ──────────────────────────────────────────────
 function onTypeChange(type) {
   const panel = document.getElementById('choices-panel');
   const hint  = document.getElementById('choices-hint');
   panel.style.display = ['single','multiple'].includes(type) ? 'block' : 'none';
   hint.textContent = type === 'single'
-    ? '(selecteer exact 1 juist antwoord)'
-    : '(selecteer alle juiste antwoorden)';
-  if (_choices.length === 0) {
-    _choices = [{id: crypto.randomUUID(), text:'', correct:false},
-                {id: crypto.randomUUID(), text:'', correct:false}];
+    ? 'selecteer exact 1 juist antwoord'
+    : 'selecteer alle juiste antwoorden';
+  if (['single','multiple'].includes(type) && _choices.length === 0) {
+    _choices = [
+      { id: crypto.randomUUID(), text:'', isCode:false, correct:false },
+      { id: crypto.randomUUID(), text:'', isCode:false, correct:false },
+    ];
     renderChoices();
   }
 }
 
 function addChoice() {
-  if (_choices.length >= 8) return alert('Maximaal 8 opties.');
-  _choices.push({ id: crypto.randomUUID(), text: '', correct: false });
+  if (_choices.length >= 8) return pyToast('Maximaal 8 opties.', 'warn');
+  _choices.push({ id: crypto.randomUUID(), text:'', isCode:false, correct:false });
   renderChoices();
 }
 
 function removeChoice(id) {
-  if (_choices.length <= 2) return alert('Minimaal 2 opties.');
+  if (_choices.length <= 2) return pyToast('Minimaal 2 opties vereist.', 'warn');
   _choices = _choices.filter(ch => ch.id !== id);
   renderChoices();
 }
 
+function toggleChoiceCode(idx) {
+  _choices[idx].isCode = !_choices[idx].isCode;
+  renderChoices();
+  // Focus de net-getoggle input
+  const inputs = document.getElementById('choices-list').querySelectorAll('.choice-text-input,.choice-code-input');
+  if (inputs[idx]) inputs[idx].focus();
+}
+
+function setChoiceText(idx, val) { _choices[idx].text = val; }
+
+function setChoiceCorrectSingle(idx) {
+  _choices.forEach((c, i) => c.correct = (i === idx));
+  // Geen volledige re-render nodig — radio state klopt al
+}
+
+function setChoiceCorrectMulti(idx, val) { _choices[idx].correct = val; }
+
 function renderChoices() {
   const type = document.querySelector('[name=q-type]:checked')?.value || 'single';
   const list = document.getElementById('choices-list');
-  list.innerHTML = _choices.map((ch, i) => `
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
-      ${type === 'single'
-        ? `<input type="radio" name="correct-choice" ${ch.correct?'checked':''} onchange="_choices.forEach((c,j)=>c.correct=j===${i}); renderChoices()"/>`
-        : `<input type="checkbox" ${ch.correct?'checked':''} onchange="_choices[${i}].correct=this.checked"/>`
-      }
-      <input value="${esc(ch.text)}" placeholder="Optie ${i+1}..."
-        oninput="_choices[${i}].text=this.value"
-        style="flex:1;padding:7px;border:1.5px solid var(--border);border-radius:8px;font-size:0.88rem;"/>
-      <button onclick="removeChoice('${ch.id}')" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:1.1rem;">✕</button>
-    </div>`).join('');
+  list.innerHTML = _choices.map((ch, i) => {
+    const selectorHtml = type === 'single'
+      ? `<input type="radio" name="correct-choice" class="choice-selector"
+           ${ch.correct ? 'checked' : ''} title="Juist antwoord"
+           onchange="setChoiceCorrectSingle(${i})" />`
+      : `<input type="checkbox" class="choice-selector"
+           ${ch.correct ? 'checked' : ''} title="Juist antwoord"
+           onchange="setChoiceCorrectMulti(${i}, this.checked)" />`;
+
+    const inputHtml = ch.isCode
+      ? `<textarea class="choice-code-input" rows="3"
+           placeholder="# Python code hier..." onkeydown="event.stopPropagation()"
+           oninput="setChoiceText(${i}, this.value)">${esc(ch.text)}</textarea>`
+      : `<input type="text" class="choice-text-input" value="${esc(ch.text)}"
+           placeholder="Optie ${i+1}..." oninput="setChoiceText(${i}, this.value)"
+           onkeydown="event.stopPropagation()" />`;
+
+    return `
+      <div class="choice-row">
+        ${selectorHtml}
+        <div class="choice-body">
+          ${inputHtml}
+          <button type="button" class="choice-toggle-code ${ch.isCode ? 'active' : ''}"
+            onclick="toggleChoiceCode(${i})" title="${ch.isCode ? 'Omzetten naar tekst' : 'Omzetten naar code'}">
+            &lt;/&gt; ${ch.isCode ? 'Tekst' : 'Code'}
+          </button>
+        </div>
+        <button type="button" class="choice-remove" onclick="removeChoice('${ch.id}')" title="Optie verwijderen">✕</button>
+      </div>`;
+  }).join('');
 }
 
+// ── Opslaan ────────────────────────────────────────────────────────────────────
 async function saveQuestion() {
   const id   = document.getElementById('edit-id').value;
   const type = document.querySelector('[name=q-type]:checked')?.value || 'code';
-  const body = {
-    text: document.getElementById('q-text').value.trim(),
-    subject: document.getElementById('q-subject').value.trim(),
-    difficulty: document.getElementById('q-difficulty').value,
-    maxPoints: parseInt(document.getElementById('q-points').value) || 4,
-    questionType: type,
-    choices: ['single','multiple'].includes(type) ? _choices : [],
-  };
-  if (!body.text) return alert('Vul een vraagstelling in.');
+  const text = document.getElementById('q-text').value.trim();
+
+  if (!text) return void pyToast('Vul een vraagstelling in.', 'warn');
   if (['single','multiple'].includes(type)) {
-    if (_choices.filter(ch => ch.text.trim()).length < 2) return alert('Vul minstens 2 opties in.');
-    if (!_choices.some(ch => ch.correct)) return alert('Selecteer minstens 1 juist antwoord.');
+    const filled = _choices.filter(ch => ch.text.trim());
+    if (filled.length < 2) return void pyToast('Vul minstens 2 opties in.', 'warn');
+    if (!_choices.some(ch => ch.correct)) return void pyToast('Selecteer minstens 1 juist antwoord.', 'warn');
   }
-  const url = id ? `/api/quiz/bank/${id}` : '/api/quiz/bank';
-  const method = id ? 'PUT' : 'POST';
-  const r = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  const data = await r.json();
-  if (data.ok || data.id) { cancelEdit(); loadSubjects(); loadQuestions(); }
-  else alert('Fout: ' + data.error);
+
+  const body = {
+    text,
+    subject:      document.getElementById('q-subject').value.trim(),
+    difficulty:   document.getElementById('q-difficulty').value,
+    maxPoints:    parseInt(document.getElementById('q-points').value) || 4,
+    questionType: type,
+    choices:      ['single','multiple'].includes(type) ? _choices : [],
+  };
+
+  try {
+    const url    = id ? `/api/quiz/bank/${id}` : '/api/quiz/bank';
+    const method = id ? 'PUT' : 'POST';
+    const r    = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const data = await r.json();
+    if (data.ok || data.id) { cancelEdit(); loadSubjects(); loadQuestions(); }
+    else pyToast('Fout bij opslaan: ' + data.error, 'error');
+  } catch(e) { pyToast('Netwerkfout: ' + e.message, 'error'); }
 }
 
-async function archiveQuestion(id) {
-  if (!confirm('Vraag archiveren? Ze blijft beschikbaar in afgelopen toetsen.')) return;
-  await fetch(`/api/quiz/bank/${id}/archive`, { method: 'PUT' });
-  loadQuestions();
+// ── 22f / 23.1: Verwijderen of archiveren ────────────────────────────────────
+// Probeert eerst definitief te verwijderen.
+// Als de server meldt dat de vraag in gebruik is in een toets → archiveer.
+async function verwijderOfArchiveer(id, preview) {
+  if (!await pyConfirm({ title: 'Vraag verwijderen', body: `"${preview}..."\n\nAls de vraag nog in een toets staat wordt ze gearchiveerd.`, confirmLabel: 'Verwijderen', danger: true })) return;
+  try {
+    const r    = await apiFetch(`/api/quiz/bank/${id}`, { method:'DELETE' });
+    const data = await r.json();
+    if (data.ok) {
+      // Definitief verwijderd
+      loadQuestions();
+    } else {
+      // In gebruik in een toets — archiveer in plaats van verwijderen
+      const archiveer = await pyConfirm({ title: 'Vraag archiveren', body: 'Deze vraag is gekoppeld aan een toets en kan niet definitief verwijderd worden.\n\nWil je ze archiveren? Ze blijft beschikbaar in bestaande toetsen maar verschijnt niet meer in de vragenbank.', confirmLabel: 'Archiveren' });
+      if (archiveer) {
+        await apiFetch(`/api/quiz/bank/${id}/archive`, { method:'PUT' });
+        loadQuestions();
+      }
+    }
+  } catch(e) { pyToast('Netwerkfout: ' + e.message, 'error'); }
+}
+
+async function unarchiveQuestion(id) {
+  try {
+    await apiFetch(`/api/quiz/bank/${id}/unarchive`, { method:'PUT' });
+    loadQuestions();
+  } catch(e) { pyToast('Fout: ' + e.message, 'error'); }
 }
 
 async function deleteQuestion(id, preview) {
-  if (!confirm(`Vraag verwijderen: "${preview}..."?\nDit kan niet ongedaan worden.`)) return;
-  const r = await fetch(`/api/quiz/bank/${id}`, { method: 'DELETE' });
-  const data = await r.json();
-  if (!data.ok) alert('Kan niet verwijderen: ' + data.error);
-  else loadQuestions();
+  if (!await pyConfirm({ title: 'Definitief verwijderen', body: `"${preview}..."\n\nDit kan niet ongedaan worden.`, confirmLabel: 'Verwijderen', danger: true })) return;
+  try {
+    const r    = await apiFetch(`/api/quiz/bank/${id}`, { method:'DELETE' });
+    const data = await r.json();
+    if (!data.ok) pyToast('Kan niet verwijderen: ' + data.error, 'error');
+    else loadQuestions();
+  } catch(e) { pyToast('Netwerkfout: ' + e.message, 'error'); }
 }
 
+// ── CSV import ─────────────────────────────────────────────────────────────────
 async function importCSV() {
   const csv = document.getElementById('csv-input').value.trim();
-  if (!csv) return alert('Voer CSV-data in.');
-  const r = await fetch('/api/quiz/bank/import-csv', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ csv }),
-  });
-  const data = await r.json();
-  const el = document.getElementById('import-result');
-  el.style.display = 'block';
-  if (data.ok) {
-    el.className = 'import-result import-ok';
-    el.innerHTML = `✅ <strong>${data.added}</strong> toegevoegd · <strong>${data.skipped}</strong> overgeslagen${data.errors.length ? '<br>⚠️ ' + data.errors.join(', ') : ''}`;
-    loadSubjects(); loadQuestions();
-  } else {
-    el.className = 'import-result import-err';
-    el.textContent = '❌ ' + data.error;
-  }
+  if (!csv) return void pyToast('Voer CSV-data in.', 'warn');
+  try {
+    const r    = await fetch('/api/quiz/bank/import-csv', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ csv }),
+    });
+    const data = await r.json();
+    const el   = document.getElementById('import-result');
+    el.style.display = 'block';
+    if (data.ok) {
+      el.className = 'import-ok';
+      el.innerHTML = `✅ <strong>${data.added}</strong> toegevoegd · <strong>${data.skipped}</strong> overgeslagen${data.errors.length ? '<br>⚠️ ' + data.errors.join(', ') : ''}`;
+      loadSubjects(); loadQuestions();
+    } else {
+      el.className = 'import-err';
+      el.textContent = '❌ ' + data.error;
+    }
+  } catch(e) { pyToast('Netwerkfout: ' + e.message, 'error'); }
 }
 
-// Init
+// ── Init ───────────────────────────────────────────────────────────────────────
 loadSubjects();
 loadQuestions();
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 </body>
 </html>

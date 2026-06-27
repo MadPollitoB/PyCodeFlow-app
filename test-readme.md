@@ -1,7 +1,7 @@
 # PyCodeFlow — Testhandleiding
 
 > Volledig stappenplan per sprint, zowel lokaal als op de NAS.
-> Versie: v2026.2.17.0 · Bijgewerkt: juni 2026
+> Versie: v2026.2.23.0 · Bijgewerkt: 27 juni 2026
 
 ---
 
@@ -572,6 +572,90 @@ done
 ✅ Zevende: 429
 ```
 
+
+---
+
+## Sprint 22+23: Vragenbank, toetsmodule & bugfixes
+
+### 22/23.1 Vragenbank
+
+```
+✅ Nieuwe vraag toevoegen (type: Python code)
+✅ Enter-toets werkt in code-textarea (sprint 22a)
+✅ Preview-knop toont gerenderde Markdown (sprint 22d)
+✅ Single choice: opties toevoegen, juiste optie selecteren
+✅ Single choice: code-optie via </> toggle toont monospace textarea (sprint 22e)
+✅ Meerkeuze: meerdere correcte opties selecteerbaar
+✅ Vraag bewerken → velden correct ingevuld
+✅ Vraag archiveren → "Gearchiveerd" badge zichtbaar
+✅ Toon gearchiveerd: gearchiveerde vragen zichtbaar
+✅ Gearchiveerde vraag herstellen via "↩ Herstellen" (sprint 22f)
+✅ Definitief verwijderen: enkel zichtbaar op gearchiveerde vragen
+✅ Vraag die in toets zit: archiveren succesvol, verwijderen geweigerd (server)
+✅ CSV-import: meerdere vragen tegelijk importeren
+```
+
+### 22/23.2 Toets aanmaken
+
+```
+✅ Stap 1 Basisinfo: naam + timer + volgorde instellen
+✅ Stap 2 Vragen selecteren: filter op onderwerp/niveau werkt
+✅ Stap 3 Bevestigen: samenvatting correct, schooljaar + klas zichtbaar (sprint 22g)
+✅ Bevestigingsknop: loading state zichtbaar tijdens aanmaken (sprint 22h)
+✅ Dubbele klik op bevestigen → geen dubbele toets aangemaakt (sprint 22h)
+✅ Na aanmaken: redirect naar sessieoverzicht
+✅ Foutmelding bij ontbrekende naam of vragen
+```
+
+### 22/23.3 Leerling quizscherm
+
+```
+✅ Python code-vraag: editor actief, run werkt
+✅ Open vraag: tekstveld zichtbaar, max 2000 tekens afgedwongen (sprint 23e)
+✅ Enter in open antwoord werkt (sprint 23e)
+✅ Single choice: opties zichtbaar, keuze selecteerbaar
+✅ Single choice met code-optie: code-blok correct gerenderd (sprint 23b)
+✅ Meerkeuze: meerdere opties selecteerbaar
+✅ Antwoord opgeslagen: navigeer weg en terug → antwoord nog aanwezig
+✅ Keuze-antwoorden persistent na herstart server (sprint 23a)
+✅ Indienen: checklist toont alle vragen
+✅ Definitief indienen → "Toets ingediend" scherm
+```
+
+### 22/23.4 Verbetermodule
+
+```
+✅ Code-antwoorden zichtbaar per leerling
+✅ Open antwoorden zichtbaar
+✅ Single/meerkeuze: ✅/❌/☑ iconen correct
+✅ Code-opties in keuze-vragen tonen als code-blok (sprint 23b)
+✅ Score invullen + opslaan
+✅ Resultaten vrijgeven
+```
+
+### 22/23.5 Beheer (admin.html)
+
+```
+✅ Leerkracht toevoegen/verwijderen
+✅ Klas toevoegen/archiveren
+✅ Leerling handmatig toevoegen via inline formulier (sprint 22c)
+✅ Leerlingen tabblad laadt zonder eindeloze spinner (sprint 22b)
+✅ Foutmelding als API niet bereikbaar (sprint 22b)
+✅ CSV-import leerlingen
+```
+
+### 22/23.6 Layout & navigatie
+
+```
+✅ Subnav zichtbaar op alle leerkrachtpagina's: Vragenbank, Nieuwe toets, Archief, Beheer, Systeem (sprint 23i)
+✅ Actieve pagina in subnav gemarkeerd
+✅ Alle pagina's tonen favicon in browsertab (sprint 23j)
+✅ Alle paginatitels: "PyCodeFlow — [naam]" formaat (sprint 23k)
+✅ monitoring.html: "Gebruikersbeheer" knop niet meer buiten topbar (sprint 23l)
+✅ Dark mode toggle niet aanwezig (sprint 23q)
+✅ Interface altijd licht thema
+```
+
 ---
 
 ## Regressietests (na elke deploy)
@@ -614,8 +698,8 @@ bash check-deployment.sh
 | Google/Smartschool login | Niet beschikbaar | Uitgesteld |
 | Mobiele editor | Beperkt | Monaco werkt niet goed op touch |
 | Word import vragenbank | Niet beschikbaar | Niet gepland |
-| Dark mode UI | Enkel editor | UI dark mode niet gepland |
+| Dark mode UI | Verwijderd (sprint 23q) | Altijd licht thema |
 
 ---
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.17.0*
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.23.0*

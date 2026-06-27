@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="nl" data-theme="light">
+<html lang="nl">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets-archief</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.14.0"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.23.0"/>
   <style>
     .filter-bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
     .filter-bar select, .filter-bar input {
@@ -43,6 +43,7 @@
     .tab-nav button.active { color:var(--primary); border-bottom-color:var(--primary); }
     .tab-content { display:none; } .tab-content.active { display:block; }
   </style>
+  <link rel="icon" href="/assets/favicon.png" type="image/png">
 </head>
 <body>
 <div class="topbar">
@@ -56,10 +57,19 @@
       <a href="/teacher-sessions.html" class="btn btn-muted small">← Sessies</a>
       <a href="/quiz-teacher.html" class="btn btn-soft small">+ Nieuwe toets</a>
       <a href="/quiz-bank.html" class="btn btn-muted small">📋 Vragenbank</a>
-      <button class="dark-toggle" id="dark-mode-toggle">🌙</button>
+      
     </div>
   </div>
 </div>
+
+<div class="subnav"><div class="subnav-inner">
+  <a href="/quiz-bank.html">📋 Vragenbank</a>
+  <a href="/quiz-teacher.html">📝 Nieuwe toets</a>
+  <a href="/quiz-archive.html" class="active">📦 Archief</a>
+  <div class="subnav-sep"></div>
+  <a href="/admin.html">👤 Beheer</a>
+  <a href="/monitoring.html">⚙️ Systeem</a>
+</div></div>
 
 <div class="screen" style="max-width:1100px;margin:0 auto;padding:28px 20px;">
   <h1 style="margin:0 0 6px;">Toets-archief</h1>
@@ -139,7 +149,7 @@
   </div>
 </div>
 
-<script src="/app.js?v=v2026.2.14.0"></script>
+<script src="/app.js?v=v2026.2.23.0"></script>
 <script>
 let _classes = [];
 
