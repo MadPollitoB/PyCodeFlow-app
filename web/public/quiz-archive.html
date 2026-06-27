@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets-archief</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.23.0"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.24.1"/>
   <style>
     .filter-bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
     .filter-bar select, .filter-bar input {
@@ -149,7 +149,7 @@
   </div>
 </div>
 
-<script src="/app.js?v=v2026.2.23.0"></script>
+<script src="/app.js?v=v2026.2.24.1"></script>
 <script>
 let _classes = [];
 
@@ -305,7 +305,7 @@ async function toggleStats(code) {
 }
 
 async function archiveQuiz(code) {
-  if (!confirm('Toets archiveren? Ze blijft beschikbaar onder "Gearchiveerd".')) return;
+  if (!await pyConfirm({ title: 'Toets archiveren', body: 'Ze blijft beschikbaar onder "Gearchiveerd" en kan worden hersteld.', confirmLabel: 'Archiveren' })) return;
   await fetch('/api/quiz/' + code + '/archive', { method: 'PUT' });
   loadArchive();
 }
@@ -326,7 +326,7 @@ async function deleteQuiz(code, name) {
   const inputEl = document.getElementById('confirm-input-' + code);
   const typed = inputEl?.value?.trim() || '';
   if (typed.toLowerCase() !== name.toLowerCase()) {
-    alert('Naam komt niet overeen. Typ exact: ' + name);
+    pyToast('Naam komt niet overeen. Typ exact: ' + name, 'warn');
     return;
   }
   const r = await fetch('/api/quiz/' + code, {
@@ -334,14 +334,14 @@ async function deleteQuiz(code, name) {
     body: JSON.stringify({ confirmName: typed }),
   });
   const data = await r.json();
-  if (data.ok) { alert('Toets definitief verwijderd.'); loadArchive(); }
-  else alert('Fout: ' + data.error);
+  if (data.ok) { pyToast('Toets definitief verwijderd.', 'success'); loadArchive(); }
+  else pyToast('Fout: ' + data.error, 'error');
 }
 
 async function searchStudent() {
   const name = document.getElementById('student-search-name').value.trim();
   const year = document.getElementById('student-search-year').value;
-  if (!name) { alert('Voer een naam in.'); return; }
+  if (!name) { pyToast('Voer een naam in.', 'warn'); return; }
 
   const params = new URLSearchParams({ name });
   if (year) params.set('year', year);
@@ -398,7 +398,7 @@ async function searchStudent() {
 function exportStudentPDF() {
   const name = document.getElementById('student-search-name').value.trim();
   const year = document.getElementById('student-search-year').value;
-  if (!name) { alert('Voer eerst een naam in en zoek.'); return; }
+  if (!name) { pyToast('Voer eerst een naam in en zoek.', 'warn'); return; }
   const params = new URLSearchParams({ name });
   if (year) params.set('year', year);
   window.open('/api/quiz/archive/pdf/student?' + params, '_blank');
@@ -418,19 +418,19 @@ async function previewNewYear() {
 async function startNewYear() {
   const newYear = document.getElementById('new-school-year').value.trim();
   if (!newYear.match(/^[0-9]{4}-[0-9]{4}$/)) {
-    alert('Ongeldig formaat. Gebruik bv. 2026-2027'); return;
+    pyToast('Ongeldig formaat. Gebruik bv. 2026-2027', 'warn'); return;
   }
-  if (!confirm('Nieuw schooljaar starten? Alle actieve toetsen worden gearchiveerd.')) return;
+  if (!await pyConfirm({ title: 'Nieuw schooljaar starten', body: 'Alle actieve toetsen worden gearchiveerd. Dit kan niet ongedaan worden.', confirmLabel: 'Starten', danger: true })) return;
   const r = await fetch('/api/quiz/new-school-year', {
     method: 'PUT', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ newYear }),
   });
   const data = await r.json();
   if (data.ok) {
-    alert(`Klaar! ${data.archived} toets${data.archived !== 1 ? 'en' : ''} gearchiveerd. Welkom in ${newYear}!`);
+    pyToast(`Klaar! ${data.archived} toets${data.archived !== 1 ? 'en' : ''} gearchiveerd. Welkom in ${newYear}!`, 'success', 6000);
     loadArchive();
   } else {
-    alert('Fout: ' + data.error);
+    pyToast('Fout: ' + data.error, 'error');
   }
 }
 

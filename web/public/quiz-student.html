@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.23.0"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.24.1"/>
   <style>
     .quiz-topbar { background:var(--primary); color:#fff; padding:10px 20px;
       display:flex; align-items:center; justify-content:space-between; }
@@ -204,7 +204,7 @@
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=v2026.2.23.0"></script>
+<script src="/app.js?v=v2026.2.24.1"></script>
 <script>
 // ── Quiz student logica ──────────────────────────────────────────────────────
 const socket = io();
@@ -327,7 +327,7 @@ socket.on('quiz_access_expired', ({ deadlineStr, autoSubmitLate }) => {
 });
 
 socket.on('error_message', (msg) => {
-  alert(typeof msg === 'string' ? msg : msg.message || 'Fout');
+  pyToast(typeof msg === 'string' ? msg : msg.message || 'Fout', 'error');
 });
 
 // Sprint 19d: herinnering van leerkracht
@@ -340,7 +340,7 @@ socket.on('quiz_reminder', ({ message }) => {
     banner.classList.add('visible');
     setTimeout(() => banner.classList.remove('visible'), 30000);
   } else {
-    alert(message);
+    pyToast(message, 'warn');
   }
 });
 

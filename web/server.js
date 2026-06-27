@@ -76,7 +76,7 @@ const VERSION = {
   year: process.env.APP_VERSION_YEAR || "2026",
   major: process.env.APP_VERSION_MAJOR || "2",
   minor: process.env.APP_VERSION_MINOR || "24",
-  build: process.env.APP_VERSION_BUILD || "0"
+  build: process.env.APP_VERSION_BUILD || "1"
 };
 const APP_VERSION = `${VERSION.year}.${VERSION.major}.${VERSION.minor}.${VERSION.build}`;
 

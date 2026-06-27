@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Nieuwe toets aanmaken</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.24.0"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.24.1"/>
   <style>
     .wizard-steps { display:flex; gap:0; margin-bottom:28px; }
     .wizard-step { flex:1; padding:12px; text-align:center; background:var(--surface-soft);
@@ -207,7 +207,7 @@
   </div>
 </div>
 
-<script src="/app.js?v=v2026.2.24.0"></script>
+<script src="/app.js?v=v2026.2.24.1"></script>
 <script>
 let _bank = [];
 let _selected = {}; // { id: { ...question, points: override } }
@@ -281,10 +281,10 @@ function renderSelectedList() {
 
 function goStep(n) {
   if (n === 2 && !document.getElementById('quiz-name').value.trim()) {
-    alert('Voer een naam in voor de toets.'); return;
+    pyToast('Voer een naam in voor de toets.', 'warn'); return;
   }
   if (n === 3) {
-    if (!Object.keys(_selected).length) { alert('Selecteer minstens 1 vraag.'); return; }
+    if (!Object.keys(_selected).length) { pyToast('Selecteer minstens 1 vraag.', 'warn'); return; }
     renderConfirm();
   }
   [1,2,3].forEach(i => {
@@ -336,8 +336,8 @@ async function createQuiz() {
   if (createBtn.disabled) return;
 
   const name = document.getElementById('quiz-name').value.trim();
-  if (!name) { alert('Voer een naam in voor de toets.'); return; }
-  if (!Object.keys(_selected).length) { alert('Selecteer minstens 1 vraag.'); return; }
+  if (!name) { pyToast('Voer een naam in voor de toets.', 'warn'); return; }
+  if (!Object.keys(_selected).length) { pyToast('Selecteer minstens 1 vraag.', 'warn'); return; }
 
   const timerType    = document.querySelector('[name=quiz-timer-type]:checked')?.value;
   const noTimer      = timerType === 'notimer';
@@ -355,7 +355,7 @@ async function createQuiz() {
   const isTeacherPreview      = document.getElementById('quiz-is-preview').checked;
 
   if (accessFrom && accessUntil && accessFrom >= accessUntil) {
-    alert('Deadline moet na de startdatum liggen.'); return;
+    pyToast('Deadline moet na de startdatum liggen.', 'warn'); return;
   }
 
   const questions = Object.values(_selected).map(q => ({
@@ -379,18 +379,21 @@ async function createQuiz() {
     if (data.ok) {
       const previewUrl = `/quiz-student.html?code=${data.code}&name=${encodeURIComponent('Leerkracht Test')}`;
       if (isTeacherPreview) {
-        if (confirm(`Toets aangemaakt! Code: ${data.code}\nWil je de preview openen als leerling?`)) {
-          window.open(previewUrl, '_blank');
-        }
+        const gaNaar = await pyConfirm({
+          title: 'Toets aangemaakt (PREVIEW)',
+          body: `Code: ${data.code}\n\nWil je de preview openen als leerling?`,
+          confirmLabel: 'Open preview'
+        });
+        if (gaNaar) window.open(previewUrl, '_blank');
       } else {
-        alert(`Toets aangemaakt!\nSessiecode: ${data.code}\n\nDeel deze code met de leerlingen.`);
-        location.href = '/teacher-sessions.html';
+        pyToast(`Toets aangemaakt! Sessiecode: ${data.code}`, 'success', 6000);
+        setTimeout(() => { location.href = '/teacher-sessions.html'; }, 1200);
       }
     } else {
-      alert('Fout bij aanmaken: ' + (data.error || 'Onbekende fout'));
+      pyToast('Fout bij aanmaken: ' + (data.error || 'Onbekende fout'), 'error');
     }
   } catch(e) {
-    alert('Netwerkfout: ' + e.message);
+    pyToast('Netwerkfout: ' + e.message, 'error');
   } finally {
     createBtn.disabled    = false;
     backBtn.disabled      = false;

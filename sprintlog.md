@@ -8,6 +8,13 @@
 
 | Sprint | Prio | Inhoud | Status | Inschatting |
 |---|---|---|---|---|
+| **25a** | 🟠 UX-1 | Vraagstelling editor: visuele opmaaktoolbar (vet, cursief, code, kop, lijst, kleur, kader) | 🔄 Gepland | ~2 dagen |
+| **25b** | 🟠 UX-2 | Gekleurde info-kaders in vraagstelling (💡 tip, ⚠️ opgelet, 📌 kader, ❓ hint) | 🔄 Gepland | ~1 dag |
+| **25c** | 🟠 UX-3 | Tabel-invoer in vraagstelling (visueel raster-formulier → Markdown tabel) | 🔄 Gepland | ~1 dag |
+| **25d** | 🟠 UX-4 | Live split-view editor: vraagstelling links, gerenderde preview rechts | 🔄 Gepland | ~1 dag |
+| **25e** | 🟠 UX-5 | Leerlingscherm + verbetermodule: uitgebreide rendering (kleuren, kaders, tabellen) | 🔄 Gepland | ~0.5 dag |
+| **25f** | 🔴 BUG-1 | quiz-teacher.html + alle andere pagina's: resterende browser alert()/confirm() → pyToast/pyConfirm | ✅ Afgerond (v2026.2.24.1) | ~0.5 dag |
+| **25g** | 🔴 UX-6 | Notificatiesysteem herontwerpen: toast vervangen door blokkerende center-modal voor validatie, fouten en succes | 🔄 Gepland | ~1 dag |
 | **24a** ✅ | 🟠 UX-1 | Vervang alle browser `confirm()` / `alert()` dialogen door mooie in-app modals | ✅ Afgerond | ~1.5 dag |
 | **24b** ✅ | 🟠 UX-2 | Vragenbank: code-snippet in vraagstelling staat inline ipv als Python code-blok | ✅ Afgerond | ~0.5 dag |
 | **24c** ✅ | 🔴 BUG-1 | Single/meerkeuze layout kapot: radio/checkbox gecentreerd, tekstveld onzichtbaar, knoppen buiten kaart | ✅ Afgerond | ~1 dag |
@@ -63,12 +70,257 @@
 
 ---
 
-### Sprint 24 — UI/UX ronde 2 *(~5.5 dagen)*
+### Sprint 25 — Rijke vraagstelling editor *(~6 dagen)*
 
 **Aangemeld:** 27/06/2026
-**Status:** ✅ Afgerond (v2026.2.24.0)
+**Status:** 🔄 Gepland
+**Versie:** gepland voor v2026.2.25.0
+**Aanleiding:** De vraagstelling is momenteel een blinde textarea met Markdown. Er is geen visuele hulp, geen kleurondersteuning, geen duidelijke structuur voor opgaven. Leerlingen zien alle vragen in dezelfde zwart-op-witte layout waardoor niets opvalt of duidelijk afgebakend is.
+
+**Doel:** Een leerkracht moet een vraag kunnen opmaken zoals in een Word-document — met kleur, kaders, tabellen en visuele feedback — zonder Markdown te kennen.
 
 ---
+
+#### 25a — Visuele opmaaktoolbar boven de vraagstelling *(~2 dagen)*
+
+**Probleem:** De leerkracht moet nu zelf Markdown-syntax kennen (`**vet**`, `` `code` ``, `##`, etc.). Er is geen visuele toolbar.
+
+**Ontwerp:** Een horizontale toolbar met klikbare knoppen die Markdown-syntax invoegen op de cursorpositie in de textarea:
+
+| Knop | Actie | Markdown |
+|---|---|---|
+| **B** | Vet | `**tekst**` |
+| *I* | Cursief | `*tekst*` |
+| `</>` | Inline code | `` `tekst` `` |
+| `≡` | Code-blok (Python) | ` ```python\n...\n``` ` |
+| H1 | Grote kop | `## Kop` |
+| H2 | Kleine kop | `### Kop` |
+| `•` | Lijst | `- item` |
+| `1.` | Genummerde lijst | `1. item` |
+| `—` | Horizontale lijn | `---` |
+| 🎨 | Tekstkleur (dropdown) | `<span style="color:#e00">tekst</span>` |
+
+**Technische aanpak:**
+- Toolbar boven de `<textarea id="q-text">` in `quiz-bank.html`
+- Elke knop roept `insertMarkdown(voor, na)` aan — wikkelt geselecteerde tekst in of voegt in op cursorpositie
+- `selectionStart`/`selectionEnd` bewaren en herstellen na insertie
+- Kleurkeuze via kleine inline dropdown (6 vaste kleuren: rood, oranje, groen, blauw, paars, grijs)
+- Toolbar verborgen in preview-modus
+
+**CSS:** toolbar als flex-rij met kleine knoppen, visueel afgescheiden van de textarea door een dunne border.
+
+**Betrokken bestanden:** `quiz-bank.html`, `styles.css`
+
+---
+
+#### 25b — Gekleurde info-kaders in vraagstelling *(~1 dag)*
+
+**Probleem:** Alle tekst in een vraag ziet er hetzelfde uit. Een leerkracht kan niet benadrukken wat een tip is, wat een waarschuwing is, of wat extra uitleg is.
+
+**Ontwerp:** 4 types info-kaders, invoegbaar via de toolbar (knop 📦):
+
+| Type | Kleur | Icoon | Gebruik |
+|---|---|---|---|
+| Tip | Groen | 💡 | Extra hulp voor de leerling |
+| Opgelet | Oranje | ⚠️ | Veelgemaakte fout of valkuil |
+| Kader | Blauw | 📌 | Afgebakende deelvraag of context |
+| Hint | Paars | ❓ | Optionele aanwijzing |
+
+**Implementatie:** Via een speciale `:::` syntax (gelijkaardige aan Markdown containers):
+
+```markdown
+:::tip
+Dit is een tip voor de leerling.
+:::
+
+:::opgelet
+Let op: vergeet de haakjes niet.
+:::
+
+:::kader
+**Deelvraag a)** Schrijf een functie die ...
+:::
+
+:::hint
+Denk aan de `range()` functie.
+:::
+```
+
+**Rendering in `marked.js`:** Een custom renderer of preprocessing-stap die `:::type` blokken omzet naar `<div class="info-kader info-tip">...</div>` vóór het Markdown parsen.
+
+**CSS:** Elke kader-type heeft eigen kleur, linker border-accent, en icoon via `::before` pseudo-element.
+
+**Toolbar-knop:** Dropdown met 4 kader-types → klik voegt `:::type\n\n:::` in op cursorpositie.
+
+**Betrokken bestanden:** `quiz-bank.html`, `styles.css`
+
+---
+
+#### 25c — Tabel-invoer in vraagstelling *(~1 dag)*
+
+**Probleem:** Een leerkracht die een tabel wil invoegen in een vraag moet Markdown-tabelsyntax kennen:
+```markdown
+| Kolom 1 | Kolom 2 |
+|---|---|
+| Waarde | Waarde |
+```
+Dit is omslachtig en foutgevoelig.
+
+**Ontwerp:** Een "Tabel invoegen" modal via de toolbar (knop `⊞`):
+- Kies aantal rijen (1–10) en kolommen (1–8) via +/- knoppen
+- Mini-grid van invoervelden verschijnt
+- Eerste rij = koptekst (vet)
+- Klik "Invoegen" → genereert correcte Markdown-tabel en voegt in op cursorpositie
+
+**Voorbeeld output bij 2 kolommen, 2 rijen:**
+```markdown
+| Kolom 1 | Kolom 2 |
+|---|---|
+| Waarde 1 | Waarde 2 |
+| Waarde 3 | Waarde 4 |
+```
+
+**Betrokken bestanden:** `quiz-bank.html`, `styles.css`
+
+---
+
+#### 25d — Live split-view editor *(~1 dag)*
+
+**Probleem:** De huidige flow is: typ tekst → klik Preview → kijk resultaat → klik Bewerken → typ verder. Dit is traag en verbreekt de schrijfflow.
+
+**Ontwerp:** Bij klik op een "Split-view" knop (of standaard als scherm breed genoeg is):
+- Links: textarea met toolbar (50% breedte)
+- Rechts: live preview die update bij elke toetsaanslag (100ms debounce)
+- Beide panelen scrollen synchroon
+- Op smal scherm (< 900px): terug naar tab-model (textarea ÓF preview)
+
+**Technische aanpak:**
+- CSS grid: `grid-template-columns: 1fr 1fr` op het vraagstelling-container element
+- `oninput` op textarea → debounced `marked.parse()` → rechter paneel bijwerken
+- Toggle-knop: `[ ][ ] Split` / `[  ] Volledig` in de toolbar
+- Preview-knop verdwijnt in split-view (niet nodig)
+
+**Betrokken bestanden:** `quiz-bank.html`, `styles.css`
+
+---
+
+#### 25e — Leerlingscherm + verbetermodule: uitgebreide rendering *(~0.5 dag)*
+
+**Probleem:** De nieuwe opmaak-elementen uit 25a–25c (kleuren, kaders, tabellen) worden wel opgeslagen in de database maar de rendering in `quiz-student.html` en `quiz-review.html` ondersteunt ze nog niet. De custom `:::kader` syntax wordt niet herkend, `<span style="color:...">` wordt mogelijk gestript door de CSP, tabellen hebben geen stijl.
+
+**Aanpak:**
+- Zelfde custom `:::type` preprocessor toevoegen aan de `marked.parse()` aanroep in `quiz-student.html` en `quiz-review.html`
+- CSS voor `.info-kader`, `.info-tip`, `.info-opgelet`, `.info-hint`, `.info-kader` toevoegen aan `styles.css`
+- Markdown-tabel CSS toevoegen: gestreepte rijen, border, koptekst-achtergrond
+- Inline kleur via `<span style="color:...">`: expliciet toestaan via `marked`-opties (`sanitize: false`) — veilig omdat content door leerkracht ingevoerd wordt, niet door leerling
+
+**Betrokken bestanden:** `quiz-student.html`, `quiz-review.html`, `styles.css`
+
+---
+
+**Implementatievolgorde:** 25g → 25d → 25a → 25b → 25c → 25e
+*(Notificatiesysteem eerst — alles wat daarna gebouwd wordt gebruikt meteen de nieuwe modals)*
+
+---
+
+#### 25g 🔴 — Notificatiesysteem herontwerpen *(~1 dag)*
+
+**Probleem:** De huidige `pyToast()` verschijnt rechtsonder in een klein vakje, verdwijnt na 4 seconden, en blokkeert de pagina niet. Voor een validatiefout ("Voer een naam in") is dit **te onopvallend** — de leerkracht ziet het mogelijk niet eens, zeker niet op een groot scherm of als de aandacht elders is.
+
+**Beslissing:** Drie aparte notificatie-niveaus, elk met eigen gedrag:
+
+---
+
+**Niveau 1 — pyToast() — blijft bestaan, voor achtergrondinfo**
+
+Gebruik voor: niet-kritieke achtergrondinfo die de gebruiker niet hoeft te bevestigen.
+- Positie: rechtsonder
+- Verdwijnt automatisch na 4 seconden
+- Voorbeelden: "Opgeslagen", "Geïmporteerd", "Resultaten vrijgegeven"
+
+---
+
+**Niveau 2 — pyAlert() — NIEUW: blokkerende notificatie-modal**
+
+Gebruik voor: **validatiefouten, foutmeldingen, waarschuwingen** die de gebruiker expliciet moet lezen en bevestigen.
+- Centreert op het scherm met overlay (pagina blokkeert)
+- Eén "OK" knop (of "Sluiten")
+- Kleurcodering per type:
+  - 🔴 Fout: rode rand, fout-icoon ✕
+  - 🟠 Waarschuwing: oranje rand, waarschuwing-icoon ⚠️
+  - 🟢 Succes: groene rand, vinkje ✓
+  - 🔵 Info: blauwe rand, info-icoon ℹ️
+- Animatie: fade-in + lichte scale-in (0.92 → 1)
+- Focus gaat automatisch naar de OK-knop
+- Escape sluit de modal
+- Geeft `Promise<void>` terug (await mogelijk)
+
+**API:**
+```javascript
+// Vervang pyToast(msg, 'warn'/'error') door:
+await pyAlert('Voer een naam in voor de toets.', 'warn');
+await pyAlert('Netwerkfout: kon niet opslaan.', 'error');
+await pyAlert('Toets aangemaakt! Code: ABC123', 'success');
+await pyAlert('Deadline moet na de startdatum liggen.', 'warn');
+```
+
+**Verschil met pyConfirm():** pyAlert heeft slechts één knop (OK/Sluiten), pyConfirm heeft twee knoppen (Bevestigen + Annuleren). Ze gebruiken dezelfde modal-stijl.
+
+---
+
+**Niveau 3 — pyConfirm() — ongewijzigd, voor bevestigingen**
+
+Gebruik voor: destructieve of onomkeerbare acties.
+- Twee knoppen: Bevestigen (primary/danger) + Annuleren
+- Ongewijzigd t.o.v. v2026.2.23.4
+
+---
+
+**Implementatie:**
+
+1. `pyAlert()` toevoegen in `app.js` (naast `pyToast` en `pyConfirm`)
+2. Alle `pyToast(msg, 'warn')` en `pyToast(msg, 'error')` vervangen door `pyAlert(msg, 'warn')` resp. `pyAlert(msg, 'error')` op alle pagina's
+3. `pyToast(msg, 'success')` **behouden als toast** (niet blokkerend — succes hoeft niet bevestigd te worden)
+4. CSS aanpassen: kleurgecodeerde borders per type in de modal
+
+**Alle plaatsen waar dit van toepassing is (na 25f al pyToast):**
+
+| Pagina | Huidige call | Wijzigen naar |
+|---|---|---|
+| quiz-teacher.html | `pyToast('Voer een naam...', 'warn')` | `pyAlert(...)` |
+| quiz-teacher.html | `pyToast('Selecteer minstens...', 'warn')` | `pyAlert(...)` |
+| quiz-teacher.html | `pyToast('Deadline moet...', 'warn')` | `pyAlert(...)` |
+| quiz-teacher.html | `pyToast('Fout bij aanmaken...', 'error')` | `pyAlert(...)` |
+| quiz-teacher.html | `pyToast('Netwerkfout...', 'error')` | `pyAlert(...)` |
+| quiz-bank.html | `pyToast('Vul een vraagstelling...', 'warn')` | `pyAlert(...)` |
+| quiz-bank.html | `pyToast('Vul minstens 2 opties...', 'warn')` | `pyAlert(...)` |
+| quiz-bank.html | `pyToast('Selecteer minstens 1...', 'warn')` | `pyAlert(...)` |
+| quiz-bank.html | `pyToast('Fout bij opslaan...', 'error')` | `pyAlert(...)` |
+| quiz-bank.html | `pyToast('Netwerkfout...', 'error')` | `pyAlert(...)` |
+| quiz-bank.html | `pyToast('Kan niet verwijderen...', 'error')` | `pyAlert(...)` |
+| admin.html | alle `pyToast(..., 'warn'/'error')` | `pyAlert(...)` |
+| quiz-archive.html | alle `pyToast(..., 'warn'/'error')` | `pyAlert(...)` |
+| quiz-student.html | `pyToast(foutmelding, 'error')` | `pyAlert(...)` |
+| monitoring.html | `pyToast(fout, 'error')` | `pyAlert(...)` |
+
+**Succes-toasts behouden als toast (niet blokkerend):**
+- "Toets aangemaakt! Code: ..."
+- "Opgeslagen"
+- "Resultaten vrijgegeven"
+- "Toets definitief verwijderd"
+- "Klaar! X toetsen gearchiveerd"
+
+**Betrokken bestanden:** `app.js` · `styles.css` · alle pagina's met validatie/foutmeldingen
+
+---
+
+#### 25f — Resterende browser alert()/confirm() *(v2026.2.24.1 — afgerond)*
+
+Alle `alert()` en `confirm()` vervangen door `pyToast()`/`pyConfirm()` op quiz-teacher, quiz-archive, quiz-review, quiz-student en monitoring. Zie changelog v2026.2.24.1.
+
+---
+
+### Sprint 24 — UI/UX ronde 2 *(~5.5 dagen)*
 
 #### 24a — Vervang confirm() / alert() door in-app modals *(~1.5 dag)*
 
