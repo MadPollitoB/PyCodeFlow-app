@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Vragenbank</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.23.4"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.24.0"/>
   <style>
     .qb-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px; }
     @media(max-width:900px){ .qb-grid { grid-template-columns:1fr; } }
@@ -47,29 +47,43 @@
       border-radius:10px; padding:8px 14px; font-size:0.85rem; }
     .stat-chip strong { color:var(--primary); }
 
-    /* 22e: choice opties styling */
-    .choice-row {
-      display:flex; align-items:flex-start; gap:8px; margin-bottom:8px;
-      background:var(--surface); border:1.5px solid var(--border); border-radius:10px; padding:10px 12px;
+    /* 24c: choice opties styling — volledig herschreven */
+    .choices-panel-inner {
+      display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;
     }
-    .choice-row .choice-selector { margin-top:6px; flex-shrink:0; }
-    .choice-body { flex:1; display:flex; flex-direction:column; gap:6px; }
+    .choice-row {
+      display: grid;
+      grid-template-columns: 24px 1fr auto;
+      gap: 10px; align-items: start;
+      background: var(--surface); border: 1.5px solid var(--border);
+      border-radius: 10px; padding: 10px 12px;
+      box-sizing: border-box; width: 100%;
+    }
+    .choice-row.correct-row { border-color: var(--primary); background: var(--primary-soft); }
+    .choice-selector { margin-top: 8px; width: 16px; height: 16px; cursor: pointer; flex-shrink: 0; }
+    .choice-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; width: 100%; }
     .choice-text-input {
-      width:100%; padding:7px 10px; border:1.5px solid var(--border); border-radius:8px;
-      font-size:0.88rem; background:var(--surface); color:var(--text); box-sizing:border-box;
+      width: 100%; padding: 7px 10px; border: 1.5px solid var(--border); border-radius: 8px;
+      font-size: 0.88rem; background: var(--surface); color: var(--text); box-sizing: border-box;
     }
     .choice-code-input {
-      width:100%; padding:8px 10px; border:1.5px solid var(--border); border-radius:8px;
-      font-family:Consolas,monospace; font-size:0.82rem; background:#1e1e1e; color:#d4d4d4;
-      resize:vertical; min-height:60px; box-sizing:border-box;
+      width: 100%; padding: 8px 10px; border: 1.5px solid var(--border); border-radius: 8px;
+      font-family: Consolas, monospace; font-size: 0.82rem;
+      background: #1e1e1e; color: #d4d4d4;
+      resize: vertical; min-height: 60px; box-sizing: border-box;
     }
+    .choice-actions-row { display: flex; gap: 6px; align-items: center; }
     .choice-toggle-code {
-      font-size:0.75rem; padding:2px 8px; border-radius:6px; border:1px solid var(--border);
-      background:var(--surface-soft); color:var(--muted); cursor:pointer; align-self:flex-start;
+      font-size: 0.75rem; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--surface-soft); color: var(--muted); cursor: pointer;
     }
-    .choice-toggle-code.active { background:#1e1e1e; color:#d4d4d4; border-color:#444; }
-    .choice-remove { background:none; border:none; cursor:pointer; color:var(--muted); font-size:1.1rem; flex-shrink:0; padding:4px; }
-    .choice-remove:hover { color:var(--error-fg); }
+    .choice-toggle-code.active { background: #1e1e1e; color: #d4d4d4; border-color: #444; }
+    .choice-remove {
+      background: none; border: none; cursor: pointer; color: var(--muted);
+      font-size: 1rem; padding: 4px 6px; border-radius: 6px; line-height: 1;
+      margin-top: 4px; flex-shrink: 0;
+    }
+    .choice-remove:hover { background: var(--error-bg); color: var(--error-fg); }
 
     /* 22d: markdown preview */
     .md-preview { padding:12px; background:var(--surface-soft); border-radius:8px;
@@ -252,7 +266,7 @@ Lussen,makkelijk,2,"Druk de getallen 1 tot 10 af met een lus."</pre>
   </div>
 </div>
 
-<script src="/app.js?v=v2026.2.23.4"></script>
+<script src="/app.js?v=v2026.2.24.0"></script>
 <!-- 22d: marked.js voor Markdown preview — geladen VOOR inline script -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 <script>
@@ -347,19 +361,22 @@ function renderQuestions(qs) {
   }
   const typeLabel = { code:'🐍 Code', open:'✏️ Open', single:'◉ Single', multiple:'☑ Keuze' };
   el.innerHTML = qs.map((q, idx) => {
-    const typeLabel2 = { code:'🐍 Code', open:'✏️ Open', single:'◉ Single', multiple:'☑ Keuze' };
+    // 24b: render vraagstelling als Markdown zodat code-snippets als blok verschijnen
+    const renderedText = window.marked
+      ? window.marked.parse(q.text, { breaks: true, gfm: true })
+      : esc(q.text).replace(/\n/g, '<br>');
     return `
     <div class="q-card ${q.archived ? 'archived-card' : ''}" data-qid="${q.id}">
       <div class="q-meta">
         ${q.subject ? `<span class="badge">${esc(q.subject)}</span>` : ''}
         <span class="diff-badge diff-${q.difficulty}">${q.difficulty}</span>
         <span class="badge" style="background:#f0f9ff;color:#0369a1;font-size:0.72rem;">
-          ${typeLabel2[q.question_type] || 'Code'}
+          ${typeLabel[q.question_type] || 'Code'}
         </span>
         <span class="muted" style="font-size:0.78rem;margin-left:auto;">${q.max_points} pt</span>
         ${q.archived ? '<span class="badge" style="background:#fee2e2;color:#991b1b;font-size:0.72rem;">Gearchiveerd</span>' : ''}
       </div>
-      <div class="q-text">${esc(q.text)}</div>
+      <div class="q-text md-preview" style="max-height:140px;overflow:auto;">${renderedText}</div>
       <div class="q-actions">
         <button class="btn btn-muted small q-btn-edit">✏️ Bewerken</button>
         ${!q.archived
@@ -454,11 +471,14 @@ function onTypeChange(type) {
   hint.textContent = type === 'single'
     ? 'selecteer exact 1 juist antwoord'
     : 'selecteer alle juiste antwoorden';
-  if (['single','multiple'].includes(type) && _choices.length === 0) {
-    _choices = [
-      { id: crypto.randomUUID(), text:'', isCode:false, correct:false },
-      { id: crypto.randomUUID(), text:'', isCode:false, correct:false },
-    ];
+  if (['single','multiple'].includes(type)) {
+    if (_choices.length === 0) {
+      _choices = [
+        { id: crypto.randomUUID(), text:'', isCode:false, correct:false },
+        { id: crypto.randomUUID(), text:'', isCode:false, correct:false },
+      ];
+    }
+    // 24d: altijd opnieuw renderen bij type-wissel zodat radio↔checkbox correct wisselt
     renderChoices();
   }
 }
@@ -495,13 +515,15 @@ function setChoiceCorrectMulti(idx, val) { _choices[idx].correct = val; }
 function renderChoices() {
   const type = document.querySelector('[name=q-type]:checked')?.value || 'single';
   const list = document.getElementById('choices-list');
+  list.className = 'choices-panel-inner';
   list.innerHTML = _choices.map((ch, i) => {
+    // 24c: grid layout — selector | body | remove
     const selectorHtml = type === 'single'
       ? `<input type="radio" name="correct-choice" class="choice-selector"
-           ${ch.correct ? 'checked' : ''} title="Juist antwoord"
+           ${ch.correct ? 'checked' : ''} title="Markeer als juist antwoord"
            onchange="setChoiceCorrectSingle(${i})" />`
       : `<input type="checkbox" class="choice-selector"
-           ${ch.correct ? 'checked' : ''} title="Juist antwoord"
+           ${ch.correct ? 'checked' : ''} title="Markeer als juist antwoord"
            onchange="setChoiceCorrectMulti(${i}, this.checked)" />`;
 
     const inputHtml = ch.isCode
@@ -513,14 +535,17 @@ function renderChoices() {
            onkeydown="event.stopPropagation()" />`;
 
     return `
-      <div class="choice-row">
+      <div class="choice-row ${ch.correct ? 'correct-row' : ''}">
         ${selectorHtml}
         <div class="choice-body">
           ${inputHtml}
-          <button type="button" class="choice-toggle-code ${ch.isCode ? 'active' : ''}"
-            onclick="toggleChoiceCode(${i})" title="${ch.isCode ? 'Omzetten naar tekst' : 'Omzetten naar code'}">
-            &lt;/&gt; ${ch.isCode ? 'Tekst' : 'Code'}
-          </button>
+          <div class="choice-actions-row">
+            <button type="button" class="choice-toggle-code ${ch.isCode ? 'active' : ''}"
+              onclick="toggleChoiceCode(${i})">
+              &lt;/&gt; ${ch.isCode ? 'Naar tekst' : 'Naar code'}
+            </button>
+            ${ch.correct ? '<span style="font-size:0.75rem;color:var(--primary);font-weight:700;">✓ Correct antwoord</span>' : ''}
+          </div>
         </div>
         <button type="button" class="choice-remove" onclick="removeChoice('${ch.id}')" title="Optie verwijderen">✕</button>
       </div>`;

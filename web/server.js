@@ -75,8 +75,8 @@ const AUTH_RATE_LIMIT_BASE_DELAY_MS = Math.max(250, Number(process.env.POC_BASIC
 const VERSION = {
   year: process.env.APP_VERSION_YEAR || "2026",
   major: process.env.APP_VERSION_MAJOR || "2",
-  minor: process.env.APP_VERSION_MINOR || "23",
-  build: process.env.APP_VERSION_BUILD || "4"
+  minor: process.env.APP_VERSION_MINOR || "24",
+  build: process.env.APP_VERSION_BUILD || "0"
 };
 const APP_VERSION = `${VERSION.year}.${VERSION.major}.${VERSION.minor}.${VERSION.build}`;
 
@@ -524,6 +524,100 @@ app.get('/api/system-stats', requireTeacherAuth, async (req, res) => {
   }
 });
 
+
+// ── Sprint 24g: Database viewer endpoints ─────────────────────────────────────
+
+// Whitelist van toegestane tabelnamen — geen vrije SQL input mogelijk
+const DB_VIEWER_TABLES = [
+  'teachers', 'classes', 'teacher_classes', 'students',
+  'sessions', 'student_sessions', 'session_history',
+  'quiz_bank', 'quiz_meta', 'quiz_answers', 'quiz_student_sessions',
+  'announcements', 'audit_log', 'free_audit_log',
+  'db_settings', 'log_entries'
+];
+
+// Gevoelige kolommen die gemaskeerd worden
+const DB_VIEWER_MASKED = ['password_hash', 'cookie_secret', 'google_sub', 'token'];
+
+app.get('/api/admin/db/tables', requireTeacherAuth, async (req, res) => {
+  try {
+    const { query } = require('./db/database.js');
+    const tableInfo = await Promise.all(DB_VIEWER_TABLES.map(async (tbl) => {
+      try {
+        // Rij-aantal
+        const countRes = await query(`SELECT COUNT(*) as cnt FROM ${tbl}`);
+        const rowCount = parseInt(countRes.rows[0]?.cnt || 0);
+        // Kolominfo
+        const colRes = await query(
+          `SELECT column_name, data_type FROM information_schema.columns
+           WHERE table_name = $1 AND table_schema = 'public'
+           ORDER BY ordinal_position`, [tbl]
+        );
+        return {
+          name: tbl,
+          rowCount,
+          columns: colRes.rows.map(r => ({ name: r.column_name, type: r.data_type })),
+          category: ['teachers','classes','teacher_classes','students'].includes(tbl) ? 'kern'
+                  : ['quiz_bank','quiz_meta','quiz_answers','quiz_student_sessions'].includes(tbl) ? 'quiz'
+                  : 'systeem'
+        };
+      } catch { return { name: tbl, rowCount: 0, columns: [], category: 'systeem', error: true }; }
+    }));
+    res.json({ ok: true, tables: tableInfo });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+app.get('/api/admin/db/tables/:name/rows', requireTeacherAuth, async (req, res) => {
+  const tbl = req.params.name;
+  if (!DB_VIEWER_TABLES.includes(tbl)) {
+    return res.status(403).json({ ok: false, error: 'Tabel niet toegestaan' });
+  }
+  try {
+    const { query } = require('./db/database.js');
+    const limit  = Math.min(parseInt(req.query.limit) || 50, 100);
+    const offset = parseInt(req.query.offset) || 0;
+    const search = (req.query.search || '').trim().slice(0, 100);
+
+    // Kolomnamen ophalen
+    const colRes = await query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = $1 AND table_schema = 'public'
+       ORDER BY ordinal_position`, [tbl]
+    );
+    const columns = colRes.rows.map(r => r.column_name);
+
+    // Rijen ophalen (met optionele zoekfilter over alle text/varchar kolommen)
+    let whereClause = '';
+    const params = [];
+    if (search) {
+      const textCols = colRes.rows
+        .filter(r => !DB_VIEWER_MASKED.includes(r.column_name))
+        .map(r => r.column_name);
+      if (textCols.length > 0) {
+        params.push(`%${search}%`);
+        whereClause = 'WHERE ' + textCols.map(c => `CAST(${c} AS TEXT) ILIKE $1`).join(' OR ');
+      }
+    }
+
+    const countRes = await query(`SELECT COUNT(*) as cnt FROM ${tbl} ${whereClause}`, params);
+    const total = parseInt(countRes.rows[0]?.cnt || 0);
+
+    params.push(limit, offset);
+    const rowRes = await query(
+      `SELECT * FROM ${tbl} ${whereClause} ORDER BY 1 LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+
+    // Maskeer gevoelige kolommen
+    const rows = rowRes.rows.map(row => {
+      const masked = { ...row };
+      DB_VIEWER_MASKED.forEach(col => { if (col in masked) masked[col] = '••••••'; });
+      return masked;
+    });
+
+    res.json({ ok: true, columns, rows, total, limit, offset });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
 
 // Templates endpoint — geeft lijst van voorgeladen oefeningstemplates
 app.get('/api/templates', requireTeacherAuth, (req, res) => {

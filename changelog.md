@@ -1,3 +1,33 @@
+## v2026.2.24.0 — Sprint 24: UI/UX ronde 2
+
+### 24a — pyToast + pyConfirm (al in v2026.2.23.4)
+Zie v2026.2.23.4 — vervroegd geleverd.
+
+### 24b — Vraagstelling rendeert als Markdown in kaartweergave
+Code-snippets in vraagstellingen (backtick-blokken) worden nu gerenderd als opgemaakt code-blok in de vragenbank-kaarten, niet enkel in de Preview. Gebruikt `marked.parse()` + `md-preview` CSS. Kaartinhoud begrensd op max. 140px hoogte met scroll.
+
+### 24c — Single/meerkeuze keuze-opties layout volledig herschreven
+`.choice-row` omgezet van flex naar CSS grid (selector | body | remove). `.choice-body` heeft nu `min-width:0` en `width:100%`. Correcte opties krijgen een blauwe rand + "✓ Correct antwoord" label. `</> Naar code` / `</> Naar tekst` toggle staat binnen de kaart.
+
+### 24d — Wisselen single↔meerkeuze herrendert opties correct
+`onTypeChange()` roept nu altijd `renderChoices()` aan, ook als er al opties zijn. Radio's wisselen correct naar checkboxes en omgekeerd.
+
+### 24e — "Nieuwe toets" checkboxes gebruiken checkbox-row card-stijl
+"Vraagstelling verbergen", "Min. 1 run vereisen" en "Test als leerkracht" gebruiken nu de consistente `checkbox-row` card-stijl i.p.v. losse labels.
+
+### 24f — Sessieoverzicht lopende sessies compacter en overzichtelijker
+`renderSessions()` herschreven: sessiekaarten zijn compacter (grid voor meta, code-badge in primary kleur), knoppen op één rij. Gesloten sessies compacter met datum inline.
+
+### 24g — Database viewer in monitoring.html
+Twee nieuwe API-endpoints: `GET /api/admin/db/tables` en `GET /api/admin/db/tables/:name/rows`. In monitoring.html: tabelgrid (kleurgecodeerd per categorie), klik opent scrollbare tabelinhoud onder het grid, zoekbalk, paginering (50 rijen). Gevoelige kolommen (password_hash, etc.) worden server-side gemaskeerd. Whitelist van 16 toegestane tabelnamen.
+
+### 24h — admin.html topbar opgeruimd
+"← Sessies" en "📊 Monitoring" knoppen verwijderd uit primaire topbar. Topbar gebruikt nu `topbar-inner` wrapper consistent met andere pagina's. "Afmelden" knop toegevoegd.
+
+**Betrokken bestanden:** `quiz-bank.html` · `quiz-teacher.html` · `admin.html` · `monitoring.html` · `teacher-sessions.html` · `app.js` · `server.js` · `.env`
+
+---
+
 ## v2026.2.23.4 — Hotfix: leerling toevoegen + in-app modals (24a)
 
 ### Bugfix: constraint "idx_students_name_class" does not exist

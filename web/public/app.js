@@ -738,23 +738,34 @@
       host.innerHTML = `<div class="student-item"><strong>Nog geen lopende sessies</strong><div class="muted">Maak eerst een sessie aan.</div></div>`;
       return;
     }
+    // 24f: compacte sessiekaarten
     host.innerHTML = activeList.map(s => `
-      <div class="session-row">
-        <div class="session-row-main">
-          <div class="session-title-row">
-            <strong class="session-title">${escapeHtml(s.name)}</strong>
-            <span class="badge ${s.status === 'geblokkeerd' ? 'badge-warn' : 'badge-success'}">${s.status}</span>
+      <div class="session-row" style="align-items:stretch;flex-direction:column;padding:14px 16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;">
+          <strong style="font-size:1rem;">${escapeHtml(s.name)}</strong>
+          <span class="badge ${s.status === 'geblokkeerd' ? 'badge-warn' : 'badge-success'}" style="font-size:0.75rem;flex-shrink:0;">${s.status}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px;">
+          <div style="background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:6px 10px;">
+            <div style="font-size:0.72rem;color:var(--muted);font-weight:700;margin-bottom:2px;">Type</div>
+            <div style="font-size:0.85rem;font-weight:700;">${s.mode === 'exam' ? 'Examen' : 'Klas'}</div>
           </div>
-          <div class="session-meta-grid">
-            <div><span class="session-meta-label">Type</span><span class="session-meta-value">${s.mode === 'exam' ? 'Examenmodus' : 'Klasmodus'}</span></div>
-            <div><span class="session-meta-label">Leerlingen</span><span class="session-meta-value">${s.studentCount}</span></div>
-            <div><span class="session-meta-label">Code</span><span class="session-meta-value">${s.code}</span></div>
-            <div><span class="session-meta-label">Codehulp</span><span class="session-meta-value">${s.editorAssist ? 'Aan' : 'Uit'}</span></div>
+          <div style="background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:6px 10px;">
+            <div style="font-size:0.72rem;color:var(--muted);font-weight:700;margin-bottom:2px;">Leerlingen</div>
+            <div style="font-size:0.85rem;font-weight:700;">${s.studentCount}</div>
+          </div>
+          <div style="background:var(--primary-soft);border:1px solid var(--primary);border-radius:8px;padding:6px 10px;">
+            <div style="font-size:0.72rem;color:var(--primary);font-weight:700;margin-bottom:2px;">Code</div>
+            <div style="font-size:0.85rem;font-weight:800;letter-spacing:0.05em;color:var(--primary);">${s.code}</div>
+          </div>
+          <div style="background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:6px 10px;">
+            <div style="font-size:0.72rem;color:var(--muted);font-weight:700;margin-bottom:2px;">Codehulp</div>
+            <div style="font-size:0.85rem;font-weight:700;">${s.editorAssist ? 'Aan' : 'Uit'}</div>
           </div>
         </div>
-        <div class="session-row-actions">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
           <button class="btn btn-soft small" type="button" data-open-session="${s.code}">Open</button>
-          <button class="btn btn-muted small" type="button" data-observe-session="${s.code}" title="Read-only meekijken">👁 Waarnemen</button>
+          <button class="btn btn-muted small" type="button" data-observe-session="${s.code}">👁 Waarnemen</button>
           <button class="btn ${s.status === 'geblokkeerd' ? 'btn-success' : 'btn-muted'} small" type="button" data-toggle-session="${s.code}">${s.status === 'geblokkeerd' ? 'Starten' : 'Blokkeren'}</button>
           <button class="btn btn-danger small" type="button" data-delete-session="${s.code}">Verwijderen</button>
         </div>
@@ -775,24 +786,20 @@
     host.querySelectorAll('[data-delete-session]').forEach(btn => btn.addEventListener('click', async () => {
       await deleteSession(btn.dataset.deleteSession);
     }));
-    // Sprint 11B: gesloten sessies onderaan, grijs, enkel Export knop
+    // Gesloten sessies onderaan
     if (showClosed && closedList.length) {
       const closedHtml = '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);"><p class="muted" style="font-size:0.82rem;margin-bottom:8px;">🔒 Gesloten sessies</p>' +
         closedList.map(s => `
-          <div class="session-row" style="opacity:0.6;background:var(--surface-soft);">
-            <div class="session-row-main">
-              <div class="session-title-row">
-                <strong class="session-title">${escapeHtml(s.name || s.code)}</strong>
-                <span class="badge">${s.mode === 'exam' ? 'Examen' : 'Klas'} · Gesloten</span>
-              </div>
-              <div class="session-meta-grid">
-                <div><span class="session-meta-label">Code</span><span class="session-meta-value">${s.code}</span></div>
-                <div><span class="session-meta-label">Datum</span><span class="session-meta-value">${new Date(s.createdAt).toLocaleString('nl-BE',{dateStyle:'short',timeStyle:'short'})}</span></div>
-              </div>
+          <div class="session-row" style="opacity:0.6;background:var(--surface-soft);flex-direction:column;padding:10px 14px;margin-bottom:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <strong>${escapeHtml(s.name || s.code)}</strong>
+              <span class="badge" style="font-size:0.72rem;">${s.mode === 'exam' ? 'Examen' : 'Klas'} · Gesloten</span>
             </div>
-            <div class="session-row-actions">
-              <a class="btn btn-muted small" href="/api/sessions/${encodeURIComponent(s.code)}/export" target="_blank">⬇ Export</a>
+            <div style="display:flex;gap:12px;font-size:0.82rem;color:var(--muted);margin-bottom:8px;">
+              <span>Code: <strong>${s.code}</strong></span>
+              <span>${new Date(s.createdAt).toLocaleString('nl-BE',{dateStyle:'short',timeStyle:'short'})}</span>
             </div>
+            <div><a class="btn btn-muted small" href="/api/sessions/${encodeURIComponent(s.code)}/export" target="_blank">⬇ Export</a></div>
           </div>`).join('') + '</div>';
       host.innerHTML += closedHtml;
     }

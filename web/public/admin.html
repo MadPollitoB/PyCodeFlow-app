@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Beheer</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.23.4"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.24.0"/>
   <style>
     .admin-tabs { display:flex; gap:8px; margin-bottom:24px; border-bottom:2px solid var(--border); padding-bottom:0; }
     .admin-tab  { padding:10px 20px; cursor:pointer; border:none; background:none; font-weight:700; font-size:0.95rem; color:var(--muted); border-bottom:3px solid transparent; margin-bottom:-2px; }
@@ -30,18 +30,16 @@
   <link rel="icon" href="/assets/favicon.png" type="image/png">
 </head>
 <body>
-<div class="topbar">
+<div class="topbar"><div class="topbar-inner">
   <div class="logo-group">
     <img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/>
-    <span style="font-weight:800;font-size:1.1rem;">PyCodeFlow</span>
+    <span>PyCodeFlow</span>
     <span class="badge" style="margin-left:8px;">Beheer</span>
   </div>
-  <div style="display:flex;gap:8px;align-items:center;">
-    <a href="/teacher-sessions.html" class="btn btn-muted small">← Sessies</a>
-    <a href="/monitoring.html" class="btn btn-muted small">📊 Monitoring</a>
-    
+  <div class="top-actions">
+    <a href="/api/teacher-logout" class="btn btn-muted small">Afmelden</a>
   </div>
-</div>
+</div></div>
 
 <div class="subnav"><div class="subnav-inner">
   <a href="/quiz-bank.html">📋 Vragenbank</a>
@@ -133,7 +131,7 @@
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=v2026.2.23.4"></script>
+<script src="/app.js?v=v2026.2.24.0"></script>
 <script>
 
 // 23o: apiFetch wrapper met CSRF token (zelfde als app.js)

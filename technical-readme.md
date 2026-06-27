@@ -1,7 +1,7 @@
 # PyCodeFlow — Technische documentatie
 
 > Interne werking, architectuur, API-referentie en ontwikkelaarsinformatie.
-> Versie: v2026.2.23.0
+> Versie: v2026.2.24.0
 
 ---
 
@@ -50,7 +50,7 @@ Browser (leerling / leerkracht)
 
 ```
 pycodeflow/
-├── pycodeflow.sh              ← Beheertool (17 menu-opties)
+├── pycodeflow.sh              ← Beheertool (18 menu-opties)
 ├── .env                       ← Geheimen (NOOIT in git)
 ├── .env.example               ← Template
 ├── .gitignore
@@ -174,6 +174,8 @@ pycodeflow/
 | GET | `/api/quiz/:code/pdf/overview` | PDF klasoverzicht |
 | GET | `/api/quiz/archive` | Toets-archief |
 | PUT | `/api/quiz/bank/:id/unarchive` | Vraag herstellen uit archief |
+| GET | `/api/admin/db/tables` | Database viewer: tabeloverzicht |
+| GET | `/api/admin/db/tables/:name/rows` | Database viewer: tabelinhoud (gepagineerd) |
 
 ---
 
@@ -291,6 +293,7 @@ BLOCKED_MODULES = {
 | 15 | Health monitor instellen (crash notificatie) |
 | 16 | Database backup beheren |
 | 17 | Wachtwoord leerkracht resetten |
+| 18 | Mappenstructuur opschonen (verouderde bestanden verwijderen) |
 
 ---
 

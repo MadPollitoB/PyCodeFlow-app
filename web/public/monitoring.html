@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Systeembeheer</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.23.0"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.24.0"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .mon-grid {
@@ -349,6 +349,43 @@
       <div class="mon-card">
         <div class="mon-card-title">Quiz statistieken</div>
         <div id="pg-quiz" style="font-size:0.88rem;line-height:1.8;"></div>
+      </div>
+    </div>
+
+    <!-- 24g: Database viewer -->
+    <div style="margin-top:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <h3 style="margin:0;">Database viewer</h3>
+        <button class="btn btn-muted small" onclick="loadDbViewer()" id="db-viewer-refresh">↻ Verversen</button>
+      </div>
+
+      <!-- Tabelgrid -->
+      <div id="db-tables-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:16px;">
+        <div class="muted" style="grid-column:1/-1;padding:16px;text-align:center;">Klik op Verversen om tabellen te laden...</div>
+      </div>
+
+      <!-- Tabelinhoud (verschijnt bij klik op een tabelblok) -->
+      <div id="db-table-detail" style="display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+          <strong id="db-detail-title" style="font-size:1rem;"></strong>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" id="db-search-input" placeholder="Zoeken in tabel..."
+              style="padding:6px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:0.85rem;width:220px;"
+              oninput="onDbSearch(this.value)"/>
+            <button class="btn btn-muted small" onclick="closeDbDetail()">✕ Sluiten</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto;border:1.5px solid var(--border);border-radius:10px;">
+          <table id="db-detail-table" style="width:100%;border-collapse:collapse;font-size:0.82rem;min-width:600px;">
+            <thead id="db-detail-head" style="background:var(--surface-soft);"></thead>
+            <tbody id="db-detail-body"></tbody>
+          </table>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:0.82rem;color:var(--muted);">
+          <span id="db-detail-count"></span>
+          <button class="btn btn-muted small" id="db-prev-btn" onclick="dbPageNav(-1)" style="display:none;">← Vorige</button>
+          <button class="btn btn-muted small" id="db-next-btn" onclick="dbPageNav(1)" style="display:none;">Volgende →</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1210,6 +1247,114 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(loadExtraMonitoring, 60000);
 });
 
+// ── Sprint 24g: Database viewer ───────────────────────────────────────────────
+let _dbActiveTable = null;
+let _dbOffset = 0;
+let _dbSearch = '';
+const _dbLimit = 50;
+
+const _dbCategoryColor = {
+  kern:    { bg: '#eff6ff', border: '#bfdbfe', text: '#1d4ed8' },
+  quiz:    { bg: '#f0fdf4', border: '#bbf7d0', text: '#15803d' },
+  systeem: { bg: '#f9fafb', border: '#e5e7eb', text: '#374151' },
+};
+
+async function loadDbViewer() {
+  const grid = document.getElementById('db-tables-grid');
+  grid.innerHTML = '<div class="muted" style="grid-column:1/-1;padding:16px;text-align:center;">Tabellen laden...</div>';
+  try {
+    const r = await fetch('/api/admin/db/tables');
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error);
+    grid.innerHTML = data.tables.map(t => {
+      const col = _dbCategoryColor[t.category] || _dbCategoryColor.systeem;
+      const isActive = _dbActiveTable === t.name;
+      return `<div onclick="openDbTable('${t.name}')" style="
+          cursor:pointer; border-radius:10px; padding:12px 14px;
+          background:${isActive ? col.border : col.bg};
+          border:2px solid ${isActive ? col.text : col.border};
+          transition:all .15s;">
+        <div style="font-weight:700;font-size:0.88rem;color:${col.text};margin-bottom:4px;">${t.name}</div>
+        <div style="font-size:0.78rem;color:var(--muted);margin-bottom:6px;">${t.rowCount} rijen</div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px;">
+          ${t.columns.slice(0,5).map(c =>
+            `<span style="font-size:0.68rem;background:rgba(0,0,0,0.06);padding:1px 5px;border-radius:4px;color:var(--muted);">${c.name}</span>`
+          ).join('')}
+          ${t.columns.length > 5 ? `<span style="font-size:0.68rem;color:var(--muted);">+${t.columns.length - 5}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    grid.innerHTML = `<div style="grid-column:1/-1;color:var(--error-fg);padding:16px;">Fout: ${e.message}</div>`;
+  }
+}
+
+async function openDbTable(name) {
+  _dbActiveTable = name;
+  _dbOffset = 0;
+  _dbSearch = '';
+  document.getElementById('db-search-input').value = '';
+  document.getElementById('db-table-detail').style.display = 'block';
+  document.getElementById('db-detail-title').textContent = '📋 ' + name;
+  document.getElementById('db-detail-title').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  loadDbViewer(); // herlaad grid met actieve markering
+  await fetchDbRows();
+}
+
+function closeDbDetail() {
+  _dbActiveTable = null;
+  document.getElementById('db-table-detail').style.display = 'none';
+  loadDbViewer();
+}
+
+let _dbSearchTimer = null;
+function onDbSearch(val) {
+  _dbSearch = val;
+  _dbOffset = 0;
+  clearTimeout(_dbSearchTimer);
+  _dbSearchTimer = setTimeout(fetchDbRows, 350);
+}
+
+function dbPageNav(dir) {
+  _dbOffset = Math.max(0, _dbOffset + dir * _dbLimit);
+  fetchDbRows();
+}
+
+async function fetchDbRows() {
+  if (!_dbActiveTable) return;
+  const tbody = document.getElementById('db-detail-body');
+  const thead = document.getElementById('db-detail-head');
+  tbody.innerHTML = '<tr><td colspan="99" style="padding:16px;color:var(--muted);text-align:center;">Laden...</td></tr>';
+  try {
+    const params = new URLSearchParams({ limit: _dbLimit, offset: _dbOffset });
+    if (_dbSearch) params.set('search', _dbSearch);
+    const r = await fetch(`/api/admin/db/tables/${_dbActiveTable}/rows?${params}`);
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error);
+    thead.innerHTML = '<tr>' + data.columns.map(c =>
+      `<th style="padding:8px 10px;text-align:left;font-size:0.78rem;color:var(--muted);font-weight:700;white-space:nowrap;border-bottom:2px solid var(--border);">${c}</th>`
+    ).join('') + '</tr>';
+    tbody.innerHTML = data.rows.length === 0
+      ? '<tr><td colspan="99" style="padding:16px;color:var(--muted);text-align:center;">Geen rijen gevonden.</td></tr>'
+      : data.rows.map(row =>
+        '<tr>' + data.columns.map(c => {
+          const raw = row[c];
+          const val = raw === null ? '<em style="color:var(--muted);">null</em>'
+                    : String(raw).length > 80
+                      ? `<span title="${String(raw).replace(/"/g,'&quot;')}">${String(raw).slice(0,80)}…</span>`
+                      : String(raw);
+          return `<td style="padding:6px 10px;border-bottom:1px solid var(--border);font-size:0.8rem;max-width:220px;overflow:hidden;white-space:nowrap;">${val}</td>`;
+        }).join('') + '</tr>'
+      ).join('');
+    const from = _dbOffset + 1;
+    const to   = Math.min(_dbOffset + data.rows.length, data.total);
+    document.getElementById('db-detail-count').textContent = `${from}–${to} van ${data.total} rijen`;
+    document.getElementById('db-prev-btn').style.display = _dbOffset > 0 ? '' : 'none';
+    document.getElementById('db-next-btn').style.display = to < data.total ? '' : 'none';
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="99" style="padding:16px;color:var(--error-fg);">Fout: ${e.message}</td></tr>`;
+  }
+}
 </script>
 
 </body>

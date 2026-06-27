@@ -8,14 +8,14 @@
 
 | Sprint | Prio | Inhoud | Status | Inschatting |
 |---|---|---|---|---|
-| **24a** | 🟠 UX-1 | Vervang alle browser `confirm()` / `alert()` dialogen door mooie in-app modals | 🔄 Gepland | ~1.5 dag |
-| **24b** | 🟠 UX-2 | Vragenbank: code-snippet in vraagstelling staat inline ipv als Python code-blok | 🔄 Gepland | ~0.5 dag |
-| **24c** | 🔴 BUG-1 | Single/meerkeuze layout kapot: radio/checkbox gecentreerd, tekstveld onzichtbaar, knoppen buiten kaart | 🔄 Gepland | ~1 dag |
-| **24d** | 🔴 BUG-2 | Wisselen tussen single/multiple verandert radio→checkbox niet in bestaande opties | 🔄 Gepland | ~0.5 dag |
-| **24e** | 🟠 UX-3 | "Nieuwe toets" pagina: layout trekt op niets (checkboxes, kolommen, spacing) | 🔄 Gepland | ~1 dag |
-| **24f** | 🟠 UX-4 | Sessieoverzicht: lopende sessies layout trekt op niets (meta-grid, knoppen) | 🔄 Gepland | ~1 dag |
-| **24g** | 🟠 UX-5 | Monitoring: database-viewer met tabeloverzicht (grid) + klikbare tabelinhoud | 🔄 Gepland | ~1.5 dag |
-| **24h** | 🟠 UX-6 | admin.html topbar: "← Sessies" en "Monitoring" staan nog als losse knoppen boven de subnav ipv erin verwerkt | 🔄 Gepland | ~0.5 dag |
+| **24a** ✅ | 🟠 UX-1 | Vervang alle browser `confirm()` / `alert()` dialogen door mooie in-app modals | ✅ Afgerond | ~1.5 dag |
+| **24b** ✅ | 🟠 UX-2 | Vragenbank: code-snippet in vraagstelling staat inline ipv als Python code-blok | ✅ Afgerond | ~0.5 dag |
+| **24c** ✅ | 🔴 BUG-1 | Single/meerkeuze layout kapot: radio/checkbox gecentreerd, tekstveld onzichtbaar, knoppen buiten kaart | ✅ Afgerond | ~1 dag |
+| **24d** ✅ | 🔴 BUG-2 | Wisselen tussen single/multiple verandert radio→checkbox niet in bestaande opties | ✅ Afgerond | ~0.5 dag |
+| **24e** ✅ | 🟠 UX-3 | "Nieuwe toets" pagina: layout trekt op niets (checkboxes, kolommen, spacing) | ✅ Afgerond | ~1 dag |
+| **24f** ✅ | 🟠 UX-4 | Sessieoverzicht: lopende sessies layout trekt op niets (meta-grid, knoppen) | ✅ Afgerond | ~1 dag |
+| **24g** ✅ | 🟠 UX-5 | Monitoring: database-viewer met tabeloverzicht (grid) + klikbare tabelinhoud | ✅ Afgerond | ~1.5 dag |
+| **24h** ✅ | 🟠 UX-6 | admin.html topbar: "← Sessies" en "Monitoring" staan nog als losse knoppen boven de subnav ipv erin verwerkt | ✅ Afgerond | ~0.5 dag |
 | **16a-f** | — | Toetsmodule (volledig) | ✅ Afgerond (v2026.2.13.0) | ~10 dagen |
 | ~~**16b**~~ | — | Toetsmodule: toets aanmaken + sessie type quiz | ✅ Afgerond (v2026.2.13.0) | ~2 dagen |
 | ~~**16c**~~ | — | Toetsmodule: leerling quizscherm + timer + auto-submit | ✅ Afgerond (v2026.2.13.0) | ~2 dagen |
@@ -66,8 +66,7 @@
 ### Sprint 24 — UI/UX ronde 2 *(~5.5 dagen)*
 
 **Aangemeld:** 27/06/2026
-**Status:** 🔄 Gepland
-**Versie:** gepland voor v2026.2.24.0
+**Status:** ✅ Afgerond (v2026.2.24.0)
 
 ---
 

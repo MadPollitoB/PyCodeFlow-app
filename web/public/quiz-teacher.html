@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Nieuwe toets aanmaken</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.23.0"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.24.0"/>
   <style>
     .wizard-steps { display:flex; gap:0; margin-bottom:28px; }
     .wizard-step { flex:1; padding:12px; text-align:center; background:var(--surface-soft);
@@ -141,20 +141,26 @@
         </p>
       </div>
       <div style="margin-top:16px;display:flex;flex-direction:column;gap:10px;">
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+        <label class="checkbox-row" style="cursor:pointer;">
           <input type="checkbox" id="quiz-hide-question"/>
-          <span><strong>Vraagstelling verbergen op scherm</strong><br/>
-            <span class="muted" style="font-size:0.82rem;">Leerlingen lezen de vraag enkel van het papier.</span></span>
+          <span>
+            <strong>Vraagstelling verbergen op scherm</strong><br/>
+            <span class="muted" style="font-size:0.82rem;">Leerlingen lezen de vraag enkel van het papier.</span>
+          </span>
         </label>
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+        <label class="checkbox-row" style="cursor:pointer;">
           <input type="checkbox" id="quiz-min-runs"/>
-          <span><strong>Minstens 1 run per vraag vereisen</strong><br/>
-            <span class="muted" style="font-size:0.82rem;">Indienen toont waarschuwing als vraag niet uitgevoerd is.</span></span>
+          <span>
+            <strong>Minstens 1 run per vraag vereisen</strong><br/>
+            <span class="muted" style="font-size:0.82rem;">Indienen toont waarschuwing als vraag niet uitgevoerd is.</span>
+          </span>
         </label>
-        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+        <label class="checkbox-row" style="cursor:pointer;">
           <input type="checkbox" id="quiz-is-preview"/>
-          <span><strong>Test als leerkracht <span class="preview-badge">PREVIEW</span></strong><br/>
-            <span class="muted" style="font-size:0.82rem;">Antwoorden worden niet opgeslagen. Gebruik om de toets te testen.</span></span>
+          <span>
+            <strong>Test als leerkracht <span class="preview-badge">PREVIEW</span></strong><br/>
+            <span class="muted" style="font-size:0.82rem;">Antwoorden worden niet opgeslagen. Gebruik om de toets te testen.</span>
+          </span>
         </label>
       </div>
       <div style="margin-top:20px;">
@@ -201,7 +207,7 @@
   </div>
 </div>
 
-<script src="/app.js?v=v2026.2.23.0"></script>
+<script src="/app.js?v=v2026.2.24.0"></script>
 <script>
 let _bank = [];
 let _selected = {}; // { id: { ...question, points: override } }
