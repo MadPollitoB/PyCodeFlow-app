@@ -502,6 +502,31 @@ actie_rebuild() {
   header
   stap "Rebuild & Herstart PyCodeFlow"
   echo ""
+  # Sprint 34b: draai de testsuite vóór een rebuild — blokkeer deploy bij fouten
+  if [[ -f "$BASE/run-tests.sh" ]]; then
+    echo -e "  ${GEEL}Testsuite draaien vóór rebuild...${RESET}"
+    if bash "$BASE/run-tests.sh" > /tmp/pycf_testrun.log 2>&1; then
+      ok "Alle tests geslaagd"
+    else
+      err "Tests GEFAALD — zie /tmp/pycf_testrun.log"
+      tail -20 /tmp/pycf_testrun.log
+      echo ""
+      read -rp "  Toch doorgaan met rebuild ondanks gefaalde tests? (j/n): " force
+      [[ ! "$force" =~ ^[jJ]$ ]] && { warn "Rebuild geannuleerd."; echo ""; pauze; return; }
+    fi
+    echo ""
+  fi
+  # Auto-sync versie uit VERSION-bestand vóór rebuild (deploy-automatisering)
+  if [[ -f "$BASE/VERSION" && -f "$BASE/sync-version.sh" ]]; then
+    local file_ver; file_ver=$(tr -d '[:space:]' < "$BASE/VERSION")
+    local env_ver;  env_ver=$(get_env APP_VERSION)
+    if [[ "$file_ver" != "$env_ver" ]]; then
+      echo -e "  ${GEEL}VERSION-bestand ($file_ver) wijkt af van .env ($env_ver) — synchroniseren...${RESET}"
+      bash "$BASE/sync-version.sh" >/dev/null 2>&1
+      ok "Versie gesynchroniseerd naar $file_ver"
+      echo ""
+    fi
+  fi
   warn "Dit rebuildt alle Docker images (kan enkele minuten duren)."
   read -rp "  Doorgaan? (j/n): " bevestig
   [[ ! "$bevestig" =~ ^[jJ]$ ]] && return
@@ -772,11 +797,17 @@ update_versie() {
   stap "Versie instellen"
   echo ""
 
+  # Huidige versie uit VERSION-bestand (primaire bron), anders uit .env
+  local huidig=""
+  if [[ -f "$BASE/VERSION" ]]; then
+    huidig=$(tr -d '[:space:]' < "$BASE/VERSION")
+  fi
+  [[ -z "$huidig" ]] && huidig=$(get_env APP_VERSION)
+  [[ -z "$huidig" ]] && huidig="2026.2.29.0"
+
   local vj vm vn vb
-  vj=$(get_env APP_VERSION_YEAR);  vm=$(get_env APP_VERSION_MAJOR)
-  vn=$(get_env APP_VERSION_MINOR); vb=$(get_env APP_VERSION_BUILD)
-  [[ -z "$vj" ]] && { local full; full=$(get_env APP_VERSION); IFS='.' read -r vj vm vn vb <<< "$full"; }
-  vj="${vj:-2026}"; vm="${vm:-2}"; vn="${vn:-13}"; vb="${vb:-0}"
+  IFS='.' read -r vj vm vn vb <<< "$huidig"
+  vj="${vj:-2026}"; vm="${vm:-2}"; vn="${vn:-29}"; vb="${vb:-0}"
 
   echo -e "  Huidige versie: ${GEEL}${vj}.${vm}.${vn}.${vb}${RESET}"
   echo -e "  ${DIM}Druk Enter om waarde te behouden.${RESET}"
@@ -793,11 +824,19 @@ update_versie() {
   echo -e "  Nieuwe versie: ${GROEN}${nieuw}${RESET}"
   read -rp "  Bevestigen? (j/n): " bevestig
   if [[ "$bevestig" =~ ^[jJ]$ ]]; then
-    set_env "APP_VERSION_YEAR"  "$nj"; set_env "APP_VERSION_MAJOR" "$nm"
-    set_env "APP_VERSION_MINOR" "$nn"; set_env "APP_VERSION_BUILD" "$nb"
-    set_env "APP_VERSION" "$nieuw"
+    # sync-version.sh werkt VERSION + .env + alle HTML cache-bust strings bij
+    if [[ -f "$BASE/sync-version.sh" ]]; then
+      bash "$BASE/sync-version.sh" "$nieuw"
+    else
+      # Fallback: enkel .env
+      echo "$nieuw" > "$BASE/VERSION"
+      set_env "APP_VERSION_YEAR"  "$nj"; set_env "APP_VERSION_MAJOR" "$nm"
+      set_env "APP_VERSION_MINOR" "$nn"; set_env "APP_VERSION_BUILD" "$nb"
+      set_env "APP_VERSION" "$nieuw"
+    fi
     echo ""
     ok "Versie bijgewerkt naar ${nieuw}"
+    echo -e "  ${DIM}Herstart de web-container om de wijziging te activeren (optie 4).${RESET}"
   else
     warn "Geannuleerd."
   fi
@@ -1152,6 +1191,241 @@ actie_logs_cleanup() {
   pauze
 }
 
+actie_tests() {
+  header
+  stap "Tests draaien"
+  echo ""
+  if [[ -f "$BASE/run-tests.sh" ]]; then
+    bash "$BASE/run-tests.sh"
+  else
+    warn "run-tests.sh niet gevonden."
+  fi
+  echo ""
+  pauze
+}
+
+actie_db_beheer() {
+  local WEB_CONT="pycodeflow-web-1"
+  local MANAGE="node /app/scripts/manage-teacher.js"
+
+  db_exec() {
+    docker exec "$WEB_CONT" $MANAGE "$@" 2>/dev/null
+  }
+
+  while true; do
+    header
+    stap "Database beheer"
+    echo ""
+    echo -e "  ${BOLD}a)${RESET} 👨‍🏫  Leerkrachten tonen (met inlognaam)"
+    echo -e "  ${BOLD}b)${RESET} ➕  Leerkracht toevoegen"
+    echo -e "  ${BOLD}c)${RESET} ❌  Leerkracht verwijderen"
+    echo -e "  ${BOLD}d)${RESET} 🔑  Wachtwoord leerkracht resetten"
+    echo -e "  ${BOLD}k)${RESET} 🆘  Kan niet inloggen? → toon + reset in één stap"
+    echo -e "  ${BOLD}e)${RESET} 🏫  Klassen tonen"
+    echo -e "  ${BOLD}f)${RESET} ➕  Klas toevoegen"
+    echo -e "  ${BOLD}g)${RESET} 👤  Leerlingen tonen"
+    echo -e "  ${BOLD}h)${RESET} 🚨  Noodtoegang: bootstrap admin-account uit .env"
+    echo -e "  ${BOLD}i)${RESET} 📊  Database statistieken"
+    echo -e "  ${BOLD} q)${RESET} ←   Terug naar hoofdmenu"
+    echo ""
+    read -rp "  Keuze: " db_keuze
+
+    case "$db_keuze" in
+      k|K)
+        header
+        stap "Kan niet inloggen? — Toon + reset leerkracht"
+        echo ""
+        echo -e "  ${DIM}Dit toont alle leerkrachten en laat je meteen een${RESET}"
+        echo -e "  ${DIM}nieuw wachtwoord zetten. Log daarna in met de inlognaam${RESET}"
+        echo -e "  ${DIM}(username) — NIET de weergavenaam.${RESET}"
+        echo ""
+        echo -e "  ${BOLD}Bestaande leerkrachten:${RESET}"
+        db_exec list || warn "Kon lijst niet ophalen"
+        echo ""
+        read -rp "  Inlognaam (username) om wachtwoord te resetten: " lk_user
+        if [[ -z "$lk_user" ]]; then
+          warn "Geannuleerd."
+        else
+          read -rsp "  Nieuw wachtwoord (min 4 tekens): " lk_pw; echo ""
+          read -rsp "  Bevestig wachtwoord: " lk_pw2; echo ""
+          if [[ "$lk_pw" != "$lk_pw2" ]]; then
+            warn "Wachtwoorden komen niet overeen."
+          elif [[ ${#lk_pw} -lt 4 ]]; then
+            warn "Wachtwoord te kort (min 4 tekens)."
+          else
+            if docker exec "$WEB_CONT" $MANAGE reset-password "$lk_user" "$lk_pw" 2>/dev/null; then
+              echo ""
+              ok "Wachtwoord gewijzigd!"
+              echo ""
+              echo -e "  ${GROEN}Log nu in met:${RESET}"
+              echo -e "    Inlognaam:  ${BOLD}${lk_user}${RESET}"
+              echo -e "    Wachtwoord: ${BOLD}(het net ingestelde)${RESET}"
+              echo ""
+              echo -e "  ${DIM}Werkt het nog niet? Wis je browsercache of probeer${RESET}"
+              echo -e "  ${DIM}een incognito-venster (oude sessie-cookie).${RESET}"
+            else
+              warn "Reset mislukt — bestaat de inlognaam '$lk_user'? (zie lijst hierboven)"
+            fi
+          fi
+        fi
+        echo ""
+        pauze ;;
+      a|A)
+        header
+        stap "Leerkrachten"
+        echo ""
+        db_exec list || warn "Kon leerkrachtenlijst niet ophalen"
+        echo ""
+        pauze ;;
+
+      b|B)
+        header
+        stap "Leerkracht toevoegen"
+        echo ""
+        read -rp "  Gebruikersnaam : " lk_user
+        read -rsp "  Wachtwoord     : " lk_pw; echo ""
+        read -rp "  Rol (teacher/admin) [teacher]: " lk_rol
+        lk_rol="${lk_rol:-teacher}"
+        if [[ -z "$lk_user" || -z "$lk_pw" ]]; then
+          warn "Gebruikersnaam en wachtwoord zijn verplicht."
+        else
+          docker exec "$WEB_CONT" $MANAGE add "$lk_user" "$lk_pw" "$lk_rol" 2>/dev/null \
+            && ok "Leerkracht '$lk_user' aangemaakt als $lk_rol" \
+            || warn "Aanmaken mislukt — bestaat de gebruiker al?"
+        fi
+        echo ""
+        pauze ;;
+
+      c|C)
+        header
+        stap "Leerkracht verwijderen"
+        echo ""
+        db_exec list || warn "Kon lijst niet ophalen"
+        echo ""
+        read -rp "  Gebruikersnaam om te verwijderen: " lk_del
+        if [[ -z "$lk_del" ]]; then
+          warn "Geannuleerd."
+        else
+          read -rp "  Zeker? Dit kan niet ongedaan worden (j/n): " bev
+          if [[ "$bev" =~ ^[jJ]$ ]]; then
+            docker exec "$WEB_CONT" $MANAGE delete "$lk_del" 2>/dev/null \
+              && ok "Leerkracht '$lk_del' verwijderd" \
+              || warn "Verwijderen mislukt"
+          else
+            warn "Geannuleerd."
+          fi
+        fi
+        echo ""
+        pauze ;;
+
+      d|D)
+        header
+        stap "Wachtwoord resetten"
+        echo ""
+        db_exec list || warn "Kon lijst niet ophalen"
+        echo ""
+        read -rp "  Gebruikersnaam: " lk_user
+        read -rsp "  Nieuw wachtwoord: " lk_pw; echo ""
+        read -rsp "  Bevestig wachtwoord: " lk_pw2; echo ""
+        if [[ "$lk_pw" != "$lk_pw2" ]]; then
+          warn "Wachtwoorden komen niet overeen."
+        elif [[ -z "$lk_user" || -z "$lk_pw" ]]; then
+          warn "Vul alle velden in."
+        else
+          docker exec "$WEB_CONT" $MANAGE reset-password "$lk_user" "$lk_pw" 2>/dev/null \
+            && ok "Wachtwoord van '$lk_user' gewijzigd" \
+            || warn "Resetten mislukt"
+        fi
+        echo ""
+        pauze ;;
+
+      e|E)
+        header
+        stap "Klassen"
+        echo ""
+        PG_PW=$(grep "^POSTGRES_PASSWORD=" "$BASE/.env" 2>/dev/null | cut -d= -f2-)
+        docker exec pycodeflow-postgres-1 \
+          psql "postgresql://pycodeflow:${PG_PW}@localhost/pycodeflow" \
+          -c "SELECT name, archived, created_at FROM classes ORDER BY name;" 2>/dev/null \
+          || warn "Kon klassen niet ophalen"
+        echo ""
+        pauze ;;
+
+      f|F)
+        header
+        stap "Klas toevoegen"
+        echo ""
+        read -rp "  Naam van de klas: " klas_naam
+        if [[ -z "$klas_naam" ]]; then
+          warn "Naam is verplicht."
+        else
+          PG_PW=$(grep "^POSTGRES_PASSWORD=" "$BASE/.env" 2>/dev/null | cut -d= -f2-)
+          KLAS_ID=$(python3 -c "import uuid; print(uuid.uuid4())" 2>/dev/null || date +%s)
+          docker exec pycodeflow-postgres-1 \
+            psql "postgresql://pycodeflow:${PG_PW}@localhost/pycodeflow" \
+            -c "INSERT INTO classes (id, name, archived, created_at) VALUES ('${KLAS_ID}', '${klas_naam}', false, $(date +%s%3N)) ON CONFLICT DO NOTHING;" \
+            2>/dev/null && ok "Klas '${klas_naam}' aangemaakt" || warn "Aanmaken mislukt"
+        fi
+        echo ""
+        pauze ;;
+
+      g|G)
+        header
+        stap "Leerlingen"
+        echo ""
+        PG_PW=$(grep "^POSTGRES_PASSWORD=" "$BASE/.env" 2>/dev/null | cut -d= -f2-)
+        docker exec pycodeflow-postgres-1 \
+          psql "postgresql://pycodeflow:${PG_PW}@localhost/pycodeflow" \
+          -c "SELECT s.name, c.name AS klas, s.status, s.source FROM students s LEFT JOIN classes c ON s.class_id = c.id ORDER BY c.name, s.name;" \
+          2>/dev/null || warn "Kon leerlingen niet ophalen"
+        echo ""
+        pauze ;;
+
+      h|H)
+        header
+        stap "Noodtoegang — Bootstrap admin uit .env"
+        echo ""
+        LK_USER=$(grep "^POC_BASIC_USER=" "$BASE/.env" 2>/dev/null | cut -d= -f2-)
+        LK_PW=$(grep "^POC_BASIC_PASS=" "$BASE/.env" 2>/dev/null | cut -d= -f2-)
+        if [[ -z "$LK_USER" || -z "$LK_PW" ]]; then
+          warn "POC_BASIC_USER en/of POC_BASIC_PASS niet gevonden in .env"
+          info "Voeg deze toe aan .env en probeer opnieuw, of gebruik optie b."
+        else
+          info "Gebruikersnaam uit .env: $LK_USER"
+          read -rp "  Admin-account aanmaken voor '$LK_USER'? (j/n): " bev
+          if [[ "$bev" =~ ^[jJ]$ ]]; then
+            docker exec "$WEB_CONT" $MANAGE add "$LK_USER" "$LK_PW" "admin" 2>/dev/null \
+              && ok "Admin-account '$LK_USER' aangemaakt" \
+              || warn "Aanmaken mislukt — bestaat de gebruiker al? Gebruik optie d voor wachtwoord reset."
+            info "Herstart de web container zodat de wijziging actief wordt:"
+            info "  docker compose restart web"
+          else
+            warn "Geannuleerd."
+          fi
+        fi
+        echo ""
+        pauze ;;
+
+      i|I)
+        header
+        stap "Database statistieken"
+        echo ""
+        PG_PW=$(grep "^POSTGRES_PASSWORD=" "$BASE/.env" 2>/dev/null | cut -d= -f2-)
+        for tbl in teachers classes students sessions quiz_bank quiz_meta quiz_answers audit_log free_audit_log log_entries; do
+          COUNT=$(docker exec pycodeflow-postgres-1 \
+            psql "postgresql://pycodeflow:${PG_PW}@localhost/pycodeflow" \
+            -tAc "SELECT COUNT(*) FROM $tbl;" 2>/dev/null | tr -d '[:space:]' || echo "?")
+          printf "  %-30s %s rijen\n" "$tbl" "$COUNT"
+        done
+        echo ""
+        pauze ;;
+
+      q|Q) return ;;
+      *) warn "Ongeldige keuze." ;;
+    esac
+  done
+}
+
 actie_opschonen() {
   header
   stap "Mappenstructuur opschonen"
@@ -1384,6 +1658,8 @@ while true; do
   echo -e "  ${BOLD}16)${RESET} 💾  Database backup beheren"
   echo -e "  ${BOLD}17)${RESET} 🔑  Wachtwoord leerkracht resetten"
   echo -e "  ${BOLD}18)${RESET} 🧹  Mappenstructuur opschonen"
+  echo -e "  ${BOLD}19)${RESET} 🗄  Database beheer"
+  echo -e "  ${BOLD}20)${RESET} 🧪  Tests draaien (syntax + unit + sandbox)"
   echo -e "  ${BOLD} q)${RESET} ✖   Afsluiten"
   echo ""
   echo -e "${BOLD}──────────────────────────────────────────────${RESET}"
@@ -1409,6 +1685,8 @@ while true; do
     16) actie_backup ;;
     17) actie_wachtwoord_reset ;;
     18) actie_opschonen ;;
+    19) actie_db_beheer ;;
+    20) actie_tests ;;
     q|Q) echo -e "${GROEN}Tot later!${RESET}"; echo ""; exit 0 ;;
     *) err "Ongeldige keuze."; sleep 1 ;;
   esac

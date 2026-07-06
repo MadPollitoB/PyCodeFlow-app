@@ -1,0 +1,36 @@
+name: PyCodeFlow CI
+
+# Sprint 34b: draait bij elke push/PR — syntax-checks, unit tests, sandbox tests.
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm install --no-audit --no-fund
+
+      - name: Run full test suite
+        run: bash run-tests.sh
+
+      - name: npm audit (production)
+        working-directory: web
+        run: npm audit --production || true

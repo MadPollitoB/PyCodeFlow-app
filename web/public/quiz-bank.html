@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Vragenbank</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.24.0"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.29.1"/>
   <style>
     .qb-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px; }
     @media(max-width:900px){ .qb-grid { grid-template-columns:1fr; } }
@@ -85,16 +85,75 @@
     }
     .choice-remove:hover { background: var(--error-bg); color: var(--error-fg); }
 
-    /* 22d: markdown preview */
-    .md-preview { padding:12px; background:var(--surface-soft); border-radius:8px;
-      margin-top:6px; border:1.5px solid var(--border); font-size:0.92rem; line-height:1.7; }
-    .md-preview code { background:var(--surface); padding:2px 5px; border-radius:4px;
-      font-family:Consolas,monospace; font-size:0.85em; border:1px solid var(--border); }
-    .md-preview pre { background:#1e1e1e; color:#d4d4d4; padding:12px; border-radius:8px;
-      overflow:auto; font-family:Consolas,monospace; font-size:0.85rem; }
-    .md-preview pre code { background:none; border:none; padding:0; }
-    .md-preview strong { color:var(--text); }
-    .md-preview ul, .md-preview ol { padding-left:20px; }
+    /* 25a: Editor toolbar */
+    .editor-toolbar-row {
+      display: flex; gap: 4px; flex-wrap: wrap; align-items: center;
+      padding: 6px 8px; background: var(--surface-soft);
+      border: 1.5px solid var(--border); border-radius: 8px 8px 0 0;
+      border-bottom: none; margin-bottom: 0;
+    }
+    .etb-btn {
+      min-width: 28px; height: 28px; padding: 0 6px;
+      border: 1px solid var(--border); border-radius: 5px;
+      background: var(--surface); color: var(--text);
+      font-size: 0.78rem; font-weight: 700; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .12s;
+    }
+    .etb-btn:hover { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); }
+    .etb-sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; }
+    .etb-color-btn { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--border); cursor: pointer; display: inline-block; }
+    .etb-color-popup {
+      position: absolute; background: var(--surface); border: 1.5px solid var(--border);
+      border-radius: 8px; padding: 8px; display: flex; gap: 6px; flex-wrap: wrap;
+      box-shadow: var(--shadow); z-index: 50; width: 140px;
+    }
+    .etb-view-group { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-left: auto; }
+    .etb-view-btn { padding: 3px 8px; font-size: 0.72rem; border: none; background: var(--surface); color: var(--muted); cursor: pointer; }
+    .etb-view-btn.active { background: var(--primary); color: #fff; }
+
+    /* 25d: split-view */
+    .q-editor-wrap { display: grid; grid-template-columns: 1fr; gap: 0; }
+    .q-editor-wrap.split { grid-template-columns: 1fr 1fr; gap: 12px; }
+    .q-editor-wrap.preview-only textarea { display: none; }
+    .q-editor-wrap.split textarea { border-radius: 0 0 8px 8px; border-top: none; }
+    .q-live-preview {
+      display: none; padding: 12px 14px; background: var(--surface-soft);
+      border: 1.5px solid var(--border); border-radius: 8px; min-height: 120px;
+      font-size: 0.92rem; line-height: 1.7; overflow-y: auto;
+    }
+    .q-editor-wrap.split .q-live-preview { display: block; }
+    .q-editor-wrap.preview-only .q-live-preview { display: block; border-radius: 0 0 8px 8px; border-top: none; }
+
+    /* 25b: info-kaders */
+    .info-kader { padding: 12px 16px; border-radius: 8px; margin: 10px 0; font-size: 0.9rem; line-height: 1.6; border-left: 4px solid; }
+    .info-tip     { background: #f0fdf4; border-color: #10b981; color: #065f46; }
+    .info-opgelet { background: #fff7ed; border-color: #f59e0b; color: #92400e; }
+    .info-kader-blauw { background: #eff6ff; border-color: #3b82f6; color: #1e40af; }
+    .info-hint    { background: #faf5ff; border-color: #8b5cf6; color: #5b21b6; }
+    .info-kader::before { font-weight: 800; display: block; margin-bottom: 4px; }
+    .info-tip::before     { content: '💡 Tip'; }
+    .info-opgelet::before { content: '⚠️ Opgelet'; }
+    .info-kader-blauw::before { content: '📌 Kader'; }
+    .info-hint::before    { content: '❓ Hint'; }
+
+    /* 25c: tabel-modal */
+    .tabel-modal-overlay {
+      position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.45);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .tabel-modal {
+      background: var(--surface); border-radius: 14px; padding: 24px;
+      min-width: 360px; max-width: 90vw; box-shadow: var(--shadow);
+    }
+    .tabel-grid-input { display: grid; gap: 4px; margin: 12px 0; }
+    .tabel-cell-input { width: 100%; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; font-size: 0.82rem; box-sizing: border-box; }
+
+    /* md-preview tabel */
+    .md-preview table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+    .md-preview th { background: var(--primary-soft); color: var(--primary); padding: 7px 10px; border: 1px solid var(--border); font-weight: 700; }
+    .md-preview td { padding: 6px 10px; border: 1px solid var(--border); }
+    .md-preview tr:nth-child(even) td { background: var(--surface-soft); }
 
     /* vraagtype radio cards */
     .type-radio-group { display:flex; gap:8px; flex-wrap:wrap; }
@@ -190,20 +249,86 @@
         </div>
       </div>
 
-      <!-- Vraagstelling -->
+      <!-- Vraagstelling met toolbar (25a/25b/25c/25d) -->
       <div style="margin-bottom:14px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <label style="font-size:0.82rem;color:var(--muted);">
-            Vraagstelling <span style="font-size:0.75rem;">(Markdown ondersteund)</span>
-          </label>
-          <button type="button" class="btn btn-muted small" style="font-size:0.75rem;padding:3px 10px;"
-            id="preview-toggle-btn" onclick="toggleMarkdownPreview()">👁 Preview</button>
+        <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:6px;">
+          Vraagstelling <span style="font-size:0.75rem;">(opmaak via toolbar)</span>
+        </label>
+
+        <!-- 25a: Toolbar -->
+        <div class="editor-toolbar-row">
+          <button type="button" class="etb-btn" title="Vet" onclick="insertMd('**','**')"><b>B</b></button>
+          <button type="button" class="etb-btn" title="Cursief" onclick="insertMd('*','*')"><i>I</i></button>
+          <button type="button" class="etb-btn" title="Inline code" onclick="insertMd('\`','\`')">‹›</button>
+          <div class="etb-sep"></div>
+          <button type="button" class="etb-btn" title="Grote kop" onclick="insertMdLine('## ')">H1</button>
+          <button type="button" class="etb-btn" title="Kleine kop" onclick="insertMdLine('### ')">H2</button>
+          <div class="etb-sep"></div>
+          <button type="button" class="etb-btn" title="Ongeordende lijst" onclick="insertMdLine('- ')">•</button>
+          <button type="button" class="etb-btn" title="Genummerde lijst" onclick="insertMdLine('1. ')">1.</button>
+          <button type="button" class="etb-btn" title="Horizontale lijn" onclick="insertMdLine('---')">—</button>
+          <div class="etb-sep"></div>
+          <button type="button" class="etb-btn" title="Python code-blok" onclick="insertMdBlock('\`\`\`python','\`\`\`')">&lt;/&gt;</button>
+          <div class="etb-sep"></div>
+          <!-- 25b: Info-kaders -->
+          <button type="button" class="etb-btn" title="Tip-kader (groen)" onclick="insertKader('tip')" style="color:#10b981;">💡</button>
+          <button type="button" class="etb-btn" title="Opgelet-kader (oranje)" onclick="insertKader('opgelet')" style="color:#f59e0b;">⚠️</button>
+          <button type="button" class="etb-btn" title="Informatiekader (blauw)" onclick="insertKader('kader')" style="color:#3b82f6;">📌</button>
+          <button type="button" class="etb-btn" title="Hint-kader (paars)" onclick="insertKader('hint')" style="color:#8b5cf6;">❓</button>
+          <div class="etb-sep"></div>
+          <!-- 25a: Kleur -->
+          <div style="position:relative;">
+            <button type="button" class="etb-btn" title="Tekstkleur" id="color-btn" onclick="toggleColorPopup()">🎨</button>
+            <div class="etb-color-popup" id="color-popup" style="display:none;position:absolute;top:32px;left:0;">
+              <span class="etb-color-btn" style="background:#ef4444;" title="Rood" onclick="insertColor('#ef4444')"></span>
+              <span class="etb-color-btn" style="background:#f59e0b;" title="Oranje" onclick="insertColor('#f59e0b')"></span>
+              <span class="etb-color-btn" style="background:#10b981;" title="Groen" onclick="insertColor('#10b981')"></span>
+              <span class="etb-color-btn" style="background:#3b82f6;" title="Blauw" onclick="insertColor('#3b82f6')"></span>
+              <span class="etb-color-btn" style="background:#8b5cf6;" title="Paars" onclick="insertColor('#8b5cf6')"></span>
+              <span class="etb-color-btn" style="background:#6b7280;" title="Grijs" onclick="insertColor('#6b7280')"></span>
+            </div>
+          </div>
+          <!-- 25c: Tabel -->
+          <button type="button" class="etb-btn" title="Tabel invoegen" onclick="openTabelModal()">⊞</button>
+          <!-- 25d: View-modus toggle -->
+          <div class="etb-view-group">
+            <button type="button" class="etb-view-btn active" id="view-edit"   onclick="setEditorMode('edit')"    title="Enkel editor">☐</button>
+            <button type="button" class="etb-view-btn"        id="view-split"  onclick="setEditorMode('split')"   title="Split-view">⊞</button>
+            <button type="button" class="etb-view-btn"        id="view-preview" onclick="setEditorMode('preview')" title="Enkel preview">👁</button>
+          </div>
         </div>
-        <!-- 22a FIX: textarea zonder form-parent die Enter onderschept -->
-        <textarea class="q-input" id="q-text"
-          placeholder="Schrijf een functie die ...&#10;&#10;**Vet**, \`code\`, - lijsten zijn mogelijk"
-          onkeydown="event.stopPropagation()"></textarea>
-        <div id="q-text-preview" class="md-preview" style="display:none;"></div>
+
+        <!-- 25d: Editor wrap met split-view -->
+        <div class="q-editor-wrap" id="q-editor-wrap">
+          <textarea class="q-input" id="q-text"
+            placeholder="Schrijf je vraagstelling hier...&#10;&#10;Gebruik de toolbar voor opmaak, kaders en code-blokken."
+            onkeydown="event.stopPropagation()"
+            oninput="onEditorInput()"
+            style="border-radius:0 0 8px 8px;border-top:none;margin-top:0;"></textarea>
+          <div class="q-live-preview md-preview" id="q-live-preview"></div>
+        </div>
+      </div>
+
+      <!-- 25c: Tabel-modal -->
+      <div class="tabel-modal-overlay" id="tabel-modal" style="display:none;" onclick="if(event.target===this)closeTabelModal()">
+        <div class="tabel-modal">
+          <h3 style="margin:0 0 12px;">Tabel invoegen</h3>
+          <div style="display:flex;gap:16px;align-items:center;margin-bottom:12px;">
+            <label style="font-size:0.85rem;">Rijen:
+              <input type="number" id="tbl-rows" value="3" min="1" max="10" style="width:60px;margin-left:6px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;"
+                oninput="renderTabelGrid()"/>
+            </label>
+            <label style="font-size:0.85rem;">Kolommen:
+              <input type="number" id="tbl-cols" value="3" min="1" max="8" style="width:60px;margin-left:6px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;"
+                oninput="renderTabelGrid()"/>
+            </label>
+          </div>
+          <div id="tabel-grid-wrap"></div>
+          <div style="display:flex;gap:8px;margin-top:14px;">
+            <button class="btn btn-soft small" onclick="insertTabel()">⊞ Invoegen</button>
+            <button class="btn btn-muted small" onclick="closeTabelModal()">Annuleren</button>
+          </div>
+        </div>
       </div>
 
       <!-- 22e: Antwoordopties (enkel bij single/multiple) -->
@@ -266,9 +391,10 @@ Lussen,makkelijk,2,"Druk de getallen 1 tot 10 af met een lus."</pre>
   </div>
 </div>
 
-<script src="/app.js?v=v2026.2.24.0"></script>
+<script src="/app.js?v=v2026.2.29.1"></script>
 <!-- 22d: marked.js voor Markdown preview — geladen VOOR inline script -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
 <script>
 'use strict';
 
@@ -276,7 +402,7 @@ Lussen,makkelijk,2,"Druk de getallen 1 tot 10 af met een lus."</pre>
 let _csrfToken = null;
 async function getCSRFToken() {
   if (_csrfToken) return _csrfToken;
-  try { const r = await fetch('/api/csrf-token'); if (r.ok) { const d = await r.json(); _csrfToken = d.token; } } catch {}
+  try { const r = await fetch('/api/csrf-token'); if (r.ok) { const d = await r.json(); _csrfToken = d.token; } } catch (e) { console.warn('[quiz-bank] fout:', e.message); }
   return _csrfToken || '';
 }
 async function apiFetch(url, options = {}) {
@@ -363,7 +489,7 @@ function renderQuestions(qs) {
   el.innerHTML = qs.map((q, idx) => {
     // 24b: render vraagstelling als Markdown zodat code-snippets als blok verschijnen
     const renderedText = window.marked
-      ? window.marked.parse(q.text, { breaks: true, gfm: true })
+      ? (window.DOMPurify ? window.DOMPurify.sanitize(window.marked.parse(q.text, { breaks: true, gfm: true }), { ADD_ATTR: ['style','target'] }) : window.marked.parse(q.text, { breaks: true, gfm: true }))
       : esc(q.text).replace(/\n/g, '<br>');
     return `
     <div class="q-card ${q.archived ? 'archived-card' : ''}" data-qid="${q.id}">
@@ -441,26 +567,168 @@ function cancelEdit() {
   switchTab('browse');
 }
 
-// ── 22d: Markdown preview ──────────────────────────────────────────────────────
-function toggleMarkdownPreview() {
-  const preview  = document.getElementById('q-text-preview');
-  const textarea = document.getElementById('q-text');
-  const btn      = document.getElementById('preview-toggle-btn');
-  _previewOpen   = !_previewOpen;
-  if (_previewOpen) {
-    const raw = textarea.value;
-    // marked.js beschikbaar via CDN (geladen voor dit script)
-    preview.innerHTML = window.marked
-      ? window.marked.parse(raw, { breaks: true, gfm: true })
-      : raw.replace(/\n/g,'<br>');
-    preview.style.display = 'block';
-    textarea.style.display = 'none';
-    btn.textContent = '✎ Bewerken';
-  } else {
-    preview.style.display = 'none';
-    textarea.style.display = '';
-    btn.textContent = '👁 Preview';
+// ── 25a/25b/25c/25d: Editor toolbar, split-view, kaders, tabel ───────────────
+
+// 25b: Preprocessing: :::type ... ::: → gekleurde kaders
+function preprocessMarkdown(text) {
+  return text.replace(/:::(\w+)\n([\s\S]*?):::/g, function(_, type, content) {
+    const map = { tip:'info-tip', opgelet:'info-opgelet', kader:'info-kader-blauw', hint:'info-hint' };
+    const cls = map[type] || 'info-kader-blauw';
+    return `<div class="info-kader ${cls}">${content.trim()}</div>`;
+  });
+}
+
+function renderMarkdown(text) {
+  if (!window.marked) return text.replace(/\n/g,'<br>');
+  const preprocessed = preprocessMarkdown(text);
+  var html = window.marked.parse(preprocessed, { breaks: true, gfm: true });
+  // 28c: XSS-beveiliging
+  return window.DOMPurify ? window.DOMPurify.sanitize(html, { ADD_ATTR: ['style', 'target'] }) : html;
+}
+
+// 25d: Editor modus (localStorage)
+let _editorMode = localStorage.getItem('pycodeflow_editor_mode') || 'edit';
+function setEditorMode(mode) {
+  if (mode === 'split' && window.innerWidth < 900) {
+    pyAlert('Split-view is niet beschikbaar op een smal scherm. Vergroot het venster.', 'info');
+    return;
   }
+  _editorMode = mode;
+  localStorage.setItem('pycodeflow_editor_mode', mode);
+  const wrap = document.getElementById('q-editor-wrap');
+  wrap.className = 'q-editor-wrap' + (mode === 'split' ? ' split' : mode === 'preview' ? ' preview-only' : '');
+  ['edit','split','preview'].forEach(m => {
+    const btn = document.getElementById('view-' + m);
+    if (btn) btn.className = 'etb-view-btn' + (m === mode ? ' active' : '');
+  });
+  if (mode !== 'edit') updateLivePreview();
+}
+
+function updateLivePreview() {
+  const preview = document.getElementById('q-live-preview');
+  if (preview) preview.innerHTML = renderMarkdown(document.getElementById('q-text').value);
+}
+
+let _previewDebounce = null;
+function onEditorInput() {
+  clearTimeout(_previewDebounce);
+  _previewDebounce = setTimeout(updateLivePreview, 100);
+}
+
+// Init editor modus op paginalaad
+document.addEventListener('DOMContentLoaded', function() {
+  setEditorMode(_editorMode);
+});
+
+// 25a: Toolbar hulpfuncties
+function getTextarea() { return document.getElementById('q-text'); }
+
+function insertMd(before, after) {
+  const ta = getTextarea();
+  const start = ta.selectionStart, end = ta.selectionEnd;
+  const sel = ta.value.substring(start, end) || 'tekst';
+  const newText = before + sel + after;
+  ta.setRangeText(newText, start, end, 'select');
+  ta.focus();
+  ta.selectionStart = start + before.length;
+  ta.selectionEnd   = start + before.length + sel.length;
+  onEditorInput();
+}
+
+function insertMdLine(prefix) {
+  const ta = getTextarea();
+  const start = ta.selectionStart;
+  const lineStart = ta.value.lastIndexOf('\n', start - 1) + 1;
+  ta.setRangeText(prefix, lineStart, lineStart, 'end');
+  ta.focus();
+  onEditorInput();
+}
+
+function insertMdBlock(open, close) {
+  const ta = getTextarea();
+  const start = ta.selectionStart, end = ta.selectionEnd;
+  const sel = ta.value.substring(start, end) || 'print("Hallo")';
+  const newText = open + '\n' + sel + '\n' + close;
+  ta.setRangeText(newText, start, end, 'end');
+  ta.focus();
+  onEditorInput();
+}
+
+// 25a: Kleur
+function toggleColorPopup() {
+  const p = document.getElementById('color-popup');
+  p.style.display = p.style.display === 'none' ? 'flex' : 'none';
+}
+function insertColor(hex) {
+  document.getElementById('color-popup').style.display = 'none';
+  insertMd('<span style="color:' + hex + '">', '</span>');
+}
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('#color-btn') && !e.target.closest('#color-popup')) {
+    const p = document.getElementById('color-popup');
+    if (p) p.style.display = 'none';
+  }
+});
+
+// 25b: Info-kaders
+function insertKader(type) {
+  const ta = getTextarea();
+  const start = ta.selectionStart, end = ta.selectionEnd;
+  const sel = ta.value.substring(start, end) || 'Schrijf hier jouw tekst...';
+  const block = ':::' + type + '\n' + sel + '\n:::';
+  ta.setRangeText(block, start, end, 'end');
+  ta.focus();
+  onEditorInput();
+}
+
+// 25c: Tabel-modal
+let _tabelData = [];
+function openTabelModal() {
+  document.getElementById('tabel-modal').style.display = 'flex';
+  renderTabelGrid();
+}
+function closeTabelModal() {
+  document.getElementById('tabel-modal').style.display = 'none';
+}
+function renderTabelGrid() {
+  const rows = Math.max(1, Math.min(10, parseInt(document.getElementById('tbl-rows').value) || 3));
+  const cols = Math.max(1, Math.min(8,  parseInt(document.getElementById('tbl-cols').value) || 3));
+  _tabelData = Array.from({length: rows + 1}, () => Array(cols).fill(''));
+  // Koptekst defaults
+  for (let c = 0; c < cols; c++) _tabelData[0][c] = 'Kolom ' + (c + 1);
+  const wrap = document.getElementById('tabel-grid-wrap');
+  let html = '<div class="tabel-grid-input" style="grid-template-columns:repeat(' + cols + ',1fr);">';
+  for (let r = 0; r <= rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const isHead = r === 0;
+      html += '<input class="tabel-cell-input" style="' + (isHead ? 'font-weight:700;background:#eff6ff;' : '') + '"'
+        + ' placeholder="' + (isHead ? 'Kop ' + (c+1) : 'Cel') + '"'
+        + ' data-r="' + r + '" data-c="' + c + '"'
+        + ' oninput="_tabelData[this.dataset.r][this.dataset.c]=this.value"/>';
+    }
+  }
+  html += '</div>';
+  wrap.innerHTML = html;
+}
+function insertTabel() {
+  const rows = parseInt(document.getElementById('tbl-rows').value) || 3;
+  const cols = parseInt(document.getElementById('tbl-cols').value) || 3;
+  // Lees actuele waarden
+  document.querySelectorAll('.tabel-cell-input').forEach(function(inp) {
+    _tabelData[inp.dataset.r][inp.dataset.c] = inp.value;
+  });
+  const header = '| ' + _tabelData[0].map(function(h){ return h || 'Kolom'; }).join(' | ') + ' |';
+  const sep    = '|' + Array(cols).fill('---|').join('');
+  const body   = _tabelData.slice(1).map(function(row) {
+    return '| ' + row.map(function(c){ return c || ' '; }).join(' | ') + ' |';
+  }).join('\n');
+  const tabelMd = header + '\n' + sep + '\n' + body + '\n';
+  const ta = getTextarea();
+  const pos = ta.selectionStart;
+  ta.setRangeText('\n' + tabelMd + '\n', pos, pos, 'end');
+  ta.focus();
+  onEditorInput();
+  closeTabelModal();
 }
 
 // ── 22e: Vraagtype & keuze-opties ──────────────────────────────────────────────
@@ -484,13 +752,13 @@ function onTypeChange(type) {
 }
 
 function addChoice() {
-  if (_choices.length >= 8) return pyToast('Maximaal 8 opties.', 'warn');
+  if (_choices.length >= 8) { pyAlert('Maximaal 8 opties.', "warn"); return; }
   _choices.push({ id: crypto.randomUUID(), text:'', isCode:false, correct:false });
   renderChoices();
 }
 
 function removeChoice(id) {
-  if (_choices.length <= 2) return pyToast('Minimaal 2 opties vereist.', 'warn');
+  if (_choices.length <= 2) { pyAlert('Minimaal 2 opties vereist.', "warn"); return; }
   _choices = _choices.filter(ch => ch.id !== id);
   renderChoices();
 }
@@ -558,11 +826,11 @@ async function saveQuestion() {
   const type = document.querySelector('[name=q-type]:checked')?.value || 'code';
   const text = document.getElementById('q-text').value.trim();
 
-  if (!text) return void pyToast('Vul een vraagstelling in.', 'warn');
+  if (!text) return void await pyAlert('Vul een vraagstelling in.', "warn");
   if (['single','multiple'].includes(type)) {
     const filled = _choices.filter(ch => ch.text.trim());
-    if (filled.length < 2) return void pyToast('Vul minstens 2 opties in.', 'warn');
-    if (!_choices.some(ch => ch.correct)) return void pyToast('Selecteer minstens 1 juist antwoord.', 'warn');
+    if (filled.length < 2) return void await pyAlert('Vul minstens 2 opties in.', "warn");
+    if (!_choices.some(ch => ch.correct)) return void await pyAlert('Selecteer minstens 1 juist antwoord.', "warn");
   }
 
   const body = {
@@ -580,8 +848,8 @@ async function saveQuestion() {
     const r    = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     const data = await r.json();
     if (data.ok || data.id) { cancelEdit(); loadSubjects(); loadQuestions(); }
-    else pyToast('Fout bij opslaan: ' + data.error, 'error');
-  } catch(e) { pyToast('Netwerkfout: ' + e.message, 'error'); }
+    else await pyAlert('Fout bij opslaan: ' + data.error, "error");
+  } catch(e) { await pyAlert('Netwerkfout: ' + e.message, "error"); }
 }
 
 // ── 22f / 23.1: Verwijderen of archiveren ────────────────────────────────────
@@ -603,14 +871,14 @@ async function verwijderOfArchiveer(id, preview) {
         loadQuestions();
       }
     }
-  } catch(e) { pyToast('Netwerkfout: ' + e.message, 'error'); }
+  } catch(e) { await pyAlert('Netwerkfout: ' + e.message, "error"); }
 }
 
 async function unarchiveQuestion(id) {
   try {
     await apiFetch(`/api/quiz/bank/${id}/unarchive`, { method:'PUT' });
     loadQuestions();
-  } catch(e) { pyToast('Fout: ' + e.message, 'error'); }
+  } catch(e) { await pyAlert('Fout: ' + e.message, "error"); }
 }
 
 async function deleteQuestion(id, preview) {
@@ -618,15 +886,15 @@ async function deleteQuestion(id, preview) {
   try {
     const r    = await apiFetch(`/api/quiz/bank/${id}`, { method:'DELETE' });
     const data = await r.json();
-    if (!data.ok) pyToast('Kan niet verwijderen: ' + data.error, 'error');
+    if (!data.ok) await pyAlert('Kan niet verwijderen: ' + data.error, "error");
     else loadQuestions();
-  } catch(e) { pyToast('Netwerkfout: ' + e.message, 'error'); }
+  } catch(e) { await pyAlert('Netwerkfout: ' + e.message, "error"); }
 }
 
 // ── CSV import ─────────────────────────────────────────────────────────────────
 async function importCSV() {
   const csv = document.getElementById('csv-input').value.trim();
-  if (!csv) return void pyToast('Voer CSV-data in.', 'warn');
+  if (!csv) return void await pyAlert('Voer CSV-data in.', "warn");
   try {
     const r    = await fetch('/api/quiz/bank/import-csv', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -643,12 +911,43 @@ async function importCSV() {
       el.className = 'import-err';
       el.textContent = '❌ ' + data.error;
     }
-  } catch(e) { pyToast('Netwerkfout: ' + e.message, 'error'); }
+  } catch(e) { await pyAlert('Netwerkfout: ' + e.message, "error"); }
 }
 
+// ── Window-exports (sprint 26/29p2: MOET vóór init staan) ──────────────────────
+// Zo werken de knoppen altijd, ook als loadSubjects/loadQuestions een fout gooit.
+window.switchTab         = switchTab;
+window.addChoice         = addChoice;
+window.removeChoice      = removeChoice;
+window.toggleChoiceCode  = toggleChoiceCode;
+window.setChoiceText     = setChoiceText;
+window.setChoiceCorrectSingle = setChoiceCorrectSingle;
+window.setChoiceCorrectMulti  = setChoiceCorrectMulti;
+window.onTypeChange      = onTypeChange;
+window.saveQuestion      = saveQuestion;
+window.cancelEdit        = cancelEdit;
+window.importCSV         = importCSV;
+window.verwijderOfArchiveer = verwijderOfArchiveer;
+window.unarchiveQuestion = unarchiveQuestion;
+window.deleteQuestion    = deleteQuestion;
+window.insertMd          = insertMd;
+window.insertMdLine      = insertMdLine;
+window.insertMdBlock     = insertMdBlock;
+window.toggleColorPopup  = toggleColorPopup;
+window.insertColor       = insertColor;
+window.insertKader       = insertKader;
+window.openTabelModal    = openTabelModal;
+window.closeTabelModal   = closeTabelModal;
+window.renderTabelGrid   = renderTabelGrid;
+window.insertTabel       = insertTabel;
+window.setEditorMode     = setEditorMode;
+window.onEditorInput     = onEditorInput;
+
 // ── Init ───────────────────────────────────────────────────────────────────────
-loadSubjects();
-loadQuestions();
+// Elk in eigen try/catch zodat een fout in de ene de andere niet blokkeert.
+try { loadSubjects(); }  catch (e) { console.error('[quiz-bank] loadSubjects fout:', e); }
+try { loadQuestions(); } catch (e) { console.error('[quiz-bank] loadQuestions fout:', e); }
+
 </script>
 </body>
 </html>

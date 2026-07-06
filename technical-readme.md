@@ -1,7 +1,33 @@
 # PyCodeFlow — Technische documentatie
 
 > Interne werking, architectuur, API-referentie en ontwikkelaarsinformatie.
-> Versie: v2026.2.24.0
+> Versie: v2026.2.34.3
+
+---
+
+## Versiebeleid
+
+Formaat: `JAAR.MAJOR.MINOR.BUILD` (bv. `2026.2.34.3`).
+
+**Regel:** het **MINOR-nummer volgt het sprintnummer** dat wordt uitgevoerd. De **BUILD**
+(laatste cijfer) telt op voor opeenvolgende releases binnen dezelfde uitvoeringsfase.
+
+- Zolang we werk uitvoeren binnen de "huidige" sprintreeks, blijft het minor-nummer gelijk
+  en telt enkel de build op: `34.0 → 34.1 → 34.2 → 34.3`.
+- Pas wanneer een sprint met een hoger nummer effectief wordt uitgevoerd, springt het
+  minor-nummer mee: sprint 35 wordt `35.0`, sprint 36 wordt `36.0`.
+- Zo blijft de nummering monotoon oplopend én uiteindelijk gekoppeld aan het sprintnummer,
+  zonder gaten of downgrades.
+
+**Voorbeeld uit de praktijk:** sprint 34 (testbasis) werd eerst uitgevoerd → `2026.2.34.0`.
+Daarna volgde werk voor sprint 30 (config-fix) + de kopieerknop; dat werd *niet* `30.x`
+(zou een downgrade zijn) en *ook niet* meteen `35.0`, maar `2026.2.34.3` — de volgende build
+in de lopende 34-reeks. Wanneer sprint 35/36 echt aan de beurt zijn, gaat het minor-nummer
+mee omhoog.
+
+De versie staat in het `VERSION`-bestand (single source of truth). `sync-version.sh`
+propageert die naar `.env` en alle HTML cache-bust strings. De server leest `VERSION` bij
+opstart.
 
 ---
 
@@ -297,4 +323,4 @@ BLOCKED_MODULES = {
 
 ---
 
-*PyCodeFlow · Atheneum Hoboken · technical-readme.md · v2026.2.23.0*
+*PyCodeFlow · Atheneum Hoboken · technical-readme.md · v2026.2.34.3*

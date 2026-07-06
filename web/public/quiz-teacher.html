@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Nieuwe toets aanmaken</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.24.1"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.29.1"/>
   <style>
     .wizard-steps { display:flex; gap:0; margin-bottom:28px; }
     .wizard-step { flex:1; padding:12px; text-align:center; background:var(--surface-soft);
@@ -28,6 +28,27 @@
     @media(max-width:600px){ .form-row-2 { grid-template-columns:1fr; } }
     .preview-badge { font-size:0.72rem; background:#fef3c7; color:#92400e;
       padding:2px 8px; border-radius:6px; font-weight:700; }
+
+    /* 29p2: uniforme keuze-kaarten voor Timer/Vraagvolgorde */
+    .opt-card {
+      display:flex; align-items:flex-start; gap:10px; cursor:pointer;
+      padding:12px 14px; border:1.5px solid var(--border); border-radius:10px;
+      margin-bottom:10px; transition:border-color .12s, background .12s;
+      min-height:64px; box-sizing:border-box;
+    }
+    .opt-card:hover { border-color:var(--primary); background:var(--primary-soft); }
+    .opt-card input[type=radio] { margin-top:3px; flex-shrink:0; width:18px; height:18px; cursor:pointer; }
+    .opt-card:has(input:checked) { border-color:var(--primary); background:var(--primary-soft); }
+    .opt-body { display:flex; flex-direction:column; gap:4px; flex:1; min-width:0; }
+    .opt-title { font-weight:700; font-size:0.92rem; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .opt-desc { color:var(--muted); font-size:0.8rem; line-height:1.4; }
+    .opt-inline { display:inline-flex; align-items:center; gap:6px; margin-top:2px; }
+    .opt-num { width:70px; padding:6px 8px; border:1.5px solid var(--border); border-radius:8px; font-size:0.9rem; }
+    .opt-badge {
+      display:inline-block; background:#dcfce7; color:#166534; font-size:0.68rem;
+      font-weight:700; padding:2px 8px; border-radius:999px; text-transform:uppercase;
+      letter-spacing:0.03em;
+    }
   </style>
   <link rel="icon" href="/assets/favicon.png" type="image/png">
 </head>
@@ -63,7 +84,8 @@
   <div class="wizard-steps">
     <div class="wizard-step active" id="step-1-ind">① Basisinfo</div>
     <div class="wizard-step" id="step-2-ind">② Vragen selecteren</div>
-    <div class="wizard-step" id="step-3-ind">③ Bevestigen</div>
+    <div class="wizard-step" id="step-3-ind">③ Live preview</div>
+    <div class="wizard-step" id="step-4-ind">④ Bevestigen</div>
   </div>
 
   <!-- Stap 1: Basisinfo -->
@@ -75,29 +97,40 @@
       </div>
       <div class="form-row-2" style="margin-top:16px;">
         <div>
-          <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:6px;">Timer</label>
-          <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;">
+          <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:8px;font-weight:600;">Timer</label>
+          <label class="opt-card">
             <input type="radio" name="quiz-timer-type" value="timed" checked onchange="toggleTimer(this.value)"/>
-            Tijdslimiet:
-            <input type="number" id="quiz-timer-min" value="45" min="1" max="240"
-              style="width:70px;padding:6px;border:1.5px solid var(--border);border-radius:8px;"/>
-            minuten
+            <span class="opt-body">
+              <span class="opt-title">Tijdslimiet</span>
+              <span class="opt-inline">
+                <input type="number" id="quiz-timer-min" value="45" min="1" max="240" class="opt-num"/>
+                <span class="muted">minuten</span>
+              </span>
+            </span>
           </label>
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <label class="opt-card">
             <input type="radio" name="quiz-timer-type" value="notimer" onchange="toggleTimer(this.value)"/>
-            <span>
-              <strong>Geen tijdslimiet</strong><br/>
-              <span class="muted" style="font-size:0.8rem;">Leerlingen kunnen op eigen tempo werken (taak thuis, project, ...)</span>
+            <span class="opt-body">
+              <span class="opt-title">Geen tijdslimiet</span>
+              <span class="opt-desc">Leerlingen kunnen op eigen tempo werken (taak thuis, project, …)</span>
             </span>
           </label>
         </div>
         <div>
-          <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:6px;">Vraagvolgorde</label>
-          <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;">
-            <input type="radio" name="quiz-order" value="random" checked/> Random per leerling <em style="color:var(--muted);font-size:0.8rem;">(aanbevolen)</em>
+          <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:8px;font-weight:600;">Vraagvolgorde</label>
+          <label class="opt-card">
+            <input type="radio" name="quiz-order" value="random" checked/>
+            <span class="opt-body">
+              <span class="opt-title">Random per leerling <span class="opt-badge">aanbevolen</span></span>
+              <span class="opt-desc">Elke leerling krijgt de vragen in een andere volgorde</span>
+            </span>
           </label>
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-            <input type="radio" name="quiz-order" value="fixed"/> Vast voor iedereen
+          <label class="opt-card">
+            <input type="radio" name="quiz-order" value="fixed"/>
+            <span class="opt-body">
+              <span class="opt-title">Vast voor iedereen</span>
+              <span class="opt-desc">Alle leerlingen zien dezelfde volgorde</span>
+            </span>
           </label>
         </div>
       </div>
@@ -191,23 +224,48 @@
       </div>
       <div style="margin-top:16px;display:flex;gap:10px;">
         <button class="btn btn-muted small" onclick="goStep(1)">← Terug</button>
-        <button class="btn btn-primary small" onclick="goStep(3)">Bevestigen →</button>
+        <button class="btn btn-primary small" onclick="goStep(3)">③ Preview bekijken →</button>
       </div>
     </div>
   </div>
 
-  <!-- Stap 3: Bevestigen -->
+  <!-- Stap 3: Live preview (25h) -->
   <div id="step-3" style="display:none;">
+    <div style="background:#fef3c7;color:#92400e;border:1.5px solid #f59e0b;border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+      <span><strong>🔍 PREVIEW MODUS</strong> — antwoorden worden niet opgeslagen. Dit is hoe de leerling de toets ziet.</span>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-muted small" onclick="goStep(2)">✎ Aanpassen</button>
+        <button class="btn btn-primary small" onclick="goStep(4)">✅ Ziet er goed uit →</button>
+        <button class="btn btn-muted small" onclick="shufflePreview()" id="shuffle-btn" style="display:none;">🔀 Andere volgorde</button>
+      </div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;">
+      <div style="display:grid;grid-template-columns:200px 1fr;min-height:500px;">
+        <!-- Navigator -->
+        <div style="border-right:1px solid var(--border);padding:16px;background:var(--surface-soft);">
+          <div style="font-size:0.78rem;color:var(--muted);font-weight:700;margin-bottom:10px;">VRAGEN</div>
+          <div id="preview-nav" style="display:flex;flex-direction:column;gap:6px;"></div>
+        </div>
+        <!-- Vraaginhoud -->
+        <div style="padding:24px;" id="preview-content">
+          <div class="muted">Selecteer een vraag links.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stap 4: Bevestigen -->
+  <div id="step-4" style="display:none;">
     <div class="card" style="padding:24px;" id="confirm-panel"></div>
     <div style="margin-top:16px;display:flex;gap:10px;align-items:center;">
-      <button class="btn btn-muted small" onclick="goStep(2)" id="back-btn">← Terug</button>
+      <button class="btn btn-muted small" onclick="goStep(3)" id="back-btn">← Terug naar preview</button>
       <button class="btn btn-primary" onclick="createQuiz()" id="create-btn">✅ Toets aanmaken</button>
       <span id="create-status" style="font-size:0.85rem;color:var(--muted);display:none;">⏳ Bezig met aanmaken…</span>
     </div>
   </div>
 </div>
 
-<script src="/app.js?v=v2026.2.24.1"></script>
+<script src="/app.js?v=v2026.2.29.1"></script>
 <script>
 let _bank = [];
 let _selected = {}; // { id: { ...question, points: override } }
@@ -274,25 +332,123 @@ function renderSelectedList() {
       <input type="number" class="pts" value="${q.points}" min="1" max="100"
         onchange="_selected['${id}'].points=parseInt(this.value)||1; renderSelectedList()"/>
       <span class="muted" style="font-size:0.78rem;">pt</span>
-      <button style="background:none;border:none;cursor:pointer;color:var(--muted);" onclick="toggleSelect('${id}')">✕</button>
+      <button style="background:none;border:none;cursor:pointer;color:var(--muted);" title="Vraag uit selectie verwijderen" aria-label="Vraag uit selectie verwijderen" onclick="toggleSelect('${id}')">✕</button>
     </div>`;
   }).join('');
 }
 
-function goStep(n) {
-  if (n === 2 && !document.getElementById('quiz-name').value.trim()) {
-    pyToast('Voer een naam in voor de toets.', 'warn'); return;
+async function goStep(n) {
+  if (n >= 2 && !document.getElementById('quiz-name').value.trim()) {
+    await pyAlert('Voer een naam in voor de toets.', 'warn'); return;
   }
-  if (n === 3) {
-    if (!Object.keys(_selected).length) { pyToast('Selecteer minstens 1 vraag.', 'warn'); return; }
-    renderConfirm();
+  if (n >= 3 && !Object.keys(_selected).length) {
+    await pyAlert('Selecteer minstens 1 vraag.', 'warn'); return;
   }
-  [1,2,3].forEach(i => {
-    document.getElementById(`step-${i}`).style.display = i === n ? 'block' : 'none';
-    const ind = document.getElementById(`step-${i}-ind`);
-    ind.className = 'wizard-step' + (i === n ? ' active' : i < n ? ' done' : '');
+  if (n === 3) buildPreview();
+  if (n === 4) renderConfirm();
+  [1,2,3,4].forEach(i => {
+    const el = document.getElementById('step-' + i);
+    if (el) el.style.display = i === n ? 'block' : 'none';
+    const ind = document.getElementById('step-' + i + '-ind');
+    if (ind) ind.className = 'wizard-step' + (i === n ? ' active' : i < n ? ' done' : '');
   });
   if (n === 2) loadBank();
+}
+
+// 25h: Info-kader preprocessing
+function preprocessMarkdown(text) {
+  return text.replace(/:::(\w+)\n([\s\S]*?):::/g, function(_, type, content) {
+    var map = { tip:'info-tip', opgelet:'info-opgelet', kader:'info-kader-blauw', hint:'info-hint' };
+    return '<div class="info-kader ' + (map[type] || 'info-kader-blauw') + '">' + content.trim() + '</div>';
+  });
+}
+
+// 25h: Preview hulpfuncties
+var _previewOrder = [];
+var _previewActive = 0;
+
+function buildPreview() {
+  var ids = Object.keys(_selected);
+  var random = document.querySelector('[name=quiz-order]:checked')?.value === 'random';
+  _previewOrder = ids.slice();
+  if (random) {
+    for (var i = _previewOrder.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = _previewOrder[i]; _previewOrder[i] = _previewOrder[j]; _previewOrder[j] = tmp;
+    }
+    document.getElementById('shuffle-btn').style.display = '';
+  } else {
+    document.getElementById('shuffle-btn').style.display = 'none';
+  }
+  _previewActive = 0;
+  renderPreviewNav();
+  renderPreviewQuestion(0);
+}
+
+function shufflePreview() {
+  for (var i = _previewOrder.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var tmp = _previewOrder[i]; _previewOrder[i] = _previewOrder[j]; _previewOrder[j] = tmp;
+  }
+  renderPreviewNav();
+  renderPreviewQuestion(_previewActive);
+}
+
+function renderPreviewNav() {
+  var nav = document.getElementById('preview-nav');
+  nav.innerHTML = _previewOrder.map(function(id, i) {
+    var q = _selected[id];
+    var typeIcon = { code:'🐍', open:'✏️', single:'◉', multiple:'☑' }[q.question_type || 'code'] || '❓';
+    var isActive = i === _previewActive;
+    return '<button onclick="renderPreviewQuestion(' + i + ')" style="text-align:left;border:1.5px solid ' + (isActive?'var(--primary)':'var(--border)') + ';border-radius:8px;padding:8px 10px;background:' + (isActive?'var(--primary)':'var(--surface)') + ';color:' + (isActive?'#fff':'var(--text)') + ';cursor:pointer;font-size:0.82rem;width:100%;">' +
+      '<strong>' + (i+1) + '.</strong> ' + typeIcon + ' ' + esc(q.text.slice(0,28)) + (q.text.length>28?'…':'') +
+      '</button>';
+  }).join('');
+}
+
+function renderPreviewQuestion(idx) {
+  _previewActive = idx;
+  renderPreviewNav();
+  var id = _previewOrder[idx];
+  var q  = _selected[id];
+  var type = q.question_type || 'code';
+  var typeLabel = { code:'🐍 Python code', open:'✏️ Open vraag', single:'◉ Single choice', multiple:'☑ Meerkeuze' }[type] || type;
+  var rawText = q.text_snapshot || q.text || '';
+  var renderedText = window.marked
+    ? window.marked.parse(preprocessMarkdown(rawText), { breaks:true, gfm:true })
+    : esc(rawText);
+
+  var answerHtml = '';
+  if (type === 'code') {
+    answerHtml = '<div style="background:#1e1e1e;color:#6a9955;padding:14px;border-radius:8px;font-family:Consolas,monospace;font-size:0.85rem;margin-top:12px;"># Schrijf hier jouw code</div>' +
+      '<div style="margin-top:8px;"><button class="btn btn-soft small" disabled style="opacity:0.6;">▶ Uitvoeren (niet actief in preview)</button></div>';
+  } else if (type === 'open') {
+    answerHtml = '<textarea placeholder="Leerling schrijft hier zijn antwoord..." style="width:100%;min-height:100px;padding:10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;resize:vertical;box-sizing:border-box;margin-top:12px;font-size:0.9rem;"></textarea>';
+  } else {
+    var choices = [];
+    try { choices = JSON.parse(q.choices_json || '[]'); } catch(e) {}
+    answerHtml = '<div style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">' +
+      choices.map(function(ch) {
+        var textHtml = ch.isCode
+          ? '<pre style="background:#1e1e1e;color:#d4d4d4;padding:8px;border-radius:6px;font-size:0.82rem;margin:0;overflow-x:auto;">' + esc(ch.text) + '</pre>'
+          : '<span>' + esc(ch.text) + '</span>';
+        return '<label style="display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border:2px solid var(--border);border-radius:8px;cursor:pointer;background:var(--surface);">' +
+          '<input type="' + (type==='single'?'radio':'checkbox') + '" name="prev-ch-' + id + '" style="margin-top:2px;flex-shrink:0;"/>' +
+          '<div style="flex:1;">' + textHtml + '</div></label>';
+      }).join('') + '</div>';
+  }
+
+  var prevBtn = idx > 0 ? '<button class="btn btn-muted small" onclick="renderPreviewQuestion(' + (idx-1) + ')">← Vorige</button>' : '';
+  var nextBtn = idx < _previewOrder.length - 1 ? '<button class="btn btn-soft small" onclick="renderPreviewQuestion(' + (idx+1) + ')">Volgende →</button>' : '<span class="muted" style="font-size:0.85rem;">Laatste vraag</span>';
+
+  document.getElementById('preview-content').innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">' +
+      '<span class="badge" style="background:#f0f9ff;color:#0369a1;">' + typeLabel + '</span>' +
+      '<span class="muted" style="font-size:0.82rem;">Vraag ' + (idx+1) + ' van ' + _previewOrder.length + ' · ' + q.points + ' punten</span>' +
+    '</div>' +
+    '<div class="md-preview" style="padding:0;border:none;background:none;">' + renderedText + '</div>' +
+    answerHtml +
+    '<div style="margin-top:20px;display:flex;gap:8px;">' + prevBtn + nextBtn + '</div>';
 }
 
 function renderConfirm() {
@@ -336,8 +492,8 @@ async function createQuiz() {
   if (createBtn.disabled) return;
 
   const name = document.getElementById('quiz-name').value.trim();
-  if (!name) { pyToast('Voer een naam in voor de toets.', 'warn'); return; }
-  if (!Object.keys(_selected).length) { pyToast('Selecteer minstens 1 vraag.', 'warn'); return; }
+  if (!name) { await pyAlert('Voer een naam in voor de toets.', "warn"); return; }
+  if (!Object.keys(_selected).length) { await pyAlert('Selecteer minstens 1 vraag.', "warn"); return; }
 
   const timerType    = document.querySelector('[name=quiz-timer-type]:checked')?.value;
   const noTimer      = timerType === 'notimer';
@@ -355,7 +511,7 @@ async function createQuiz() {
   const isTeacherPreview      = document.getElementById('quiz-is-preview').checked;
 
   if (accessFrom && accessUntil && accessFrom >= accessUntil) {
-    pyToast('Deadline moet na de startdatum liggen.', 'warn'); return;
+    await pyAlert('Deadline moet na de startdatum liggen.', "warn"); return;
   }
 
   const questions = Object.values(_selected).map(q => ({
@@ -390,10 +546,10 @@ async function createQuiz() {
         setTimeout(() => { location.href = '/teacher-sessions.html'; }, 1200);
       }
     } else {
-      pyToast('Fout bij aanmaken: ' + (data.error || 'Onbekende fout'), 'error');
+      await pyAlert('Fout bij aanmaken: ' + (data.error || 'Onbekende fout'), "error");
     }
   } catch(e) {
-    pyToast('Netwerkfout: ' + e.message, 'error');
+    await pyAlert('Netwerkfout: ' + e.message, "error");
   } finally {
     createBtn.disabled    = false;
     backBtn.disabled      = false;
@@ -428,7 +584,7 @@ function toggleTimer(val) {
       opt.value = cl.id; opt.textContent = cl.name;
       sel.appendChild(opt);
     });
-  } catch {}
+  } catch (e) { console.warn('[quiz-teacher] fout:', e.message); }
 })();
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>

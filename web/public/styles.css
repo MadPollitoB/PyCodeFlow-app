@@ -206,18 +206,18 @@ textarea.code-area {
 .runtime-input-wrap input:disabled, .runtime-input-wrap button:disabled { opacity:.7; }
 
 /* ── Sprint 10: UX verbeteringen ─────────────────────────────────────────────── */
-.output-panel.output-dark  { background:#1e1e1e !important; color:#d4d4d4 !important; font-family:Consolas,'Courier New',monospace; }
-.output-panel.output-light { background:#f8f9fa !important; color:#1f2937 !important; font-family:Consolas,'Courier New',monospace; }
-.editor-theme-dark  { --gutter-bg:#1f2f57; --gutter-fg:#9fb3c8; }
-.editor-theme-light { --gutter-bg:#e8edf5; --gutter-fg:#4a5568; }
+
+
+
+
 
 .editor-statusbar {
   display:flex; gap:10px; align-items:center; padding:4px 12px;
   font-size:12px; font-family:Consolas,monospace; flex-shrink:0;
   min-height:22px; width:100%; box-sizing:border-box;
 }
-.statusbar-dark  { background:#007acc; color:#fff; }
-.statusbar-light { background:#f3f3f3; color:#555; border-top:1px solid #ddd; }
+
+
 .editor-statusbar-minimal { font-size:11px; }
 
 .error-line-highlight { background:rgba(248,113,113,0.18) !important; }
@@ -243,11 +243,7 @@ kbd { background:var(--surface-soft); border:1px solid var(--border); border-rad
 .timer-progress-bar { height:4px; width:100%; border-radius:2px; background:var(--border); overflow:hidden; margin-bottom:4px; display:none; }
 .timer-progress-fill { height:100%; border-radius:2px; transition:width 1s linear, background 1s; background:var(--success-fg); }
 
-.copy-output-btn {
-  position:absolute; top:6px; right:8px; z-index:5; padding:3px 8px; border-radius:6px;
-  border:1px solid var(--border); background:var(--surface); cursor:pointer; font-size:0.8rem; opacity:0.7; transition:opacity 0.15s;
-}
-.copy-output-btn:hover { opacity:1; }
+/* .copy-output-btn verwijderd (sprint 30-copy: contextuele kopieerknop in toolbar) */
 
 .status-filter-bar { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
 .status-filter-btn { padding:3px 10px; border-radius:8px; font-size:0.78rem; border:1px solid var(--border); background:var(--surface-soft); cursor:pointer; color:var(--muted); }
@@ -328,6 +324,28 @@ kbd { background:var(--surface-soft); border:1px solid var(--border); border-rad
 /* ── Overig ──────────────────────────────────────────────────────────────────── */
 .footer-note { margin-top:40px; padding:16px; border-top:1px solid var(--border); text-align:center; font-size:0.85rem; color:var(--muted); opacity:0.85; }
 .workspace-mode-note { margin-top:10px; }
+
+/* Sprint 27j: editor altijd donker — output-panel vaste stijl */
+.output-panel { background:#1e1e1e; color:#d4d4d4; font-family:Consolas,"Courier New",monospace; }
+.editor-frame-wrap { --gutter-bg:#1f2f57; --gutter-fg:#9fb3c8; }
+
+/* ── Sprint 25: info-kaders + markdown tabellen (25b/25e) ─────────────────────── */
+.info-kader { padding:12px 16px; border-radius:8px; margin:10px 0; font-size:0.9rem; line-height:1.6; border-left:4px solid; }
+.info-tip     { background:#f0fdf4; border-color:#10b981; color:#065f46; }
+.info-opgelet { background:#fff7ed; border-color:#f59e0b; color:#92400e; }
+.info-kader-blauw { background:#eff6ff; border-color:#3b82f6; color:#1e40af; }
+.info-hint    { background:#faf5ff; border-color:#8b5cf6; color:#5b21b6; }
+.info-kader::before { font-weight:800; display:block; margin-bottom:4px; }
+.info-tip::before     { content:'💡 Tip'; }
+.info-opgelet::before { content:'⚠️ Opgelet'; }
+.info-kader-blauw::before { content:'📌 Kader'; }
+.info-hint::before    { content:'❓ Hint'; }
+
+/* Markdown-tabellen */
+.md-preview table, .q-text table { border-collapse:collapse; width:100%; margin:10px 0; }
+.md-preview th, .q-text th { background:var(--primary-soft); color:var(--primary); padding:7px 10px; border:1px solid var(--border); font-weight:700; text-align:left; }
+.md-preview td, .q-text td { padding:6px 10px; border:1px solid var(--border); }
+.md-preview tr:nth-child(even) td, .q-text tr:nth-child(even) td { background:var(--surface-soft); }
 
 /* ── Responsive ──────────────────────────────────────────────────────────────── */
 @media (max-width: 980px) {

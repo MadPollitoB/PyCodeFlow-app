@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Beheer</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.24.0"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.29.0"/>
   <style>
     .admin-tabs { display:flex; gap:8px; margin-bottom:24px; border-bottom:2px solid var(--border); padding-bottom:0; }
     .admin-tab  { padding:10px 20px; cursor:pointer; border:none; background:none; font-weight:700; font-size:0.95rem; color:var(--muted); border-bottom:3px solid transparent; margin-bottom:-2px; }
@@ -131,14 +131,14 @@
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=v2026.2.24.0"></script>
+<script src="/app.js?v=v2026.2.29.0"></script>
 <script>
 
 // 23o: apiFetch wrapper met CSRF token (zelfde als app.js)
 let _csrfToken = null;
 async function getCSRFToken() {
   if (_csrfToken) return _csrfToken;
-  try { const r = await fetch('/api/csrf-token'); if (r.ok) { const d = await r.json(); _csrfToken = d.token; } } catch {}
+  try { const r = await fetch('/api/csrf-token'); if (r.ok) { const d = await r.json(); _csrfToken = d.token; } } catch (e) { console.warn('[admin] fout:', e.message); }
   return _csrfToken || '';
 }
 async function apiFetch(url, options = {}) {
@@ -192,12 +192,12 @@ async function addTeacher() {
   const p = document.getElementById('new-teacher-password').value;
   const d = document.getElementById('new-teacher-display').value.trim();
   const r = document.getElementById('new-teacher-role').value;
-  if (!u || !p) return pyToast('Gebruikersnaam en wachtwoord zijn verplicht.', 'warn');
-  if (p.length < 8) return pyToast('Wachtwoord moet minimaal 8 tekens bevatten.', 'warn');
+  if (!u || !p) return await pyAlert('Gebruikersnaam en wachtwoord zijn verplicht.', "warn");
+  if (p.length < 8) return await pyAlert('Wachtwoord moet minimaal 8 tekens bevatten.', "warn");
   const res = await apiFetch('/api/admin/teachers', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ username:u, password:p, displayName:d, role:r }) });
   const data = await res.json();
   if (data.ok) { loadTeachers(); ['new-teacher-username','new-teacher-password','new-teacher-display'].forEach(id => document.getElementById(id).value = ''); }
-  else pyToast('Fout: ' + (data.error || 'onbekend'), 'error');
+  else await pyAlert('Fout: ' + (data.error || 'onbekend'), "error");
 }
 
 async function resetPwd(username) {
@@ -205,7 +205,7 @@ async function resetPwd(username) {
   if (!pwd || pwd.length < 8) return;
   const res = await apiFetch(`/api/admin/teachers/${encodeURIComponent(username)}/password`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: pwd }) });
   const data = await res.json();
-  data.ok ? pyToast('Wachtwoord bijgewerkt.', 'success') : pyToast('Fout: ' + data.error, 'error');
+  data.ok ? pyToast('Wachtwoord bijgewerkt.', 'success') : await pyAlert('Fout: ' + data.error, "error");
 }
 
 async function toggleRole(username, currentRole) {
@@ -243,11 +243,11 @@ async function loadClasses() {
 async function addClass() {
   const name = document.getElementById('new-class-name').value.trim();
   const year = document.getElementById('new-class-year').value.trim();
-  if (!name) return pyToast('Naam is verplicht.', 'warn');
+  if (!name) return await pyAlert('Naam is verplicht.', "warn");
   const res = await apiFetch('/api/admin/classes', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, schoolYear: year }) });
   const data = await res.json();
   if (data.ok) { document.getElementById('new-class-name').value = ''; loadClasses(); }
-  else pyToast('Fout: ' + data.error, 'error');
+  else await pyAlert('Fout: ' + data.error, "error");
 }
 
 async function archiveClass(id) {
@@ -260,7 +260,7 @@ async function deleteClass(id, name) {
   if (!await pyConfirm({ title: 'Klas verwijderen', body: `Klas "${name}" verwijderen? Enkel mogelijk als de klas leeg is.`, confirmLabel: 'Verwijderen', danger: true })) return;
   const res = await apiFetch(`/api/admin/classes/${id}`, { method:'DELETE' });
   const data = await res.json();
-  if (!data.ok) pyToast('Kan klas niet verwijderen — verwijder eerst alle leerlingen.', 'error');
+  if (!data.ok) await pyAlert('Kan klas niet verwijderen — verwijder eerst alle leerlingen.', "error");
   else loadClasses();
 }
 
@@ -288,7 +288,7 @@ async function loadClassFilter() {
 async function addStudentManual() {
   const name    = document.getElementById('new-student-name').value.trim();
   const classId = document.getElementById('new-student-class').value;
-  if (!name) return pyToast('Naam is verplicht.', 'warn');
+  if (!name) return await pyAlert('Naam is verplicht.', "warn");
   try {
     const r    = await fetch('/api/admin/students', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -300,9 +300,9 @@ async function addStudentManual() {
       document.getElementById('new-student-class').value = '';
       await loadStudents();
     } else {
-      pyToast('Fout bij toevoegen: ' + (data.error || 'onbekend'), 'error');
+      await pyAlert('Fout bij toevoegen: ' + (data.error || 'onbekend'), "error");
     }
-  } catch(e) { pyToast('Netwerkfout: ' + e.message, 'error'); }
+  } catch(e) { await pyAlert('Netwerkfout: ' + e.message, "error"); }
 }
 
 // 22b: proper loading + error handling
@@ -347,11 +347,11 @@ function renderStudentTable(students) {
       <td>${escHtml(sourceLabel[s.source] || s.source)}</td>
       <td>${fmtDate(s.last_seen)}</td>
       <td style="display:flex;gap:4px;flex-wrap:wrap;">
-        ${s.status !== 'active'   ? `<button class="btn btn-success small" onclick="setStudentStatus('${s.id}','active')">✓ Aanvaarden</button>` : ''}
-        ${s.status !== 'blocked'  ? `<button class="btn btn-muted small" onclick="setStudentStatus('${s.id}','blocked')">✕ Blokkeren</button>` : ''}
-        ${s.status === 'blocked'  ? `<button class="btn btn-muted small" onclick="setStudentStatus('${s.id}','active')">↩ Deblokkeren</button>` : ''}
-        <button class="btn btn-muted small" onclick="editNote('${s.id}','${escHtml(s.notes||'')}')">🗒</button>
-        <button class="btn btn-danger small" onclick="deleteStudent('${s.id}','${escHtml(s.name)}')">✕</button>
+        ${s.status !== 'active'   ? `<button class="btn btn-success small" onclick="setStudentStatus('${s.id}','active')" title="Leerling aanvaarden">✓ Aanvaarden</button>` : ''}
+        ${s.status !== 'blocked'  ? `<button class="btn btn-muted small" onclick="setStudentStatus('${s.id}','blocked')" title="Leerling blokkeren — kan niet meer inloggen">✕ Blokkeren</button>` : ''}
+        ${s.status === 'blocked'  ? `<button class="btn btn-muted small" onclick="setStudentStatus('${s.id}','active')" title="Blokkering opheffen">↩ Deblokkeren</button>` : ''}
+        <button class="btn btn-muted small" title="Notitie bewerken" onclick="editNote('${s.id}','${escHtml(s.notes||'')}')">🗒 Notitie</button>
+        <button class="btn btn-danger small" title="Leerling verwijderen" onclick="deleteStudent('${s.id}','${escHtml(s.name)}')">🗑 Verwijderen</button>
       </td>
     </tr>`).join('');
 }
@@ -376,7 +376,7 @@ async function deleteStudent(id, name) {
 
 async function importCSV() {
   const csv = document.getElementById('csv-input').value.trim();
-  if (!csv) return pyToast('Voer CSV-data in.', 'warn');
+  if (!csv) return await pyAlert('Voer CSV-data in.', "warn");
   const res = await apiFetch('/api/admin/students/import-csv', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ csv }) });
   const data = await res.json();
   const el = document.getElementById('import-result');

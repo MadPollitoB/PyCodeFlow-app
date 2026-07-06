@@ -1,80 +1,854 @@
 # PyCodeFlow — Sprintlog & Roadmap
 
-> Nieuwste sprint staat **bovenaan**. Afgeronde sprints staan **onderaan**.
+> **Openstaande sprints zijn geordend op belangrijkheid** (kritiek → nice-to-have).
+> Aanbevolen uitvoervolgorde = van boven naar beneden. Afgeronde sprints staan onderaan.
+> Gedetailleerde beschrijvingen per sprint volgen na de overzichtstabellen.
 
 ---
 
-## Openstaande sprints
+## Openstaande sprints — geordend op prioriteit
 
-| Sprint | Prio | Inhoud | Status | Inschatting |
+### 🔴 Prioriteit 1 — Kritieke bugs (eerst doen)
+
+Echte defecten die functionaliteit breken of debuggen bemoeilijken. Laag risico, hoge opbrengst.
+
+| Sprint | Cat | Inhoud | Status | Inschatting |
 |---|---|---|---|---|
-| **25a** | 🟠 UX-1 | Vraagstelling editor: visuele opmaaktoolbar (vet, cursief, code, kop, lijst, kleur, kader) | 🔄 Gepland | ~2 dagen |
-| **25b** | 🟠 UX-2 | Gekleurde info-kaders in vraagstelling (💡 tip, ⚠️ opgelet, 📌 kader, ❓ hint) | 🔄 Gepland | ~1 dag |
-| **25c** | 🟠 UX-3 | Tabel-invoer in vraagstelling (visueel raster-formulier → Markdown tabel) | 🔄 Gepland | ~1 dag |
-| **25d** | 🟠 UX-4 | Live split-view editor: vraagstelling links, gerenderde preview rechts | 🔄 Gepland | ~1 dag |
-| **25e** | 🟠 UX-5 | Leerlingscherm + verbetermodule: uitgebreide rendering (kleuren, kaders, tabellen) | 🔄 Gepland | ~0.5 dag |
-| **25f** | 🔴 BUG-1 | quiz-teacher.html + alle andere pagina's: resterende browser alert()/confirm() → pyToast/pyConfirm | ✅ Afgerond (v2026.2.24.1) | ~0.5 dag |
-| **25g** | 🔴 UX-6 | Notificatiesysteem herontwerpen: toast vervangen door blokkerende center-modal voor validatie, fouten en succes | 🔄 Gepland | ~1 dag |
-| **24a** ✅ | 🟠 UX-1 | Vervang alle browser `confirm()` / `alert()` dialogen door mooie in-app modals | ✅ Afgerond | ~1.5 dag |
-| **24b** ✅ | 🟠 UX-2 | Vragenbank: code-snippet in vraagstelling staat inline ipv als Python code-blok | ✅ Afgerond | ~0.5 dag |
-| **24c** ✅ | 🔴 BUG-1 | Single/meerkeuze layout kapot: radio/checkbox gecentreerd, tekstveld onzichtbaar, knoppen buiten kaart | ✅ Afgerond | ~1 dag |
-| **24d** ✅ | 🔴 BUG-2 | Wisselen tussen single/multiple verandert radio→checkbox niet in bestaande opties | ✅ Afgerond | ~0.5 dag |
-| **24e** ✅ | 🟠 UX-3 | "Nieuwe toets" pagina: layout trekt op niets (checkboxes, kolommen, spacing) | ✅ Afgerond | ~1 dag |
-| **24f** ✅ | 🟠 UX-4 | Sessieoverzicht: lopende sessies layout trekt op niets (meta-grid, knoppen) | ✅ Afgerond | ~1 dag |
-| **24g** ✅ | 🟠 UX-5 | Monitoring: database-viewer met tabeloverzicht (grid) + klikbare tabelinhoud | ✅ Afgerond | ~1.5 dag |
-| **24h** ✅ | 🟠 UX-6 | admin.html topbar: "← Sessies" en "Monitoring" staan nog als losse knoppen boven de subnav ipv erin verwerkt | ✅ Afgerond | ~0.5 dag |
+| **29a** | 🔴 BUG | teacher-grid.html: sprint 27i fallback werkt nooit — `pycodeflow_teacherSessionCode` key bestaat niet + `setLS` JSON-encodeert (quotes in code) → leerlingenoverzicht blijft leeg | ✅ Afgerond | ~0.5 dag |
+| **29b** | 🔴 BUG | quiz-teacher.html lijn 303: laatste icon-only ✕ knop zonder title/aria-label | ✅ Afgerond | ~0.1 dag |
+| **29c** | 🔴 BUG | 15× `catch {}` in app.js zonder logging — stille fouten, moeilijk te debuggen | ✅ Afgerond | ~0.5 dag |
+| **30-cfg** | 🔴 BUG | Sessie-instellingen (auto-indent enz.) worden niet live toegepast: een wijziging neemt pas effect zodra een **andere** checkbox wordt aangeklikt. Ondanks sprint 29p2-a. Gekozen oplossing: checkboxes registreren de staat, een **"Toepassen"-knop** stuurt alles in één keer door | ✅ Afgerond | ~0.5 dag |
+
+### 🔴 Prioriteit 2 — Testbasis (fundament vóór grote wijzigingen)
+
+Zonder tests is elke volgende sprint risicovol. De sprint 26/27 regressies waren hiermee meteen gevangen.
+
+| Sprint | Cat | Inhoud | Status | Inschatting |
+|---|---|---|---|---|
+| **34a** | 🔴 TEST | Testsuite voor kritieke paden (login, rate limiting, auto-scoring, sessie-herstel, CSRF, DB-whitelist) via `node:test` | ✅ Afgerond | ~4 dagen |
+| **34b** | 🟠 TEST | CI-pipeline: `node --check` + tests + `npm audit` bij elke wijziging | ✅ Afgerond | ~1 dag |
+| **34c** | 🟠 TEST | Runner sandbox-escape tests automatiseren (nu enkel handmatig in security-testplan §6.1) | ✅ Afgerond | ~1 dag |
+
+### 🟠 Prioriteit 3 — Security hardening
+
+| Sprint | Cat | Inhoud | Status | Inschatting |
+|---|---|---|---|---|
+| **30a** | 🟠 SEC | Login-cookie zonder Max-Age — geen bewuste sessieduur/timeout | 🔄 Gepland | ~0.5 dag |
+| **30c** | 🟠 SEC | `upgrade-insecure-requests` ontbreekt in CSP (HSTS is wel aanwezig) | 🔄 Gepland | ~0.2 dag |
+| **30d** | 🟡 SEC | Geen automatische DB-backup (cron) — enkel handmatig via pycodeflow.sh optie 16 | 🔄 Gepland | ~1 dag |
+| **30b** | 🟠 SEC | CSP `unsafe-inline` in script-src — verzwakt XSS-bescherming; 130 inline onclick handlers zijn de oorzaak (grote taak, na 32a) | 🔄 Gepland | ~3 dagen |
+
+### 🟠 Prioriteit 4 — Data-integriteit & robuustheid
+
+| Sprint | Cat | Inhoud | Status | Inschatting |
+|---|---|---|---|---|
+| **36a** | 🟠 DATA | Geen transacties bij multi-step schrijfacties (toets + vragen koppelen) — risico op halve data bij crash | 🔄 Gepland | ~1 dag |
+| **36c** | 🟡 DATA | Geen centrale validatie-laag op API-input (types, grenzen) — nu ad-hoc per endpoint | 🔄 Gepland | ~2 dagen |
+| **36b** | 🟡 DATA | persistSession zonder debounce — race conditions + DB-belasting bij snel typen | 🔄 Gepland | ~1 dag |
+| **36d** | 🟢 DATA | Dependencies met `^` pinnen naar exacte versies + `npm audit` in CI | 🔄 Gepland | ~0.5 dag |
+
+### 🟠 Prioriteit 5 — UX & consistentie
+
+| Sprint | Cat | Inhoud | Status | Inschatting |
+|---|---|---|---|---|
+| **31b** | 🟠 UX | localStorage sleutels inconsistent (`pycodeflow_` prefix soms wel/niet) — botsingsrisico, gerelateerd aan 29a | 🔄 Gepland | ~0.5 dag |
+| **31a** | 🟠 UX | Loading states inconsistent — slechts 5/18 pagina's hebben een spinner | 🔄 Gepland | ~1 dag |
+| **31c** | 🟡 UX | Foutmeldingen niet uniform — mix van pyAlert, inline tekst en output-panel | 🔄 Gepland | ~1 dag |
+
+### 🟠 Prioriteit 6 — Toegankelijkheid (a11y)
+
+Voor een onderwijstool vaak ook een wettelijke vereiste (WCAG / EN 301 549).
+
+| Sprint | Cat | Inhoud | Status | Inschatting |
+|---|---|---|---|---|
+| **35b** | 🟠 A11Y | Statusinformatie enkel via kleur (klaar/hand/tab-weg) — probleem voor kleurenblinden | 🔄 Gepland | ~1 dag |
+| **35d** | 🟡 A11Y | Modals (pyAlert/pyConfirm) missen `role="dialog"` + `aria-modal` + focus-return | 🔄 Gepland | ~0.5 dag |
+| **35a** | 🟠 A11Y | Vrijwel geen aria-labels/roles (1 in hele app) — screenreaders onbruikbaar | 🔄 Gepland | ~2 dagen |
+| **35c** | 🟡 A11Y | Toetsenbordnavigatie niet getest — focus-volgorde, focus-trap, skip-links | 🔄 Gepland | ~1.5 dag |
+
+### 🟡 Prioriteit 7 — Technische schuld & onderhoudbaarheid
+
+| Sprint | Cat | Inhoud | Status | Inschatting |
+|---|---|---|---|---|
+| **32b** | 🟡 TECH | 15× console.log in server.js → gestructureerde logger met niveaus (`LOG_LEVEL`) | 🔄 Gepland | ~1 dag |
+| **32a** | 🟡 TECH | Inline scripts te groot (monitoring.html 762 rgls) → naar aparte `.js` bestanden (helpt ook 30b) | 🔄 Gepland | ~4 dagen |
+| **32c** | 🟢 TECH | Monaco-versie centraal pinnen i.p.v. verspreid over HTML | 🔄 Gepland | ~0.5 dag |
+
+### 🟢 Prioriteit 8 — Nice-to-haves
+
+| Sprint | Cat | Inhoud | Status | Inschatting |
+|---|---|---|---|---|
+| **33e** | 🟢 NICE | Toets dupliceren-knop (kopie als sjabloon) — kleine moeite, veel tijdwinst | 🔄 Gepland | ~0.5 dag |
+| **33d** | 🟢 NICE | Vraag-tags/labels voor filtering in vragenbank | 🔄 Gepland | ~1 dag |
+| **33a** | 🟢 NICE | Toets-resultaten exporteren naar Excel (.xlsx) naast PDF | 🔄 Gepland | ~2 dagen |
+| **33b** | 🟢 NICE | Leerling-voortgang grafiek in verbetermodule (scores per vraag) | 🔄 Gepland | ~2 dagen |
+| **33c** | 🟢 NICE | Volwaardig donker/licht UI-thema (los van editor) met `prefers-color-scheme` | 🔄 Gepland | ~2 dagen |
+
+### ⏸ Uitgesteld (bewust geparkeerd)
+
+| Sprint | Cat | Inhoud | Status | Inschatting |
+|---|---|---|---|---|
+| **14** | ⏸ | Google OAuth leerlingen | ⏸ Uitgesteld (later) | ~3 dagen |
+| **15** | ⏸ | Smartschool SSO | ⏸ Uitgesteld (optioneel) | ~1 week |
+
+---
+
+## Aanbevolen uitvoervolgorde
+
+1. **Sprint 29** — kritieke bugs wegwerken (o.a. teacher-grid die nog steeds stuk is)
+2. **Sprint 34a/b** — testbasis + CI opzetten zodat de rest veilig kan
+3. **Sprint 30** — security hardening (30a/c/d eerst, 30b na 32a)
+4. **Sprint 36** — data-integriteit (transacties, validatie)
+5. **Sprint 31** — UX-consistentie (31b samen met 29a)
+6. **Sprint 35** — toegankelijkheid
+7. **Sprint 32** — technische schuld (32a maakt 30b mogelijk)
+8. **Sprint 33** — nice-to-haves naar wens
+
+**Totale schatting openstaand:** ~40 dagen werk (excl. uitgesteld).
+
+---
+
+## Afgeronde sprints
+
+| Sprint | Cat | Inhoud | Status | Inschatting |
+|---|---|---|---|---|
+| **28a** | 🔴 BUG | Vraagtypen automatische scoring (sprint 18a/18b) | ✅ Al aanwezig in server.js | ~4 dag |
+| **28b** | 🟡 TECH | check-deployment.sh sprint 12+ | ✅ Al voldoende in v2026.2.27.0 | ~0.5 dag |
+| **28c** | 🟠 UX | DOMPurify na marked.parse() — XSS-beveiliging (R-01) | ✅ Afgerond | ~0.5 dag |
+| **28d** | 🟠 UX | quiz-review.html subnav actief-markering | ✅ Afgerond | ~0.5 dag |
+| **28f** | 🔴 BUG | free_run_rate_limited structuurfout (loshangende regels) | ✅ Afgerond | ~0.5 dag |
+| **27a-g** | 🔴 BUG | check-deployment.sh: bash regex + syntaxfouten (5 valse FAILs) | ✅ Afgerond | ~0.5 dag |
+| **27h** | 🟠 UX | Tooltips op 34 icon-only knoppen | ✅ Afgerond | ~1 dag |
+| **27i** | 🔴 BUG | teacher-grid leerlingenoverzicht leeg (deels — zie 29a) | ✅ Afgerond | ~0.5 dag |
+| **27j** | 🟠 UX | Editor dark/light toggle verwijderd | ✅ Afgerond | ~0.5 dag |
+| **27k** | 🔴 BUG | Leerling kan niet runnen in individuele modus | ✅ Afgerond | ~0.5 dag |
+| **27l** | 🔴 BUG | Database viewer "query is not a function" | ✅ Afgerond | ~0.5 dag |
+| **27m** | 🔴 BUG | Kan niet inloggen na verse installatie (bootstrap admin) | ✅ Afgerond | ~0.5 dag |
+| **27n** | 🟠 UX | pycodeflow.sh optie 19: DB-beheer menu | ✅ Afgerond | ~1.5 dag |
+| **25a-h** | 🟠 UX | Rijke vraagstelling editor (toolbar, kaders, tabel, split-view, pyAlert, live preview) | ✅ Afgerond | ~6 dagen |
+| **24a-h** | 🟠 UX | UI/UX ronde 2 (modals, layout, DB-viewer) | ✅ Afgerond | ~5.5 dagen |
+| **23a-r** | 🔴 BUG | Senior tester audit (18 subtaken) | ✅ Afgerond | ~9 dagen |
+| **22a-k** | — | Bugfix & UX ronde | ✅ Afgerond (v2026.2.22.0) | ~6.5 dagen |
+| **21** | 🟠 P2-3 | Systeembeheer volledig up-to-date | ✅ Afgerond (v2026.2.17.0) | ~1.5 dag |
+| **20a-b** | 🟠 P2 | Audit-log + wachtwoord-reset flow | ✅ Afgerond (v2026.2.17.0) | ~2 dagen |
+| **19a-j** | 🔴 P1 | Betrouwbaarheid + Markdown + backup + notificaties | ✅ Afgerond (v2026.2.16.0/17.0) | ~8 dagen |
+| **17a-b** | — | Log rotatie + toets/taak archief | ✅ Afgerond (v2026.2.14.0) | ~2.5 dagen |
 | **16a-f** | — | Toetsmodule (volledig) | ✅ Afgerond (v2026.2.13.0) | ~10 dagen |
-| ~~**16b**~~ | — | Toetsmodule: toets aanmaken + sessie type quiz | ✅ Afgerond (v2026.2.13.0) | ~2 dagen |
-| ~~**16c**~~ | — | Toetsmodule: leerling quizscherm + timer + auto-submit | ✅ Afgerond (v2026.2.13.0) | ~2 dagen |
-| ~~**16d**~~ | — | Toetsmodule: verbetermodule + score + commentaar | ✅ Afgerond (v2026.2.13.0) | ~2 dagen |
-| ~~**16e**~~ | — | Toetsmodule: PDF export (4 types) | ✅ Afgerond (v2026.2.13.0) | ~1 dag |
-| ~~**16f**~~ | — | Toetsmodule: monitoring + stresstest + check-deployment | ✅ Afgerond (v2026.2.13.0) | ~0.5 dag |
-| **17a** | — | Log rotatie (7 dagen auto-cleanup) | ✅ Afgerond (v2026.2.14.0) | ~0.5 dag |
-| **17b** | — | Toets/taak archief: beheer + opvragen per jaar/klas | ✅ Afgerond (v2026.2.14.0) | ~2 dagen |
-| **23q** | 🟠 UX-7 | Dark/light mode volledig verwijderen uit de applicatie | ✅ Afgerond |
-| **23r** | 🟡 TECH-4 | Optie 18: Mappenstructuur opschonen (sprint-catalogus) toevoegen aan pycodeflow.sh | ✅ Afgerond | ~1 dag |
-| **23a** | 🔴 BUG-1 | selected_choices worden NIET opgeslagen in DB bij single/meerkeuze antwoorden | ✅ Afgerond | ~0.5 dag |
-| **23b** | 🔴 BUG-2 | isCode-opties in single/meerkeuze worden niet gerenderd bij leerling én bij verbeteren | ✅ Afgerond | ~1 dag |
-| **23c** | 🔴 BUG-3 | teacher-start.html route bestaat in server.js maar bestand ontbreekt → 500 error | ✅ Afgerond | ~0.5 dag |
-| **23d** | 🔴 BUG-4 | student-app.html: app.js versie-querystring kapot (?v2026 i.p.v. ?v=v2026) → stale cache | ✅ Afgerond | ~0.5 dag |
-| **23e** | 🟠 BUG-5 | quiz-student: open antwoord mist maxlength op textarea + Enter-toets niet geblokkeerd op form-level | ✅ Afgerond | ~0.5 dag |
-| **23f** | 🟠 BUG-6 | admin.html logo gebruikt /favicon.ico (ontbreekt op schijf) → gebroken afbeelding | ✅ Afgerond | ~0.5 dag |
-| **23g** | 🟠 BUG-7 | Engelstalige placeholder "Input unavailable" in student-app.html en teacher-app.html | ✅ Afgerond | ~0.5 dag |
-| **23h** | 🟠 UX-1 | Inconsistente CSS-versiestrings: monitoring.html "monitor1", teacher-login.html "blockfix2", index.html geen versie | ✅ Afgerond | ~0.5 dag |
-| **23i** | 🟠 UX-2 | Subnav (22j) enkel op teacher-sessions — ontbreekt op alle andere leerkrachtpagina's | ✅ Afgerond | ~1 dag |
-| **23j** | 🟠 UX-3 | 8 pagina's zonder favicon-tag (quiz-*, teacher-sessions, teacher-login, teacher-grid) | ✅ Afgerond | ~0.5 dag |
-| **23k** | 🟠 UX-4 | Pagina-titels generiek of inconsistent: "Leerling", "Leerkracht", "Leerkrachtenplatform" ≠ title-tag | ✅ Afgerond | ~0.5 dag |
-| **23l** | 🟠 UX-5 | monitoring.html header: "👤 Gebruikersbeheer" knop staat buiten topbar-inner (broken layout) | ✅ Afgerond | ~0.5 dag |
-| **23m** | 🟠 UX-6 | teacher-sessions h1 is "Leerkrachtenplatform" maar <title> en badge zijn "Sessies" — inconsistent | ✅ Afgerond | ~0.5 dag |
-| **23n** | 🟡 TECH-1 | styles.css: dubbele dark-mode CSS blokken (24× `[data-theme="dark"]`) → opsplitsen en dedupliceren | ✅ Afgerond (samen met 23q) | ~1 dag |
-| **23o** | 🟡 TECH-2 | admin.html en quiz-bank/teacher pagina's: raw fetch() zonder CSRF token i.p.v. apiFetch() | ✅ Afgerond | ~1 dag |
-| **23p** | 🟡 TECH-3 | 65 logbestanden > 7 dagen in /logs/ — log-rotatie draait niet retroactief bij deploy | ✅ Afgerond | ~0.5 dag |
-| **22a–k** | — | Bugfix & UX ronde (alle subtaken) | ✅ Afgerond (v2026.2.22.0) | ~6.5 dagen |
-| **18a** | 🔴 P1-1 | Vraagtypen: open vraag + meerkeuze + single choice | 🔄 Gepland | ~3 dagen |
-| **18b** | 🔴 P1-2 | Automatische scoring meerkeuze/single choice | 🔄 Gepland | ~1 dag |
-| **19a ✅** | 🔴 P1-3 | ✅ Afgerond (v2026.2.16.0) | 🔄 Gepland | ~0.5 dag |
-| **19b ✅** | 🔴 P1-4 | ✅ Afgerond (v2026.2.16.0) | 🔄 Gepland | ~0.5 dag |
-| **19c** | 🔴 P1-5 | check-deployment.sh volledig bijwerken (sprint 12+) | 🔄 Gepland | ~0.5 dag |
-| **19d ✅** | 🔴 P1-6 | ✅ Afgerond (v2026.2.16.0) | 🔄 Gepland | ~0.5 dag |
-| **19e ✅** | 🔴 P1-7 | ✅ Afgerond (v2026.2.16.0) | 🔄 Gepland | ~1 dag |
-| **19f ✅** | 🔴 P1-8 | ✅ Afgerond (v2026.2.16.0) | 🔄 Gepland | ~1 dag |
-| **19g ✅** | 🔴 P1-9 | ✅ Afgerond (v2026.2.16.0) | 🔄 Gepland | ~0.5 dag |
-| **19h** | 🔴 P1-10 | Bulk PDF export: alle antwoordformulieren als aparte bestanden | ✅ Afgerond (v2026.2.17.0) | ~1 dag |
-| **19i ✅** | 🔴 P1-11 | ✅ Afgerond (v2026.2.16.0) | 🔄 Gepland | ~1 dag |
-| **19j ✅** | 🔴 P1-12 | ✅ Afgerond (v2026.2.16.0) | 🔄 Gepland | ~1.5 dag |
-| **20a** | 🟠 P2-1 | Audit-log leerkrachtenacties (score gewijzigd, toets verwijderd) | ✅ Afgerond (v2026.2.17.0) | ~1 dag |
-| **20b** | 🟠 P2-2 | Wachtwoord-reset flow voor leerkrachten (self-service) | ✅ Afgerond (v2026.2.17.0) | ~1 dag |
-| **21** | 🟠 P2-3 | Systeembeheer (monitoring.html) volledig up-to-date | ✅ Afgerond (v2026.2.17.0) | ~1.5 dag |
-| **14** | ⏸ Uitgesteld | Google OAuth leerlingen | ⏸ Uitgesteld (later) | ~3 dagen |
-| **15** | ⏸ Uitgesteld | Smartschool SSO | ⏸ Uitgesteld (optioneel) | ~1 week |
+
+---
+
+### Sprint 29 — Bugs & regressies *(~1.1 dag)*
+
+**Aangemeld:** 05/07/2026 · **Status:** ✅ Afgerond (v2026.2.29.0) · gepland voor v2026.2.29.0
+
+---
+
+### Sprint 29_part2 — Vervolgbugs uit gebruikerstests *(~1.5 dag)*
+
+**Aangemeld:** 05/07/2026 · **Status:** ✅ Afgerond (v2026.2.29.1)
+**Aanleiding:** Bij het testen kwamen vier problemen naar boven die in één vervolgsprint zijn opgelost.
+
+#### 29p2-a 🔴 — Editor-config niet direct toegepast
+**Probleem:** In individuele modus werden hulp-instellingen (auto-indent, auto-brackets enz.) niet meteen toegepast — pas na een andere trigger. Op het leerkrachtscherm in klasmodus veranderde dit ook niet.
+
+**Rootcause:** `emitConfigChange` stuurde de wijziging enkel naar de server (die broadcastte naar leerlingen), maar de **leerkracht-editor zelf** werd nooit lokaal bijgewerkt. Bovendien las `updateEditorConfig('teacher')` een lege `_sessionConfig` omdat die nooit uit de teacher session data werd gepopuleerd.
+
+**Fix:**
+1. `emitConfigChange` werkt nu `_sessionConfig` bij én roept meteen `updateEditorConfig('teacher')` aan → directe toepassing
+2. `updateEditorConfig` gebruikt `_sessionConfig` voor zowel `student` als `teacher` owner
+3. De teacher session data handler populeert nu `_sessionConfig` uit `data.config` (zoals de leerling al deed) + werkt het config-paneel bij
+
+#### 29p2-b 🔴 — Vragenbank-knoppen werkten niet
+**Probleem:** Knoppen in de vragenbank reageerden niet, waardoor toetselementen niet getest konden worden.
+
+**Rootcause:** De window-exports stonden ná de init-code (`loadSubjects`/`loadQuestions`). Als de init faalde, werden de window-toewijzingen nooit bereikt — precies het sprint 26-regressiepatroon.
+
+**Fix:** Window-exports verplaatst vóór de init, elk in een eigen try/catch. Alle handler-functies zijn hoisted `function`-declaraties zodat ze altijd beschikbaar zijn.
+
+#### 29p2-c 🟠 — Layout "nieuwe toets" eerste blok onleesbaar
+**Probleem:** Het Timer/Vraagvolgorde-blok bovenaan "nieuwe toets" liep visueel op niets — radio's en labels door elkaar, "aanbevolen" badge verkeerd geplaatst.
+
+**Fix:** Herstructureerd met uniforme `.opt-card` keuze-kaarten (radio + titel + beschrijving in een nette kaart). De "aanbevolen" tekst is nu een `.opt-badge` pill. Responsive via bestaande `.form-row-2` media-query.
+
+#### 29p2-d 🟠 — Login onmogelijk na rebuild (verkeerd verwacht wachtwoord)
+**Probleem:** Na een rebuild kon niet ingelogd worden, ook al stond er een leerkracht in admin. Oorzaak was operationeel: de gebruiker kende de inlognaam/wachtwoord van het bootstrap-account niet.
+
+**Fix (meerledig):**
+1. **server.js bootstrap-logging** toont nu in een duidelijk kader de exacte inlognaam bij het aanmaken, en logt bij bestaande leerkrachten de inlognaam/-namen zodat altijd zichtbaar is waarmee ingelogd moet worden (inlognaam = username, NIET de weergavenaam).
+2. **pycodeflow.sh optie 19k** — "🆘 Kan niet inloggen?" — toont alle leerkrachten en zet in één flow een nieuw wachtwoord, met duidelijke instructie om met de inlognaam in te loggen. `manage-teacher.js reset-password` gebruikt exact hetzelfde scrypt-hashformaat als server.js, dus de reset werkt gegarandeerd.
+
+**Betrokken bestanden:** `app.js` · `quiz-bank.html` · `quiz-teacher.html` · `server.js` · `pycodeflow.sh`
+
+---
+
+### Sprint 30-cfg — Sessie-instellingen niet live *(~0.5 dag, KRITIEK)*
+
+**Aangemeld:** 05/07/2026 · **Status:** ✅ Afgerond (v2026.2.34.3)
+
+**Probleem (zie screenshot):** In het paneel "Sessie-instellingen" nemen wijzigingen (auto-indent, auto-sluiten haakjes enz.) niet onmiddellijk effect. Een aangevinkte wijziging wordt pas toegepast op de editor zodra een **andere** checkbox wordt aangeklikt. De aanhef belooft nochtans "Wijzigingen worden live gesynchroniseerd naar alle leerlingen".
+
+**Waarom nog steeds stuk na 29p2-a:** Sprint 29p2-a zorgde ervoor dat `emitConfigChange` `_sessionConfig` bijwerkt en `updateEditorConfig('teacher')` aanroept. Maar het effect blijft één stap achterlopen. Vermoedelijke rootcause: `editor.updateOptions()` van Monaco past sommige opties (met name `autoIndent`) niet toe op de **reeds geopende** editor tot er een nieuwe render/interactie plaatsvindt — de volgende checkbox-klik triggert die render, waardoor de vórige wijziging "ineens" actief lijkt. Het is dus een off-by-one in de toepassing, niet in de dataflow.
+
+**Twee mogelijke oplossingen (afgewogen bij aanmelding):**
+
+1. *Live echt laten meevolgen:* na `editor.updateOptions(...)` een re-layout forceren. Behoudt het live-gevoel maar blijft gevoelig voor Monaco-timing bij `autoIndent`.
+2. **Bevestigen met een knop (GEKOZEN):** de checkboxes registreren enkel de gewenste staat; pas bij een expliciete **"Toepassen"-knop** wordt de volledige config in één keer naar server + editors gestuurd. Deterministisch, geen Monaco-timingissues.
+
+**Gekozen aanpak — oplossing 2:**
+- De config-toggles roepen niet langer per wijziging `emitConfigChange` aan; ze werken enkel een lokale "pending"-staat bij en markeren dat er niet-opgeslagen wijzigingen zijn.
+- Een nieuwe **"Toepassen"-knop** onderaan het paneel stuurt alle waarden in één keer door (server-broadcast + directe toepassing op de leerkracht-editor).
+- De knop toont enkel als er wijzigingen zijn (of is altijd zichtbaar maar disabled tot er iets wijzigt), met een korte bevestiging ("✓ Toegepast") na klikken.
+- Zo is het gedrag volledig deterministisch en verdwijnt de off-by-one.
+
+**Uitgevoerd (v2026.2.34.3):**
+- `teacher-app.html`: checkboxes roepen nu `markConfigDirty()` aan; "Toepassen"-knop + statusregel. Belofte-tekst aangepast ("Kies je instellingen en klik op Toepassen").
+- `app.js`: `emitConfigChange` vervangen door `markConfigDirty()` (zet dirty-vlag) en `applyConfigChanges()` (verzamelt alle toggles, stuurt de volledige config via `teacher_apply_session_config`, past meteen toe op de leerkracht-editor, toont "✓ Toegepast").
+- `server.js`: handler `teacher_apply_session_config` valideert de volledige config via `lib/validation.js` (whitelist + booleancheck) en broadcast in één keer. Oude per-key handler blijft voor compatibiliteit.
+- Tests: 9 nieuwe validatie/scenario-tests in `tests/validation.test.js` (whitelist, non-boolean weigering, lege config). Totaal nu 54 unit tests.
+
+**Betrokken bestanden:** `app.js` · `teacher-app.html` · `server.js` · `lib/validation.js` · `tests/validation.test.js`
+
+---
+
+### Sprint 30-copy — Contextuele kopieerknop *(~0.5 dag)* — ✅ AFGEROND (v2026.2.34.3)
+
+**Probleem:** De "Kopieer output"-knop zweefde absoluut-gepositioneerd over het output-paneel (ongelukkig geplaatst), los van de "Kopieer code"-knop in de toolbar.
+
+**Oplossing:** Eén contextbewuste kopieerknop in de toolbar van teacher-app, student-app en free-editor:
+- `copyContextual(owner)` kopieert de **code** als het code-paneel zichtbaar is, de **output** als het output-paneel zichtbaar is.
+- Werkt in alle modi: klas (gedeeld), individueel (examen), student en vrije editor.
+- `updateCopyButtonLabel(owner)` houdt de tooltip actueel bij tabwissel (via `setTab`).
+- Zwevende `copy-output-btn` knoppen + CSS verwijderd; oude losse listeners opgeruimd.
+
+**Betrokken bestanden:** `app.js` · `teacher-app.html` · `student-app.html` · `free-editor.html` · `styles.css`
+
+---
+
+#### 29a 🔴 — teacher-grid sessiecode fallback werkt niet
+De sprint 27i fix voegde een fallback toe in `teacher-grid.html`:
+```js
+const sessionCode = params.get('code')
+  || localStorage.getItem('pycodeflow_teacherSessionCode')  // ❌ deze key bestaat niet
+  || localStorage.getItem('teacherSessionCode');            // ❌ JSON-encoded, geeft "ABC" mét quotes
+```
+Twee fouten: (1) `setLS('teacherSessionCode', code)` slaat op als `"ABC123"` (JSON, met quotes) — een raw `getItem` geeft de quotes mee, wat een ongeldige sessiecode oplevert; (2) de key `pycodeflow_teacherSessionCode` wordt nergens geschreven. **Fix:** in teacher-grid.html de waarde JSON-parsen, of één consistente key gebruiken. Best: `JSON.parse(localStorage.getItem('teacherSessionCode'))` met try/catch.
+
+#### 29b 🔴 — Laatste icon-only knop zonder tooltip
+`quiz-teacher.html` lijn 303: de ✕ knop (vraag uit selectie verwijderen) heeft nog geen `title`. Sprint 27h ving deze niet omdat de replace-string niet exact matchte. **Fix:** `title="Vraag uit selectie verwijderen"` toevoegen.
+
+#### 29c 🔴 — Stille fouten door lege catch-blokken
+15× `catch {}` in `app.js` zonder enige logging. Bij een fout gebeurt er niets — geen console-melding, geen gebruikersfeedback. Dit maakt debuggen zeer moeilijk. **Fix:** minimaal `catch(e) { console.warn('...', e); }` toevoegen, of waar zinvol een pyAlert.
+
+**Uitgevoerd:** Alle 20 lege catch-blokken over `app.js`, `admin.html`, `monitoring.html`, `quiz-bank.html`, `quiz-review.html`, `quiz-teacher.html` en `server.js` voorzien van contextuele `console.warn` logging. Best-effort catches (runner-cancel, log-cleanup) kregen een expliciete comment i.p.v. logging.
+
+#### 29-deploy 🟠 — Versie-automatisering bij deploy
+**Aanleiding:** De versie moest bij elke deploy handmatig via pycodeflow.sh gezet worden, met het risico dat `.env`, HTML cache-bust strings en de gerapporteerde versie uit sync liepen.
+
+**Oplossing — `VERSION`-bestand als single source of truth:**
+- Een `VERSION`-bestand in de project-root bevat het nummer (bv. `2026.2.29.0`)
+- `server.js` leest dit bestand bij opstart (via `loadVersionFromFile()`) en gebruikt het boven `.env` — gecontroleerd op meerdere paden (lokaal + container-mount `/VERSION`)
+- `docker-compose.yml` mount `./VERSION:/VERSION:ro` zodat een versiewijziging **zonder rebuild** actief wordt na herstart
+- Nieuw script `sync-version.sh` propageert het nummer naar `.env` én alle HTML cache-bust querystrings in één commando
+- `pycodeflow.sh` optie 1 (versie instellen) gebruikt nu `sync-version.sh`; optie 5 (rebuild) synchroniseert automatisch als `VERSION` afwijkt van `.env`
+
+**Deploy-flow nu:** pas `VERSION` aan (of `bash sync-version.sh 2026.2.40.0`) → herstart web-container. Geen handmatige versie-edits meer op meerdere plaatsen.
+
+**Betrokken bestanden:** `VERSION` (nieuw) · `sync-version.sh` (nieuw) · `server.js` · `docker-compose.yml` · `pycodeflow.sh`
+
+---
+
+### Sprint 30 — Security hardening *(~4.7 dagen)*
+
+**Aangemeld:** 05/07/2026 · **Status:** 🔄 Gepland
+
+#### 30a 🟠 — Login-cookie zonder Max-Age
+Het `teacher_auth` cookie wordt gezet zonder `Max-Age` of `Expires` → het is een sessiecookie dat verdwijnt bij het sluiten van de browser. Er is geen bewuste sessieduur en geen server-side timeout. **Fix:** expliciete `Max-Age` (bv. 8 uur voor een schooldag) + server-side sessievalidatie met vervaldatum. Overweeg "onthoud mij" optie.
+
+#### 30b 🟠 — CSP unsafe-inline door 130 inline onclick handlers
+De CSP bevat `'unsafe-inline'` in `script-src`, wat de XSS-bescherming aanzienlijk verzwakt (security-testplan R-02). Oorzaak: 130 inline `onclick=`/`onchange=` handlers verspreid over alle HTML. **Fix:** migreren naar event delegation / `addEventListener` in app.js, daarna `unsafe-inline` verwijderen en overschakelen op nonces of hashes. Grote taak — gefaseerd uitvoeren per pagina.
+
+#### 30c 🟠 — upgrade-insecure-requests ontbreekt
+HSTS is aanwezig maar de CSP mist `upgrade-insecure-requests`, wat mixed-content zou blokkeren. **Fix:** directive toevoegen aan de CSP-header.
+
+#### 30d 🟡 — Geen automatische DB-backup
+Backups gebeuren enkel handmatig (pycodeflow.sh optie 16). Bij een crash zonder recente backup gaat data verloren. **Fix:** cron-job optie toevoegen in pycodeflow.sh die dagelijks `pg_dump` uitvoert met retentie (bv. 7 dagen), of een interne scheduler in server.js.
+
+---
+
+### Sprint 31 — UX & consistentie *(~2.5 dagen)*
+
+**Aangemeld:** 05/07/2026 · **Status:** 🔄 Gepland
+
+#### 31a 🟠 — Loading states inconsistent
+Slechts 5 van de 18 pagina's tonen een laadindicator tijdens API-calls. Op trage verbindingen lijkt de app te bevriezen. **Fix:** uniforme spinner-component (of hergebruik bestaande laadspinner) op alle pagina's met async data-laden.
+
+#### 31b 🟠 — localStorage sleutels inconsistent
+Sommige keys hebben `pycodeflow_` prefix (`pycodeflow_free_code`, `pycodeflow_editor_mode`), andere niet (`freeSessionCode`, `teacherSessionCode`, `studentName`). Dit verhoogt kans op botsingen en verwarring. **Fix:** alle keys uniform prefixen met `pycodeflow_`, met migratiecode die oude keys eenmalig overzet.
+
+#### 31c 🟡 — Foutmeldingen niet uniform
+Fouten worden op drie manieren getoond: `pyAlert` (modal), inline tekst in het formulier, en tekst in het output-paneel. **Fix:** richtlijn vastleggen — validatie/fouten via pyAlert, achtergrondsucces via pyToast — en bestaande afwijkingen omzetten.
+
+---
+
+### Sprint 32 — Technische schuld *(~5.5 dagen)*
+
+**Aangemeld:** 05/07/2026 · **Status:** 🔄 Gepland
+
+#### 32a 🟡 — Inline scripts te groot
+`monitoring.html` (762 rgls inline script), `quiz-bank.html` (551), `quiz-student.html` (504), `quiz-review.html` (436), `quiz-teacher.html` (321). Moeilijk onderhoudbaar, geen herbruik, geen syntax-check bij build. **Fix:** per pagina het inline script naar een apart `.js` bestand verplaatsen (bv. `quiz-bank.js`), geladen met een versie-querystring. Dit verbetert ook de CSP-migratie (30b).
+
+#### 32b 🟡 — console.log in productiecode
+15× `console.log` in `server.js`. **Fix:** een eenvoudige logger met niveaus (debug/info/warn/error) die respecteert `LOG_LEVEL` uit .env, zodat debug-output in productie onderdrukt kan worden.
+
+#### 32c 🟢 — Monaco-versie niet centraal gepind
+De Monaco-loader wordt in meerdere HTML-bestanden apart geladen. **Fix:** één centrale versievariabele of een gedeeld include-fragment.
+
+---
+
+### Sprint 33 — Nice-to-haves *(~7.5 dagen)*
+
+**Aangemeld:** 05/07/2026 · **Status:** 🔄 Gepland
+
+#### 33a 🟢 — Excel-export van resultaten
+Naast de bestaande PDF-export ook `.xlsx` aanbieden in de verbetermodule, met leerlingen in rijen en vragen/scores in kolommen. Handig voor verdere verwerking in een puntenboek.
+
+#### 33b 🟢 — Voortgangsgrafiek per leerling
+In de verbetermodule een klein staafdiagram tonen: score per vraag, zodat de leerkracht in één oogopslag ziet waar een leerling struikelde.
+
+#### 33c 🟢 — Donker/licht UI-thema (volledige app)
+De editor is nu altijd donker (sprint 27j), maar een volwaardig UI-thema voor de hele app (los van de editor) met systeem-detectie (`prefers-color-scheme`) is een veelgevraagde nice-to-have. Let op: eerder verwijderd (sprint 23q) omdat het half-af was — nu volledig en consistent opzetten.
+
+#### 33d 🟢 — Vraag-tags in vragenbank
+Naast onderwerp en moeilijkheid ook vrije tags/labels toevoegen aan vragen, met filtering. Handig bij grote vragenbanken.
+
+#### 33e 🟢 — Toets dupliceren
+Een "Dupliceer"-knop bij bestaande toetsen die een kopie maakt (zelfde vragen en instellingen, nieuwe naam). Bespaart tijd bij herhaalde toetsen over schooljaren heen.
+
+---
+
+### Sprint 34 — Geautomatiseerd testen *(~6 dagen)* — ✅ AFGEROND (v2026.2.34.0)
+
+**Uitgevoerd:** kritieke logica geëxtraheerd naar `web/lib/` (auth, scoring, validation) zodat ze puur en testbaar zijn; `server.js` requiret die modules (één bron van waarheid). Testsuite met **45 unit tests** (`node:test`, geen extra deps) + **12 Python sandbox-tests**. Lokale CI (`run-tests.sh`) draait syntax-checks, inline-HTML-scriptcontrole (via `vm.Script`, browser-equivalent), unit tests, sandbox-tests en `npm audit`. GitHub Actions workflow toegevoegd. `pycodeflow.sh` optie 20 draait de tests; optie 5 (rebuild) draait ze automatisch vóór deploy en blokkeert bij falen.
+
+**Bonusvangst:** de CI ontdekte meteen een echte latente syntaxfout in `quiz-review.html` — een geneste template-literal (editor-blok bij code-vragen) die nooit werd afgesloten. Gecorrigeerd. Precies waarvoor de testbasis dient.
+
+**Aangemeld:** 05/07/2026 · **Status:** 🔄 Gepland
+**Aanleiding:** Het project heeft **nul geautomatiseerde tests**. Elke wijziging wordt handmatig getest, wat traag en foutgevoelig is — de sprint 26/27 regressies (window-exports, socketPages) waren met een minimale testsuite meteen gedetecteerd.
+
+#### 34a 🔴 — Testsuite voor kritieke paden
+Unit- en integratietests voor de belangrijkste server-logica: login + rate limiting, automatische scoring (single/meerkeuze/gedeeltelijk), sessie-persistentie en -herstel, CSRF-afdwinging, DB viewer whitelist. Aanbevolen: `node:test` (ingebouwd, geen extra deps) + een testdatabase. Streefdoel: de paden die bij falen data of toegang beïnvloeden.
+
+#### 34b 🟠 — CI-pipeline
+Een pipeline (GitHub Actions of NAS-lokaal script) die bij elke wijziging draait: `node --check` op alle JS, de testsuite, en `npm audit`. Voorkomt dat syntactisch kapotte of gefaalde code gedeployed wordt — precies wat de 28f structuurfout zou hebben gevangen.
+
+#### 34c 🟠 — Sandbox-escape testautomatisering
+De 10 sandbox-tests uit `security-testplan.md` §6.1 (verboden imports, rlimits, `__import__`-omzeiling) automatiseren zodat elke runner-wijziging automatisch tegen escape-pogingen getest wordt.
+
+---
+
+### Sprint 35 — Toegankelijkheid (a11y) *(~5 dagen)*
+
+**Aangemeld:** 05/07/2026 · **Status:** 🔄 Gepland
+**Aanleiding:** De hele app bevat **1 aria-attribuut**. Voor een onderwijstool die ook door leerlingen met een beperking gebruikt kan worden, is dit een belangrijke tekortkoming (en in veel onderwijscontexten een wettelijke vereiste — WCAG/EN 301 549).
+
+#### 35a 🟠 — Aria-labels en roles
+Betekenisvolle `aria-label` op icon-only knoppen (naast de `title` uit sprint 27h), `role`-attributen op custom componenten (tabs, lijsten, statusindicatoren), en `aria-live` regio's voor dynamische updates (leerlingstatus, output).
+
+#### 35b 🟠 — Status niet enkel via kleur
+Leerlingstatus (klaar/hand/tab-weg) en de stresstest-indicatoren zijn nu enkel kleurgecodeerd. Kleurenblinde gebruikers kunnen ze niet onderscheiden. **Fix:** iconen of tekstlabels toevoegen naast de kleur (WCAG 1.4.1).
+
+#### 35c 🟡 — Toetsenbordnavigatie
+Volledige app doorloopbaar met Tab/Enter/Escape: logische focus-volgorde, zichtbare focus-indicator, skip-to-content link, en geen toetsenbord-vallen. Belangrijk voor leerlingen die geen muis kunnen gebruiken.
+
+#### 35d 🟡 — Toegankelijke modals
+`pyAlert`, `pyConfirm` en de tabel/preview-modals krijgen `role="dialog"`, `aria-modal="true"`, focus-trap binnen de modal, en focus-terugkeer naar het triggerende element bij sluiten.
+
+---
+
+### Sprint 36 — Data-integriteit & robuustheid *(~4.5 dagen)*
+
+**Aangemeld:** 05/07/2026 · **Status:** 🔄 Gepland
+
+#### 36a 🟠 — Transacties bij multi-step schrijfacties
+Een toets aanmaken schrijft naar `quiz_meta` én koppelt vragen — als de tweede stap faalt, blijft een halve toets achter. **Fix:** deze operaties in een PostgreSQL-transactie (`BEGIN`/`COMMIT`/`ROLLBACK`) wikkelen. Idem voor het vrijgeven van resultaten en het archiveren van een schooljaar.
+
+#### 36b 🟡 — persistSession debounce
+`persistSession` wordt bij elke code-wijziging aangeroepen. Bij snel typende leerlingen geeft dit veel DB-schrijfacties en mogelijke race conditions (last-write-wins zonder versioning). **Fix:** debounce per sessie (bv. max 1 schrijf per 2s) + eventueel een `updated_at`-check.
+
+#### 36c 🟡 — Centrale input-validatielaag
+API-input wordt nu ad-hoc per endpoint gevalideerd (of niet). **Fix:** een lichte validatie-helper (types, lengtes, grenzen, enum-waarden) die consistent op alle endpoints wordt toegepast. Vermindert kans op onverwachte data en vergemakkelijkt foutmeldingen.
+
+#### 36d 🟢 — Dependencies pinnen
+`package.json` gebruikt `^` (minor auto-update), wat builds niet-reproduceerbaar maakt en een supply-chain-risico vormt. **Fix:** exacte versies pinnen, een `package-lock.json` committen, en `npm audit` opnemen in de CI (34b).
+
+---
+
+### Sprint 28 — Backlog consolidatie + DOMPurify + bugfixes *(~6.5 dagen)*
+
+**Aangemeld:** 04/07/2026
+**Status:** ✅ Afgerond (v2026.2.28.0)
+
+---
+
+#### 28a — Vraagtypen automatische scoring *(~4 dagen)* — ✅ AL AANWEZIG
+
+**Status: AL GEÏMPLEMENTEERD** — Aanwezig in `server.js` lijn 4255+. Auto-scoring voor single (0/max punten) en meerkeuze (gedeeltelijk, gewogen). `autoScored` flag in DB. Verwijderd uit actieve sprint 28.
+
+~~**Oorsprong:** sprint 18a + 18b — uitgesteld wegens prioriteiten, nu opgenomen in sprint 28.~~
+
+**Probleem:** Bij single choice en meerkeuze vragen wordt de score momenteel **handmatig** ingegeven door de leerkracht in de verbetermodule. De `selected_choices` worden correct opgeslagen (sprint 23a) en de juiste antwoorden zijn bekend (`correct: true` in `choices_json`), maar de automatische vergelijking ontbreekt.
+
+**Wat er gebouwd moet worden:**
+
+1. **Automatische scoring bij indienen** (`server.js`):
+   - Bij `quiz_submit`: voor elke `single`/`multiple` vraag de `selected_choices` vergelijken met de `correct` opties in `choices_json`
+   - Single choice: 1 correct antwoord geselecteerd → volle punten, anders 0
+   - Meerkeuze: alle juiste geselecteerd en geen foute → volle punten; gedeeltelijk correct → halve punten (configureerbaar per toets); fout → 0
+   - Score opslaan in `quiz_answers.score`
+
+2. **"🤖 Auto-gescoord" badge** in verbetermodule:
+   - Automatisch gescoorde antwoorden tonen de badge (al deels aanwezig)
+   - Leerkracht kan score overschrijven (bestaande functionaliteit)
+
+3. **Open vragen**: blijven altijd handmatig — geen wijziging
+
+**Betrokken bestanden:** `server.js` · `quiz-review.html`
+
+---
+
+#### 28b — check-deployment.sh sprint 12+ update *(~0.5 dag)* — ✅ AL VOLDOENDE
+
+**Status: AL VOLDOENDE** — v2026.2.27.0 controleert pgdata, SQLite-verwijdering en alle kritieke tabellen. Verwijderd uit actieve sprint 28.
+
+~~**Oorsprong:** sprint 19c — uitgesteld, check-deployment.sh is intussen al meerdere keren bijgewerkt (nu v2026.2.27.0), maar de specifieke sprint 12+ controles~~ (PostgreSQL migratie, geen SQLite meer, schema-versie) zijn nog niet volledig.
+
+**Wat er ontbreekt:**
+- Controle of `pgdata/` correct is geïnitialiseerd (niet leeg)
+- Controle of geen SQLite `.db` bestanden meer aanwezig zijn in `data/`
+- Controle op aanwezigheid van `db_settings` tabel (sprint 13-migratie)
+
+**Betrokken bestanden:** `check-deployment.sh`
+
+---
+
+#### 28c — DOMPurify voor Markdown XSS-beveiliging *(~0.5 dag)*
+
+**Oorsprong:** security-testplan.md R-01 — `marked.js` sanitiseert geen HTML in Markdown. Een leerkracht kan via `<script>` of `<img onerror=...>` in een vraagstelling potentieel XSS injecteren.
+
+**Scope:** Enkel de rendering bij **leerlingen** en in de **verbetermodule** is risicovol — de vragenbank-editor is leerkracht-only. DOMPurify toevoegen als post-processing stap:
+
+```js
+// Na marked.parse() — in quiz-student.html en quiz-review.html
+const dirty = window.marked.parse(preprocessMarkdown(rawText), { breaks: true, gfm: true });
+const clean  = window.DOMPurify ? window.DOMPurify.sanitize(dirty, { ADD_ATTR: ['style'] }) : dirty;
+qTextEl.innerHTML = clean;
+```
+
+**CDN:** `https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js` (al in CSP whitelist).
+
+**Betrokken bestanden:** `quiz-student.html` · `quiz-review.html`
+
+---
+
+#### 28d — quiz-review.html subnav actief-markering *(~0.5 dag)*
+
+**Probleem:** De verbetermodule (`quiz-review.html`) toont de subnav maar geen enkele link is als actief gemarkeerd. "Archief" is de meest logische keuze (de verbetermodule is bereikbaar vanuit het archief).
+
+**Fix:** De subnav op `quiz-review.html` uitbreiden zodat "📦 Archief" de actieve klasse krijgt.
+
+**Betrokken bestanden:** `quiz-review.html`
+
+---
+
+#### 28f — free_run_rate_limited auto-clear *(~0.5 dag)*
+
+**Probleem:** De `free_run_rate_limited` handler heeft de `setTimeout` gekregen in sprint 27k (auto-clear werkt), maar er staan **loshangende regels op lijn 1490-1494** in `app.js` die buiten de handler vallen door een merge-fout:
+
+```js
+// Lijn 1489: handler sluit correct
+    });
+// Lijn 1490-1494: BUITEN handler — syntactisch incorrect
+        setTab('free', 'output');
+        document.querySelectorAll(...).forEach(...);
+      }
+    });
+```
+
+Deze loshangende code breekt de JS-structuur en geeft een parse-fout.
+
+**Fix:** Zelfde `setTimeout` toevoegen als in 27k:
+
+```js
+socket.on('free_run_rate_limited', ({ waitMs }) => {
+  panel.textContent = `⏳ Even wachten...`;
+  setTimeout(() => {
+    if (panel.textContent.startsWith('⏳')) panel.textContent = '';
+  }, (waitMs || 3000) + 300);
+});
+```
+
+**Betrokken bestanden:** `app.js`
+
+---
+
+### Sprint 27 — check-deployment.sh bugfixes *(~0.5 dag)*
+
+**Aangemeld:** 02/07/2026
+**Status:** ✅ Afgerond (v2026.2.27.0)
+**Aanleiding:** Na rebuild en uitvoeren van `check-deployment.sh v2026.2.26.0` op de NAS kwamen 5 FAIL-meldingen die allemaal **vals positief** zijn — de bestanden zijn correct maar de bash-regex-syntax klopt niet.
+
+---
+
+**Rootcause van 27a–27e: backslash-pipe `\|` werkt niet in `grep -qE`**
+
+`grep -E` (extended regex) gebruikt `|` als OR-operator — **zonder** backslash. Maar `check_contains` roept `grep -qE "$pattern"` aan en de patronen bevatten `\|`. In bash-extended-regex wordt `\|` letterlijk geïnterpreteerd als backslash-pipe, niet als OR. Resultaat: het patroon matcht nooit.
+
+**Voorbeeld:**
+```bash
+# FOUT — \| wordt letterlijk gezocht in -E mode
+grep -qE "safeEqual\|timingSafeEqual" server.js   # → matcht NIET
+
+# CORRECT — | zonder backslash in -E mode
+grep -qE "safeEqual|timingSafeEqual" server.js    # → matcht WEL
+
+# OOK CORRECT — aparte -e vlaggen
+grep -q -e "safeEqual" -e "timingSafeEqual" server.js
+```
+
+**Fix 27a: bash syntaxfout lijn 311**
+
+`grep -cE "..." 2>/dev/null || echo 0` geeft `"0\n0"` terug als string bij een lege match (de `|| echo 0` voegt een extra `0` toe aan de grep-uitvoer). De `[[ "$ERRORS" -eq 0 ]]` vergelijking faalt dan met `syntax error in expression`.
+
+Fix: `grep -cE` vervangen door `grep -cE ... | head -1` of aanpak omdraaien naar `if grep -qE ...; then`.
+
+**Fix 27b–27e: alle multi-patroon `check_contains` aanroepen**
+
+Alle aanroepen waarbij het patroon een `\|` bevat moeten herschreven worden. Oplossing: de `check_contains` hulpfunctie uitbreiden zodat ze meerdere `-e` vlaggen ondersteunt, of alle multi-patronen splitsen naar aparte `check_contains` aanroepen.
+
+**Fix 27f: "Geen leerkrachten" warning**
+
+Bij een verse installatie is het normaal dat er geen leerkrachten zijn. De warning moet verduidelijken dat dit verwacht is na eerste installatie, en alleen een echte waarschuwing geven als de server al eerder in gebruik was (bv. tabel bestaat maar is leeg na een reset).
+
+---
+
+#### 27h — Tooltips op alle knoppen zonder duidelijk label *(~1 dag)*
+
+**Probleem:** Knoppen die enkel een emoji of symbool bevatten, of knoppen waarvan de betekenis niet meteen duidelijk is, hebben geen `title` attribuut. Hoveren geeft geen feedback. Dit is zowel een UX- als toegankelijkheidsprobleem (screenreaders).
+
+**Scope — geïnventariseerde knoppen per pagina:**
+
+**`teacher-app.html` (21 knoppen zonder title):**
+
+| Knop | Toe te voegen title |
+|---|---|
+| "Start individuele werkfase" | "Start examenmodus: elke leerling werkt apart" |
+| "Sturen" | "Stuur huidige code naar alle leerlingen" |
+| "Wissen" | "Wis de code bij alle leerlingen" |
+| "Run" | "Voer de code uit (Ctrl+Enter)" |
+| "Run all uit" / "Run all aan" | "Zet run-knop bij alle leerlingen uit/aan" |
+| "Code all uit" / "Code all aan" | "Maak code-editor bij alle leerlingen alleen-lezen / bewerkbaar" |
+| "✓ Klaar" (filter) | "Toon enkel leerlingen die klaar zijn" |
+| "✋ Hand" (filter) | "Toon enkel leerlingen met hand omhoog" |
+| "⚠️ Tab weg" (filter) | "Toon leerlingen die de tab hebben verlaten" |
+| "Start" / "Stop" | "Start/stop code-uitvoering" |
+| "⬇ Export" | "Exporteer sessiegegevens als CSV" |
+| "Sessie afsluiten" | "Sluit de sessie — leerlingen kunnen niet meer inloggen" |
+| "✕" (leerlingslijst sluiten) | "Leerlingenlijst verbergen" |
+| "📌 Verstuur" | "Stuur aankondiging naar alle leerlingen" |
+| "✕ Wis alle" | "Verwijder alle aankondigingen" |
+| "Sluiten" (aankondiging) | "Sluit aankondigingspaneel" |
+| "✓ Klaar resetten" | "Zet de klaar-status van alle leerlingen terug op niet klaar" |
+| "⊞ Overzicht" | "Open grid-overzicht van alle leerlingen" |
+
+**`student-app.html` (8 knoppen zonder title):**
+
+| Knop | Toe te voegen title |
+|---|---|
+| "Klascode" tab | "Toon de gedeelde klascode" |
+| "Mijn werkblad" tab | "Toon jouw persoonlijke code" |
+| "Output" tab | "Toon de uitvoer van jouw code" |
+| "📎 Voorbeeld" | "Laad het startvoorbeeld in de editor" |
+| "Run" | "Voer jouw code uit (Ctrl+Enter)" |
+| "✋ Hand opsteken" | "Meld aan de leerkracht dat je hulp nodig hebt" |
+| "✓ Klaar" | "Meld aan de leerkracht dat je klaar bent" |
+| "Stuur input" | "Stuur jouw invoer naar het programma (Enter)" |
+
+**`quiz-student.html` (5 knoppen zonder title):**
+
+| Knop | Toe te voegen title |
+|---|---|
+| "Run ▶" | "Voer je Python code uit" |
+| "← Vorige" | "Ga naar de vorige vraag" |
+| "📤 Indienen" | "Dien de toets in" |
+| "Volgende →" | "Ga naar de volgende vraag" |
+| "← Terug naar toets" | "Annuleer indienen, ga terug" |
+
+**`quiz-teacher.html` (1 knop):**
+
+| Knop | Toe te voegen title |
+|---|---|
+| "✕" (geselecteerde vraag verwijderen) | "Vraag uit selectie verwijderen" |
+
+**Aanpak:**
+- `title` attribuut toevoegen aan alle bovenstaande knoppen
+- Voor toegankelijkheid ook `aria-label` toevoegen waar het `title` identiek is aan de knopfunctie
+- Knoppen met een volledig label (`"Sessie afsluiten"`, `"Resultaten vrijgeven"`) krijgen een beschrijvendere `title` met extra context
+- Tooltip-stijl: browser-native (geen custom CSS nodig) — de `title` attribuut is voldoende
+
+**Betrokken bestanden:** `teacher-app.html` · `student-app.html` · `quiz-student.html` · `quiz-teacher.html`
+
+---
+
+#### 27i 🔴 — teacher-grid.html: leerlingenoverzicht blijft leeg *(~0.5 dag)*
+
+**Probleem (zie screenshot):** De "⊞ Overzicht"-knop in teacher-app.html opent teacher-grid.html in een nieuw tabblad. Dat tabblad toont "Verbinden met sessie..." maar laadt nooit de leerlingen, ook niet als er wel leerlingen aangemeld zijn.
+
+**Bewijs in de URL:** de screenshot toont `teacher-grid.html?code=` — de code-parameter is leeg. Zonder sessiecode kan het grid-venster geen `teacher_grid_observe` event sturen naar de server.
+
+**Rootcause:** De knop-handler gebruikt `window._currentSessionCode`:
+```js
+qs('teacher-grid-view-btn')?.addEventListener('click', () => {
+  const code = window._currentSessionCode || '';  // leeg als nog niet gezet!
+  window.open('/teacher-grid.html?code=' + code, '_blank', ...);
+});
+```
+
+`window._currentSessionCode` wordt pas gezet na het ontvangen van `teacher_session_data` via Socket.IO. Na de sprint 26 refactor (window-exports) kan dit event op een ander moment binnenkomen dan verwacht, of de variabele wordt niet correct bewaard tussen re-renders.
+
+**Alternatieve oorzaak:** `window._currentSessionCode` wordt als `window.` property gezet vanuit de IIFE, maar de IIFE sluit na de exports — als de volgorde van uitvoering verandert, kan de property op het moment van klikken nog `undefined` zijn.
+
+**Fix:**
+1. De knop-handler fallback uitbreiden: naast `window._currentSessionCode` ook `getLS('teacherSessionCode')` proberen (dat wordt opgeslagen bij sessie-start in teacher-sessions.html)
+2. De `teacher_grid_observe` emit in teacher-grid.html robuster maken: als `sessionCode` leeg is, probeer dan `localStorage.getItem('pycodeflow_teacherSessionCode')` als fallback
+
+```js
+// Fix in app.js — knop handler:
+qs('teacher-grid-view-btn')?.addEventListener('click', () => {
+  const code = window._currentSessionCode
+    || getLS('teacherSessionCode')
+    || '';
+  if (!code) { pyAlert('Geen actieve sessie gevonden.', 'warn'); return; }
+  window.open('/teacher-grid.html?code=' + code, '_blank', 'width=1400,height=900,resizable=yes');
+});
+```
+
+```js
+// Fix in teacher-grid.html — observe emit:
+const sessionCode = params.get('code')
+  || localStorage.getItem('pycodeflow_teacherSessionCode')
+  || '';
+```
+
+**Betrokken bestanden:** `app.js` · `teacher-grid.html`
+
+---
+
+#### 27j 🟠 — Editor dark/light toggle verwijderen *(~0.5 dag)*
+
+**Beslissing:** Net zoals de UI dark/light toggle in sprint 23q volledig verwijderd werd, wordt nu ook de **editor thema-toggle** verwijderd. De Monaco code-editor gebruikt altijd het donkere thema (`pycodeflow-dark`). De ☀️ knop en `Ctrl+Shift+T` shortcut verdwijnen.
+
+**Wat er weg moet:**
+
+**`app.js`:**
+- `_editorTheme` localStorage-variabele (`pycodeflow_editor_theme`) — verwijderen
+- `applyEditorTheme(owner, theme)` functie — verwijderen
+- `toggleEditorTheme(owner)` functie — verwijderen
+- `Ctrl+Shift+T` keydown handler — verwijderen
+- "Editor thema wisselen · Ctrl+Shift+T" rij in sneltoetsen overlay — verwijderen
+- Monaco initialisatie: altijd `theme: 'pycodeflow-dark'` (niet meer conditioneel op `_editorTheme`)
+- `applyEditorTheme` aanroep na Monaco-init — verwijderen
+- `window.toggleEditorTheme` en `window.applyEditorTheme` exports — verwijderen
+
+**`teacher-app.html`:**
+- `<button id="teacher-editor-theme-btn" ...>☀️</button>` — verwijderen
+
+**`student-app.html`:**
+- `<button id="student-editor-theme-btn" ...>☀️</button>` — verwijderen
+
+**`free-editor.html`:**
+- `<button id="free-editor-theme-btn" ...>☀️</button>` — verwijderen
+
+**`styles.css`:**
+- `.output-dark` / `.output-light` klassen — verwijderen
+- `.editor-theme-dark` / `.editor-theme-light` klassen — verwijderen
+- `.statusbar-dark` / `.statusbar-light` klassen — verwijderen
+- `--gutter-bg` en `--gutter-fg` CSS-varianten voor light thema — verwijderen
+
+**Na verwijdering:**
+- Output paneel: altijd `output-dark` stijl (donker, groen tekst) hardcoden of inline zetten
+- Statusbalk: altijd `background:#007acc; color:#fff` (blauw)
+- Gutter: altijd `--gutter-bg:#1f2f57; --gutter-fg:#9fb3c8`
+- Monaco: altijd `theme: 'pycodeflow-dark'`
+
+**Betrokken bestanden:** `app.js` · `teacher-app.html` · `student-app.html` · `free-editor.html` · `styles.css`
+
+---
+
+#### 27k 🔴 — Leerling kan niet meer runnen in individuele modus *(~0.5 dag)*
+
+**Probleem (zie screenshot):** In de individuele werkfase (klasmodus → "Start individuele werkfase") krijgen leerlingen telkens de melding "⏳ Even wachten — je kan opnieuw runnen over 3 seconde(n)." en kunnen ze nooit meer uitvoeren, ook niet na wachten.
+
+**Rootcause 1 — Melding verdwijnt nooit automatisch:**
+
+De `run_rate_limited` handler zet de meldingstekst in het output-paneel maar heeft geen `setTimeout` om hem te wissen na `waitMs` milliseconden:
+
+```js
+// Huidig — bericht blijft voor altijd staan
+socket.on('run_rate_limited', ({ waitMs }) => {
+  panel.textContent = `⏳ Even wachten — je kan opnieuw runnen over ${Math.ceil(waitMs/1000)} seconde(n).`;
+});
+
+// Fix — automatisch wissen + visuele countdown
+socket.on('run_rate_limited', ({ waitMs }) => {
+  panel.textContent = `⏳ Even wachten — je kan opnieuw runnen over ${Math.ceil(waitMs/1000)} seconde(n).`;
+  setTimeout(() => {
+    if (panel.textContent.startsWith('⏳ Even wachten')) panel.textContent = '';
+  }, waitMs + 200);
+});
+```
+
+**Rootcause 2 — runRateLimit niet gereset bij reconnect in individuele modus:**
+
+`runRateLimit.delete(socket.id)` wordt aangeroepen bij socket-disconnect (`4392`). Maar bij een **reconnect** (socket krijgt een nieuw `socket.id`) wordt de nieuwe socket gekoppeld aan de bestaande student via `student_reconnect`. De `runRateLimit` Map voor het **nieuwe** socket-id is leeg — dat is correct. Maar als de leerkracht snel naar individuele modus switcht terwijl een run bezig is, kan de server-side `canRun` status (`s.personalCanRun`) op `false` staan.
+
+**Rootcause 3 — `canRun` status niet teruggezet na wissel naar individuele modus:**
+
+Bij "Start individuele werkfase" wisselt `classWorkspaceMode` naar `'personal'`. De `studentCanRun` check gebruikt dan `s.personalCanRun !== false`. Als `personalCanRun` ooit op `false` gezet is (bv. door "Run uit" knop bij de leerkracht) en de leerkracht switcht naar individuele modus, blijft die waarde `false` — de leerling kan dan nooit runnen.
+
+**Fix:**
+1. `run_rate_limited` handler: `setTimeout` toevoegen om bericht te wissen na `waitMs + 200ms`
+2. Bij wissel naar individuele modus (`classWorkspaceMode = 'personal'`): alle `s.personalCanRun` resetten naar `true` tenzij expliciet uitgezet
+3. Zelfde fix voor `free_run_rate_limited` handler (vrije editor)
+
+**Betrokken bestanden:** `app.js` · `server.js`
+
+---
+
+#### 27l 🔴 — Database viewer: "Fout: query is not a function" *(~0.5 dag)*
+
+**Probleem (zie screenshot):** Bij klikken op een tabel in de database viewer verschijnt "Fout: query is not a function" in het detailpaneel. De tabelgrid laadt wel correct (namen + rij-aantallen), maar tabelinhoud laden crasht.
+
+**Rootcause:** De DB viewer endpoints (sprint 24g) importeren `query` zo:
+
+```js
+// server.js lijn 544 en 576 — FOUT
+const { query } = require('./db/database.js');
+```
+
+Maar `database.js` exporteert `query` **niet** via `module.exports` — het is een interne functie. `module.exports` bevat enkel de publieke methodes (`getTeacherByUsername`, `createStudent`, etc.). `const { query }` destructureert dus `undefined`, en `query(...)` geeft "query is not a function".
+
+**Waarom laadt het tabelgrid dan wel?**
+
+Het tabelgrid (`GET /api/admin/db/tables`) gebruikt `await Promise.all(DB_VIEWER_TABLES.map(async (tbl) => { const { query } = require(...) }))` — de fout treedt op binnen een `try/catch` per tabel, die `{ error: true }` teruggeeft. De grid rendert dan blokjes met "0 rijen" zonder te crashen. Pas bij het laden van de inhoud (`GET /api/admin/db/tables/:name/rows`) is er geen omliggende try/catch op het juiste niveau en komt de fout door.
+
+**Fix:** Gebruik `dbModule` (dat al als `const dbModule = require('./db/database')` op lijn 8 geïmporteerd is) en voeg een interne `query`-wrapper toe, of exporteer `query` vanuit database.js.
+
+**Optie A — Eenvoudigst: exporteer `query` vanuit database.js:**
+```js
+// database.js — toevoegen aan module.exports
+module.exports = {
+  query,  // ← toevoegen
+  async init() { ... },
+  ...
+}
+```
+
+**Optie B — Gebruik de pg pool direct in server.js:**
+```js
+// server.js DB viewer endpoints — vervang const { query } = require(...)
+// door de al beschikbare dbModule of een directe pool.query aanroep
+const { Pool } = require('pg');
+// pool is al aangemaakt in database.js — exporteer die ook
+```
+
+**Voorkeur: Optie A** — kleinste wijziging, geen dubbele pool-instantie.
+
+**Betrokken bestanden:** `database.js` · `server.js`
+
+---
+
+#### 27m 🔴 — Kan niet inloggen na verse installatie *(~0.5 dag)*
+
+**Probleem:** Na een verse installatie zonder leerkrachten in de DB én zonder `.env`-credentials is inloggen onmogelijk. De check-deployment waarschuwt "Geen leerkrachten" maar de gebruiker weet niet dat dit de login blokkeert.
+
+**Hoe login nu werkt (twee lagen):**
+
+1. **Primair — PostgreSQL DB:** `credentialsAreValid()` zoekt de gebruiker via `dbModule.getTeacherByUsername()`. Als de tabel leeg is → geen match.
+2. **Fallback — `.env`:** Als `POC_BASIC_USER` en `POC_BASIC_PASS_HASH` ingevuld zijn → worden die als backup gebruikt.
+3. **Geen van beide** → `return false` → login mislukt.
+
+**Wanneer treedt het op:**
+- Verse installatie: geen leerkrachten aangemaakt (check-deployment zegt "⚠️ Geen leerkrachten")
+- `.env` heeft `POC_BASIC_USER=` leeg of `POC_BASIC_PASS_HASH=` leeg → fallback werkt niet
+
+**Gewenste situatie:** er zou altijd een noodlogin moeten zijn. Twee opties:
+
+**Optie A — Bootstrap admin bij eerste start:**
+Bij serverstart, als de `teachers` tabel leeg is, automatisch een admin-account aanmaken met credentials uit `.env` (`POC_BASIC_USER` + `POC_BASIC_PASS`/`HASH`). Zo is er altijd minstens één account.
+
+**Optie B — Noodinlogknop in pycodeflow.sh (27n):**
+Via optie 10 in pycodeflow.sh kan een leerkracht aangemaakt worden. Dit werkt ook als de server niet draait. Na aanmaken → server herstart → inloggen werkt.
+
+**Fix voor 27m:** Bij serverstart controleren of de teachers-tabel leeg is. Zo ja, en als `POC_BASIC_USER` + `POC_BASIC_PASS` ingevuld zijn in `.env`: automatisch een admin-account aanmaken en loggen:
+
+```js
+// server.js — na dbModule.init()
+const teachers = await dbModule.listTeachers();
+if (teachers.length === 0 && BASIC_AUTH_USER && BASIC_AUTH_LEGACY_PASS) {
+  const hash = createPasswordHash(BASIC_AUTH_LEGACY_PASS);
+  await dbModule.createTeacher(BASIC_AUTH_USER, hash, BASIC_AUTH_USER, 'admin');
+  console.log(`[bootstrap] Admin-account '${BASIC_AUTH_USER}' automatisch aangemaakt.`);
+}
+```
+
+**Betrokken bestanden:** `server.js` · `pycodeflow.sh`
+
+---
+
+#### 27n 🟠 — pycodeflow.sh: volledig DB-beheer menu *(~1.5 dag)*
+
+**Probleem:** Als je niet kunt inloggen op de webinterface, is er geen manier om via de NAS rechtstreeks DB-beheer uit te voeren buiten optie 10 (leerkracht toevoegen). Er is geen overzicht van klassen, leerlingen of andere data, en geen manier om wachtwoorden te resetten zonder de webinterface.
+
+**Nieuw menu-item 19 — DB-beheer:**
+
+```
+19) 🗄  Database beheer
+```
+
+Sub-menu met volgende opties:
+
+```
+a) Leerkrachten tonen
+b) Leerkracht toevoegen
+c) Leerkracht verwijderen
+d) Wachtwoord leerkracht resetten
+e) Klassen tonen
+f) Klas toevoegen
+g) Leerlingen tonen (per klas)
+h) Noodtoegang: bootstrap admin-account uit .env
+i) Database statistieken (aantal rijen per tabel)
+j) Volledige DB backup maken
+```
+
+**Implementatie:** Alle acties via `docker exec pycodeflow-web-1 node scripts/manage-teacher.js ...` — het `manage-teacher.js` script uitbreiden met klassen- en leerlingenbeheer, of een apart `manage-db.js` script toevoegen.
+
+**Kritiekste optie — 19h: Bootstrap admin:**
+Als de DB leeg is en inloggen onmogelijk:
+```bash
+# pycodeflow.sh optie 19h
+# Haalt POC_BASIC_USER en POC_BASIC_PASS uit .env
+# Maakt admin-account aan via manage-teacher.js
+# Herstart web container
+```
+
+**Betrokken bestanden:** `pycodeflow.sh` · `web/scripts/manage-teacher.js` (uitbreiden)
 
 ---
 
 ### Sprint 25 — Rijke vraagstelling editor *(~6 dagen)*
 
 **Aangemeld:** 27/06/2026
-**Status:** 🔄 Gepland
-**Versie:** gepland voor v2026.2.25.0
+**Status:** ✅ Afgerond (v2026.2.25.0)
 **Aanleiding:** De vraagstelling is momenteel een blinde textarea met Markdown. Er is geen visuele hulp, geen kleurondersteuning, geen duidelijke structuur voor opgaven. Leerlingen zien alle vragen in dezelfde zwart-op-witte layout waardoor niets opvalt of duidelijk afgebakend is.
 
 **Doel:** Een leerkracht moet een vraag kunnen opmaken zoals in een Word-document — met kleur, kaders, tabellen en visuele feedback — zonder Markdown te kennen.
@@ -188,19 +962,34 @@ Dit is omslachtig en foutgevoelig.
 
 **Probleem:** De huidige flow is: typ tekst → klik Preview → kijk resultaat → klik Bewerken → typ verder. Dit is traag en verbreekt de schrijfflow.
 
-**Ontwerp:** Bij klik op een "Split-view" knop (of standaard als scherm breed genoeg is):
-- Links: textarea met toolbar (50% breedte)
-- Rechts: live preview die update bij elke toetsaanslag (100ms debounce)
-- Beide panelen scrollen synchroon
-- Op smal scherm (< 900px): terug naar tab-model (textarea ÓF preview)
+**Ontwerp:**
+
+Drie modi, schakelbaar via een toggle-knop in de toolbar:
+
+| Modus | Icoon | Gedrag |
+|---|---|---|
+| Volledig (textarea) | `[ ]` | Standaard — enkel editor, geen live preview. Huidig gedrag. |
+| Split-view | `[ ][ ]` | Editor links (50%), live preview rechts (50%). Preview update bij elke toetsaanslag (100ms debounce). |
+| Volledig (preview) | `[👁]` | Enkel preview, editor verborgen. Zelfde als huidige Preview-knop. |
+
+**Toggle-knop:** een discrete drieknops-groep rechts in de toolbar (naast de bestaande Preview-knop die verdwijnt):
+```
+[ □ ] [ □□ ] [ 👁 ]
+  ↑      ↑      ↑
+Tekst  Split  Preview
+```
+
+**Voorkeur opgeslagen in `localStorage`** (`pycodeflow_editor_mode`):
+- De modus wordt per browser onthouden
+- Standaard: volledig (textarea) — split-view is opt-in, niet standaard
+- Instelling geldt enkel voor de vragenbank, niet voor andere editors
 
 **Technische aanpak:**
-- CSS grid: `grid-template-columns: 1fr 1fr` op het vraagstelling-container element
-- `oninput` op textarea → debounced `marked.parse()` → rechter paneel bijwerken
-- Toggle-knop: `[ ][ ] Split` / `[  ] Volledig` in de toolbar
-- Preview-knop verdwijnt in split-view (niet nodig)
+- CSS grid op de vraagstelling-container: `grid-template-columns: 1fr` (volledig) of `1fr 1fr` (split)
+- `oninput` op textarea → debounced `marked.parse()` → rechter preview-paneel bijwerken
+- Op scherm < 900px: split-view automatisch uitgeschakeld en vervalt naar volledig; toggle-knop toont waarschuwing bij poging
 
-**Betrokken bestanden:** `quiz-bank.html`, `styles.css`
+**Betrokken bestanden:** `quiz-bank.html` · `styles.css`
 
 ---
 
@@ -317,6 +1106,89 @@ Gebruik voor: destructieve of onomkeerbare acties.
 #### 25f — Resterende browser alert()/confirm() *(v2026.2.24.1 — afgerond)*
 
 Alle `alert()` en `confirm()` vervangen door `pyToast()`/`pyConfirm()` op quiz-teacher, quiz-archive, quiz-review, quiz-student en monitoring. Zie changelog v2026.2.24.1.
+
+---
+
+#### 25h — Live leerkracht-preview vóór toets opslaan *(~1.5 dag)*
+
+**Probleem:** De leerkracht stelt stap 1 (instellingen) en stap 2 (vragen) in, gaat naar stap 3 (bevestigen) en ziet enkel een droge samenvatting. Ze weet pas hoe de toets er **echt** uitziet voor een leerling nádat ze hem aangemaakt heeft. Problemen met layout, opmaak of vraagvolgorde worden pas ontdekt als leerlingen al bezig zijn.
+
+**Oplossing:** Een **stap 3b** — een volledig interactieve preview-modus die de exacte leerlingeninterface toont, rechtstreeks in de browser van de leerkracht, vóór de toets definitief aangemaakt wordt.
+
+---
+
+**Positie in de wizard:**
+
+```
+① Basisinfo  →  ② Vragen  →  ③ Live preview  →  ④ Bevestigen & opslaan
+                                    ↑ NIEUW
+```
+
+Stap 3 (huidige "Bevestigen") wordt stap 4. Stap 3 wordt de live preview.
+
+---
+
+**Hoe het werkt:**
+
+1. Leerkracht klikt "→ Preview →" op stap 2
+2. Een **volledige schermovername** opent (fixed overlay):
+   - Ziet er exact uit als `quiz-student.html` voor de leerling
+   - Toetsnaam en timer-indicator bovenaan — timer loopt **niet** (enkel visueel)
+   - Vraagnavigator: alle vraagnummers klikbaar
+   - Per vraag: exacte rendering van vraagstelling (Markdown, code-blokken, info-kaders)
+   - Python code-vragen: Monaco editor actief, **code kan gerund worden** (echte runner)
+   - Open vragen: textarea aanwezig, tekst invullen mogelijk
+   - Single/meerkeuze: opties klikbaar (zonder persistentie)
+3. Gele **"🔍 PREVIEW MODUS"** banner bovenaan: "Dit is een preview — antwoorden worden niet opgeslagen"
+4. Knop **"✅ Ziet er goed uit → Opslaan"** → gaat naar stap 4 (bevestigen + opslaan)
+5. Knop **"✎ Aanpassen"** → terug naar stap 2
+
+---
+
+**Preview-panel layout:**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  🔍 PREVIEW MODUS — antwoorden worden niet opgeslagen        │ ← gele banner
+│  [✎ Aanpassen ← ]                 [ ✅ Ziet er goed uit → ] │
+├───────────────┬──────────────────────────────────────────────┤
+│  1  2  3  4   │  Vraag 2 van 4                               │
+│  ✓  ●         │  ┌─────────────────────────────────────────┐ │
+│               │  │ Schrijf een functie die de som berekent │ │
+│               │  └─────────────────────────────────────────┘ │
+│               │  ┌─── Monaco editor ──────────────────────┐  │
+│               │  │  def som(a, b):                        │  │
+│               │  └────────────────────────────────────────┘  │
+│               │  [▶ Uitvoeren]   Output: 5                   │
+└───────────────┴──────────────────────────────────────────────┘
+```
+
+---
+
+**Technische aanpak — Optie A: Inline panel (voorkeur)**
+
+- Verborgen `<div id="preview-panel">` in `quiz-teacher.html` die de volledige viewport overneemt (`position:fixed; inset:0; z-index:500`)
+- Vragen worden geladen vanuit `_selected` (geselecteerde vragen stap 2) — **geen server-roundtrip**
+- Vraagvolgorde "random" → willekeurig geschud + knop "🔀 Andere volgorde" om opnieuw te schudden
+- Monaco editor laadt via bestaande `require(['vs/editor/editor.main'],...)`
+- Runner werkt via Socket.IO (al verbonden)
+- Antwoorden worden **nergens opgeslagen** (enkel lokale preview-state)
+
+**Optie B: Tijdelijke toets (fallback)**
+- Maak tijdelijke toets aan met `is_preview: true` + `expires_in: 30min`, open in nieuw tabblad
+- Nadeel: server-roundtrip, leerling-URL zichtbaar, complexer
+- Optie A heeft sterke voorkeur
+
+---
+
+**Aandachtspunten:**
+- Timer: getoond maar bevroren ("45:00" zonder aftelling)
+- Info-kaders (sprint 25b) en Markdown correct gerenderd
+- Vraagvolgorde "vast": volgorde uit stap 2
+- Vraagvolgorde "random": preview toont één willekeurige shuffle + herscudknop
+- Op mobiel: preview schaalt correct mee (zelfde responsive CSS als quiz-student)
+
+**Betrokken bestanden:** `quiz-teacher.html` · `app.js` · `styles.css`
 
 ---
 
@@ -2975,7 +3847,7 @@ Volledige testprocedure voor sprint 16 toevoegen aan test-readme.md:
 
 ---
 
-## Afgeronde sprints
+## Versiegeschiedenis (changelog-overzicht)
 
 | Sprint | Inhoud | Versie | Datum |
 |---|---|---|---|

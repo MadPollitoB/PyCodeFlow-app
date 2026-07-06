@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Sessie actief</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.23.0"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.34.3"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .runner-health-bar-track {
@@ -158,7 +158,7 @@
 
     <div class="top-actions">
       <a href="/teacher-sessions.html" class="btn btn-muted">Sessieoverzicht</a>
-      <button class="btn btn-muted" id="teacher-toggle-workspace-btn">Start individuele werkfase</button>
+      <button class="btn btn-muted" id="teacher-toggle-workspace-btn" title="Wissel tussen gedeelde klascode en individuele werkfase per leerling">Start individuele werkfase</button>
     </div>
   </div>
 
@@ -169,8 +169,8 @@
         <textarea id="teacher-announcement-input" class="announcement-textarea" placeholder="Bijv. Maak oefening 3 zelfstandig en gebruik een for-lus."></textarea>
       </div>
       <div class="announcement-actions">
-        <button class="btn btn-primary" id="teacher-announcement-send-btn">Sturen</button>
-        <button class="btn btn-muted" id="teacher-announcement-clear-btn">Wissen</button>
+        <button class="btn btn-primary" id="teacher-announcement-send-btn" title="Stuur opdracht naar alle leerlingen">Sturen</button>
+        <button class="btn btn-muted" id="teacher-announcement-clear-btn" title="Wis de huidige opdracht bij alle leerlingen">Wissen</button>
       </div>
       <div id="announcement-history-wrap" class="hidden" style="margin-top:8px;">
         <div style="font-size:0.78rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Vorige aankondigingen</div>
@@ -200,10 +200,9 @@
         <button id="teacher-session-config-btn" title="Sessie-instellingen"
           onclick="document.getElementById('session-config-panel').classList.toggle('hidden')"
           style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;">⚙️</button>
-        <button id="teacher-editor-theme-btn" title="Editor thema (licht/donker)" onclick="if(window.toggleEditorTheme) toggleEditorTheme('teacher')" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;">☀️</button>
-        <button id="teacher-copy-code-btn" title="Kopieer code" onclick="if(window.copyToClipboard && window.getEditorValue) copyToClipboard(getEditorValue('teacher')||'', this)" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;">📋</button>
+                <button id="teacher-copy-btn" title="Kopieer code" aria-label="Kopieer code" onclick="if(window.copyContextual) copyContextual('teacher', this)" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;">📋</button>
         <button title="Sneltoetsen (Ctrl+?)" onclick="if(window.toggleShortcutsOverlay) toggleShortcutsOverlay()" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;font-weight:bold;">?</button>
-        <button class="btn btn-soft small" id="teacher-run-btn">Run</button>
+        <button class="btn btn-soft small" id="teacher-run-btn" title="Voer de code uit voor alle leerlingen (Ctrl+Enter)">Run</button>
       </div>
       <div id="teacher-code-panel" class="editor-frame-wrap">
         <div class="editor-frame">
@@ -216,10 +215,7 @@
     </div>
       </div>
       
-      <div style="position:relative;">
-        <button id="teacher-copy-output-btn" class="copy-output-btn" title="Kopieer output">📋</button>
-        <pre id="teacher-output-panel" class="output-panel hidden output-dark"></pre>
-      </div>
+      <pre id="teacher-output-panel" class="output-panel hidden output-dark"></pre>
       <div id="teacher-runtime-input-wrap" class="runtime-input-wrap hidden">
         <input id="teacher-runtime-input" placeholder="Invoer niet beschikbaar" disabled/>
         <button class="btn btn-soft" id="teacher-send-input-btn" disabled>Stuur input</button>
@@ -236,14 +232,14 @@
         <p class="muted" id="teacher-student-count">0 online</p>
         <!-- Sprint 10O: statusfilter knoppen -->
         <div class="status-filter-bar" style="margin-bottom:8px;">
-          <button class="status-filter-btn active" data-status-filter="all">Alle</button>
-          <button class="status-filter-btn" data-status-filter="done">✓ Klaar</button>
-          <button class="status-filter-btn" data-status-filter="hand">✋ Hand</button>
-          <button class="status-filter-btn" data-status-filter="tab">⚠️ Tab weg</button>
+          <button class="status-filter-btn active" data-status-filter="all" title="Toon alle leerlingen">Alle</button>
+          <button class="status-filter-btn" data-status-filter="done" title="Toon enkel leerlingen die klaar zijn">✓ Klaar</button>
+          <button class="status-filter-btn" data-status-filter="hand" title="Toon leerlingen met hand omhoog">✋ Hand</button>
+          <button class="status-filter-btn" data-status-filter="tab" title="Toon leerlingen die de tab hebben verlaten">⚠️ Tab weg</button>
         </div>
         <div class="row" style="flex-wrap:wrap; gap:6px;">
-          <button class="btn btn-soft small" id="toggle-run-all-btn">Run all uit</button>
-          <button class="btn btn-soft small" id="toggle-code-all-btn">Code all uit</button>
+          <button class="btn btn-soft small" id="toggle-run-all-btn" title="Zet de Run-knop bij alle leerlingen aan of uit">Run all uit</button>
+          <button class="btn btn-soft small" id="toggle-code-all-btn" title="Maak de code-editor bij alle leerlingen alleen-lezen of bewerkbaar">Code all uit</button>
           <button class="btn btn-muted small" id="teacher-reset-all-done-btn" title="Zet alle Klaar-statussen terug naar bezig">↺ Klaar resetten</button>
           <!-- Sprint 10N: overzichtsmodus knop -->
           <button class="btn btn-muted small" id="teacher-grid-view-btn" title="Overzichtsmodus: alle leerlingen in grid">⊞ Overzicht</button>
@@ -283,14 +279,14 @@
             <input id="teacher-timer-input" type="number" min="1" max="90" value="10"
               style="width:64px; padding:6px 10px; border:1.5px solid var(--border); border-radius:8px; font-size:0.9rem;"/>
             <span style="font-size:0.82rem; color:var(--muted);">min</span>
-            <button class="btn btn-soft small" id="teacher-timer-start-btn">Start</button>
-            <button class="btn btn-muted small" id="teacher-timer-stop-btn">Stop</button>
+            <button class="btn btn-soft small" id="teacher-timer-start-btn" title="Start de countdown timer">Start</button>
+            <button class="btn btn-muted small" id="teacher-timer-stop-btn" title="Stop de countdown timer">Stop</button>
             <strong id="teacher-timer-display" style="font-size:1.1rem; min-width:40px;">—</strong>
           </div>
         </div>
         <div class="row" style="margin-top:10px; flex-wrap:wrap; gap:6px;">
-          <button class="btn btn-soft small" id="teacher-export-btn">⬇ Export</button>
-          <button class="btn btn-danger small" id="teacher-close-session-btn">Sessie afsluiten</button>
+          <button class="btn btn-soft small" id="teacher-export-btn" title="Exporteer sessiegegevens als CSV-bestand">⬇ Export</button>
+          <button class="btn btn-danger small" id="teacher-close-session-btn" title="Sluit de sessie — leerlingen kunnen daarna niet meer inloggen">Sessie afsluiten</button>
         </div>
       </div>
     </div>
@@ -302,43 +298,43 @@
 <div id="session-config-panel" class="hidden" style="position:fixed; top:80px; right:24px; z-index:1001; width:280px; background:var(--surface); border:1.5px solid var(--border); border-radius:18px; box-shadow:var(--shadow); padding:18px 20px;">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
     <strong style="font-size:0.95rem;">⚙️ Sessie-instellingen</strong>
-    <button onclick="document.getElementById('session-config-panel').classList.add('hidden')" style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:var(--muted);">✕</button>
+    <button onclick="document.getElementById('session-config-panel').classList.add('hidden')" title="Sluit sessie-instellingen" style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:var(--muted);">✕</button>
   </div>
-  <p style="font-size:0.78rem;color:var(--muted);margin:0 0 12px;">Wijzigingen worden live gesynchroniseerd naar alle leerlingen.</p>
+  <p style="font-size:0.78rem;color:var(--muted);margin:0 0 12px;">Kies je instellingen en klik op <strong>Toepassen</strong> om ze naar alle leerlingen te sturen.</p>
 
   <div class="config-toggle-row">
     <label class="config-toggle-label">
       <span>Auto-indent na <code>:</code></span>
       <input type="checkbox" id="config-toggle-autoIndent" checked
-        onchange="emitConfigChange('autoIndent', this.checked)">
+        onchange="markConfigDirty()">
     </label>
   </div>
   <div class="config-toggle-row">
     <label class="config-toggle-label">
       <span>Auto-sluiten haakjes <code>( [ {</code></span>
       <input type="checkbox" id="config-toggle-autoClosingBrackets" checked
-        onchange="emitConfigChange('autoClosingBrackets', this.checked)">
+        onchange="markConfigDirty()">
     </label>
   </div>
   <div class="config-toggle-row">
     <label class="config-toggle-label">
       <span>Auto-sluiten aanhalingstekens <code>" '</code></span>
       <input type="checkbox" id="config-toggle-autoClosingQuotes" checked
-        onchange="emitConfigChange('autoClosingQuotes', this.checked)">
+        onchange="markConfigDirty()">
     </label>
   </div>
   <div class="config-toggle-row">
     <label class="config-toggle-label">
       <span>Autocomplete suggesties</span>
       <input type="checkbox" id="config-toggle-quickSuggestions" checked
-        onchange="emitConfigChange('quickSuggestions', this.checked)">
+        onchange="markConfigDirty()">
     </label>
   </div>
   <div class="config-toggle-row">
     <label class="config-toggle-label">
       <span>Parameter-info tooltip</span>
       <input type="checkbox" id="config-toggle-parameterHints" checked
-        onchange="emitConfigChange('parameterHints', this.checked)">
+        onchange="markConfigDirty()">
     </label>
   </div>
   <div class="config-toggle-row" style="opacity:0.5;" title="Altijd aan — niet uitschakelbaar">
@@ -347,6 +343,12 @@
       <input type="checkbox" checked disabled>
     </label>
   </div>
+
+  <button id="config-apply-btn" onclick="applyConfigChanges()"
+    style="width:100%;margin-top:14px;padding:9px;border:none;border-radius:10px;
+    background:var(--primary);color:#fff;font-weight:700;font-size:0.9rem;cursor:pointer;
+    transition:background .15s;">Toepassen</button>
+  <p id="config-apply-status" style="font-size:0.72rem;color:var(--muted);margin:8px 0 0;text-align:center;min-height:1em;"></p>
 
   <p style="font-size:0.72rem;color:var(--muted);margin:12px 0 0;">
     Standaard: alles <strong>aan</strong> in klasmodus, alles <strong>uit</strong> in examenmodus.
@@ -390,5 +392,5 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/app.js?v=v2026.2.23.0"></script>
+<script src="/app.js?v=v2026.2.34.3"></script>
 </body></html>

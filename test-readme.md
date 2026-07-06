@@ -1,6 +1,6 @@
 # PyCodeFlow — Volledig Testboek
 
-> **Versie:** v2026.2.24.0 · **Bijgewerkt:** 27 juni 2026
+> **Versie:** v2026.2.27.0 · **Bijgewerkt:** 27 juni 2026
 > Volledig stappenplan voor alle functies, pagina's, layouts en PDF-exports.
 > Voer tests uit op: `https://app.pycodeflow.org` (productie) of `http://localhost:3000` (lokaal)
 
@@ -58,7 +58,7 @@ bash check-deployment.sh
 ✅ Hero-sectie met twee panelen (links tekst, rechts mock-editor)
 ✅ Mock-editor toont donkere achtergrond met Python code-voorbeeld
 ✅ Drie actieknoppen zichtbaar: "Leerkracht", "Leerling", "Vrij oefenen"
-✅ Footer: "© 2026 PyCodeFlow — ontwikkeld door B. Claes · v2026.2.24.0"
+✅ Footer: "© 2026 PyCodeFlow — ontwikkeld door B. Claes · v2026.2.27.0"
 ✅ Mobiele weergave: hero-panelen onder elkaar
 ```
 
@@ -1126,4 +1126,364 @@ curl -sf -b "teacher_auth=..." $BASE/api/admin/db/tables/VERBODEN_TABEL/rows
 
 ---
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.24.0 · 27 juni 2026*
+
+---
+
+## 25. Notificatiesysteem (pyAlert + pyToast + pyConfirm)
+
+**Regel: NOOIT een browser alert() of confirm() zichtbaar op enige pagina**
+
+### pyAlert — blokkerende modal (25g)
+```
+✅ "Voer een naam in voor de toets." → gecentreerde modal met oranje ⚠️ rand
+✅ Netwerkfout → rode modal met ✕ icoon
+✅ "Ziet er goed uit" succes → groene modal (of toast — afhankelijk van context)
+✅ Modal blokkeert de pagina (overlay zichtbaar op achtergrond)
+✅ OK-knop sluit de modal
+✅ Escape-toets sluit de modal
+✅ Enter-toets sluit de modal (focus op OK-knop)
+✅ Klik buiten de modal → sluit
+✅ Meerdere modals: vorige wordt verwijderd vóór nieuwe opent
+```
+
+### pyToast — achtergrond succes (niet blokkerend)
+```
+✅ "Toets aangemaakt!" → groen toast rechtsonder
+✅ "Resultaten vrijgegeven" → groen toast
+✅ Toast verdwijnt automatisch na 4 seconden
+✅ Klik op toast → verdwijnt meteen
+✅ Meerdere toasts stapelen verticaal
+```
+
+### pyConfirm — destructieve bevestiging
+```
+✅ "Vraag verwijderen?" → centered modal, rode Verwijderen-knop
+✅ Annuleren → niets gebeurt
+✅ Bevestigen → actie uitgevoerd
+✅ Escape annuleert
+```
+
+---
+
+## 26. Vraagstelling editor met toolbar (sprint 25a/b/c/d)
+
+**URL:** `/quiz-bank.html` → tab "+ Nieuwe vraag"
+
+### 25a Toolbar knoppen
+```
+✅ Toolbar zichtbaar boven de textarea
+✅ B → selecteer tekst → **tekst** ingevoegd
+✅ I → *tekst* ingevoegd
+✅ ‹› → `tekst` ingevoegd (inline code)
+✅ H1 → ## aan begin van regel ingevoegd
+✅ H2 → ### aan begin van regel ingevoegd
+✅ • → - aan begin van regel (ongeordende lijst)
+✅ 1. → 1. aan begin van regel (genummerde lijst)
+✅ — → --- aan begin van regel (horizontale lijn)
+✅ </> → ```python
+...
+``` code-blok ingevoegd
+✅ 🎨 → kleurpopup opent met 6 kleuren
+✅ Klik kleur (bv. rood) → <span style="color:#ef4444">tekst</span>
+✅ Klik buiten popup → popup sluit
+```
+
+### 25b Info-kaders (toolbar knoppen)
+```
+✅ 💡 knop → :::tip
+...
+::: ingevoegd op cursorpositie
+✅ ⚠️ knop → :::opgelet
+...
+:::
+✅ 📌 knop → :::kader
+...
+:::
+✅ ❓ knop → :::hint
+...
+:::
+
+Preview/split-view rendering:
+✅ :::tip → groene kader met "💡 Tip" titel
+✅ :::opgelet → oranje kader met "⚠️ Opgelet" titel
+✅ :::kader → blauwe kader met "📌 Kader" titel
+✅ :::hint → paarse kader met "❓ Hint" titel
+```
+
+### 25c Tabel invoegen
+```
+✅ ⊞ knop → tabel-modal opent
+✅ Standaard: 3 rijen, 3 kolommen
+✅ Rijen/kolommen aanpassen → grid updatet meteen
+✅ Eerste rij: vetgedrukt koptekst-stijl
+✅ Cellen invullen
+✅ "⊞ Invoegen" → correcte Markdown-tabel in textarea
+✅ "Annuleren" → modal sluit, niets ingevoegd
+✅ Tabel zichtbaar als gerenderde HTML tabel in preview/split-view
+✅ Gestreepte rijen (even rijen lichte achtergrond)
+```
+
+### 25d Split-view editor
+```
+View-toggle (3 knoppen rechts in toolbar):
+✅ ☐ (tekst) = standaard: enkel textarea, geen preview
+✅ ⊞ (split) = textarea links + live preview rechts
+✅ 👁 (preview) = enkel preview, textarea verborgen
+
+Split-view gedrag:
+✅ Typ in textarea → preview update na ~100ms
+✅ Markdown opmaak zichtbaar in preview (vet, code, koppen)
+✅ Info-kaders zichtbaar als gekleurde blokken
+✅ Tabellen zichtbaar als HTML tabel
+
+Voorkeur bewaren:
+✅ Sluit browser, heropen → zelfde modus actief
+✅ Wissel van vraag → modus bewaard
+
+Smal scherm (< 900px):
+✅ Klik ⊞ split → pyAlert "niet beschikbaar op smal scherm"
+✅ ☐ en 👁 werken wel op smal scherm
+```
+
+---
+
+## 27. Live preview wizard nieuwe toets (sprint 25h)
+
+**URL:** `/quiz-teacher.html`
+
+### Wizard stappen
+```
+✅ 4 stappen zichtbaar: ① Basisinfo · ② Vragen · ③ Live preview · ④ Bevestigen
+✅ Actieve stap blauw, voltooide stap groen
+✅ Stap 1 → Stap 2: naam verplicht (pyAlert bij leeg)
+✅ Stap 2 → Stap 3: minstens 1 vraag verplicht (pyAlert bij geen)
+```
+
+### Stap 3: Live preview
+```
+✅ Gele banner: "🔍 PREVIEW MODUS — antwoorden worden niet opgeslagen"
+✅ Knoppen: "✎ Aanpassen ←" en "✅ Ziet er goed uit →"
+✅ Vraagnavigator links: alle vragen als knoppen
+✅ Actieve vraag: blauw gemarkeerd in navigator
+
+Per vraagtype:
+✅ Python code-vraag: donker code-blok zichtbaar + "▶ Uitvoeren (niet actief)" knop grijs
+✅ Open vraag: textarea zichtbaar, invulbaar
+✅ Single choice: radio-opties klikbaar (zonder opslag)
+✅ Meerkeuze: checkbox-opties klikbaar
+✅ Code-opties: donker code-blok correct getoond
+✅ Info-kaders in vraagstelling: groen/oranje/blauw/paars gerenderd
+✅ Tabellen in vraagstelling: correct getoond
+
+Navigatie in preview:
+✅ "← Vorige" / "Volgende →" knoppen per vraag
+✅ Klik vraagnummer in navigator → navigeert direct
+✅ Laatste vraag: "Laatste vraag" tekst i.p.v. Volgende
+
+Random volgorde:
+✅ "🔀 Andere volgorde" knop zichtbaar bij random modus
+✅ Klik → vragen in andere volgorde geschud
+✅ Vaste volgorde: knop niet zichtbaar
+
+✅ "✎ Aanpassen ←" → terug naar stap 2, selectie bewaard
+✅ "✅ Ziet er goed uit →" → gaat naar stap 4 (bevestigen)
+```
+
+### Stap 4: Bevestigen (was stap 3)
+```
+✅ Samenvatting: naam, timer, volgorde, vragen, schooljaar, klas
+✅ "← Terug naar preview" → terug naar stap 3
+✅ "✅ Toets aanmaken" → toets aangemaakt, redirect naar sessies
+```
+
+---
+
+## 28. Rendering info-kaders bij leerling en verbeteren (sprint 25e)
+
+### quiz-student.html
+```
+✅ Vraag met :::tip → groen kader zichtbaar voor leerling
+✅ Vraag met :::opgelet → oranje kader
+✅ Vraag met :::kader → blauw kader
+✅ Vraag met :::hint → paars kader
+✅ Tabel in vraagstelling → HTML tabel gerenderd
+✅ Kleurmarkeringen (<span style="color:...">) → tekst in kleur
+```
+
+### quiz-review.html
+```
+✅ Zelfde rendering als leerling
+✅ Info-kaders zichtbaar bij verbetermodule
+✅ Tekst niet afgekapt op 80 karakters (volledig gerenderd)
+```
+
+## 29. Versie-automatisering (sprint 29)
+
+**Doel:** verifiëren dat het VERSION-bestand correct doorwerkt.
+
+### VERSION-bestand
+```
+✅ VERSION-bestand aanwezig in project-root met formaat 2026.2.29.0
+✅ Server-log toont bij opstart: "[versie] Geladen uit ... : 2026.2.29.0"
+✅ /api/version geeft exact het nummer uit VERSION terug
+✅ VERSION wijzigen + web herstarten → /api/version toont nieuw nummer (zonder rebuild)
+```
+
+### sync-version.sh
+```bash
+bash sync-version.sh 2026.2.40.0
+# ✅ VERSION-bestand bevat nu 2026.2.40.0
+# ✅ .env APP_VERSION* velden bijgewerkt
+# ✅ Alle HTML app.js?v= strings tonen v2026.2.34.3
+# ✅ Ongeldige versie (bv. "abc") → foutmelding, geen wijziging
+```
+
+### pycodeflow.sh integratie
+```
+✅ Optie 1 (versie instellen) → roept sync-version.sh aan, werkt alles bij
+✅ Optie 5 (rebuild) → detecteert VERSION≠.env en synchroniseert automatisch
+```
+
+## 30. Sprint 29 bugfixes
+
+### 29a — teacher-grid leerlingenoverzicht
+```
+✅ Open sessie als leerkracht, leerling meldt zich aan
+✅ Klik "⊞ Overzicht" → nieuw tabblad opent met correcte ?code=XXXXXXXX (niet leeg)
+✅ Leerlingenoverzicht toont de aangemelde leerling(en) — niet blijvend "Verbinden..."
+✅ Direct openen van teacher-grid.html zonder ?code= → valt terug op localStorage (JSON-parsed)
+```
+
+### 29b — tooltip
+```
+✅ Hover over ✕ knop bij geselecteerde vraag (nieuwe toets, stap 2) → tooltip "Vraag uit selectie verwijderen"
+```
+
+### 29c — logging
+```
+✅ Geen enkele lege catch{} in de codebase (check-deployment sectie 8 controleert dit)
+✅ Bij een API-fout verschijnt een [prefix] waarschuwing in de browser-console
+```
+
+## 31. Sprint 29_part2 bugfixes
+
+### 29p2-a — Editor-config live update
+```
+✅ Klasmodus, leerkrachtscherm: wijzig een hulp-instelling (auto-indent) → editor past DIRECT aan
+✅ Individuele modus: idem, geen vertraging, geen extra trigger nodig
+✅ Leerling ziet de wijziging ook meteen (session_config_update)
+✅ Bij (her)openen sessie: config-toggles staan correct volgens opgeslagen sessie-config
+```
+
+### 29p2-b — Vragenbank-knoppen
+```
+✅ Vragenbank openen → alle knoppen reageren (Nieuwe vraag, tabs, toolbar, opslaan)
+✅ Vraag toevoegen/bewerken/verwijderen werkt
+✅ Ook als een vraag niet laadt: knoppen blijven werken (exports vóór init)
+```
+
+### 29p2-c — Layout nieuwe toets
+```
+✅ "Nieuwe toets" → Timer/Vraagvolgorde tonen als nette keuze-kaarten
+✅ "aanbevolen" badge correct naast "Random per leerling"
+✅ Tijdslimiet-invoerveld netjes uitgelijnd met "minuten"
+✅ Smal scherm (<600px): kaarten stapelen verticaal
+```
+
+### 29p2-d — Login na rebuild
+```
+✅ Serverlog toont bij lege DB een kader met de exacte inlognaam
+✅ Serverlog toont bij bestaande leerkrachten de inlognaam/-namen
+✅ pycodeflow.sh optie 19k toont leerkrachten + reset wachtwoord in één flow
+✅ Na reset: inloggen met de getoonde inlognaam werkt gegarandeerd
+```
+
+## 32. Geautomatiseerd testen (sprint 34)
+
+### Testsuite draaien
+```bash
+# Volledige CI (aanbevolen vóór elke deploy):
+bash run-tests.sh
+
+# Enkel de unit tests:
+cd web && node --test
+
+# Enkel de sandbox-tests:
+cd runner && python3 -m unittest test_sandbox
+
+# Of via het menu:
+pycodeflow.sh → optie 20
+```
+
+### Wat wordt getest
+```
+✅ lib/auth.js       — 17 tests: hash/verify, timing-safe, header-parsing
+✅ lib/scoring.js    — 16 tests: single/meerkeuze auto-scoring, pro-rata, randgevallen
+✅ lib/validation.js — 12 tests: sessiecode, config-whitelist, clamp, rollen
+✅ runner sandbox    — 12 tests: verboden imports geblokkeerd, toegestane werken
+✅ syntax            — alle server-JS + inline HTML-scripts (vm.Script)
+```
+
+### CI-integratie
+```
+✅ run-tests.sh geeft exit-code ≠0 bij falen → deploy blokkeert
+✅ pycodeflow.sh optie 5 (rebuild) draait tests eerst, vraagt bevestiging bij falen
+✅ GitHub Actions (.github/workflows/ci.yml) draait bij elke push
+✅ check-deployment.sh sectie 14 verifieert dat de testbasis aanwezig is + draait unit tests
+```
+
+### Regressietest voorbeeld
+```
+✅ Introduceer opzettelijk een syntaxfout in app.js → run-tests.sh faalt meteen
+✅ Wijzig auto-scoring logica verkeerd → scoring.test.js vangt het
+✅ Voeg een verboden module toe aan een toegelaten lijst → sandbox test faalt
+```
+
+## 33. Sessie-instellingen Toepassen-knop (sprint 30-cfg)
+
+### Gedrag
+```
+✅ Open Sessie-instellingen → vink een instelling aan/uit → status toont "Niet-opgeslagen wijzigingen"
+✅ Klik Toepassen → editor past DIRECT aan (leerkracht + alle leerlingen), status toont "✓ Toegepast"
+✅ Geen off-by-one meer: elke wijziging werkt onmiddellijk na Toepassen (niet pas bij volgende checkbox)
+✅ Meerdere wijzigingen tegelijk → in één keer toegepast
+```
+
+### Server-validatie
+```
+✅ teacher_apply_session_config accepteert enkel whitelist-sleutels met booleanwaarden
+✅ Onbekende sleutels (evilKey, __proto__) worden genegeerd
+✅ Niet-boolean waarden worden genegeerd
+✅ Niet-gewijzigde sleutels behouden hun waarde
+```
+
+### Unit tests
+```
+cd web && node --test
+✅ tests/validation.test.js — 9 config-tests (whitelist, booleans, behoud, leeg)
+```
+
+## 33. Sprint 30 — config-toepassen + contextuele kopieerknop
+
+### 30-cfg — Sessie-instellingen "Toepassen"-knop
+```
+✅ Vink een instelling aan/uit → editor verandert NIET meteen (dirty-staat)
+✅ Statusregel toont "Niet-opgeslagen wijzigingen"
+✅ Klik "Toepassen" → alle wijzigingen meteen actief op leerkracht-editor
+✅ Leerlingen krijgen de nieuwe config live (session_config_update)
+✅ Statusregel toont kort "✓ Toegepast"
+✅ Auto-indent werkt nu ONMIDDELLIJK — geen off-by-one meer
+✅ Ongeldige config-sleutel via socket → server weigert (whitelist)
+```
+
+### 30-copy — Contextuele kopieerknop
+```
+✅ Code zichtbaar → knop kopieert de code (tooltip "Kopieer code")
+✅ Output zichtbaar → knop kopieert de output (tooltip "Kopieer output")
+✅ Werkt in klasmodus (gedeeld), individuele modus, student en vrije editor
+✅ Tooltip verandert mee bij tabwissel
+✅ Geen zwevende knop meer over het output-paneel
+✅ "✓ Gekopieerd!" feedback na klikken
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.34.3 · 6 juli 2026*

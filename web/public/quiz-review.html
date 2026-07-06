@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets verbeteren</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.24.1"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.34.0"/>
   <style>
     .review-layout { display:grid; grid-template-columns:280px 1fr; gap:20px; }
     @media(max-width:900px){ .review-layout { grid-template-columns:1fr; } }
@@ -61,7 +61,7 @@
 <div class="subnav"><div class="subnav-inner">
   <a href="/quiz-bank.html">📋 Vragenbank</a>
   <a href="/quiz-teacher.html">📝 Nieuwe toets</a>
-  <a href="/quiz-archive.html">📦 Archief</a>
+  <a href="/quiz-archive.html" class="active">📦 Archief</a>
   <div class="subnav-sep"></div>
   <a href="/admin.html">👤 Beheer</a>
   <a href="/monitoring.html">⚙️ Systeem</a>
@@ -90,7 +90,7 @@
 
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/app.js?v=v2026.2.24.1"></script>
+<script src="/app.js?v=v2026.2.34.0"></script>
 <script>
 const params = new URLSearchParams(location.search);
 const sessionCode = params.get('code') || prompt('Toetscode:');
@@ -104,6 +104,22 @@ let _templates = [];
 let _simWarnings = [];
 let _editMode = false;   // "Aanpassen & testen" modus
 let _originalCode = '';
+
+
+// 25e: preprocessing voor info-kaders (:::tip/opgelet/kader/hint)
+function preprocessMarkdown(text) {
+  return text.replace(/:::(\w+)\n([\s\S]*?):::/g, function(_, type, content) {
+    var map = { tip:'info-tip', opgelet:'info-opgelet', kader:'info-kader-blauw', hint:'info-hint' };
+    var cls = map[type] || 'info-kader-blauw';
+    return '<div class="info-kader ' + cls + '">' + content.trim() + '</div>';
+  });
+}
+function renderMarkdown(text) {
+  if (!window.marked) return text.replace(/\n/g,'<br>');
+  var html = window.marked.parse(preprocessMarkdown(text), { breaks: true, gfm: true });
+  // 28c: XSS-beveiliging — sanitize met DOMPurify (style toegestaan voor kleuren)
+  return window.DOMPurify ? window.DOMPurify.sanitize(html, { ADD_ATTR: ['style', 'target'] }) : html;
+}
 
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -291,13 +307,10 @@ async function selectQuestion(idx) {
     } catch { answerHtml = '<p class="muted">Keuzes konden niet worden geladen.</p>'; }
   }
 
-  const codeEditorHtml = qType === 'code' ? `
-    <div class="editor-shell card" style="margin-bottom:12px;">` : '';
-
   document.getElementById('q-detail').innerHTML = `
     ${simHtml}
     <div style="background:var(--surface-soft);border-radius:10px;padding:12px 14px;margin-bottom:12px;">
-      <strong>Vraag ${idx+1}: ${esc(q.text_snapshot?.slice(0,80) || '')}...</strong><br/>
+      <strong>Vraag ${idx+1}:</strong><div class="md-preview" style="margin:4px 0 8px;">${renderMarkdown(q.text_snapshot || q.text || '')}</div>
       <span class="muted" style="font-size:0.82rem;">
         ${esc(q.subject || '')} · Max ${q.points} punten
         ${ans ? ` · Ingediend ${new Date(ans.submitted_at||ans.saved_at).toLocaleTimeString('nl-BE',{hour:'2-digit',minute:'2-digit'})}
@@ -320,7 +333,7 @@ async function selectQuestion(idx) {
           <div id="quiz-editor" class="monaco-editor-host"></div>
         </div>
       </div>
-    </div>
+    </div>`}
     <div class="card" style="padding:12px;min-height:60px;margin-bottom:14px;">
       <div style="font-size:0.78rem;color:var(--muted);margin-bottom:4px;">Output:</div>
       <div id="review-output" class="output-panel output-dark"
@@ -472,7 +485,7 @@ async function loadSimilarityWarnings() {
           Zie per leerling bij de specifieke vraag.
         </div>`;
     }
-  } catch {}
+  } catch (e) { console.warn('[quiz-review] fout:', e.message); }
 }
 
 async function releaseResults() {
@@ -512,5 +525,6 @@ function exportAll() {
 init();
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
 </body>
 </html>

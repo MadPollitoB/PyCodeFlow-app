@@ -3,7 +3,7 @@
   // (niet op quiz-bank, quiz-teacher, quiz-archive, admin, monitoring)
   const _socketPages = ['teacher-app.html', 'student-app.html', 'teacher-sessions.html',
                         'free-editor.html', 'teacher-grid.html', 'quiz-student.html',
-                        'quiz-review.html', 'index.html', ''];
+                        'quiz-review.html', 'index.html', 'student-start.html', ''];
   const _currentPage = location.pathname.split('/').pop() || 'index.html';
   const socket = _socketPages.includes(_currentPage) && typeof io !== 'undefined'
     ? io()
@@ -30,7 +30,7 @@
     try {
       const r = await fetch('/api/csrf-token');
       if (r.ok) { const d = await r.json(); _csrfToken = d.token; }
-    } catch {}
+    } catch (e) { console.warn('[csrf] token ophalen mislukt:', e.message); }
     return _csrfToken || '';
   }
   async function apiFetch(url, options = {}) {
@@ -60,7 +60,6 @@
         </div>
         <table style="width:100%;border-collapse:collapse;font-size:0.88rem;">
           <tr><td style="padding:6px 0;color:var(--muted);">Run code</td><td style="text-align:right;"><kbd>Ctrl+Enter</kbd></td></tr>
-          <tr><td style="padding:6px 0;color:var(--muted);">Editor thema wisselen</td><td style="text-align:right;"><kbd>Ctrl+Shift+T</kbd></td></tr>
           <tr><td style="padding:6px 0;color:var(--muted);">Sneltoetsen tonen</td><td style="text-align:right;"><kbd>Ctrl+?</kbd></td></tr>
           <tr><td style="padding:6px 0;color:var(--muted);">Live control verlaten</td><td style="text-align:right;"><kbd>Escape</kbd></td></tr>
         </table>
@@ -70,57 +69,15 @@
   }
   document.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === '?') { e.preventDefault(); toggleShortcutsOverlay(); }
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'T') { e.preventDefault(); toggleEditorTheme('teacher'); toggleEditorTheme('free'); toggleEditorTheme('student'); }
   });
 
   // ── Editor thema systeem (los van interface dark/light) ──────────────────────
-  // pycodeflow_editor_theme: 'dark' | 'light', standaard 'dark'
-  let _editorTheme = localStorage.getItem('pycodeflow_editor_theme') || 'dark';
+  // Sprint 27j: altijd donker thema — toggle verwijderd
+  const _editorTheme = 'dark';
 
-  function applyEditorTheme(owner, theme) {
-    const editor = editorStore[owner];
-    if (!editor) return;
-    const monacoTheme = theme === 'light' ? 'vs' : 'pycodeflow-dark';
-    editor.updateOptions({ theme: monacoTheme });
-    // Output paneel class
-    const panel = qs(`${owner}-output-panel`);
-    if (panel) {
-      panel.classList.toggle('output-light', theme === 'light');
-      panel.classList.toggle('output-dark',  theme !== 'light');
-    }
-    // Statusbalk thema
-    const statusbar = qs(`${owner}-editor-statusbar`);
-    if (statusbar) {
-      statusbar.style.background = theme === 'light' ? '#f3f3f3' : '#007acc';
-      statusbar.style.color      = theme === 'light' ? '#555'    : '#fff';
-    }
-    // Sprint 11A: gutter thema — CSS variabelen op de editor-frame-wrap
-    const frameWrap = qs(`${owner}-code-panel`);
-    if (frameWrap) {
-      frameWrap.classList.toggle('editor-theme-light', theme === 'light');
-      frameWrap.classList.toggle('editor-theme-dark',  theme !== 'light');
-    }
-    // Gutter direct updaten
-    const gutter = qs(`${owner}-line-numbers`);
-    if (gutter) {
-      gutter.style.background = theme === 'light' ? '#e8edf5' : '#1f2f57';
-      gutter.style.color      = theme === 'light' ? '#4a5568' : '#9fb3c8';
-      // Monaco gutter background ook aanpassen
-      editor.updateOptions({
-        theme: monacoTheme,
-      });
-    }
-    // Toggle knop icoon
-    const btn = qs(`${owner}-editor-theme-btn`);
-    if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
-  }
+  // applyEditorTheme verwijderd (sprint 27j) — altijd pycodeflow-dark
 
-  function toggleEditorTheme(owner) {
-    _editorTheme = _editorTheme === 'dark' ? 'light' : 'dark';
-    localStorage.setItem('pycodeflow_editor_theme', _editorTheme);
-    // Pas toe op alle editors die dezelfde voorkeur delen
-    ['teacher', 'free', 'student'].forEach(o => applyEditorTheme(o, _editorTheme));
-  }
+  // toggleEditorTheme verwijderd (sprint 27j)
 
   // Statusbalk updaten op basis van cursor-positie
   function updateStatusbar(owner, editor, isTeacherOrFree) {
@@ -204,11 +161,62 @@
         toggle.dataset.value = String(config[key] ?? true);
       }
     });
+    // 30-cfg: na een externe update is er niets "dirty" meer
+    _configDirty = false;
+    refreshConfigApplyButton();
   }
 
-  // Sprint 13A: stuur config wijziging naar server
-  function emitConfigChange(key, value) {
-    socket.emit('teacher_update_session_config', { key, value });
+  // 30-cfg: bijhouden of er niet-toegepaste wijzigingen zijn
+  let _configDirty = false;
+
+  function refreshConfigApplyButton() {
+    const btn = qs('config-apply-btn');
+    const status = qs('config-apply-status');
+    if (!btn) return;
+    if (_configDirty) {
+      btn.textContent = 'Toepassen';
+      btn.style.background = 'var(--primary)';
+      btn.disabled = false;
+      if (status) status.textContent = 'Niet-opgeslagen wijzigingen';
+    } else {
+      btn.disabled = false;
+      btn.style.background = 'var(--primary)';
+    }
+  }
+
+  // 30-cfg: checkbox gewijzigd → markeer als dirty (nog niet toepassen)
+  function markConfigDirty() {
+    _configDirty = true;
+    refreshConfigApplyButton();
+  }
+
+  // 30-cfg: alle config-waarden in één keer verzamelen, versturen en toepassen.
+  // Vervangt de vroegere per-toggle emitConfigChange (die een off-by-one gaf
+  // omdat Monaco updateOptions pas bij de volgende render effect had).
+  function applyConfigChanges() {
+    const keys = ['autoIndent','autoClosingBrackets','autoClosingQuotes','quickSuggestions','parameterHints'];
+    const newConfig = { ..._sessionConfig };
+    keys.forEach(key => {
+      const toggle = document.getElementById(`config-toggle-${key}`);
+      if (toggle) newConfig[key] = toggle.checked;
+    });
+    _sessionConfig = newConfig;
+
+    // Stuur de volledige config in één keer naar de server (broadcast naar leerlingen)
+    socket.emit('teacher_apply_session_config', { config: newConfig });
+
+    // Pas onmiddellijk toe op de eigen (leerkracht-)editor
+    const teacherAssist = document.getElementById('teacher-editor-assist')?.dataset?.assist !== 'false';
+    updateEditorConfig('teacher', { assist: teacherAssist, readOnly: false, config: _sessionConfig });
+
+    _configDirty = false;
+    const status = qs('config-apply-status');
+    if (status) {
+      status.textContent = '✓ Toegepast';
+      status.style.color = 'var(--success, #16a34a)';
+      setTimeout(() => { if (status) { status.textContent = ''; status.style.color = 'var(--muted)'; } }, 2500);
+    }
+    refreshConfigApplyButton();
   }
 
   // Sprint 13C: inline badge acties
@@ -230,6 +238,31 @@
     }).catch(() => {
       if (btnEl) { btnEl.textContent = '✕ Mislukt'; setTimeout(() => { btnEl.textContent = '📋'; }, 2000); }
     });
+  }
+
+  // Sprint 30-copy: één contextbewuste kopieerknop in de toolbar.
+  // Kopieert de CODE als het code-paneel zichtbaar is, anders de OUTPUT.
+  // Werkt voor teacher (klas + individueel), student en free.
+  function copyContextual(owner, btnEl) {
+    const outputPanel = qs(`${owner}-output-panel`);
+    const outputVisible = outputPanel && !outputPanel.classList.contains('hidden');
+    if (outputVisible) {
+      const text = outputPanel.textContent || '';
+      copyToClipboard(text, btnEl);
+    } else {
+      const text = (window.getEditorValue && getEditorValue(owner)) || '';
+      copyToClipboard(text, btnEl);
+    }
+  }
+
+  // Houd de tooltip/label van de contextuele knop actueel bij tabwissel.
+  function updateCopyButtonLabel(owner) {
+    const btn = qs(`${owner}-copy-btn`);
+    if (!btn) return;
+    const outputPanel = qs(`${owner}-output-panel`);
+    const outputVisible = outputPanel && !outputPanel.classList.contains('hidden');
+    btn.title = outputVisible ? 'Kopieer output' : 'Kopieer code';
+    btn.setAttribute('aria-label', btn.title);
   }
   // Sprint 10U: auto-scroll output paneel
   const _autoScrollPanels = new Map(); // panelId -> { auto: bool, btn: el }
@@ -421,6 +454,7 @@
     outputPanel?.classList.toggle('hidden', tab !== 'output');
     inputWrap?.classList.toggle('hidden', tab !== 'output');
     if (tab === 'code') layoutEditor(owner);
+    updateCopyButtonLabel(owner);
   }
 
   function enableInput(prefix) {
@@ -475,7 +509,7 @@
 
     return {
       language: 'python',
-      theme: _editorTheme === 'light' ? 'vs' : 'pycodeflow-dark',
+      theme: 'pycodeflow-dark',  // 27j: altijd donker thema
       automaticLayout: false,
       minimap: { enabled: false },
       fontSize: 18,
@@ -562,7 +596,6 @@
       });
       // Sprint 10E+L: statusbalk en thema initialiseren
       const isTeacherOrFree = owner === 'teacher' || owner === 'free';
-      applyEditorTheme(owner, _editorTheme);
       editorStore[owner].onDidChangeCursorPosition(() => {
         updateStatusbar(owner, editorStore[owner], isTeacherOrFree);
       });
@@ -611,8 +644,10 @@
   function updateEditorConfig(owner, { assist, readOnly, config = null }) {
     const editor = editorStore[owner];
     if (!editor) return;
-    // Gebruik config als meegegeven, anders de globale _sessionConfig (voor student-editor)
-    const effectiveConfig = config || (owner === 'student' ? _sessionConfig : {});
+    // 29p2: teacher-editor gebruikt nu ook _sessionConfig (was leeg → geen live update).
+    // Student en teacher delen dezelfde sessie-config; free-editor heeft geen sessie-config.
+    const effectiveConfig = config
+      || ((owner === 'student' || owner === 'teacher') ? _sessionConfig : {});
     editor.updateOptions(monacoOptions(assist, readOnly, effectiveConfig));
     layoutEditor(owner);
     renderCustomGutter(owner);
@@ -1155,7 +1190,7 @@
             </div>
           </div>
         </div>`).join('');
-    } catch {}
+    } catch (e) { console.warn('[quiz-sessies] renderen mislukt:', e.message); }
   }
 
   window.duplicateQuiz = async function(code) {
@@ -1196,7 +1231,7 @@
           badge.style.color = '#991b1b';
           badge.textContent = `❌ Systeemcheck gefaald · ${ts}`;
         }
-      } catch {}
+      } catch (e) { console.warn('[systeemcheck] badge update mislukt:', e.message); }
     }
     loadAutocheckBadge();
     setInterval(loadAutocheckBadge, 5 * 60 * 1000); // elke 5 min bijwerken
@@ -1404,13 +1439,8 @@
     socket.emit('student_join_free', { name, className });
 
     // Editor initialiseren zodra server bevestigt
-    // Sprint 10M: free editor kopieer knoppen
-    qs('free-copy-code-btn')?.addEventListener('click', () =>
-      copyToClipboard(getEditorValue('free') || '', qs('free-copy-code-btn'))
-    );
-    qs('free-copy-output-btn')?.addEventListener('click', () =>
-      copyToClipboard(qs('free-output-panel')?.textContent || '', qs('free-copy-output-btn'))
-    );
+    // Sprint 30-copy: contextuele kopieerknop (free-copy-btn) via inline onclick
+    updateCopyButtonLabel('free');
     // Sprint 10U: auto-scroll
     setupAutoScroll('free-output-panel');
 
@@ -1526,6 +1556,12 @@
         setTab('free', 'output');
         document.querySelectorAll('[data-owner="free"][data-tab]').forEach(b =>
           b.classList.toggle('active', b.dataset.tab === 'output'));
+        // 27k/28f: automatisch wissen na cooldown
+        setTimeout(function() {
+          if (panel.textContent && panel.textContent.startsWith('⏳ Even wachten')) {
+            panel.textContent = '';
+          }
+        }, (waitMs || 3000) + 300);
       }
     });
 
@@ -1612,8 +1648,15 @@
     // Snippet sturen/wissen
     // Annotatie panel toggle
     // Sprint 10N: grid-overzicht in nieuw tabblad
+    // 27i: fallback via localStorage als _currentSessionCode nog niet gezet is
     qs('teacher-grid-view-btn')?.addEventListener('click', () => {
-      const code = window._currentSessionCode || '';
+      const code = window._currentSessionCode
+        || getLS('teacherSessionCode')
+        || '';
+      if (!code) {
+        if (window.pyAlert) pyAlert('Geen actieve sessie gevonden. Herlaad de pagina en probeer opnieuw.', 'warn');
+        return;
+      }
       window.open('/teacher-grid.html?code=' + code, '_blank', 'width=1400,height=900,resizable=yes');
     });
 
@@ -1656,13 +1699,8 @@
       });
     }
 
-    // Sprint 10M: kopieer knoppen teacher
-    qs('teacher-copy-code-btn')?.addEventListener('click', () =>
-      copyToClipboard(getEditorValue('teacher') || '', qs('teacher-copy-code-btn'))
-    );
-    qs('teacher-copy-output-btn')?.addEventListener('click', () =>
-      copyToClipboard(qs('teacher-output-panel')?.textContent || '', qs('teacher-copy-output-btn'))
-    );
+    // Sprint 30-copy: contextuele kopieerknop (teacher-copy-btn) via inline onclick
+    updateCopyButtonLabel('teacher');
     // Sprint 10U: auto-scroll instellen
     setupAutoScroll('teacher-output-panel');
 
@@ -1839,7 +1877,11 @@
         ? (data.view.selectedStudentName ? `Live control: ${data.view.selectedStudentName}` : 'Kies een leerling voor Live control')
         : 'Gedeelde sessie';
       await ensureEditor('teacher', data.view.code || '', data.session.editorAssist, data.view.readOnly);
-      updateEditorConfig('teacher', { assist: data.session.editorAssist, readOnly: data.view.readOnly });
+      // 29p2: populeer _sessionConfig uit teacher session data zodat de editor-instellingen
+      // (auto-indent enz.) meteen correct toegepast worden — net zoals bij de leerling.
+      if (data.config) _sessionConfig = data.config;
+      updateSessionConfigPanel(_sessionConfig);
+      updateEditorConfig('teacher', { assist: data.session.editorAssist, readOnly: data.view.readOnly, config: _sessionConfig });
       if (getEditorValue('teacher') !== (data.view.code || '')) setEditorValue('teacher', data.view.code || '', true);
       else layoutEditor('teacher');
       qs('teacher-output-panel').textContent = data.view.output || '';
@@ -2216,13 +2258,8 @@ async function applyStudentState(data) {
 
     if (state) applyStudentState(state);
 
-    // Sprint 10M: student kopieer knoppen
-    qs('student-copy-code-btn')?.addEventListener('click', () =>
-      copyToClipboard(getEditorValue('student') || '', qs('student-copy-code-btn'))
-    );
-    qs('student-copy-output-btn')?.addEventListener('click', () =>
-      copyToClipboard(qs('student-output-panel')?.textContent || '', qs('student-copy-output-btn'))
-    );
+    // Sprint 30-copy: contextuele kopieerknop (student-copy-btn) via inline onclick
+    updateCopyButtonLabel('student');
     // Sprint 10U: auto-scroll
     setupAutoScroll('student-output-panel');
 
@@ -2375,9 +2412,16 @@ async function applyStudentState(data) {
       const panel = qs('student-output-panel');
       if (panel) {
         panel.textContent = `⏳ Even wachten — je kan opnieuw runnen over ${Math.ceil(waitMs / 1000)} seconde(n).`;
+        setTimeout(() => { if (panel && panel.textContent.startsWith('⏳')) panel.textContent = ''; }, (waitMs||3000)+300);
         setTab('student', 'output');
         document.querySelectorAll('[data-owner="student"][data-tab]').forEach(b =>
           b.classList.toggle('active', b.dataset.tab === 'output'));
+        // 27k: automatisch wissen na cooldown zodat output-paneel niet geblokkeerd blijft
+        setTimeout(function() {
+          if (panel.textContent && panel.textContent.startsWith('⏳ Even wachten')) {
+            panel.textContent = '';
+          }
+        }, (waitMs || 3000) + 300);
       }
     });
     socket.on('run_error', ({ errorType, message, line }) => {
@@ -2633,7 +2677,53 @@ async function applyStudentState(data) {
 
 window.addEventListener('DOMContentLoaded', injectFooter);
 
-// ── Sprint 24a: pyToast + pyConfirm — vervangt browser alert/confirm ────────
+// ── Sprint 26: globale window-exports — alle functies bereikbaar vanuit HTML ──
+// app.js zit in een IIFE-closure; functies die vanuit onclick/onchange worden
+// aangeroepen moeten expliciet op window gezet worden.
+// pyAlert: zie definitie verderop (na IIFE)
+window.toggleShortcutsOverlay = toggleShortcutsOverlay;
+// toggleEditorTheme verwijderd (sprint 27j)
+window.copyToClipboard       = copyToClipboard;
+window.copyContextual        = copyContextual;
+window.getEditorValue        = getEditorValue;
+window.setEditorValue        = setEditorValue;
+window.updateEditorConfig    = updateEditorConfig;
+window.loadMonaco            = loadMonaco;
+window.ensureEditor          = ensureEditor;
+window.layoutEditor          = layoutEditor;
+window.setTab                = setTab;
+window.enableInput           = enableInput;
+window.disableInput          = disableInput;
+window.markConfigDirty       = markConfigDirty;
+window.applyConfigChanges    = applyConfigChanges;
+window.updateAnnouncement    = updateAnnouncement;
+window.updateSessionConfigPanel = updateSessionConfigPanel;
+window.setStatusBox          = setStatusBox;
+window.setAssistBadge        = setAssistBadge;
+window.updateCreateAssistBadge = updateCreateAssistBadge;
+window.renderSessions        = renderSessions;
+window.renderStudentList     = renderStudentList;
+window.renderFreeStudents    = renderFreeStudents;
+window.showHistoryPlayback   = showHistoryPlayback;
+window.loadSessions          = loadSessions;
+window.loadQuizSessions      = loadQuizSessions;
+window.loadFreeStudents      = loadFreeStudents;
+window.loadTemplates         = loadTemplates;
+window.loadTeacherMonitoring = loadTeacherMonitoring;
+window.deleteSession         = deleteSession;
+window.toggleSessionBlock    = toggleSessionBlock;
+window.apiFetch              = apiFetch;
+window.escapeHtml            = escapeHtml;
+window.formatMonitorBytes    = formatMonitorBytes;
+window.autoScrollOutput      = autoScrollOutput;
+window.scheduleSyntaxCheck   = scheduleSyntaxCheck;
+window.syncCustomGutter      = syncCustomGutter;
+window.renderCustomGutter    = renderCustomGutter;
+window.go                    = go;
+window.setLS                 = setLS;
+window.getLS                 = getLS;
+
+})();
 
 // CSS eenmalig injecteren
 (function injectModalCSS() {
@@ -2763,4 +2853,48 @@ window.pyConfirm = function(opties) {
   });
 };
 
-})();
+
+// ── Sprint 25g: pyAlert — blokkerende notificatie-modal ─────────────────────
+window.pyAlert = function(message, type) {
+  type = type || 'info';
+  var icons  = { error:'✕', warn:'⚠', success:'✓', info:'ℹ' };
+  var colors = {
+    error:   { bg:'#fee2e2', border:'#ef4444', text:'#991b1b' },
+    warn:    { bg:'#fef3c7', border:'#f59e0b', text:'#92400e' },
+    success: { bg:'#d1fae5', border:'#10b981', text:'#065f46' },
+    info:    { bg:'#eff6ff', border:'#3b82f6', text:'#1e40af' },
+  };
+  var labels = { error:'Fout', warn:'Opgelet', success:'Gelukt', info:'Info' };
+  var col = colors[type] || colors.info;
+  return new Promise(function(resolve) {
+    var existing = document.getElementById('py-alert-overlay');
+    if (existing) existing.parentNode.removeChild(existing);
+    var overlay = document.createElement('div');
+    overlay.id = 'py-alert-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:16px;max-width:420px;width:calc(100% - 40px);box-shadow:0 20px 60px rgba(0,0,0,0.25);overflow:hidden;">' +
+        '<div style="background:' + col.bg + ';border-left:5px solid ' + col.border + ';padding:20px 24px;display:flex;align-items:flex-start;gap:14px;">' +
+          '<div style="width:32px;height:32px;border-radius:50%;background:' + col.border + ';color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:1rem;flex-shrink:0;">' + (icons[type]||'i') + '</div>' +
+          '<div style="flex:1;">' +
+            '<div style="font-weight:800;font-size:0.95rem;color:' + col.text + ';margin-bottom:6px;">' + (labels[type]||'Info') + '</div>' +
+            '<div style="font-size:0.9rem;color:#374151;line-height:1.6;white-space:pre-wrap;">' + message + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="padding:14px 24px;display:flex;justify-content:flex-end;">' +
+          '<button id="py-alert-ok" style="background:' + col.border + ';color:#fff;border:none;border-radius:10px;padding:10px 24px;font-weight:800;font-size:0.9rem;cursor:pointer;">OK</button>' +
+        '</div>' +
+      '</div>';
+    function close() {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      document.removeEventListener('keydown', onKey);
+      resolve();
+    }
+    function onKey(e) { if (e.key === 'Escape' || e.key === 'Enter') close(); }
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+    document.body.appendChild(overlay);
+    document.addEventListener('keydown', onKey);
+    var okBtn = document.getElementById('py-alert-ok');
+    if (okBtn) { okBtn.addEventListener('click', close); okBtn.focus(); }
+  });
+};

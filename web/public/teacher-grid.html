@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Leerlingenoverzicht</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.23.0"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.29.0"/>
   <style>
     body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-sans); }
 
@@ -175,7 +175,17 @@
 <script>
   // Haal sessiecode uit URL
   const params = new URLSearchParams(location.search);
-  const sessionCode = params.get('code') || '';
+  // 29a: setLS() slaat JSON-encoded op (met quotes) — dus JSON-parsen bij lezen.
+  // De URL-parameter is de primaire bron; localStorage is de fallback.
+  function readStoredSessionCode() {
+    try {
+      const raw = localStorage.getItem('teacherSessionCode');
+      if (!raw) return '';
+      // Kan JSON-encoded zijn ("ABC") of raw (ABC) — beide afhandelen
+      try { return JSON.parse(raw) || ''; } catch { return raw; }
+    } catch { return ''; }
+  }
+  const sessionCode = params.get('code') || readStoredSessionCode() || '';
 
   let _students = [];
   let _sortBy = 'naam';

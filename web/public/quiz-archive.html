@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets-archief</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.24.1"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.26.0"/>
   <style>
     .filter-bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
     .filter-bar select, .filter-bar input {
@@ -149,7 +149,7 @@
   </div>
 </div>
 
-<script src="/app.js?v=v2026.2.24.1"></script>
+<script src="/app.js?v=v2026.2.26.0"></script>
 <script>
 let _classes = [];
 
@@ -326,7 +326,7 @@ async function deleteQuiz(code, name) {
   const inputEl = document.getElementById('confirm-input-' + code);
   const typed = inputEl?.value?.trim() || '';
   if (typed.toLowerCase() !== name.toLowerCase()) {
-    pyToast('Naam komt niet overeen. Typ exact: ' + name, 'warn');
+    await pyAlert('Naam komt niet overeen. Typ exact: ' + name, "warn");
     return;
   }
   const r = await fetch('/api/quiz/' + code, {
@@ -335,13 +335,13 @@ async function deleteQuiz(code, name) {
   });
   const data = await r.json();
   if (data.ok) { pyToast('Toets definitief verwijderd.', 'success'); loadArchive(); }
-  else pyToast('Fout: ' + data.error, 'error');
+  else await pyAlert('Fout: ' + data.error, "error");
 }
 
 async function searchStudent() {
   const name = document.getElementById('student-search-name').value.trim();
   const year = document.getElementById('student-search-year').value;
-  if (!name) { pyToast('Voer een naam in.', 'warn'); return; }
+  if (!name) { await pyAlert('Voer een naam in.', "warn"); return; }
 
   const params = new URLSearchParams({ name });
   if (year) params.set('year', year);
@@ -395,10 +395,10 @@ async function searchStudent() {
     </div>`;
 }
 
-function exportStudentPDF() {
+async function exportStudentPDF() {
   const name = document.getElementById('student-search-name').value.trim();
   const year = document.getElementById('student-search-year').value;
-  if (!name) { pyToast('Voer eerst een naam in en zoek.', 'warn'); return; }
+  if (!name) { await pyAlert('Voer eerst een naam in en zoek.', "warn"); return; }
   const params = new URLSearchParams({ name });
   if (year) params.set('year', year);
   window.open('/api/quiz/archive/pdf/student?' + params, '_blank');
@@ -418,7 +418,7 @@ async function previewNewYear() {
 async function startNewYear() {
   const newYear = document.getElementById('new-school-year').value.trim();
   if (!newYear.match(/^[0-9]{4}-[0-9]{4}$/)) {
-    pyToast('Ongeldig formaat. Gebruik bv. 2026-2027', 'warn'); return;
+    await pyAlert('Ongeldig formaat. Gebruik bv. 2026-2027', "warn"); return;
   }
   if (!await pyConfirm({ title: 'Nieuw schooljaar starten', body: 'Alle actieve toetsen worden gearchiveerd. Dit kan niet ongedaan worden.', confirmLabel: 'Starten', danger: true })) return;
   const r = await fetch('/api/quiz/new-school-year', {
@@ -430,11 +430,23 @@ async function startNewYear() {
     pyToast(`Klaar! ${data.archived} toets${data.archived !== 1 ? 'en' : ''} gearchiveerd. Welkom in ${newYear}!`, 'success', 6000);
     loadArchive();
   } else {
-    pyToast('Fout: ' + data.error, 'error');
+    await pyAlert('Fout: ' + data.error, "error");
   }
 }
 
 init();
+// Sprint 26: globale exports voor onclick bereikbaarheid
+window.switchTab       = switchTab;
+window.loadArchive     = loadArchive;
+window.toggleStats     = toggleStats;
+window.archiveQuiz     = archiveQuiz;
+window.unarchiveQuiz   = unarchiveQuiz;
+window.deleteQuiz      = deleteQuiz;
+window.searchStudent   = searchStudent;
+window.exportStudentPDF = exportStudentPDF;
+window.previewNewYear  = previewNewYear;
+window.startNewYear    = startNewYear;
+
 </script>
 </body>
 </html>

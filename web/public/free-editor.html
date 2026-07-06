@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Vrij oefenen</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.23.0"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.34.3"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 </head><body>
 <div class="topbar"><div class="topbar-inner">
@@ -35,11 +35,8 @@
       <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
       <div class="toolbar-spacer"></div>
       <button class="btn btn-soft small" id="free-run-btn">Run</button>
-      <button id="free-editor-theme-btn" title="Editor thema (licht/donker)"
-        onclick="if(window.toggleEditorTheme) toggleEditorTheme('free')"
-        style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;">☀️</button>
-      <button id="free-copy-code-btn" title="Kopieer code"
-        onclick="if(window.copyToClipboard && window.getEditorValue) copyToClipboard(getEditorValue('free')||'', this)"
+      <button id="free-copy-btn" title="Kopieer code" aria-label="Kopieer code"
+        onclick="if(window.copyContextual) copyContextual('free', this)"
         style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;">📋</button>
       <button title="Sneltoetsen (Ctrl+?)"
         onclick="if(window.toggleShortcutsOverlay) toggleShortcutsOverlay()"
@@ -56,10 +53,7 @@
     </div>
     </div>
     
-<div style="position:relative;">
-  <button id="free-copy-output-btn" class="copy-output-btn" title="Kopieer output">📋</button>
-  <pre id="free-output-panel" class="output-panel hidden output-dark"></pre>
-</div>
+<pre id="free-output-panel" class="output-panel hidden output-dark"></pre>
     <div id="free-runtime-input-wrap" class="runtime-input-wrap hidden">
       <input id="free-runtime-input" placeholder="Typ je input hier" disabled/>
       <button class="btn btn-soft" id="free-send-input-btn" disabled>Stuur input</button>
@@ -70,5 +64,5 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/app.js?v=v2026.2.23.0"></script>
+<script src="/app.js?v=v2026.2.34.3"></script>
 </body></html>

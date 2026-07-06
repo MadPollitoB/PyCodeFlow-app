@@ -325,6 +325,9 @@ async function initSchema() {
 // ── Public API (async) ─────────────────────────────────────────────────────────
 module.exports = {
 
+  // 27l: query direct exporteren zodat server.js DB viewer endpoints hem kunnen gebruiken
+  query,
+
   // Initialiseer schema — aanroepen bij serverstart
   async init() {
     await initSchema();

@@ -13,6 +13,28 @@ let _dbReady = false;
 dbModule.init().then(async () => {
   _dbReady = true;
   console.log('[db] PostgreSQL schema OK');
+  // 27m: bootstrap admin — als teachers-tabel leeg is én .env credentials beschikbaar zijn,
+  // maak automatisch een admin-account aan zodat inloggen altijd mogelijk is
+  try {
+    const teachers = await dbModule.listTeachers();
+    if (teachers.length === 0 && BASIC_AUTH_USER && BASIC_AUTH_LEGACY_PASS
+        && BASIC_AUTH_USER !== 'CHANGE_ME') {
+      const hash = createPasswordHash(BASIC_AUTH_LEGACY_PASS);
+      await dbModule.createTeacher(BASIC_AUTH_USER, hash, BASIC_AUTH_USER, 'admin');
+      console.log('╔════════════════════════════════════════════════════════════╗');
+      console.log('║  [bootstrap] Admin-account automatisch aangemaakt          ║');
+      console.log(`║  Inlognaam (username): ${BASIC_AUTH_USER.padEnd(36)}║`);
+      console.log('║  Wachtwoord: de waarde van POC_BASIC_PASS uit .env         ║');
+      console.log('║  → Log in met de INLOGNAAM, niet de weergavenaam.         ║');
+      console.log('╚════════════════════════════════════════════════════════════╝');
+    } else if (teachers.length > 0) {
+      // Log de bestaande inlognaam/-namen zodat duidelijk is waarmee in te loggen
+      const names = teachers.map(t => t.username).join(', ');
+      console.log(`[auth] ${teachers.length} leerkracht(en) in DB. Inlognaam/-namen: ${names}`);
+    }
+  } catch (bootstrapErr) {
+    console.warn('[bootstrap] Kon geen admin-account aanmaken:', bootstrapErr.message);
+  }
   await checkAuthConfig();
 }).catch(err => {
   console.error('[db] FATALE FOUT — database niet bereikbaar:', err.message);
@@ -72,11 +94,41 @@ const AUTH_RATE_LIMIT_MAX_FAILURES = Math.max(1, Number(process.env.POC_BASIC_RA
 const AUTH_RATE_LIMIT_BLOCK_MS = Math.max(1000, Number(process.env.POC_BASIC_RATE_LIMIT_BLOCK_MS || 30 * 60 * 1000));
 const AUTH_RATE_LIMIT_BASE_DELAY_MS = Math.max(250, Number(process.env.POC_BASIC_RATE_LIMIT_BASE_DELAY_MS || 750));
 
-const VERSION = {
+// ── Versie-bepaling ─────────────────────────────────────────────────────────
+// Prioriteit: VERSION-bestand (project root) > .env variabelen > defaults.
+// Zo hoeft bij een deploy enkel het VERSION-bestand aangepast te worden;
+// pycodeflow.sh hoeft de versie niet meer handmatig te zetten.
+function loadVersionFromFile() {
+  // Zoek VERSION op meerdere plausibele locaties (container-mount + lokale layout)
+  const candidates = [
+    path.join(__dirname, '..', 'VERSION'),  // lokaal: web/../VERSION
+    '/VERSION',                              // container-mount (docker-compose)
+    path.join(__dirname, 'VERSION'),         // fallback
+  ];
+  for (const versionPath of candidates) {
+    try {
+      if (fs.existsSync(versionPath)) {
+        const raw = fs.readFileSync(versionPath, 'utf8').trim();
+        const m = raw.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+        if (m) {
+          console.log(`[versie] Geladen uit ${versionPath}: ${raw}`);
+          return { year: m[1], major: m[2], minor: m[3], build: m[4] };
+        }
+        console.warn(`[versie] Ongeldig formaat in ${versionPath}: "${raw}"`);
+      }
+    } catch (e) {
+      console.warn(`[versie] Lezen van ${versionPath} mislukt:`, e.message);
+    }
+  }
+  return null;
+}
+
+const _fileVersion = loadVersionFromFile();
+const VERSION = _fileVersion || {
   year: process.env.APP_VERSION_YEAR || "2026",
   major: process.env.APP_VERSION_MAJOR || "2",
-  minor: process.env.APP_VERSION_MINOR || "24",
-  build: process.env.APP_VERSION_BUILD || "1"
+  minor: process.env.APP_VERSION_MINOR || "29",
+  build: process.env.APP_VERSION_BUILD || "0"
 };
 const APP_VERSION = `${VERSION.year}.${VERSION.major}.${VERSION.minor}.${VERSION.build}`;
 
@@ -86,41 +138,18 @@ const disconnectTimers = new Map();
 // Key: socketId, Value: { id, name, className, joinedAt, socketId, runId }
 const freeStudents = new Map();
 
-function safeEqual(a, b) {
-  const aBuf = Buffer.from(String(a), "utf8");
-  const bBuf = Buffer.from(String(b), "utf8");
-  if (aBuf.length !== bBuf.length) return false;
-  return crypto.timingSafeEqual(aBuf, bBuf);
-}
+// Sprint 34a: auth/crypto helpers geëxtraheerd naar lib/auth.js (getest in tests/)
+const authLib = require('./lib/auth');
+const scoringLib = require('./lib/scoring');
+const validationLib = require('./lib/validation');
+const safeEqual = authLib.safeEqual;
+const createPasswordHash = authLib.createPasswordHash;
+const verifyPasswordWithHash = authLib.verifyPasswordWithHash;
+const parseBasicAuthHeader = authLib.parseBasicAuthHeader;
+const parseCookieHeader = authLib.parseCookieHeader;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function createPasswordHash(password, salt = crypto.randomBytes(16)) {
-  const normalizedSalt = Buffer.isBuffer(salt) ? salt : Buffer.from(String(salt), "base64");
-  const params = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
-  const derivedKey = crypto.scryptSync(String(password), normalizedSalt, 64, params);
-  return `scrypt$${params.N}$${params.r}$${params.p}$${normalizedSalt.toString("base64")}$${derivedKey.toString("base64")}`;
-}
-
-function verifyPasswordWithHash(password, storedHash) {
-  try {
-    const parts = String(storedHash || "").split("$");
-    if (parts.length !== 6 || parts[0] !== "scrypt") return false;
-    const [, n, r, p, saltB64, hashB64] = parts;
-    const salt = Buffer.from(saltB64, "base64");
-    const expected = Buffer.from(hashB64, "base64");
-    const actual = crypto.scryptSync(String(password), salt, expected.length, {
-      N: Number(n),
-      r: Number(r),
-      p: Number(p),
-      maxmem: 64 * 1024 * 1024
-    });
-    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
-  } catch {
-    return false;
-  }
 }
 
 const PASSWORD_HASH = BASIC_AUTH_PASS_HASH || (BASIC_AUTH_LEGACY_PASS ? createPasswordHash(BASIC_AUTH_LEGACY_PASS) : "");
@@ -173,20 +202,7 @@ function getAuthBlockRemainingMs(ip) {
   return state.blockedUntil > now ? state.blockedUntil - now : 0;
 }
 
-function parseBasicAuthHeader(headerValue) {
-  if (!headerValue || !headerValue.startsWith("Basic ")) return null;
-  try {
-    const decoded = Buffer.from(headerValue.slice(6), "base64").toString("utf8");
-    const separatorIndex = decoded.indexOf(":");
-    if (separatorIndex < 0) return null;
-    return {
-      username: decoded.slice(0, separatorIndex),
-      password: decoded.slice(separatorIndex + 1)
-    };
-  } catch {
-    return null;
-  }
-}
+// parseBasicAuthHeader nu in lib/auth.js (sprint 34a)
 
 async function credentialsAreValid(authHeader) {
   // Sprint 12a: async omdat PostgreSQL queries async zijn
@@ -248,7 +264,7 @@ async function checkAuthConfig() {
   // Sprint 12a: async check - wordt later opgelost in startup sequentie
   // Tijdelijk: vertrouw op .env credentials als DB nog niet klaar is
   let dbHasTeacher = false;
-  try { dbHasTeacher = (await dbModule.listTeachers()).length > 0; } catch {}
+  try { dbHasTeacher = (await dbModule.listTeachers()).length > 0; } catch (e) { console.warn('[auth] teacher-check mislukt:', e.message); }
   const envHasCredentials = !!(BASIC_AUTH_USER && PASSWORD_HASH
     && BASIC_AUTH_USER !== "CHANGE_ME" && BASIC_AUTH_PASS_HASH !== "CHANGE_ME_HASH");
 
@@ -279,18 +295,7 @@ const io = new Server(server, {
   pingInterval: 25000,
 });
 
-function parseCookieHeader(headerValue) {
-  const out = {};
-  if (!headerValue) return out;
-  for (const part of headerValue.split(';')) {
-    const idx = part.indexOf('=');
-    if (idx < 0) continue;
-    const key = part.slice(0, idx).trim();
-    const value = part.slice(idx + 1).trim();
-    out[key] = decodeURIComponent(value);
-  }
-  return out;
-}
+// parseCookieHeader nu in lib/auth.js (sprint 34a)
 
 function teacherCookieValue() {
   const secret = COOKIE_SECRET || PASSWORD_HASH || "fallback_teacher_cookie_secret";
@@ -329,7 +334,7 @@ function socketIsTeacherAuthorized(socket) {
 app.use((req, res, next) => {
   // CSP: unsafe-inline nodig voor inline scripts in HTML-bestanden
   // unsafe-eval verwijderd (Sprint 12a-D) — Monaco ESM workers via blob: URLs
-  // cdnjs.cloudflare.com toegevoegd voor marked.js (quiz-bank preview)
+  // cdnjs.cloudflare.com toegevoegd voor marked.js + DOMPurify (sprint 28c)
   res.setHeader('Content-Security-Policy',
     "default-src 'self'; " +
     "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; " +
@@ -541,7 +546,7 @@ const DB_VIEWER_MASKED = ['password_hash', 'cookie_secret', 'google_sub', 'token
 
 app.get('/api/admin/db/tables', requireTeacherAuth, async (req, res) => {
   try {
-    const { query } = require('./db/database.js');
+    const query = dbModule.query;  // 27l: query via dbModule export
     const tableInfo = await Promise.all(DB_VIEWER_TABLES.map(async (tbl) => {
       try {
         // Rij-aantal
@@ -573,7 +578,7 @@ app.get('/api/admin/db/tables/:name/rows', requireTeacherAuth, async (req, res) 
     return res.status(403).json({ ok: false, error: 'Tabel niet toegestaan' });
   }
   try {
-    const { query } = require('./db/database.js');
+    const query = dbModule.query;  // 27l: query via dbModule export
     const limit  = Math.min(parseInt(req.query.limit) || 50, 100);
     const offset = parseInt(req.query.offset) || 0;
     const search = (req.query.search || '').trim().slice(0, 100);
@@ -838,7 +843,7 @@ setInterval(async () => {
         }
       }
       console.log(`[quiz] Sessie ${code}: deadline bereikt`);
-    } catch {}
+    } catch (e) { /* stille fout — zie debug */ }
   }
 }, 60 * 1000);
 
@@ -1641,7 +1646,7 @@ app.get('/api/quiz/:code/pdf/zip', requireTeacherAuth, async (req, res) => {
                  .fillColor(sel && correct ? '#065f46' : sel ? '#991b1b' : '#000')
                  .text(`  ${icon}  ${ch.text}`, { lineGap: 2 });
             });
-          } catch {}
+          } catch (e) { /* stille fout — zie debug */ }
           doc.fillColor('#000');
         }
 
@@ -1926,7 +1931,7 @@ app.post('/api/admin/logs/cleanup-all', requireTeacherAuth, requireCsrf, (req, r
     const files = fs.readdirSync(LOGS_DIR).filter(f => f.endsWith('.log') && f !== '.gitkeep');
     let removed = 0;
     for (const f of files) {
-      try { fs.unlinkSync(path.join(LOGS_DIR, f)); removed++; } catch {}
+      try { fs.unlinkSync(path.join(LOGS_DIR, f)); removed++; } catch (e) { /* bestand mogelijk al verwijderd */ }
     }
     console.log(`[logs] Handmatige volledige cleanup: ${removed} bestanden verwijderd`);
     res.json({ ok: true, removed });
@@ -2222,7 +2227,7 @@ async function captureMonitorSnapshot() {
       memBytes:    Number(runner.cgroupMemoryCurrentBytes ?? runner.memoryBytes ?? 0),
     });
     if (monitorHistory.length > MONITOR_HISTORY_MAX) monitorHistory.shift();
-  } catch {}
+  } catch (e) { /* stille fout — zie debug */ }
 }
 // Start snapshot elke 15 seconden
 setInterval(captureMonitorSnapshot, 15000);
@@ -2975,7 +2980,7 @@ io.on("connection", (socket) => {
       try {
         const newId = await dbModule.createStudent(s.name, classId, 'manual', 'active');
         s.dbStudentId = newId;
-      } catch {}
+      } catch (e) { /* stille fout — zie debug */ }
     }
     s.joinBadge = null;
     emitTeacherSession(session);
@@ -2998,6 +3003,29 @@ io.on("connection", (socket) => {
     // Broadcast naar alle leerlingen in de sessie
     io.to(session.code).emit('session_config_update', { config: session.config });
     setStatus(session, `Sessie-instelling bijgewerkt: ${key} = ${value}`, 'info');
+  });
+
+  // 30-cfg: volledige config in één keer toepassen (Toepassen-knop).
+  // Vervangt de per-toggle flow die een off-by-one in Monaco gaf.
+  socket.on("teacher_apply_session_config", ({ config }) => {
+    if (!socketIsTeacherAuthorized(socket)) return;
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "teacher") return;
+    const session = sessions.get(ctx.code);
+    if (!session) return;
+    if (!config || typeof config !== 'object') return;
+    if (!session.config) session.config = {};
+    // Valideer elke sleutel via de whitelist + booleancheck (lib/validation.js)
+    let applied = 0;
+    for (const [key, value] of Object.entries(config)) {
+      if (validationLib.isAllowedConfigKey(key) && validationLib.isValidConfigValue(value)) {
+        session.config[key] = value;
+        applied++;
+      }
+    }
+    if (applied === 0) return;
+    io.to(session.code).emit('session_config_update', { config: session.config });
+    setStatus(session, `Sessie-instellingen toegepast (${applied})`, 'info');
   });
 
   socket.on("teacher_join_session", ({ code }) => {
@@ -3194,7 +3222,7 @@ io.on("connection", (socket) => {
 
     // Cancel vorige run als die nog loopt
     if (student.runId) {
-      try { await fetch(`${RUNNER_URL}/runs/${student.runId}/cancel`, { method: "POST" }); } catch {}
+      try { await fetch(`${RUNNER_URL}/runs/${student.runId}/cancel`, { method: "POST" }); } catch (e) { /* best-effort cancel, runner mogelijk al klaar */ }
       student.runId = null;
     }
 
@@ -3235,7 +3263,7 @@ io.on("connection", (socket) => {
             let errData = {};
             try {
               errData = typeof ev.data === 'string' ? JSON.parse(ev.data || '{}') : (ev.data || {});
-            } catch {}
+            } catch (e) { /* stille fout — zie debug */ }
             const icons = { cpu_timeout: '⏱', input_timeout: '⏳', disconnect: '🔌', cancelled: '⏹' };
             const icon = icons[errData.errorType] || '⚠️';
             const lineInfo = errData.line ? ` (regel ${errData.line})` : '';
@@ -3562,7 +3590,7 @@ io.on("connection", (socket) => {
       student._outputAccum = (student._outputAccum || '') + echoDisplay + '\n';
       socket.emit('free_run_output', { output: student._outputAccum });
       socket.emit("free_run_input_echo", { value: displayValue });
-    } catch {}
+    } catch (e) { /* stille fout — zie debug */ }
   });
 
   socket.on("student_reconnect", ({ code, studentId }) => {
@@ -3698,6 +3726,8 @@ io.on("connection", (socket) => {
     if (!session || session.mode !== "class") return;
     session.classWorkspaceMode = (session.classWorkspaceMode || "shared") === "shared" ? "personal" : "shared";
     if (session.classWorkspaceMode === "personal") {
+      // 27k: reset personalCanRun voor alle leerlingen bij wissel naar individuele modus
+      Object.values(session.students).forEach(s => { if (s) s.personalCanRun = true; });
       for (const s of getActiveStudents(session)) {
         s.personalCanRun = true;
         s.personalCanEdit = true;
@@ -3944,7 +3974,7 @@ io.on("connection", (socket) => {
 
       // Cancel vorige run zodat de poll-loop stopt.
       if (s.runId) {
-        try { await fetch(`${RUNNER_URL}/runs/${s.runId}/cancel`, { method: "POST" }); } catch {}
+        try { await fetch(`${RUNNER_URL}/runs/${s.runId}/cancel`, { method: "POST" }); } catch (e) { /* best-effort cancel */ }
         s.runId = null;
       }
 
@@ -4244,32 +4274,8 @@ io.on("connection", (socket) => {
     // Sla alle antwoorden op in DB + auto-score meerkeuze/single
     for (const [questionId, ans] of Object.entries(answers || {})) {
       const q = questionMap[questionId];
-      let autoScore = null;
-      let autoScored = false;
-
-      if (q && (q.question_type === 'multiple' || q.question_type === 'single')) {
-        try {
-          const choices = JSON.parse(q.choices_json || '[]');
-          const selected = Array.isArray(ans.selectedChoices) ? ans.selectedChoices : [];
-          const correctIds = choices.filter(ch => ch.correct).map(ch => ch.id);
-
-          if (q.question_type === 'single') {
-            // Single choice: volledig punt als juist, 0 als fout
-            autoScore = selected.length === 1 && correctIds.includes(selected[0])
-              ? (q.points || 0) : 0;
-          } else {
-            // Multiple choice: pro-rata scoring
-            const correctSelected = selected.filter(id => correctIds.includes(id)).length;
-            const wrongSelected   = selected.filter(id => !correctIds.includes(id)).length;
-            if (wrongSelected > 0) {
-              autoScore = 0; // fout antwoord geselecteerd → 0
-            } else {
-              autoScore = Math.round((correctSelected / correctIds.length) * (q.points || 0));
-            }
-          }
-          autoScored = true;
-        } catch { /* keuzes parsing mislukt — manueel verbeteren */ }
-      }
+      // Sprint 34a: auto-scoring via lib/scoring.js (getest in tests/)
+      const { autoScore, autoScored } = scoringLib.computeAutoScore(q, ans.selectedChoices);
 
       await dbModule.saveQuizAnswer({
         sessionCode: ctx.code, studentId: ctx.studentId,
@@ -5247,7 +5253,7 @@ async function testRampUp(emitter, logLines, stopped, startConcurrency = 2, dura
         stressLog(emitter, logLines, 'warn', `Wachtrij > 50% vol bij ${current} runs — ramp-up gestopt`);
         break;
       }
-    } catch {}
+    } catch (e) { /* stille fout — zie debug */ }
 
     current += 2;
     if (current > 25) break;
@@ -5287,7 +5293,7 @@ async function testMemoryLeak(emitter, logLines, stopped, totalRuns = 50) {
     const h = await fetch(`${RUNNER_URL}/health`);
     const hd = await h.json();
     runnerMemBefore = Number(hd.cgroupMemoryCurrentBytes || hd.memoryBytes || 0);
-  } catch {}
+  } catch (e) { /* stille fout — zie debug */ }
 
   stressLog(emitter, logLines, 'info', `Memory leak detector: ${totalRuns} opeenvolgende runs`);
   stressLog(emitter, logLines, 'info', `Web RAM voor: ${Math.round(webMemBefore/1048576)}MB`);

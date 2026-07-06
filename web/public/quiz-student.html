@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.24.1"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.34.2"/>
   <style>
     .quiz-topbar { background:var(--primary); color:#fff; padding:10px 20px;
       display:flex; align-items:center; justify-content:space-between; }
@@ -101,7 +101,7 @@
         <div class="editor-toolbar">
           <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
           <div class="toolbar-spacer"></div>
-          <button id="quiz-run-btn" class="btn btn-soft small">Run ▶</button>
+          <button id="quiz-run-btn" title="Voer je Python code uit" class="btn btn-soft small">Run ▶</button>
           <button id="quiz-copy-code-btn" title="Kopieer code"
             style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;">📋</button>
         </div>
@@ -158,9 +158,9 @@
 
   </div>
   <div class="quiz-nav-row">
-    <button class="btn btn-muted small" id="quiz-prev-btn" onclick="navigate(-1)">← Vorige</button>
+    <button class="btn btn-muted small" id="quiz-prev-btn" title="Ga naar de vorige vraag" onclick="navigate(-1)">← Vorige</button>
     <button class="btn btn-muted small" onclick="openSubmitScreen()" style="background:#fef3c7;color:#92400e;border:none;">📤 Indienen</button>
-    <button class="btn btn-soft small" id="quiz-next-btn" onclick="navigate(1)">Volgende →</button>
+    <button class="btn btn-soft small" id="quiz-next-btn" title="Ga naar de volgende vraag" onclick="navigate(1)">Volgende →</button>
   </div>
 </div>
 
@@ -204,7 +204,7 @@
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=v2026.2.24.1"></script>
+<script src="/app.js?v=v2026.2.34.2"></script>
 <script>
 // ── Quiz student logica ──────────────────────────────────────────────────────
 const socket = io();
@@ -326,12 +326,12 @@ socket.on('quiz_access_expired', ({ deadlineStr, autoSubmitLate }) => {
     (autoSubmitLate ? 'Je antwoorden worden als leeg ingediend.' : 'Neem contact op met je leerkracht.');
 });
 
-socket.on('error_message', (msg) => {
-  pyToast(typeof msg === 'string' ? msg : msg.message || 'Fout', 'error');
+socket.on('error_message', async (msg) => {
+  await pyAlert(typeof msg === 'string' ? msg : msg.message || 'Fout', "error");
 });
 
 // Sprint 19d: herinnering van leerkracht
-socket.on('quiz_reminder', ({ message }) => {
+socket.on('quiz_reminder', async ({ message }) => {
   const banner = document.getElementById('warning-banner');
   if (banner) {
     banner.textContent = message;
@@ -340,7 +340,7 @@ socket.on('quiz_reminder', ({ message }) => {
     banner.classList.add('visible');
     setTimeout(() => banner.classList.remove('visible'), 30000);
   } else {
-    pyToast(message, 'warn');
+    await pyAlert(message, "warn");
   }
 });
 
@@ -505,10 +505,25 @@ function goToQuestion(idx) {
     document.getElementById('q-header').textContent =
       `Vraag ${idx+1} van ${questions.length} · ${q.subject || ''} · ${q.points} punten · ${typeLabel}`;
     // Sprint 19f: Markdown rendering
-    const qTextEl = document.getElementById('q-text');
+    
+// 25e: preprocessing voor info-kaders (:::tip/opgelet/kader/hint)
+function preprocessMarkdown(text) {
+  return text.replace(/:::(\w+)\n([\s\S]*?):::/g, function(_, type, content) {
+    var map = { tip:'info-tip', opgelet:'info-opgelet', kader:'info-kader-blauw', hint:'info-hint' };
+    var cls = map[type] || 'info-kader-blauw';
+    return '<div class="info-kader ' + cls + '">' + content.trim() + '</div>';
+  });
+}
+function renderMarkdown(text) {
+  if (!window.marked) return text.replace(/\n/g,'<br>');
+  var html = window.marked.parse(preprocessMarkdown(text), { breaks: true, gfm: true });
+  // 28c: XSS-beveiliging — sanitize met DOMPurify (style toegestaan voor kleuren)
+  return window.DOMPurify ? window.DOMPurify.sanitize(html, { ADD_ATTR: ['style', 'target'] }) : html;
+}
+const qTextEl = document.getElementById('q-text');
     const rawText = q.text_snapshot || q.text || '';
     if (window.marked) {
-      qTextEl.innerHTML = window.marked.parse(rawText, { breaks: true });
+      qTextEl.innerHTML = renderMarkdown(rawText);
     } else {
       qTextEl.textContent = rawText;
     }
@@ -695,5 +710,6 @@ if (!urlCode) {
 }
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
 </body>
 </html>
