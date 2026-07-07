@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════════════
-# PyCodeFlow — Deployment verificatiescript v2026.2.34.4
+# PyCodeFlow — Deployment verificatiescript v2026.2.34.5
 # Gebruik: bash check-deployment.sh
 # Voer uit vanuit /volume3/docker/pycodeflow/
 # Sprint 27a-g: grep-regex fixes (backslash-pipe → pipe of -e flags)
@@ -69,7 +69,7 @@ check_not_contains() {
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "  PyCodeFlow — Deployment Verificatie v2026.2.34.4"
+echo "  PyCodeFlow — Deployment Verificatie v2026.2.34.5"
 echo "  $(date '+%d/%m/%Y %H:%M:%S')"
 echo "═══════════════════════════════════════════════════════════"
 
@@ -267,6 +267,17 @@ check_contains "$WEB/server.js" "429"                     "Rate limiting"
 check_contains "$WEB/server.js" "SESSION_MAX_AGE_SECONDS" "server.js: sessie Max-Age op cookie (sprint 30a)"
 check_contains "$WEB/server.js" "upgrade-insecure-requests" "server.js: CSP upgrade-insecure-requests (sprint 30c)"
 [[ -f "$BASE/scripts/backup-db.sh" ]] && ok "scripts/backup-db.sh aanwezig (sprint 30d)" || fail "backup-db.sh ONTBREEKT (sprint 30d)"
+check_contains "$WEB/db/database.js" "withTransaction" "database.js: transactie-helper (sprint 36a)"
+if grep -qE "\{ hash, salt \} = createPasswordHash" "$WEB/server.js"; then
+  fail "server.js: oude hash-destructuring (hash-mismatch bug!)"
+else
+  ok "server.js: hash-formaat consistent (sprint 36)"
+fi
+if grep -qE "\"\^" "$WEB/package.json"; then
+  warn "package.json: nog ^caret versies (sprint 36d: pin exact)"
+else
+  ok "package.json: dependencies gepind (sprint 36d)"
+fi
 
 # 27b fix: aparte grep-calls i.p.v. safeEqual\|timingSafeEqual
 check_contains_any "$WEB/server.js" "Timing-safe vergelijking" \

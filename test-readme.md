@@ -1512,4 +1512,34 @@ cd web && node --test
 ✅ pycodeflow.sh optie 16 → 3: restore werkt (met PGPASSWORD)
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.34.4 · 6 juli 2026*
+## 35. Sprint 36 — Data-integriteit
+
+### Kritieke hash-fix (admin teacher-beheer)
+```
+✅ admin.html → nieuwe leerkracht aanmaken werkt (was: crash door salt undefined)
+✅ admin.html → wachtwoord van leerkracht wijzigen werkt
+✅ De nieuw aangemaakte leerkracht kan inloggen (hash-formaat consistent)
+✅ pycodeflow.sh reset-password blijft compatibel (zelfde scrypt-formaat)
+```
+
+### 36a — Transacties
+```
+✅ Toets aanmaken → quiz_meta + alle vraag-snapshots atomair
+✅ Bij een gesimuleerde fout tijdens aanmaken → ROLLBACK, geen halve toets
+✅ Per-leerling vraagvolgorde (saveQuizStudentOrder) atomair
+✅ withTransaction geeft client altijd vrij (ook bij fout)
+```
+
+### 36c — Centrale validatie
+```
+✅ Ongeldige rol bij teacher-create/role-update → geweigerd (lib/validation.js)
+✅ Te lange displayName wordt geclampt tot 64 tekens
+```
+
+### 36d — Dependencies gepind
+```
+✅ package.json: geen ^caret meer, exacte versies
+✅ npm audit draait in run-tests.sh (sectie 5)
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.34.5 · 6 juli 2026*

@@ -71,6 +71,26 @@ test('hash: manage-teacher.js compatibiliteit (zelfde params)', () => {
   assert.strictEqual(auth.verifyPasswordWithHash('cliwachtwoord', cliHash), true);
 });
 
+// Sprint 36: createPasswordHash geeft ÉÉN string (geen {hash, salt} object).
+// Deze test borgt dat de admin-endpoints het juiste formaat gebruiken.
+test('hash: createPasswordHash retourneert string, geen object', () => {
+  const result = auth.createPasswordHash('test123');
+  assert.strictEqual(typeof result, 'string');
+  assert.strictEqual(result.startsWith('scrypt$'), true);
+  // {hash, salt} destructuring zou undefined geven → de oude bug
+  const { hash, salt } = auth.createPasswordHash('test123');
+  assert.strictEqual(hash, undefined);
+  assert.strictEqual(salt, undefined);
+});
+
+test('hash: string uit createPasswordHash verifieert direct', () => {
+  // De hele round-trip zoals de admin-endpoints hem nu gebruiken
+  const passHash = auth.createPasswordHash('AdminW8w!');
+  assert.strictEqual(typeof passHash, 'string');
+  assert.strictEqual(auth.verifyPasswordWithHash('AdminW8w!', passHash), true);
+  assert.strictEqual(auth.verifyPasswordWithHash('fout', passHash), false);
+});
+
 // ── parseBasicAuthHeader ──────────────────────────────────────────────────────
 test('parseBasicAuthHeader: geldige header', () => {
   const encoded = Buffer.from('gebruiker:wachtwoord').toString('base64');

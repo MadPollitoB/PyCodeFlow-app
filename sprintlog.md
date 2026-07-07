@@ -42,10 +42,10 @@ Zonder tests is elke volgende sprint risicovol. De sprint 26/27 regressies waren
 
 | Sprint | Cat | Inhoud | Status | Inschatting |
 |---|---|---|---|---|
-| **36a** | 🟠 DATA | Geen transacties bij multi-step schrijfacties (toets + vragen koppelen) — risico op halve data bij crash | 🔄 Gepland | ~1 dag |
-| **36c** | 🟡 DATA | Geen centrale validatie-laag op API-input (types, grenzen) — nu ad-hoc per endpoint | 🔄 Gepland | ~2 dagen |
-| **36b** | 🟡 DATA | persistSession zonder debounce — race conditions + DB-belasting bij snel typen | 🔄 Gepland | ~1 dag |
-| **36d** | 🟢 DATA | Dependencies met `^` pinnen naar exacte versies + `npm audit` in CI | 🔄 Gepland | ~0.5 dag |
+| **36a** | 🟠 DATA | Geen transacties bij multi-step schrijfacties (toets + vragen koppelen) — risico op halve data bij crash | ✅ Afgerond | ~1 dag |
+| **36c** | 🟡 DATA | Geen centrale validatie-laag op API-input (types, grenzen) — nu ad-hoc per endpoint | ✅ Afgerond | ~2 dagen |
+| **36b** | 🟡 DATA | persistSession zonder debounce — race conditions + DB-belasting bij snel typen | ✅ Afgerond | ~1 dag |
+| **36d** | 🟢 DATA | Dependencies met `^` pinnen naar exacte versies + `npm audit` in CI | ✅ Afgerond | ~0.5 dag |
 
 ### 🟠 Prioriteit 5 — UX & consistentie
 
@@ -242,7 +242,31 @@ Het backup-menu (pycodeflow.sh optie 16) verwees naar `scripts/backup-db.sh` dat
 **Betrokken bestanden:** `server.js` · `scripts/backup-db.sh` (nieuw) · `pycodeflow.sh` · `.env.example` · `tests/security.test.js`
 
 ---
-De sprint 27i fix voegde een fallback toe in `teacher-grid.html`:
+
+### Sprint 36 — Data-integriteit (36a/b/c/d) *(~4.5 dagen)* — ✅ AFGEROND (v2026.2.34.5)
+
+**Aangemeld:** 05/07/2026 · **Status:** ✅ Afgerond (v2026.2.34.5)
+
+#### 36a — Transacties bij multi-step schrijfacties
+`createQuizSession` schreef `quiz_meta` en dan in een lus alle vraag-snapshots, elk met een **aparte** DB-connectie. Bij een crash midden in de lus bleef een toets met meta maar zonder (of met halve) vragen achter. **Fix:** nieuwe `withTransaction(fn)`-helper in database.js (BEGIN/COMMIT, ROLLBACK bij fout, client altijd vrijgegeven). `createQuizSession` én `saveQuizStudentOrder` (per-leerling volgorde) draaien nu atomair. `persistSession` bleek al atomair (single INSERT ON CONFLICT) → geen wijziging nodig.
+
+#### 36b — persistSession debounce
+Al aanwezig en correct: `schedulePersist` (2s debounce) voorkomt dat elke toetsaanslag een DB-write triggert; `persistNow` voor kritieke operaties (delete/close). Sessie-creatie persisteert bewust meteen. Geverifieerd, geen wijziging nodig.
+
+#### 36c — Centrale validatie breder ingezet
+De ad-hoc validatie in de admin-endpoints (teacher-create, role-update) loopt nu via `lib/validation.js` (`isValidRole`, `clampString`). Consistent met de config-validatie uit sprint 30-cfg.
+
+#### 36d — Dependencies gepind
+`package.json` gebruikte overal `^` (caret) → minor auto-updates, niet-reproduceerbare builds. Alle dependencies gepind op exacte versies (express 4.19.2, socket.io 4.7.5, pg 8.13.0, enz.). `npm audit` draait al in de CI (run-tests.sh sectie 5).
+
+#### 🚨 Kritieke bug ontdekt & opgelost: hash-formaat mismatch
+Bij het onderzoek voor 36c bleek dat de sprint 34a-refactor een latente bug had geïntroduceerd: `lib/auth.js createPasswordHash` geeft **één string** terug (`scrypt$...`), maar twee admin-endpoints (`POST /api/admin/teachers`, `PUT .../password`) deden nog `const { hash, salt } = createPasswordHash(...)` en bouwden `${hash}:${salt.toString('hex')}`. Omdat de functie een string teruggeeft, waren `hash` en `salt` **undefined** → `.toString('hex')` crashte, en het aanmaken/wijzigen van leerkrachtaccounts via admin.html was **kapot**. **Fix:** beide endpoints gebruiken nu direct de string. Het canonieke formaat (`scrypt$N$r$p$saltB64$hashB64`) is consistent tussen lib/auth.js, verifyPasswordWithHash, manage-teacher.js en de bootstrap. 3 nieuwe tests borgen dit.
+
+**Tests:** 3 hash-consistentie + 4 transactie-tests. Totaal 70 unit tests.
+
+**Betrokken bestanden:** `database.js` · `server.js` · `package.json` · `lib/validation.js` · `tests/auth.test.js` · `tests/transaction.test.js` (nieuw)
+
+---
 ```js
 const sessionCode = params.get('code')
   || localStorage.getItem('pycodeflow_teacherSessionCode')  // ❌ deze key bestaat niet

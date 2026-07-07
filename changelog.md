@@ -1,3 +1,33 @@
+## v2026.2.34.5 — Sprint 36: Data-integriteit (36a/b/c/d) + kritieke hash-fix
+
+### 🚨 Kritieke bug: hash-formaat mismatch (admin teacher-beheer kapot)
+De sprint 34a-refactor liet twee admin-endpoints achter met `const {hash,salt} =
+createPasswordHash()` terwijl die functie nu één string teruggeeft → salt undefined →
+crash. Het aanmaken/wijzigen van leerkrachten via admin.html was stuk. Beide endpoints
+gebruiken nu direct de scrypt-string. 3 tests borgen de consistentie.
+
+### 36a — Transacties bij multi-step schrijfacties
+Nieuwe withTransaction(fn) helper (BEGIN/COMMIT/ROLLBACK). createQuizSession (meta +
+vraag-snapshots) en saveQuizStudentOrder draaien nu atomair — geen half-geschreven toets
+meer bij een crash.
+
+### 36b — persistSession debounce
+Geverifieerd al aanwezig (schedulePersist 2s debounce + persistNow voor kritieke ops).
+
+### 36c — Centrale validatie breder ingezet
+Admin-endpoints (teacher-create, role-update) valideren nu via lib/validation.js.
+
+### 36d — Dependencies gepind
+Alle deps van ^caret naar exacte versies (reproduceerbare builds). npm audit draait in CI.
+
+### Tests
+3 hash-consistentie + 4 transactie-tests. Totaal 70 unit tests.
+
+**Betrokken bestanden:** database.js · server.js · package.json · lib/validation.js ·
+tests/auth.test.js · tests/transaction.test.js (nieuw) · check-deployment.sh
+
+---
+
 ## v2026.2.34.4 — Sprint 30: Security hardening (30a/c/d)
 
 ### 30a — Login-cookie met Max-Age (bewuste sessieduur)

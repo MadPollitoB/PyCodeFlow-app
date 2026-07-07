@@ -698,9 +698,15 @@ app.post('/api/admin/teachers', requireTeacherAuth, requireCsrf, async (req, res
   const { username, password, displayName, role } = req.body || {};
   if (!username || !password) return res.status(400).json({ error: 'Gebruikersnaam en wachtwoord vereist' });
   if (username.length > 64) return res.status(400).json({ error: 'Gebruikersnaam te lang' });
+  if (password.length < 8) return res.status(400).json({ error: 'Wachtwoord moet minimaal 8 tekens zijn' });
   try {
-    const { hash, salt } = createPasswordHash(password);
-    const id = await dbModule.createTeacher(username.trim(), `${hash}:${salt.toString('hex')}`, (displayName || '').slice(0, 64), role === 'admin' ? 'admin' : 'teacher');
+    // Sprint 36: createPasswordHash geeft één string (scrypt$...) — geen destructuring.
+    // 36c: rol gevalideerd via lib/validation.js
+    const passHash = createPasswordHash(password);
+    const safeRole = validationLib.isValidRole(role) ? role : 'teacher';
+    const id = await dbModule.createTeacher(
+      username.trim(), passHash, validationLib.clampString(displayName || '', 64), safeRole
+    );
     res.json({ ok: true, id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -708,14 +714,15 @@ app.post('/api/admin/teachers', requireTeacherAuth, requireCsrf, async (req, res
 app.put('/api/admin/teachers/:username/password', requireTeacherAuth, requireCsrf, async (req, res) => {
   const { password } = req.body || {};
   if (!password || password.length < 8) return res.status(400).json({ error: 'Wachtwoord moet minimaal 8 tekens zijn' });
-  const { hash, salt } = createPasswordHash(password);
-  const ok = await dbModule.updatePassHash(req.params.username, `${hash}:${salt.toString('hex')}`);
+  // Sprint 36: createPasswordHash geeft één string (scrypt$...) — geen destructuring.
+  const passHash = createPasswordHash(password);
+  const ok = await dbModule.updatePassHash(req.params.username, passHash);
   res.json({ ok });
 });
 
 app.put('/api/admin/teachers/:username/role', requireTeacherAuth, requireCsrf, async (req, res) => {
   const { role } = req.body || {};
-  if (!['teacher', 'admin'].includes(role)) return res.status(400).json({ error: 'Ongeldige rol' });
+  if (!validationLib.isValidRole(role)) return res.status(400).json({ error: 'Ongeldige rol' });
   const ok = await dbModule.updateTeacherRole(req.params.username, role);
   res.json({ ok });
 });

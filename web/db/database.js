@@ -52,6 +52,26 @@ async function query(text, params = []) {
   }
 }
 
+// 36a: transactie-helper voor multi-step schrijfacties.
+// Roept fn(client) aan binnen een BEGIN/COMMIT; bij een fout volgt ROLLBACK.
+// Zo blijft de database consistent (geen half-geschreven toets bij een crash).
+async function withTransaction(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (rbErr) {
+      console.error('[db] ROLLBACK mislukt:', rbErr.message);
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 // ── Schema initialisatie ───────────────────────────────────────────────────────
 async function initSchema() {
   await query(`
@@ -327,6 +347,9 @@ module.exports = {
 
   // 27l: query direct exporteren zodat server.js DB viewer endpoints hem kunnen gebruiken
   query,
+
+  // 36a: transactie-helper voor multi-step schrijfacties (getest in tests/)
+  withTransaction,
 
   // Initialiseer schema — aanroepen bij serverstart
   async init() {
@@ -826,28 +849,31 @@ module.exports = {
       const y = d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1;
       return `${y}-${y + 1}`;
     })();
-    await query(
-      `INSERT INTO quiz_meta (session_code, randomize, timer_seconds, no_timer, individual_timer,
-        min_runs_per_q, hide_question_on_screen, results_released, is_teacher_preview,
-        school_year, target_class, access_from, access_until, auto_submit_late, created_at)
-       VALUES ($1,$2,$3,$4,true,$5,$6,false,$7,$8,$9,$10,$11,$12,$13)`,
-      [sessionCode, randomize, effectiveTimer, noTimer || false,
-       minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
-       schoolYear || currentYear, targetClass || '',
-       accessFrom || null, accessUntil || null, autoSubmitLate !== false,
-       now]
-    );
-    // Schrijf vraag-snapshots
-    for (const q of questions) {
-      await query(
-        `INSERT INTO quiz_question_snapshots
-           (id, session_code, bank_question_id, order_index, text_snapshot, subject, points,
-            question_type, choices_json)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [crypto.randomUUID(), sessionCode, q.bankId, q.orderIndex, q.text, q.subject, q.points,
-         q.questionType || 'code', q.choicesJson || '[]']
+    // 36a: quiz_meta + alle vraag-snapshots in één transactie — anders kan een crash
+    // een toets met meta maar zonder (of met halve) vragen achterlaten.
+    await withTransaction(async (client) => {
+      await client.query(
+        `INSERT INTO quiz_meta (session_code, randomize, timer_seconds, no_timer, individual_timer,
+          min_runs_per_q, hide_question_on_screen, results_released, is_teacher_preview,
+          school_year, target_class, access_from, access_until, auto_submit_late, created_at)
+         VALUES ($1,$2,$3,$4,true,$5,$6,false,$7,$8,$9,$10,$11,$12,$13)`,
+        [sessionCode, randomize, effectiveTimer, noTimer || false,
+         minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
+         schoolYear || currentYear, targetClass || '',
+         accessFrom || null, accessUntil || null, autoSubmitLate !== false,
+         now]
       );
-    }
+      for (const q of questions) {
+        await client.query(
+          `INSERT INTO quiz_question_snapshots
+             (id, session_code, bank_question_id, order_index, text_snapshot, subject, points,
+              question_type, choices_json)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [crypto.randomUUID(), sessionCode, q.bankId, q.orderIndex, q.text, q.subject, q.points,
+           q.questionType || 'code', q.choicesJson || '[]']
+        );
+      }
+    });
   },
 
   async getQuizMeta(sessionCode) {
@@ -903,13 +929,16 @@ module.exports = {
   },
 
   async saveQuizStudentOrder(sessionCode, studentId, orderedQuestionIds) {
-    for (let i = 0; i < orderedQuestionIds.length; i++) {
-      await query(
-        `INSERT INTO quiz_student_order (session_code, student_id, question_id, personal_pos)
-         VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
-        [sessionCode, studentId, orderedQuestionIds[i], i]
-      );
-    }
+    // 36a: volledige volgorde per leerling in één transactie (alles of niets).
+    await withTransaction(async (client) => {
+      for (let i = 0; i < orderedQuestionIds.length; i++) {
+        await client.query(
+          `INSERT INTO quiz_student_order (session_code, student_id, question_id, personal_pos)
+           VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+          [sessionCode, studentId, orderedQuestionIds[i], i]
+        );
+      }
+    });
   },
 
   async getQuizStudentOrder(sessionCode, studentId) {
