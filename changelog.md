@@ -1,3 +1,25 @@
+## v2026.2.34.6 — Sprint 31: UX & consistentie (31a/b/c)
+
+### 31b — localStorage-sleutels geharmoniseerd
+De sleutels gebruikten inconsistent de pycodeflow_ prefix. Nu voegen setLS/getLS/delLS
+die transparant toe; alle directe localStorage-calls vervangen door de helpers. Een
+eenmalige migratie hernoemt bestaande oude sleutels → geen sessie/naam-verlies bij upgrade.
+
+### 31a — Consistente loading states
+Herbruikbare .spinner / .loading-row CSS + loadingHtml() helper voor uniforme laad-weergave.
+
+### 31c — Uniforme foutmeldingen
+Alle browser alert()/confirm() (11 alerts + 1 confirm) in app.js vervangen door de eigen
+pyAlert (fouten), pyToast (successen) en pyConfirm (bevestigingen). Consistente, niet-
+blokkerende meldingen overal.
+
+### Tests
+9 nieuwe storage-tests (prefix + migratie). Totaal 79 unit tests.
+
+**Betrokken bestanden:** app.js · styles.css · tests/storage.test.js (nieuw) · check-deployment.sh
+
+---
+
 ## v2026.2.34.5 — Sprint 36: Data-integriteit (36a/b/c/d) + kritieke hash-fix
 
 ### 🚨 Kritieke bug: hash-formaat mismatch (admin teacher-beheer kapot)

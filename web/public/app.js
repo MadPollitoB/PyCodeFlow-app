@@ -145,10 +145,40 @@
   }
 
   function qs(id) { return document.getElementById(id); }
-  function setLS(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
-  function getLS(key, fallback = null) {
-    try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; } catch { return fallback; }
+  // 31b: alle localStorage-sleutels krijgen consistent de 'pycodeflow_' prefix.
+  // De helpers voegen die transparant toe, zodat call-sites de korte naam gebruiken.
+  const LS_PREFIX = 'pycodeflow_';
+  function _lsKey(key) {
+    return key.startsWith(LS_PREFIX) ? key : LS_PREFIX + key;
   }
+  function setLS(key, val) { localStorage.setItem(_lsKey(key), JSON.stringify(val)); }
+  function getLS(key, fallback = null) {
+    try { const v = JSON.parse(localStorage.getItem(_lsKey(key))); return v ?? fallback; } catch { return fallback; }
+  }
+  function delLS(key) { localStorage.removeItem(_lsKey(key)); }
+
+  // 31a: consistente laad-indicator. Gebruik als innerHTML tijdens het laden.
+  function loadingHtml(tekst = 'Laden…') {
+    return `<div class="loading-row"><span class="spinner"></span>${tekst}</div>`;
+  }
+  window.loadingHtml = loadingHtml;
+
+  // 31b: eenmalige migratie van oude sleutels zonder prefix → mét prefix.
+  // Zo verliezen bestaande gebruikers hun sessie/naam niet bij de upgrade.
+  (function migrateLegacyKeys() {
+    const legacy = ['teacherSessionCode', 'studentSessionCode', 'studentName',
+      'studentId', 'studentState', 'freeSessionCode', 'freeStudentName',
+      'freeStudentClass', 'observerSessionCode'];
+    for (const k of legacy) {
+      try {
+        const oldVal = localStorage.getItem(k);
+        if (oldVal !== null && localStorage.getItem(LS_PREFIX + k) === null) {
+          localStorage.setItem(LS_PREFIX + k, oldVal);
+          localStorage.removeItem(k);
+        }
+      } catch (e) { console.warn('[migratie] sleutel', k, 'overslaan:', e.message); }
+    }
+  })();
   function go(url) { location.href = url; }
 
   // Sprint 13A: sessie-config paneel updaten op basis van ontvangen config
@@ -760,7 +790,7 @@
   async function deleteSession(code) {
     await fetch(`/api/sessions/${encodeURIComponent(code)}`, { method: 'DELETE' });
     const current = getLS('teacherSessionCode');
-    if (current === code) localStorage.removeItem('teacherSessionCode');
+    if (current === code) delLS('teacherSessionCode');
     await loadSessions();
   }
 
@@ -1043,21 +1073,21 @@
         if (!r.ok) {
           const err = await r.json().catch(() => ({}));
           if (r.status === 404) {
-            alert('Leerling of sessie niet gevonden.');
+            pyAlert('Leerling of sessie niet gevonden.', 'error');
           } else if (r.status === 500 && err.error?.includes('no such table')) {
-            alert('Code-geschiedenis nog niet beschikbaar.\nDe server moet opnieuw opgestart worden om de snapshot-tabel aan te maken.\nVoer uit: docker compose restart web');
+            pyAlert('Code-geschiedenis nog niet beschikbaar. De server moet opnieuw opgestart worden om de snapshot-tabel aan te maken (docker compose restart web).', 'warn');
           } else {
-            alert(`Fout bij laden history: ${err.error || r.status}`);
+            pyAlert(`Fout bij laden history: ${err.error || r.status}`, 'error');
           }
           return;
         }
         const { studentName, snapshots } = await r.json();
         if (!snapshots || !snapshots.length) {
-          alert(`Nog geen code-snapshots voor ${studentName}.\nSnapshots worden elke 10 seconden opgeslagen na het begin van het typen.`);
+          pyAlert(`Nog geen code-snapshots voor ${studentName}. Snapshots worden elke 10 seconden opgeslagen na het begin van het typen.`, 'info');
           return;
         }
         showHistoryPlayback(studentName, snapshots);
-      } catch(e) { alert(`Netwerkfout bij laden history: ${e.message}`); }
+      } catch(e) { pyAlert(`Netwerkfout bij laden history: ${e.message}`, 'error'); }
     }));
   }
 
@@ -1201,8 +1231,8 @@
       body: JSON.stringify({ name: name || undefined }),
     });
     const data = await r.json();
-    if (data.ok) { alert('Toets gekopieerd! Nieuwe code: ' + data.code); loadQuizSessions(); }
-    else alert('Fout: ' + data.error);
+    if (data.ok) { pyToast('Toets gekopieerd! Nieuwe code: ' + data.code, 'success'); loadQuizSessions(); }
+    else pyAlert('Fout: ' + data.error, 'error');
   };
 
   if (page === 'teacher-sessions.html') {
@@ -1309,7 +1339,7 @@
           });
           if (selectEl) selectEl.style.display = '';
           // Herstel vorige keuze
-          const saved = localStorage.getItem('pycodeflow_student_class');
+          const saved = getLS('student_class');
           if (saved && selectEl) {
             const match = [...selectEl.options].find(o => o.value === saved);
             if (match) selectEl.value = saved;
@@ -1341,7 +1371,7 @@
       const selectEl = document.getElementById('student-class-select');
       const inputEl  = document.getElementById('student-class');
       const className = ((selectEl?.style.display !== 'none' ? selectEl?.value : inputEl?.value) || '').trim();
-      if (className) localStorage.setItem('pycodeflow_student_class', className);
+      if (className) setLS('student_class', className);
       const errorEl = qs('student-start-error');
       if (!name) {
         if (errorEl) errorEl.textContent = 'Geef eerst je naam in. De placeholder telt niet als naam.';
@@ -1372,7 +1402,7 @@
       const selectEl = document.getElementById('student-class-select');
       const inputEl  = document.getElementById('student-class');
       const className = ((selectEl?.style.display !== 'none' ? selectEl?.value : inputEl?.value) || '').trim();
-      if (className) localStorage.setItem('pycodeflow_student_class', className);
+      if (className) setLS('student_class', className);
       const errorEl = qs('student-start-error');
       if (!name) {
         if (errorEl) errorEl.textContent = 'Geef eerst je naam in.';
@@ -1413,14 +1443,14 @@
     (async () => {
       await ensureEditor('free', '', true, false, {});
       // Herstel opgeslagen code
-      const savedCode = localStorage.getItem('pycodeflow_free_code');
+      const savedCode = getLS('free_code');
       if (savedCode && editorStore['free']) {
         editorStore['free'].setValue(savedCode);
       }
       // Elke 5s opslaan
       setInterval(() => {
         const code = editorStore['free']?.getValue();
-        if (code !== undefined) localStorage.setItem('pycodeflow_free_code', code);
+        if (code !== undefined) setLS('free_code', code);
       }, 5000);
     })();
     const name = getLS('freeStudentName', '');
@@ -1567,9 +1597,9 @@
 
     // Leerkracht heeft deze leerling verwijderd uit de vrije sessie
     socket.on('force_landing', () => {
-      localStorage.removeItem('freeStudentName');
-      localStorage.removeItem('freeStudentClass');
-      localStorage.removeItem('freeSessionCode');
+      delLS('freeStudentName');
+      delLS('freeStudentClass');
+      delLS('freeSessionCode');
       go('/index.html');
     });
   }
@@ -1609,7 +1639,8 @@
       const msg = online > 0
         ? `Weet je zeker dat je de sessie wil sluiten? ${online} leerling${online===1?'':'en'} ${online===1?'is':'zijn'} nog verbonden.`
         : 'Weet je zeker dat je de sessie wil sluiten?';
-      if (confirm(msg)) socket.emit('teacher_close_session');
+      pyConfirm({ title: 'Sessie sluiten', body: msg, confirmLabel: 'Sluiten', danger: true })
+        .then(ok => { if (ok) socket.emit('teacher_close_session'); });
     });
 
     // Timer/countdown widget
@@ -1733,7 +1764,7 @@
       const color = qs('annotation-color')?.value || 'yellow';
       if (!msg) { qs('annotation-message')?.focus(); return; }
       if (start < 1 || end < start) {
-        alert('Ongeldige regelnummers. Eindregel moet ≥ startregel zijn.');
+        pyAlert('Ongeldige regelnummers. Eindregel moet ≥ startregel zijn.', 'warn');
         return;
       }
       socket.emit('teacher_send_annotation', { startLine: start, endLine: end, message: msg, color });
@@ -2270,11 +2301,11 @@ async function applyStudentState(data) {
       if (!sid || !code) return;
       try {
         const r = await fetch(`/api/sessions/${encodeURIComponent(code)}/history/${encodeURIComponent(sid)}`);
-        if (!r.ok) { alert('Geen history beschikbaar.'); return; }
+        if (!r.ok) { pyAlert('Geen history beschikbaar.', 'warn'); return; }
         const { studentName, snapshots } = await r.json();
-        if (!snapshots?.length) { alert('Nog geen snapshots opgeslagen.'); return; }
+        if (!snapshots?.length) { pyAlert('Nog geen snapshots opgeslagen.', 'info'); return; }
         showHistoryPlayback(studentName || 'Jouw code', snapshots);
-      } catch { alert('Kon history niet laden.'); }
+      } catch { pyAlert('Kon history niet laden.', 'error'); }
     });
 
     // Sprint 10S: naam wijzigen
@@ -2622,17 +2653,17 @@ async function applyStudentState(data) {
     });
 
     socket.on('force_landing', () => {
-      localStorage.removeItem('studentState');
-      localStorage.removeItem('studentSessionCode');
-      localStorage.removeItem('studentId');
-      localStorage.removeItem('studentName');
+      delLS('studentState');
+      delLS('studentSessionCode');
+      delLS('studentId');
+      delLS('studentName');
       go('/index.html');
     });
   }
 
   socket.on('force_landing', () => go('/index.html'));
   socket.on('teacher_go_sessions', () => {
-    localStorage.removeItem('teacherSessionCode');
+    delLS('teacherSessionCode');
     go('/teacher-sessions.html');
   });
 

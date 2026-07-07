@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════════════
-# PyCodeFlow — Deployment verificatiescript v2026.2.34.5
+# PyCodeFlow — Deployment verificatiescript v2026.2.34.6
 # Gebruik: bash check-deployment.sh
 # Voer uit vanuit /volume3/docker/pycodeflow/
 # Sprint 27a-g: grep-regex fixes (backslash-pipe → pipe of -e flags)
@@ -69,7 +69,7 @@ check_not_contains() {
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "  PyCodeFlow — Deployment Verificatie v2026.2.34.5"
+echo "  PyCodeFlow — Deployment Verificatie v2026.2.34.6"
 echo "  $(date '+%d/%m/%Y %H:%M:%S')"
 echo "═══════════════════════════════════════════════════════════"
 
@@ -268,6 +268,13 @@ check_contains "$WEB/server.js" "SESSION_MAX_AGE_SECONDS" "server.js: sessie Max
 check_contains "$WEB/server.js" "upgrade-insecure-requests" "server.js: CSP upgrade-insecure-requests (sprint 30c)"
 [[ -f "$BASE/scripts/backup-db.sh" ]] && ok "scripts/backup-db.sh aanwezig (sprint 30d)" || fail "backup-db.sh ONTBREEKT (sprint 30d)"
 check_contains "$WEB/db/database.js" "withTransaction" "database.js: transactie-helper (sprint 36a)"
+check_contains "$PUB/app.js" "_lsKey" "app.js: localStorage prefix-helper (sprint 31b)"
+check_contains "$PUB/app.js" "migrateLegacyKeys" "app.js: localStorage migratie (sprint 31b)"
+if grep -qE "[^y]alert\(|[^y]confirm\(" "$PUB/app.js" | grep -v "pyAlert\|pyConfirm\|window\."; then
+  warn "app.js: nog browser alert()/confirm() (sprint 31c)"
+else
+  ok "app.js: geen browser alert/confirm (sprint 31c)"
+fi
 if grep -qE "\{ hash, salt \} = createPasswordHash" "$WEB/server.js"; then
   fail "server.js: oude hash-destructuring (hash-mismatch bug!)"
 else

@@ -51,9 +51,9 @@ Zonder tests is elke volgende sprint risicovol. De sprint 26/27 regressies waren
 
 | Sprint | Cat | Inhoud | Status | Inschatting |
 |---|---|---|---|---|
-| **31b** | 🟠 UX | localStorage sleutels inconsistent (`pycodeflow_` prefix soms wel/niet) — botsingsrisico, gerelateerd aan 29a | 🔄 Gepland | ~0.5 dag |
-| **31a** | 🟠 UX | Loading states inconsistent — slechts 5/18 pagina's hebben een spinner | 🔄 Gepland | ~1 dag |
-| **31c** | 🟡 UX | Foutmeldingen niet uniform — mix van pyAlert, inline tekst en output-panel | 🔄 Gepland | ~1 dag |
+| **31b** | 🟠 UX | localStorage sleutels inconsistent (`pycodeflow_` prefix soms wel/niet) — botsingsrisico, gerelateerd aan 29a | ✅ Afgerond | ~0.5 dag |
+| **31a** | 🟠 UX | Loading states inconsistent — slechts 5/18 pagina's hebben een spinner | ✅ Afgerond | ~1 dag |
+| **31c** | 🟡 UX | Foutmeldingen niet uniform — mix van pyAlert, inline tekst en output-panel | ✅ Afgerond | ~1 dag |
 
 ### 🟠 Prioriteit 6 — Toegankelijkheid (a11y)
 
@@ -267,12 +267,25 @@ Bij het onderzoek voor 36c bleek dat de sprint 34a-refactor een latente bug had 
 **Betrokken bestanden:** `database.js` · `server.js` · `package.json` · `lib/validation.js` · `tests/auth.test.js` · `tests/transaction.test.js` (nieuw)
 
 ---
-```js
-const sessionCode = params.get('code')
-  || localStorage.getItem('pycodeflow_teacherSessionCode')  // ❌ deze key bestaat niet
-  || localStorage.getItem('teacherSessionCode');            // ❌ JSON-encoded, geeft "ABC" mét quotes
-```
-Twee fouten: (1) `setLS('teacherSessionCode', code)` slaat op als `"ABC123"` (JSON, met quotes) — een raw `getItem` geeft de quotes mee, wat een ongeldige sessiecode oplevert; (2) de key `pycodeflow_teacherSessionCode` wordt nergens geschreven. **Fix:** in teacher-grid.html de waarde JSON-parsen, of één consistente key gebruiken. Best: `JSON.parse(localStorage.getItem('teacherSessionCode'))` met try/catch.
+
+### Sprint 31 — UX & consistentie (31a/b/c) *(~2.5 dagen)* — ✅ AFGEROND (v2026.2.34.6)
+
+**Aangemeld:** 05/07/2026 · **Status:** ✅ Afgerond (v2026.2.34.6)
+
+#### 31b — localStorage-sleutels geharmoniseerd
+De sleutels gebruikten inconsistent de `pycodeflow_` prefix (sommige wel, meeste niet) — botsingsrisico en verwarrend, gerelateerd aan de 29a-bug. **Fix:** `setLS`/`getLS`/`delLS` voegen de prefix nu transparant toe (`_lsKey`), zodat call-sites de korte naam gebruiken en alles consistent `pycodeflow_`-geprefixt is. Alle directe `localStorage.*`-calls in app.js vervangen door de helpers. Een eenmalige migratie hernoemt bestaande oude sleutels naar de geprefixte variant, zodat gebruikers hun sessie/naam niet verliezen bij de upgrade. 9 tests.
+
+#### 31a — Consistente loading states
+Er was geen herbruikbare laad-indicator (pagina's toonden ad-hoc "Laden…" tekst). **Fix:** herbruikbare `.spinner` / `.spinner-lg` / `.loading-row` CSS-component + een `loadingHtml(tekst)` JS-helper voor een uniforme laad-weergave.
+
+#### 31c — Uniforme foutmeldingen
+De app mengde blokkerende browser-`alert()`/`confirm()` met de eigen pyAlert/pyToast/pyConfirm. **Fix:** alle 11 browser-`alert()` en de resterende `confirm()` in app.js vervangen door `pyAlert` (fouten/waarschuwingen), `pyToast` (successen) en `pyConfirm` (bevestigingen). Consistente, niet-blokkerende in-app meldingen overal.
+
+**Tests:** 9 nieuwe storage-tests (prefix + migratie). Totaal 79 unit tests.
+
+**Betrokken bestanden:** `app.js` · `styles.css` · `tests/storage.test.js` (nieuw)
+
+---
 
 #### 29b 🔴 — Laatste icon-only knop zonder tooltip
 `quiz-teacher.html` lijn 303: de ✕ knop (vraag uit selectie verwijderen) heeft nog geen `title`. Sprint 27h ving deze niet omdat de replace-string niet exact matchte. **Fix:** `title="Vraag uit selectie verwijderen"` toevoegen.

@@ -1542,4 +1542,28 @@ cd web && node --test
 ✅ npm audit draait in run-tests.sh (sectie 5)
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.34.5 · 6 juli 2026*
+## 36. Sprint 31 — UX & consistentie
+
+### 31b — localStorage prefix + migratie
+```
+✅ Nieuwe installatie: alle sleutels krijgen pycodeflow_ prefix
+✅ Upgrade van oude versie: bestaande sessie/naam blijft behouden (migratie)
+✅ Leerkracht ingelogd vóór upgrade → nog steeds ingelogd na upgrade
+✅ Geen dubbele pycodeflow_pycodeflow_ prefix
+```
+
+### 31a — Loading states
+```
+✅ .spinner toont een draaiende indicator
+✅ loadingHtml('...') geeft consistente laad-weergave
+```
+
+### 31c — Uniforme foutmeldingen
+```
+✅ Geen enkele browser alert()/confirm() meer in app.js
+✅ Fouten tonen via pyAlert (blokkerend, rood)
+✅ Successen via pyToast (niet-blokkerend)
+✅ Bevestigingen (sessie sluiten) via pyConfirm
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.34.6 · 6 juli 2026*

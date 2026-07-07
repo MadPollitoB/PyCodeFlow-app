@@ -267,6 +267,19 @@ kbd { background:var(--surface-soft); border:1px solid var(--border); border-rad
 /* ── Sprint 11 ───────────────────────────────────────────────────────────────── */
 .queue-pulse { display:inline-block; animation:queue-spin 1.5s linear infinite; }
 @keyframes queue-spin { 0%{transform:rotate(0deg);opacity:1;} 50%{transform:rotate(180deg);opacity:0.5;} 100%{transform:rotate(360deg);opacity:1;} }
+
+/* 31a: herbruikbare laad-spinner voor consistente loading states */
+@keyframes pcf-spin { to { transform: rotate(360deg); } }
+.spinner {
+  display: inline-block; width: 16px; height: 16px; vertical-align: middle;
+  border: 2px solid var(--border); border-top-color: var(--primary);
+  border-radius: 50%; animation: pcf-spin 0.7s linear infinite;
+}
+.spinner-lg { width: 28px; height: 28px; border-width: 3px; }
+.loading-row {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 20px; color: var(--muted); font-size: 0.9rem;
+}
 .session-row .badge { font-size:0.75rem; }
 
 /* ── Sprint 13 ───────────────────────────────────────────────────────────────── */
