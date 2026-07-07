@@ -932,7 +932,7 @@ actie_backup() {
           read -rp "  Bevestig restore van $(basename $gekozen)? (j/n): " confirm_r
           if [[ "$confirm_r" =~ ^[jJ]$ ]]; then
             PG_PW=$(get_env POSTGRES_PASSWORD)
-            zcat "$gekozen" | docker exec -i pycodeflow-postgres-1               psql -U pycodeflow pycodeflow
+            zcat "$gekozen" | docker exec -i -e PGPASSWORD="$PG_PW" pycodeflow-postgres-1 psql -U pycodeflow pycodeflow
             [[ $? -eq 0 ]] && ok "Restore voltooid!" || err "Restore mislukt"
           fi
         fi

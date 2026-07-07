@@ -49,6 +49,10 @@ const BASIC_AUTH_PASS_HASH = process.env.POC_BASIC_PASS_HASH || "";
 const BASIC_AUTH_LEGACY_PASS = process.env.POC_BASIC_PASS || "";
 const BASIC_AUTH_REALM = process.env.POC_BASIC_AUTH_REALM || "PyCodeFlow POC";
 const COOKIE_SECRET = process.env.POC_BASIC_COOKIE_SECRET || "";
+// 30a: sessieduur van het leerkracht-cookie (uren). Standaard 8u = een schooldag.
+// 0 of leeg → sessiecookie (verdwijnt bij sluiten browser, oud gedrag).
+const SESSION_MAX_AGE_HOURS = Math.max(0, Number(process.env.POC_SESSION_MAX_AGE_HOURS ?? 8));
+const SESSION_MAX_AGE_SECONDS = Math.round(SESSION_MAX_AGE_HOURS * 3600);
 
 // ── CSRF-bescherming ──────────────────────────────────────────────────────────
 // Genereer een server-side CSRF token per process-start.
@@ -312,7 +316,9 @@ function hasValidTeacherCookie(cookieHeader) {
 
 function setTeacherCookie(res) {
   if (!BASIC_AUTH_ENABLED) return;
-  res.setHeader("Set-Cookie", `teacher_auth=${encodeURIComponent(teacherCookieValue())}; Path=/; HttpOnly; SameSite=Strict; Secure`);
+  // 30a: expliciete Max-Age voor een bewuste sessieduur (standaard 8u = schooldag).
+  const maxAgePart = SESSION_MAX_AGE_SECONDS > 0 ? `; Max-Age=${SESSION_MAX_AGE_SECONDS}` : "";
+  res.setHeader("Set-Cookie", `teacher_auth=${encodeURIComponent(teacherCookieValue())}; Path=/; HttpOnly; SameSite=Strict; Secure${maxAgePart}`);
 }
 
 async function requireTeacherAuth(req, res, next) {
@@ -343,7 +349,8 @@ app.use((req, res, next) => {
     "img-src 'self' data:; " +
     "worker-src 'self' blob:; " +
     "connect-src 'self' ws: wss:; " +
-    "frame-ancestors 'none';"
+    "frame-ancestors 'none'; " +
+    "upgrade-insecure-requests;"
   );
   // Voorkomt dat de pagina in een iframe geladen wordt (clickjacking)
   res.setHeader('X-Frame-Options', 'DENY');

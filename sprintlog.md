@@ -33,9 +33,9 @@ Zonder tests is elke volgende sprint risicovol. De sprint 26/27 regressies waren
 
 | Sprint | Cat | Inhoud | Status | Inschatting |
 |---|---|---|---|---|
-| **30a** | 🟠 SEC | Login-cookie zonder Max-Age — geen bewuste sessieduur/timeout | 🔄 Gepland | ~0.5 dag |
-| **30c** | 🟠 SEC | `upgrade-insecure-requests` ontbreekt in CSP (HSTS is wel aanwezig) | 🔄 Gepland | ~0.2 dag |
-| **30d** | 🟡 SEC | Geen automatische DB-backup (cron) — enkel handmatig via pycodeflow.sh optie 16 | 🔄 Gepland | ~1 dag |
+| **30a** | 🟠 SEC | Login-cookie zonder Max-Age — geen bewuste sessieduur/timeout | ✅ Afgerond | ~0.5 dag |
+| **30c** | 🟠 SEC | `upgrade-insecure-requests` ontbreekt in CSP (HSTS is wel aanwezig) | ✅ Afgerond | ~0.2 dag |
+| **30d** | 🟡 SEC | Geen automatische DB-backup (cron) — enkel handmatig via pycodeflow.sh optie 16 | ✅ Afgerond | ~1 dag |
 | **30b** | 🟠 SEC | CSP `unsafe-inline` in script-src — verzwakt XSS-bescherming; 130 inline onclick handlers zijn de oorzaak (grote taak, na 32a) | 🔄 Gepland | ~3 dagen |
 
 ### 🟠 Prioriteit 4 — Data-integriteit & robuustheid
@@ -224,7 +224,24 @@ Voor een onderwijstool vaak ook een wettelijke vereiste (WCAG / EN 301 549).
 
 ---
 
-#### 29a 🔴 — teacher-grid sessiecode fallback werkt niet
+### Sprint 30 — Security hardening (30a/c/d) *(~1.7 dag)* — ✅ AFGEROND (v2026.2.34.4)
+
+**Aangemeld:** 05/07/2026 · **Status:** ✅ Afgerond (v2026.2.34.4)
+
+#### 30a — Login-cookie met Max-Age
+Het `teacher_auth` cookie werd zonder `Max-Age` gezet → sessiecookie dat verdween bij het sluiten van de browser, zonder bewuste sessieduur. **Fix:** configureerbare sessieduur via `POC_SESSION_MAX_AGE_HOURS` (standaard 8u = schooldag). `setTeacherCookie` voegt nu `Max-Age` toe; `0` behoudt het oude sessiecookie-gedrag. 6 tests.
+
+#### 30c — upgrade-insecure-requests in CSP
+De CSP miste `upgrade-insecure-requests`, waardoor mixed content niet automatisch naar HTTPS werd geüpgraded. **Fix:** directive toegevoegd aan de Content-Security-Policy header. 4 tests op de CSP-structuur.
+
+#### 30d — Automatische DB-backup
+Het backup-menu (pycodeflow.sh optie 16) verwees naar `scripts/backup-db.sh` dat **nooit bestond** — de hele backup- en cron-functie was dood. **Fix:** volwaardig `scripts/backup-db.sh` gemaakt: `pg_dump` → gzip → `backups/`, met retentie (`BACKUP_RETENTION_DAYS`, standaard 7d), lege-dump-detectie en logging. De bestaande cron-optie (dagelijks 02:00) werkt nu. Restore-flow gefixed (ontbrekende `PGPASSWORD`).
+
+**Tests:** 10 nieuwe tests in `tests/security.test.js` (cookie Max-Age, CSP). Totaal 64 unit tests.
+
+**Betrokken bestanden:** `server.js` · `scripts/backup-db.sh` (nieuw) · `pycodeflow.sh` · `.env.example` · `tests/security.test.js`
+
+---
 De sprint 27i fix voegde een fallback toe in `teacher-grid.html`:
 ```js
 const sessionCode = params.get('code')

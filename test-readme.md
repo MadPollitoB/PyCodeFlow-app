@@ -1486,4 +1486,30 @@ cd web && node --test
 ✅ "✓ Gekopieerd!" feedback na klikken
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.34.3 · 6 juli 2026*
+## 34. Sprint 30 — Security hardening
+
+### 30a — Login-cookie Max-Age
+```
+✅ Log in als leerkracht → cookie heeft Max-Age (standaard 8u)
+✅ Browser sluiten en heropenen binnen 8u → nog ingelogd
+✅ POC_SESSION_MAX_AGE_HOURS=0 → sessiecookie (oud gedrag)
+✅ Cookie behoudt HttpOnly, SameSite=Strict, Secure
+```
+
+### 30c — CSP upgrade-insecure-requests
+```
+✅ Response-header Content-Security-Policy bevat "upgrade-insecure-requests"
+✅ Geen unsafe-eval; frame-ancestors 'none' behouden
+```
+
+### 30d — Automatische DB-backup
+```
+✅ scripts/backup-db.sh bestaat en is uitvoerbaar
+✅ bash scripts/backup-db.sh → maakt backups/pycodeflow-<timestamp>.sql.gz
+✅ Lege/mislukte dump wordt gedetecteerd en verwijderd
+✅ Backups ouder dan BACKUP_RETENTION_DAYS (7d) worden opgeruimd
+✅ pycodeflow.sh optie 16 → 2: cronjob dagelijks 02:00
+✅ pycodeflow.sh optie 16 → 3: restore werkt (met PGPASSWORD)
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.34.4 · 6 juli 2026*

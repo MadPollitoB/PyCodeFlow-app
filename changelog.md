@@ -1,3 +1,26 @@
+## v2026.2.34.4 — Sprint 30: Security hardening (30a/c/d)
+
+### 30a — Login-cookie met Max-Age (bewuste sessieduur)
+Het teacher_auth cookie had geen Max-Age (verdween bij browser sluiten). Nu configureerbare
+sessieduur via POC_SESSION_MAX_AGE_HOURS (standaard 8u = schooldag). 0 = oud gedrag.
+
+### 30c — upgrade-insecure-requests in CSP
+CSP-directive toegevoegd zodat mixed content automatisch naar HTTPS wordt geüpgraded.
+
+### 30d — Automatische DB-backup werkt nu écht
+Het backup-menu (pycodeflow.sh optie 16) verwees naar een niet-bestaand backup-db.sh —
+de hele functie was dood. Nieuw scripts/backup-db.sh: pg_dump → gzip → backups/, met
+retentie (BACKUP_RETENTION_DAYS, standaard 7d), lege-dump-detectie en logging. De cron-optie
+(dagelijks 02:00) werkt nu. Restore-flow gefixed (ontbrekende PGPASSWORD).
+
+### Tests
+10 nieuwe tests in tests/security.test.js (cookie Max-Age, CSP-structuur). Totaal 64 unit tests.
+
+**Betrokken bestanden:** server.js · scripts/backup-db.sh (nieuw) · pycodeflow.sh ·
+.env.example · check-deployment.sh · tests/security.test.js
+
+---
+
 ## v2026.2.34.3 — Sprint 30-cfg + 30-copy: config-toepassen + contextuele kopieerknop
 
 > Let op: het versienummer loopt monotoon op en is ontkoppeld van het sprintnummer.
