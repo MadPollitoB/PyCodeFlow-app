@@ -79,11 +79,20 @@ Voor een onderwijstool vaak ook een wettelijke vereiste (WCAG / EN 301 549).
 
 | Sprint | Cat | Inhoud | Status | Inschatting |
 |---|---|---|---|---|
-| **33e** | 🟢 NICE | Toets dupliceren-knop (kopie als sjabloon) — kleine moeite, veel tijdwinst | 🔄 Gepland | ~0.5 dag |
-| **33d** | 🟢 NICE | Vraag-tags/labels voor filtering in vragenbank | 🔄 Gepland | ~1 dag |
-| **33a** | 🟢 NICE | Toets-resultaten exporteren naar Excel (.xlsx) naast PDF | 🔄 Gepland | ~2 dagen |
-| **33b** | 🟢 NICE | Leerling-voortgang grafiek in verbetermodule (scores per vraag) | 🔄 Gepland | ~2 dagen |
-| **33c** | 🟢 NICE | Volwaardig donker/licht UI-thema (los van editor) met `prefers-color-scheme` | 🔄 Gepland | ~2 dagen |
+| **33e** | 🟢 NICE | Toets dupliceren-knop (kopie als sjabloon) — kleine moeite, veel tijdwinst | ✅ Afgerond | ~0.5 dag |
+| **33d** | 🟢 NICE | Vraag-tags/labels voor filtering in vragenbank | ✅ Afgerond | ~1 dag |
+| **33a** | 🟢 NICE | Toets-resultaten exporteren naar Excel (.xlsx) naast PDF | ✅ Afgerond | ~2 dagen |
+| **33b** | 🟢 NICE | Leerling-voortgang grafiek in verbetermodule (scores per vraag) | ✅ Afgerond | ~2 dagen |
+| **38** | 🟢 NICE | Vraag dupliceren in het vragenoverzicht (los van toets dupliceren) | 🔄 Gepland | ~0.5 dag |
+
+### 🔵 Prioriteit 9 — Leerling-inzage in resultaten
+
+| Sprint | Cat | Inhoud | Status | Inschatting |
+|---|---|---|---|---|
+| **37d** | 🔵 FEAT | Nakijk-modus (leerkracht zet aan) + herlogin via naam+klas+code (geen localStorage) + strenge toegangscontrole | ✅ Afgerond | ~2 dagen |
+| **37a** | 🔵 FEAT | Leerling-nakijkscherm: eigen score + antwoorden per vraag | 🔄 Gepland | ~2 dagen |
+| **37b** | 🔵 FEAT | Juiste antwoorden (meerkeuze) + modelcode (leerkracht geeft in) tonen | 🔄 Gepland | ~2 dagen |
+| **37c** | 🔵 FEAT | Commentaar per vraag + algemeen commentaar zichtbaar voor leerling | 🔄 Gepland | ~1 dag |
 
 ### ⏸ Uitgesteld (bewust geparkeerd)
 
@@ -91,6 +100,189 @@ Voor een onderwijstool vaak ook een wettelijke vereiste (WCAG / EN 301 549).
 |---|---|---|---|---|
 | **14** | ⏸ | Google OAuth leerlingen | ⏸ Uitgesteld (later) | ~3 dagen |
 | **15** | ⏸ | Smartschool SSO | ⏸ Uitgesteld (optioneel) | ~1 week |
+
+> **Leerling-authenticatie — nog te beslissen.** Leerlingen identificeren zich nu via naam + klas + sessiecode. Er komt op termijn een echte login, maar de methode is nog niet gekozen: **Smartschool SSO** (sprint 15), **Google OAuth** (sprint 14), of een eigen login op **e-mail/gebruikersnaam**. Deze keuze raakt sprint 37 (nakijk-modus): zolang er geen echte login is, steunt de nakijk-toegang op naam+klas+code — een bewust aanvaarde beperking, afgeschermd door rate-limiting en doordat de leerkracht de nakijk-modus expliciet moet openstellen. Zodra de login er is, wordt de nakijk-toegang daarop gebaseerd.
+
+---
+
+## 🏫 Roadmap — van één school naar een verkoop-/verhuurbaar product (multi-tenant)
+
+**Aangemeld:** 07/07/2026 · **Status:** 🔄 Analyse + plan · **Totale inschatting: ~10-14 weken**
+
+### Waar het systeem nu vastloopt (bevindingen uit de code, 07/07/2026)
+
+De app is gebouwd als **single-tenant**: één installatie = één school. Dat werkt uitstekend voor Atheneum Hoboken, maar deze vijf zaken blokkeren uitrol naar meerdere scholen. Ze zijn hier concreet vastgesteld, niet verondersteld:
+
+1. **🔴 Geen tenant-begrip.** Er bestaat nergens een `school`/`tenant`/`organisatie`-entiteit. De schoolnaam is één omgevingsvariabele (`SCHOOL_NAME` in `server.js`). Geen enkele tabel (`teachers`, `classes`, `students`, `quiz_bank`, `sessions`, …) heeft een `school_id`. **Gevolg:** twee scholen kunnen niet in dezelfde database zonder elkaars data te zien.
+
+2. **🔴 Het leerkracht-cookie identificeert de leerkracht niet.** `teacherCookieValue()` berekent één HMAC uit `BASIC_AUTH_USER` — **dezelfde waarde voor iedereen**. `requireTeacherAuth()` controleert enkel *dát* er een geldig cookie is, niet *wie* het is. **Gevolg:** alle ingelogde leerkrachten zijn onderling inwisselbaar; er is geen echte per-gebruiker sessie. Ook `getActorFromReq()` leest een Basic-auth header die bij de cookie-flow niet meegestuurd wordt, dus de audit-log registreert waarschijnlijk vaak `onbekend`.
+
+3. **🔴 Geen data-isolatie tussen leerkrachten.** `listQuizBank()` filtert niet op `created_by` → elke leerkracht ziet elke vraag. `listClasses()` geeft alle klassen terug. De tabel `teacher_classes` (leerkracht↔klas) bestáát en er is zelfs een `listClassesForTeacher`-query, maar die wordt **nergens gebruikt om toegang te beperken**. De tabel `sessions` heeft **geen eigenaar-kolom** — geen `teacher_id`, niets.
+
+4. **🟠 Eén server-instance.** De live sessiestaat zit in een in-memory `Map` (`const sessions = new Map()`) en er is **geen Redis-adapter voor Socket.IO**. **Gevolg:** je kunt niet horizontaal schalen (geen tweede web-container), en bij een herstart is de live staat weg (wordt wel uit de DB hersteld, maar niet de socket-verbindingen).
+
+5. **🟠 Gedeelde runner.** Alle scholen zouden dezelfde Python-runner delen (`MAX_CONCURRENT_RUNS = 18`). Eén school die de runner belast, vertraagt alle andere. Geen quota of eerlijke verdeling per school.
+
+### Twee mogelijke modellen
+
+| | **A. Instance-per-school** | **B. Echte multi-tenant** |
+|---|---|---|
+| **Hoe** | Elke school krijgt een eigen container + eigen database | Eén installatie, alle scholen in dezelfde DB, gescheiden via `school_id` |
+| **Werk nu** | Weinig (~2-3 weken) | Veel (~10-14 weken) |
+| **Isolatie** | Perfect (fysiek gescheiden) | Logisch (afhankelijk van correcte filtering) |
+| **Beheer** | Zwaar: elke school apart updaten, backuppen, monitoren | Licht: één update voor iedereen |
+| **Kosten/school** | Hoog (eigen container + DB) | Laag (gedeeld) |
+| **Schaalt tot** | ~10-20 scholen handmatig | Honderden |
+
+**Aanbeveling:** begin met **model A** als je 1-5 scholen wil bedienen (snel geld verdienen, weinig risico), maar bouw **stap 1 en 2 hieronder nu al** zodat de overstap naar B later geen herschrijving vraagt. Voor een echt "verkoopbaar" SaaS-product (>10 scholen) is **B** nodig.
+
+### Plan van aanpak — gefaseerd
+
+#### Fase 1 — Echte per-gebruiker authenticatie *(~2 weken)* 🔴 FUNDAMENT
+Dit moet sowieso, in beide modellen. Zonder dit is niets anders zinvol.
+- Vervang het gedeelde HMAC-cookie door een **sessie per gebruiker**: een `teacher_sessions`-tabel (of ondertekende JWT) met `teacher_id`, `expires_at`, `created_at`.
+- `requireTeacherAuth()` laadt de leerkracht uit de sessie en zet `req.teacher = { id, username, role, school_id }`.
+- `getActorFromReq()` gebruikt `req.teacher` i.p.v. de Basic-auth header → audit-log klopt eindelijk.
+- Uitloggen = sessie invalideren (nu onmogelijk, want het cookie is een vaste waarde).
+- **Tests:** twee leerkrachten krijgen verschillende cookies; leerkracht A's cookie geeft geen toegang tot B's identiteit; verlopen sessie → 401.
+
+#### Fase 2 — Eigenaarschap + autorisatie *(~2 weken)* 🔴 FUNDAMENT
+- Voeg `teacher_id` (eigenaar) toe aan `sessions` en gebruik `created_by` op `quiz_bank` daadwerkelijk om te filteren.
+- Autorisatiemiddleware: een leerkracht mag enkel eigen sessies openen/sluiten/verwijderen; een admin mag alles binnen de school.
+- Gebruik de bestaande `teacher_classes` om klassen te filteren (`listClassesForTeacher` bestaat al, wordt nu genegeerd).
+- **Deelbaarheid:** vragenbank wordt standaard privé, met een expliciete "delen met collega's"-vlag per vraag (`shared` boolean). Anders is de bank onbruikbaar in een school met 10 leerkrachten.
+- **Tests:** A ziet B's sessies niet; A kan B's vraag niet bewerken; gedeelde vragen zijn zichtbaar; admin ziet alles binnen de eigen school.
+
+#### Fase 3 — Tenant-model (`school_id`) *(~3 weken)* — alleen bij model B
+- Nieuwe tabel `schools` (naam, logo, licentie, contact, aangemaakt_op, actief).
+- `school_id` toevoegen aan: `teachers`, `classes`, `students`, `quiz_bank`, `sessions`, `audit_log` (+ migraties, bestaande data → school 1).
+- **Elke** query filtert op `school_id`. Dit is het risicovolste deel: één vergeten filter = datalek tussen scholen.
+- Mitigatie: filtering afdwingen op één centrale plek (een `scopedQuery(schoolId, …)`-helper of PostgreSQL **Row-Level Security**), niet per query handmatig. RLS is hier sterk aan te raden — de database dwingt het dan af, niet de applicatiecode.
+- Aparte super-admin rol (Anthropic-style "beheerder over scholen heen") voor jou als leverancier.
+- **Tests:** uitgebreide isolatie-suite — school A ziet nul rijen van school B, per tabel. Dit verdient de zwaarste testinspanning van het hele project.
+
+#### Fase 4 — Schaalbaarheid *(~2 weken)*
+- **Socket.IO Redis-adapter** + verwijder de in-memory `sessions`-Map als bron van waarheid (of synchroniseer via Redis) → meerdere web-containers mogelijk.
+- **Runner-quota per school**: eerlijke verdeling van `MAX_CONCURRENT_RUNS`, of een runner-pool per school. Voorkomt dat één school de rest platlegt.
+- Connection pooling nakijken (`pg` pool-grootte) en indexen controleren op de nieuwe `school_id`-kolommen.
+- Load-test met de bestaande stress-test-tooling, maar dan met meerdere scholen tegelijk.
+
+#### Fase 5 — Product-laag *(~3 weken)* — pas zinvol na 1-3
+Wat een systeem "verkoopbaar" maakt bovenop de techniek:
+- **Onboarding**: een school aanmaken, eerste admin uitnodigen, klassen importeren (CSV), zonder dat jij handmatig in de DB moet.
+- **Licentie/abonnement**: limieten per school (aantal leerkrachten, leerlingen, sessies), vervaldatum, en wat er gebeurt bij verlopen.
+- **Branding per school**: logo en naam nu via `SCHOOL_NAME` env-var → naar de `schools`-tabel (staat al deels klaar in de PDF-export).
+- **Facturatie**: buiten scope van de app zelf, maar de licentiedata moet het ondersteunen.
+- **Selfservice-beheer**: wachtwoord-reset per e-mail (nu enkel via `pycodeflow.sh` op de NAS — onwerkbaar voor externe scholen).
+- **Status/monitoring per school**: de bestaande monitoring-pagina uitbreiden met een school-filter.
+
+#### Fase 6 — Juridisch & operationeel *(parallel, niet-technisch)*
+Bij verkoop aan scholen worden dit harde eisen, geen bijzaken:
+- **GDPR/AVG**: verwerkersovereenkomst per school, bewaartermijnen (leerlingdata!), recht op verwijdering, dataportabiliteit. Je verwerkt persoonsgegevens van minderjarigen — dit is zwaarder gereguleerd.
+- **Toegankelijkheid**: Prioriteit 6 (a11y) is voor overheidsscholen een **wettelijke** vereiste (EN 301 549 / WCAG 2.1 AA). Nu geparkeerd; wordt bij verkoop verplicht.
+- **Hosting**: de NAS + Cloudflare-tunnel volstaat niet voor meerdere scholen (beschikbaarheid, backup-garanties, SLA). Verhuizen naar een echte hostingomgeving.
+- **Backup & herstel per school**: `backup-db.sh` dumpt nu de hele database. Bij multi-tenant wil je per school kunnen herstellen zonder de rest te raken.
+- **Support & updates**: hoe rol je een fix uit, hoe communiceer je downtime, wie is aanspreekpunt.
+
+### Aanbevolen volgorde
+
+1. **Eerst de openstaande sprints afwerken** (37, 38, en Prioriteit 6 a11y — die laatste wordt juridisch verplicht).
+2. **Fase 1 + 2** (echte login + eigenaarschap): ~4 weken. Dit heeft **ook nu al waarde** voor één school met meerdere leerkrachten — vandaag zien collega's elkaars vragen en sessies. Dit is de beste eerstvolgende investering, ongeacht of je ooit verkoopt.
+3. **Beslismoment:** model A (instance per school) of B (multi-tenant)? Hangt af van je ambitie: 5 scholen of 50.
+4. Bij model B: **fase 3** met Row-Level Security, en een isolatie-testsuite die je serieus neemt.
+5. **Fase 4 + 5** wanneer de eerste betalende school er is.
+6. **Fase 6** parallel opstarten zodra verkoop concreet wordt — juridisch loopt vaak trager dan techniek.
+
+### Belangrijkste risico's
+
+- **Datalek tussen scholen** (fase 3). Eén vergeten `WHERE school_id = …` en school A ziet de toetsen van school B. Daarom RLS op databaseniveau i.p.v. vertrouwen op applicatiecode.
+- **Migratie van bestaande data.** Atheneum Hoboken draait live; alles moet naar `school_id = 1` zonder verlies.
+- **Scope-creep in fase 5.** Facturatie en onboarding zijn een product op zich. Begin handmatig (jij maakt scholen aan), automatiseer pas bij volume.
+- **De fundament-fases overslaan.** Fase 3 bouwen zonder fase 1-2 betekent dat je tenant-isolatie bouwt op een auth-systeem dat gebruikers niet eens uit elkaar houdt.
+
+---
+
+## 🧭 Domeinmodel & instapstructuur (aanvulling 07/07/2026)
+
+Deze sectie werkt het **datamodel** en de **entry points** uit die bij fase 2-3 horen. Ze vormen de kern van het multi-tenant ontwerp.
+
+### Instapstructuur (domeinen & flows)
+
+Huidige situatie: `pycodeflow.org` = startpagina, `app.pycodeflow.org` = keuzepagina.
+
+**Voorgestelde structuur:**
+
+```
+pycodeflow.org                      → publieke startpagina + keuze: leerkracht of leerling
+   ├── leerling   → app.pycodeflow.org/student   → leerling-login  OF  "vrije sessie"
+   └── leerkracht → app.pycodeflow.org/teacher   → leerkracht-login
+                                                     └── indien >1 school: school-keuze (pop-up)
+```
+
+- **`pycodeflow.org`** blijft de marketing-/landingspagina. Enige functie in de app-flow: doorverwijzen naar de juiste ingang. Geen inlogformulier hier.
+- **Leerling** → `app.pycodeflow.org` met ofwel de leerling-login (zodra sprint 14/15 gekozen is), ofwel de bestaande **vrije sessie** (code + naam + klas). De vrije-oefenmodus moet blijven werken **zonder** account — dat is een sterkte, niet iets om weg te ontwerpen.
+- **Leerkracht** → eigen login. **Als de leerkracht aan meerdere scholen hangt**, verschijnt na het inloggen een **school-keuze** (modal). De gekozen school komt in de sessie (`req.teacher.active_school_id`) en bepaalt vanaf dan **alle** zichtbare data. Wisselen van school = een expliciete actie in de navigatiebalk die de sessie-scope herzet.
+
+**Belangrijk beveiligingspunt:** de actieve school mag **nooit** uit een URL-parameter of request-body komen — enkel uit de server-side sessie, en enkel na controle dat de leerkracht daadwerkelijk aan die school gekoppeld is. Anders volstaat het een id te wijzigen om andermans school te bekijken.
+
+### Domeinmodel
+
+De hiërarchie die je beschrijft:
+
+```
+school
+  └── leerkracht        (veel-op-veel: een leerkracht kan aan meerdere scholen hangen)
+        └── klas        (per school én per schooljaar)
+              └── leerling  (lidmaatschap geldt per schooljaar)
+```
+
+**Wat er al is (goed nieuws):**
+- `classes` heeft **al** `school_year` én `archived`. Archiveren van een jaar bestaat dus al.
+- `quiz_meta` heeft **al** `school_year` — toetsen zijn al per jaar getagd.
+- `teacher_classes` (leerkracht↔klas, veel-op-veel) bestaat al — maar wordt nergens gebruikt om toegang te beperken (zie fase 2).
+
+**Wat ontbreekt — en één echt modelprobleem:**
+
+1. **Geen `schools`-tabel** en geen `school_id` op `classes`/`teachers`. → fase 3.
+
+2. **🔴 Leerling-lidmaatschap is niet per jaar.** Dit is het belangrijkste ontwerppunt. `students.class_id` is een **directe verwijzing naar één klas**. Een leerling hoort dus in het datamodel voor altijd bij precies één klas. Maar terecht opgemerkt: *"de klas met hun studenten is altijd afhankelijk van jaar aangezien de samenstelling wijzigt."*
+
+   Met het huidige model kan dat niet. Verplaats je een leerling naar de klas van volgend jaar, dan lijkt het alsof hij vorig jaar óók al in die klas zat — de historiek klopt niet meer. Maak je een nieuwe leerling-rij per jaar, dan verlies je de identiteit (dezelfde persoon, twee records; `google_email` is bovendien `UNIQUE`, dus dat botst zelfs).
+
+   **Oplossing: een koppeltabel voor lidmaatschap.**
+   ```sql
+   CREATE TABLE class_memberships (
+     student_id   TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+     class_id     TEXT NOT NULL REFERENCES classes(id)  ON DELETE CASCADE,
+     school_year  TEXT NOT NULL,
+     status       TEXT NOT NULL DEFAULT 'active',   -- active | left | pending
+     PRIMARY KEY (student_id, class_id, school_year)
+   );
+   ```
+   De leerling (persoon) bestaat **één keer**; het lidmaatschap van een klas bestaat **per schooljaar**. Zo blijft de historiek intact: je ziet dat Jan in 2024-2025 in 3A zat en in 2025-2026 in 4B. `students.class_id` wordt daarmee overbodig (migratie: bestaande koppelingen omzetten naar een membership-rij met het huidige schooljaar).
+
+3. **Inzage in vorige jaren.** Zodra lidmaatschap per jaar bestaat, wordt dit vanzelf mogelijk. Nodig:
+   - Een **schooljaar-selector** in de leerkracht-UI (klassen, vragenbank, toetsarchief). Standaard het huidige jaar; gearchiveerde jaren blijven kiesbaar.
+   - Gearchiveerde klassen/jaren zijn **read-only**: bekijken en exporteren mag, wijzigen niet. Dat voorkomt dat oude cijfers per ongeluk veranderen.
+   - De bestaande `archived`-vlag blijft de "verborgen tenzij expliciet getoond"-schakelaar; ze mag data **nooit verwijderen**.
+   - Let op bewaartermijnen (GDPR, fase 6): oude leerlingdata mag niet eeuwig bewaard blijven. Een expliciet bewaarbeleid per school is nodig.
+
+### Extra sprints die hieruit volgen
+
+| Sprint | Cat | Inhoud | Status | Inschatting |
+|---|---|---|---|---|
+| **40** | 🔵 ARCH | `class_memberships`-tabel: leerling-lidmaatschap per schooljaar (+ migratie van `students.class_id`) | 🔄 Gepland | ~1 week |
+| **41** | 🔵 ARCH | Schooljaar-selector in de leerkracht-UI + read-only gearchiveerde jaren | 🔄 Gepland | ~3 dagen |
+| **42** | 🔵 ARCH | Instapstructuur: `pycodeflow.org` keuzepagina → gescheiden leerling-/leerkracht-ingang | 🔄 Gepland | ~2 dagen |
+| **43** | 🔵 ARCH | School-keuze bij leerkracht-login (modal indien >1 school) + `active_school_id` in de sessie | 🔄 Gepland | ~3 dagen |
+
+**Afhankelijkheden:** sprint 43 vereist fase 1 (echte per-gebruiker sessie) én fase 3 (`schools`-tabel). Sprint 40 kan **nu al**, onafhankelijk van multi-tenancy — en is ook voor één school waardevol, want vandaag kun je de klassamenstelling van vorig jaar niet correct bewaren. Sprint 42 kan eveneens nu al.
+
+**Aanbeveling:** doe **sprint 40 vroeg**. Hoe langer je wacht, hoe meer schooljaren met een fout model in de database staan, en hoe pijnlijker de migratie wordt.
+
+---
+
+> **Leerling-authenticatie — nog te beslissen.** Leerlingen identificeren zich nu via naam + klas + sessiecode. Er komt op termijn een echte login, maar de methode is nog niet gekozen: **Smartschool SSO** (sprint 15), **Google OAuth** (sprint 14), of een eigen login op **e-mail/gebruikersnaam**. Deze keuze raakt sprint 37 (nakijk-modus): zolang er geen echte login is, steunt de nakijk-toegang op naam+klas+code — een bewust aanvaarde beperking, afgeschermd door rate-limiting en doordat de leerkracht de nakijk-modus expliciet moet openstellen. Zodra de login er is, wordt de nakijk-toegang daarop gebaseerd.
 
 ---
 
@@ -309,6 +501,121 @@ Monaco wordt geserveerd vanuit `node_modules/monaco-editor`; de versie is sinds 
 
 ---
 
+### Sprint 38 — Vraag dupliceren in het vragenoverzicht *(~0.5 dag)* — 🔄 GEPLAND
+
+**Aangemeld:** 07/07/2026 · **Status:** 🔄 Gepland
+
+**Doel:** naast een hele toets dupliceren (33e) moet ook een **losse vraag** in de vragenbank gedupliceerd kunnen worden. Handig om een variant te maken van een bestaande vraag (andere getallen, andere opties) zonder alles opnieuw in te typen.
+
+**Onderscheid met 33e:** 33e dupliceert een **toets** (sessie + vraag-snapshots). Sprint 38 dupliceert één **bankvraag** in het vragenoverzicht (`quiz-bank.html`) — de bron, niet een toets-snapshot.
+
+**Uitgangspunt:** `createQuizQuestion({ text, subject, difficulty, maxPoints, questionType, choicesJson, tags, createdBy })` bestaat al en neemt alle velden aan. Dupliceren is dus vooral: de bestaande vraag ophalen, de velden hergebruiken, en met een aangepaste titel opnieuw wegschrijven.
+
+**Uit te voeren:**
+- **Nieuw endpoint** `POST /api/quiz/bank/:id/duplicate` (teacher, CSRF): haalt de bronvraag op en maakt een kopie met alle velden — `text` (met een duidelijke markering, bv. `" (kopie)"` achteraan of vooraan), `subject`, `difficulty`, `max_points`, `question_type`, `choices_json`, `tags`, en **`model_answer`** (zodra dat veld bestaat na sprint 37b). Nieuwe `id`, `created_by` = huidige leerkracht, verse `created_at`/`updated_at`, `archived = false`.
+- **Belangrijk bij meerkeuze:** de `choices_json` bevat per optie een eigen `id`. Bij het dupliceren moeten die **nieuwe id's** krijgen (anders delen twee vragen dezelfde optie-id's). Zelfde valkuil als bij de 33e-bugfix — hier vooraf afvangen.
+- **UI:** een "⧉ Dupliceren"-knop op elke vraagkaart in `quiz-bank.html`/`quiz-bank.js`, naast bewerken/archiveren. Na dupliceren de lijst herladen en (optioneel) meteen het bewerk-formulier openen op de kopie, zodat de leerkracht direct kan aanpassen.
+- **Duplicaat-detectie:** de bank heeft al een controle op identieke vraagtekst (zie `SELECT 1 FROM quiz_bank WHERE text = $1`). De `" (kopie)"`-suffix voorkomt dat die controle de duplicatie blokkeert; dit expliciet verifiëren.
+
+**Tests (verwacht):** kopie bevat alle velden (incl. tags, question_type, choices, model_answer); optie-id's zijn nieuw en niet gedeeld met het origineel; archived-vlag staat op false; de vraagtekst is gemarkeerd als kopie. ~5 tests.
+
+**Betrokken bestanden (verwacht):** `server.js` · `db/database.js` (`getQuizQuestionById` indien nog niet aanwezig) · `quiz-bank.html` · `quiz-bank.js` · `tests/`
+
+---
+
+### Sprint 37 — Leerling-inzage in resultaten (37a/b/c/d) *(~7 dagen)* — 🔄 IN UITVOERING
+
+**Aangemeld:** 07/07/2026 · **Status:** 37d ✅ afgerond (v2026.2.37.0) · 37a/b/c 🔄 gepland
+
+**Doel:** na een toets kan de leerkracht een **nakijk-modus** openstellen. Leerlingen loggen dan (op om het even welk toestel) opnieuw in met dezelfde toets en zien hun eigen antwoorden, score per vraag, de juiste antwoorden, de modelcode van de leerkracht, en het commentaar per vraag + algemeen.
+
+**Bevestigde ontwerpkeuzes:**
+1. **Inzage wanneer de leerkracht het aanzet.** Niet automatisch bij "resultaten vrijgeven", maar via een aparte **nakijk-modus** die de leerkracht expliciet aanvinkt. Zolang die aan staat, kunnen leerlingen de betreffende toets (sessiecode is bekend) opnieuw openen — maar in **read-only nakijk-modus**, niet om te antwoorden.
+2. **Elk toestel.** De leerling-identificatie mag **niet** op localStorage steunen. Herkenning gebeurt via **naam + klas + sessiecode** (exact zoals bij het oorspronkelijke deelnemen). Zo kan een leerling thuis op een andere pc de nakijk-modus openen.
+3. **Modelcode.** De leerkracht kan per vraag een **modelantwoord/modelcode** ingeven, die in de nakijk-modus getoond wordt. De modelcode hoort bij de vraag, dus hij wordt automatisch meegekopieerd wanneer een toets gedupliceerd wordt (33e) én wanneer een vraag gedupliceerd wordt (nieuw, sprint 38).
+
+**Uitgangspunt (wat er al is):**
+- `quiz_meta.results_released` + `POST /api/quiz/:code/release` + socket-event `quiz_results_released` bestaan. De leerling-handler is echter leeg.
+- Per antwoord: `score`, `teacher_comment`, `selected_choices`. Plus `quiz_general_comments`-tabel.
+- Vraag-snapshots (`quiz_question_snapshots`) met `choices_json` (juiste antwoorden), maar **nog geen modelcode-veld**.
+- Leerling-join via `student_join` (naam + klas + code) — dit is de sleutel voor herkenning op elk toestel.
+
+#### 37d — Nakijk-modus + toegangscontrole — ✅ AFGEROND (v2026.2.37.0)
+
+**🔑 Belangrijke vondst tijdens de bouw:** `quiz_answers.student_id` is **niet** het id uit de `students`-tabel, maar een sessie-gebonden `crypto.randomUUID()` die bij het joinen wordt aangemaakt (server.js). Het DB-student-id staat apart als `student.dbStudentId`. Naam+klas → `student_id` kan dus **niet** via de `students`-tabel; het gebeurt via `quiz_answers` zelf, dat `student_name` en `student_class` als tekst-momentopname bewaart. Dat blijkt een voordeel: die tabel overleeft het einde van de les, dus nakijken werkt ook dagen later zonder dat de sessie nog in het geheugen zit.
+> ⚠️ Gevolg: een sessie **verwijderen** cascadeert en wist de nakijk-data. Archiveren behoudt ze.
+
+**Uitgevoerd:**
+- **Database:** kolom `quiz_meta.review_mode BOOLEAN DEFAULT false` (+ migratie én in `CREATE TABLE` voor verse installaties). Functies `setReviewMode(code, enabled)` en `findAnswerStudent(code, naam, klas)` (case-insensitive, trim).
+- **Nieuw: `lib/review-token.js`** — stateless, HMAC-SHA256-ondertekend token `base64url(payload).base64url(hmac)` met `{ code, studentId, exp }`, standaard 2u geldig. Ondertekend met `COOKIE_SECRET`. Constante-tijd handtekeningvergelijking. Geen extra tabel nodig.
+- **`POST /api/quiz/:code/review-mode`** (teacher + CSRF): zet nakijken aan/uit, audit-log, socket-event `quiz_review_mode`.
+- **`POST /api/quiz/:code/review-login`** (publiek, rate-limited via bestaande `checkJoinRateLimit`, 10/min):
+  - `review_mode = false` **of** toets bestaat niet → **403** met identieke melding (lekt geen toetscodes).
+  - Geen match → **404** met generieke tekst (geen naam-enumeratie).
+  - Meerdere matches (dubbele naam+klas) → **409** met verwijzing naar de leerkracht.
+  - Unieke match → **200** + token.
+- **`requireReviewToken`-middleware:** haalt `studentId` **uitsluitend** uit het ondertekende token, nooit uit de URL. Controleert nakijk-modus, handtekening, vervaltijd, én dat `token.code === :code` (token van toets A werkt niet op toets B). Klaar voor gebruik in 37a.
+- **Leerkracht-UI:** knop "👁 Nakijken: aan/uit" naast "Vrijgeven" in `quiz-review.html`/`.js`, met bevestigingsdialoog en statusweergave uit `meta.review_mode`.
+- **Leerling-UI:** `?nakijken=1` toont een apart nakijk-loginscherm (naam + klas) in `quiz-student.html`. De live-toetsflow blijft **volledig ongemoeid**. Het token blijft in een JS-variabele — **geen localStorage**, dus inzage werkt op elk toestel en laat niets achter op een gedeelde computer.
+- Leeg `#review-screen` klaargezet; wordt in 37a gevuld.
+
+**Tests:** 12 nieuwe tests in `tests/review.test.js` (token geldig/verlopen/vervalst/gemanipuleerd/onzin, token van andere toets, en de vijf beslisregels van review-login). Totaal **114 unit tests**.
+
+**Bewust aanvaarde beperking:** wie naam, klas én toetscode kent, kan andermans nakijk-scherm openen. Dat is exact hoe deelnemen vandaag al werkt (zie sprint 14/15). Afgeschermd door rate-limiting en doordat de leerkracht de modus expliciet moet openstellen.
+
+**Betrokken bestanden:** `db/database.js` · `server.js` · `lib/review-token.js` (nieuw) · `quiz-review.html` · `quiz-review.js` · `quiz-student.html` · `quiz-student.js` · `run-tests.sh` · `tests/review.test.js` (nieuw)
+
+#### 37a — Leerling-resultatenscherm *(~2 dagen)*
+- **Nieuw endpoint** `GET /api/quiz/:code/my-result` — achter de `requireReviewToken`-middleware uit 37d. **Geen `studentId` in de URL**: dat komt uitsluitend uit het ondertekende token, anders kan iemand andermans resultaten opvragen door het id te wijzigen. Geeft per vraag de vraagtekst, het eigen antwoord (code of gekozen opties), score + max, plus totaalscore.
+- **Nieuw scherm** in `quiz-student.html` (`review-screen`): totaalscore bovenaan, dan per vraag een kaartje. Hergebruik van de SVG-voortgangsgrafiek uit sprint 33b (`renderProgressChart`).
+- De leerling komt hier via de herlogin uit 37d (naam+klas+code in nakijk-modus). De lege `socket.on('quiz_results_released')`-handler wordt vervangen/aangevuld door de nakijk-flow.
+
+#### 37b — Juiste antwoorden + modelcode tonen *(~2 dagen)*
+- **Modelcode-opslag:** nieuw veld `quiz_question_snapshots.model_answer` (TEXT, default '') + migratie. Ook `quiz_bank.model_answer` zodat de modelcode aan de bronvraag hangt en automatisch mee overgenomen wordt in nieuwe toetsen.
+- **Toets dupliceren (33e) moet de modelcode meekopiëren.** Dit is triviaal: het model-antwoord staat per vraag op de snapshot, en de duplicate-logica mapt de snapshot-velden al expliciet (`questionType`, `choicesJson`, …). Er komt simpelweg `modelAnswer: q.model_answer || ''` bij in die map. **Testcase toevoegen** die borgt dat een gedupliceerde toets de modelcode behoudt (net zoals we dat voor `question_type`/`choices` doen sinds de 33e-fix).
+- **Leerkracht-UI:** per vraag in de verbetermodule een veld "Modelantwoord / modelcode". Nieuw endpoint `PUT /api/quiz/:code/question/:questionId/model` om het op te slaan.
+- **Leerlingweergave meerkeuze/single:** alle opties tonen, de **juiste** groen ✓ gemarkeerd, de **eigen keuze** aangeduid (rood ✗ indien fout).
+- **Leerlingweergave code/open:** eigen antwoord + score + (indien ingevuld) de modelcode in een apart "modeloplossing"-blok, met syntax-highlighting/Markdown.
+
+#### 37c — Commentaar zichtbaar voor leerling *(~1 dag)*
+- Per vraag: `teacher_comment` tonen onder het antwoord in een "commentaar"-blok (Markdown via marked + DOMPurify, zodat code-blokjes werken). Leeg commentaar → geen blok.
+- Algemeen: `general_comment` bovenaan of onderaan het nakijk-scherm.
+
+**Volgorde van uitvoering:** 37d eerst (fundament + beveiliging), dan 37a (scherm), dan 37b (antwoorden + modelcode), dan 37c (commentaar). Test na elke stap.
+
+**Opmerking over leerling-authenticatie:** de herlogin steunt op naam + klas + sessiecode, wat overeenkomt met hoe leerlingen nu al deelnemen. Dit is dus geen nieuwe zwakte, maar wel een bewust aanvaarde beperking: iemand die naam, klas én sessiecode kent, kan andermans nakijk-scherm openen. Een echte leerling-login (Smartschool SSO / Google OAuth / e-mail of gebruikersnaam) is voorzien maar nog niet gekozen — zie sprints 14/15 (uitgesteld). Zodra die er is, wordt de nakijk-toegang daarop gebaseerd i.p.v. op naam+klas. **Tot dan:** rate-limiting op de herlogin en enkel toegang wanneer de leerkracht de nakijk-modus expliciet openstelt.
+
+**Tests (verwacht):** toegangscontrole (nakijk aan/uit, eigen/andermans), correct-answer-marking, modelcode-opslag + weergave, modelcode overleeft toets-duplicatie, commentaar leeg vs. gevuld. ~12-15 nieuwe tests.
+
+**Betrokken bestanden (verwacht):** `server.js` · `db/database.js` (review_mode + model_answer kolommen + queries) · `quiz-student.html` · `quiz-student.js` · `quiz-review.js` · `styles.css` · `tests/`
+
+---
+
+### Sprint 33 — Nice-to-haves (33a/b/d/e) *(~3.5 dagen)* — ✅ AFGEROND (v2026.2.34.9)
+
+**Aangemeld:** 05/07/2026 · **Status:** ✅ Afgerond (v2026.2.34.9) · 33c GESCHRAPT
+
+#### 33e — Toets dupliceren
+De knop + endpoint bestonden al, maar de duplicate-logica bewaarde `question_type` en `choices_json` niet → meerkeuzevragen werden code-vragen bij het dupliceren. **Fix:** vraagtype + keuzes worden nu meegekopieerd.
+
+#### 33d — Vraag-tags in de vragenbank
+Nieuwe `tags`-kolom in `quiz_bank` (komma-gescheiden, met migratie). De vragenbank-UI heeft nu een tags-invoerveld en een tag-filter. Tags worden als chips op de vraagkaarten getoond. Filtering client-side (deelstring, hoofdletterongevoelig). Server valideert (max 200 tekens).
+
+#### 33a — Scores exporteren naar Excel (CSV)
+Nieuw endpoint `/api/quiz/:code/export/csv`: een scores-samenvatting met één rij per leerling, een kolom per vraag + totaal. Puntkomma-gescheiden en met UTF-8 BOM zodat het direct correct in Excel opent (NL-locale). **Bewuste keuze voor CSV i.p.v. .xlsx**: opent net zo goed in Excel, maar zonder externe dependency — past bij de minimal-deps aanpak (36d). Toegevoegd als optie 8 in het export-menu van de verbetermodule.
+
+#### 33b — Voortgangsgrafiek in de verbetermodule
+Een kleine SVG-staafgrafiek (geen dependency) toont per vraag de score t.o.v. het maximum, met kleurcodering: groen = volledig, oranje = deels, rood = nul, grijs = nog niet beoordeeld. Verschijnt boven de vraag-details zodra een leerling geselecteerd wordt.
+
+#### 33c — ❌ GESCHRAPT
+Donker/licht UI-thema: bewust geschrapt (07/07/2026) — wordt niet gedaan.
+
+**Tests:** 10 nieuwe tests (CSV-matrix + tag-filtering). Totaal 102 unit tests.
+
+**Betrokken bestanden:** `server.js` · `db/database.js` · `quiz-bank.html` · `quiz-bank.js` · `quiz-review.js` · `styles.css` · `tests/export.test.js` (nieuw)
+
+---
+
 ### Sprint 30b-A — CSP-hardening TIJDELIJK (Optie A) *(~0.5 dag)* — ✅ AFGEROND (v2026.2.34.8)
 
 **Aangemeld:** 07/07/2026 · **Status:** ✅ Afgerond (v2026.2.34.8)
@@ -455,8 +762,8 @@ Naast de bestaande PDF-export ook `.xlsx` aanbieden in de verbetermodule, met le
 #### 33b 🟢 — Voortgangsgrafiek per leerling
 In de verbetermodule een klein staafdiagram tonen: score per vraag, zodat de leerkracht in één oogopslag ziet waar een leerling struikelde.
 
-#### 33c 🟢 — Donker/licht UI-thema (volledige app)
-De editor is nu altijd donker (sprint 27j), maar een volwaardig UI-thema voor de hele app (los van de editor) met systeem-detectie (`prefers-color-scheme`) is een veelgevraagde nice-to-have. Let op: eerder verwijderd (sprint 23q) omdat het half-af was — nu volledig en consistent opzetten.
+#### 33c — ❌ GESCHRAPT
+Donker/licht UI-thema voor de hele app: bewust geschrapt (07/07/2026) — wordt niet gedaan. De editor blijft altijd donker (sprint 27j).
 
 #### 33d 🟢 — Vraag-tags in vragenbank
 Naast onderwerp en moeilijkheid ook vrije tags/labels toevoegen aan vragen, met filtering. Handig bij grote vragenbanken.

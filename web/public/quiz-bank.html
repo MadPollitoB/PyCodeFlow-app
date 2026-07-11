@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Vragenbank</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.34.7"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.34.9"/>
   <style>
     .qb-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px; }
     @media(max-width:900px){ .qb-grid { grid-template-columns:1fr; } }
@@ -216,6 +216,7 @@
         <option value="gemiddeld">Gemiddeld</option>
         <option value="moeilijk">Moeilijk</option>
       </select>
+      <input id="filter-tag" placeholder="Filter op tag…" style="max-width:160px;" oninput="loadQuestions()"/>
       <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;">
         <input type="checkbox" id="show-archived" onchange="loadQuestions()"> Toon gearchiveerd
       </label>
@@ -366,6 +367,12 @@
           <input type="number" id="q-points" value="4" min="1" max="100"/>
         </div>
       </div>
+      <div class="form-row">
+        <div style="flex:1;">
+          <label>Tags <span style="color:var(--muted);font-weight:normal;">(komma-gescheiden, optioneel)</span></label>
+          <input id="q-tags" placeholder="Bv. hoofdstuk3, herhaling, examen"/>
+        </div>
+      </div>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-soft small" onclick="saveQuestion()">💾 Opslaan</button>
         <button class="btn btn-muted small" onclick="cancelEdit()">Annuleren</button>
@@ -391,10 +398,10 @@ Lussen,makkelijk,2,"Druk de getallen 1 tot 10 af met een lus."</pre>
   </div>
 </div>
 
-<script src="/app.js?v=v2026.2.34.7"></script>
+<script src="/app.js?v=v2026.2.34.9"></script>
 <!-- 22d: marked.js voor Markdown preview — geladen VOOR inline script -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
-<script src="/quiz-bank.js?v=v2026.2.34.7"></script>
+<script src="/quiz-bank.js?v=v2026.2.34.9"></script>
 </body>
 </html>

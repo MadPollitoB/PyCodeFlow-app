@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.34.7"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.37.0"/>
   <style>
     .quiz-topbar { background:var(--primary); color:#fff; padding:10px 20px;
       display:flex; align-items:center; justify-content:space-between; }
@@ -55,6 +55,32 @@
 </head>
 <body>
 <!-- Startscherm -->
+<!-- 37d: nakijk-login. Enkel zichtbaar met ?nakijken=1 in de URL.
+     Geen localStorage: de leerling geeft naam + klas in, op om het even welk toestel. -->
+<div class="start-screen" id="review-login-screen" style="display:none;">
+  <div class="start-card">
+    <div style="font-size:3rem;margin-bottom:12px;">👁</div>
+    <h2>Toets inkijken</h2>
+    <p class="muted" style="margin:8px 0 20px;">
+      Vul je naam en klas in zoals je ze bij de toets gebruikte.
+    </p>
+    <div style="text-align:left;">
+      <label for="review-naam">Naam</label>
+      <input id="review-naam" autocomplete="name" placeholder="Bv. Jan Peeters"/>
+      <label for="review-klas" style="margin-top:10px;display:block;">Klas</label>
+      <input id="review-klas" placeholder="Bv. 3A"/>
+    </div>
+    <div id="review-login-error" class="hidden"
+      style="background:#fee2e2;color:#991b1b;border-radius:10px;padding:10px 12px;margin-top:14px;font-size:0.88rem;"></div>
+    <button id="review-login-btn" class="btn btn-primary"
+      style="width:100%;font-size:1.05rem;padding:14px;margin-top:18px;"
+      onclick="reviewLogin()">Bekijk mijn toets</button>
+  </div>
+</div>
+
+<!-- 37d: leeg nakijk-scherm. Wordt in sprint 37a gevuld met de resultaten. -->
+<div id="review-screen" style="display:none;padding:20px;"></div>
+
 <div class="start-screen" id="start-screen">
   <div class="start-card">
     <div style="font-size:3rem;margin-bottom:12px;">📝</div>
@@ -204,9 +230,9 @@
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=v2026.2.34.7"></script>
+<script src="/app.js?v=v2026.2.37.0"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
-<script src="/quiz-student.js?v=v2026.2.34.7"></script>
+<script src="/quiz-student.js?v=v2026.2.37.0"></script>
 </body>
 </html>

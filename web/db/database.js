@@ -208,6 +208,8 @@ async function initSchema() {
       -- 'multiple' = meerdere juiste, 'single' = één juiste
       choices_json    TEXT NOT NULL DEFAULT '[]',
       -- JSON: [{"id":"uuid","text":"...","correct":true/false}]
+      tags            TEXT NOT NULL DEFAULT '',
+      -- 33d: komma-gescheiden vrije labels voor filtering (bv. "hoofdstuk3,herhaling")
       created_by   TEXT REFERENCES teachers(id) ON DELETE SET NULL,
       created_at   BIGINT NOT NULL,
       updated_at   BIGINT NOT NULL,
@@ -217,6 +219,7 @@ async function initSchema() {
     DO $$ BEGIN
       BEGIN ALTER TABLE quiz_bank ADD COLUMN question_type TEXT NOT NULL DEFAULT 'code'; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE quiz_bank ADD COLUMN choices_json TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE quiz_bank ADD COLUMN tags TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
     CREATE INDEX IF NOT EXISTS idx_quiz_bank_subject ON quiz_bank(subject);
     CREATE INDEX IF NOT EXISTS idx_quiz_bank_archived ON quiz_bank(archived);
@@ -258,6 +261,7 @@ async function initSchema() {
       access_from            BIGINT,   -- Sprint 19j: tijdsvenster start (NULL = direct)
       access_until           BIGINT,   -- Sprint 19j: tijdsvenster einde (NULL = geen limiet)
       auto_submit_late       BOOLEAN NOT NULL DEFAULT true,  -- Sprint 19j: auto-submit bij deadline
+      review_mode            BOOLEAN NOT NULL DEFAULT false, -- Sprint 37d: leerling-nakijkmodus
       created_at             BIGINT NOT NULL
     );
     -- Migratie: voeg kolommen toe als ze nog niet bestaan (bij update)
@@ -271,6 +275,9 @@ async function initSchema() {
       BEGIN ALTER TABLE quiz_meta ADD COLUMN access_from BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE quiz_meta ADD COLUMN access_until BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE quiz_meta ADD COLUMN auto_submit_late BOOLEAN NOT NULL DEFAULT true; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- 37d: nakijk-modus. Leerkracht stelt expliciet open; leerlingen kunnen dan
+      -- hun eigen toets read-only inzien (los van results_released).
+      BEGIN ALTER TABLE quiz_meta ADD COLUMN review_mode BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
 
     CREATE TABLE IF NOT EXISTS quiz_answers (
@@ -769,26 +776,26 @@ module.exports = {
   },
 
   async createQuizQuestion({ text, subject = '', difficulty = 'gemiddeld', maxPoints = 4,
-                               questionType = 'code', choicesJson = '[]', createdBy = null }) {
+                               questionType = 'code', choicesJson = '[]', tags = '', createdBy = null }) {
     const id = crypto.randomUUID();
     const now = Date.now();
     await query(
       `INSERT INTO quiz_bank (id, text, subject, difficulty, max_points,
-         question_type, choices_json, created_by, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+         question_type, choices_json, tags, created_by, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [id, text.trim(), subject.trim(), difficulty, maxPoints,
-       questionType, choicesJson, createdBy, now, now]
+       questionType, choicesJson, (tags || '').trim(), createdBy, now, now]
     );
     return id;
   },
 
-  async updateQuizQuestion(id, { text, subject, difficulty, maxPoints, questionType, choicesJson }) {
+  async updateQuizQuestion(id, { text, subject, difficulty, maxPoints, questionType, choicesJson, tags }) {
     const r = await query(
       `UPDATE quiz_bank SET text=$1, subject=$2, difficulty=$3, max_points=$4,
-         question_type=$5, choices_json=$6, updated_at=$7
-       WHERE id=$8`,
+         question_type=$5, choices_json=$6, tags=$7, updated_at=$8
+       WHERE id=$9`,
       [text.trim(), subject.trim(), difficulty, maxPoints,
-       questionType || 'code', choicesJson || '[]', Date.now(), id]
+       questionType || 'code', choicesJson || '[]', (tags || '').trim(), Date.now(), id]
     );
     return r.rowCount > 0;
   },
@@ -891,6 +898,32 @@ module.exports = {
 
   async releaseQuizResults(sessionCode) {
     await query(`UPDATE quiz_meta SET results_released = true WHERE session_code = $1`, [sessionCode]);
+  },
+
+  // 37d: nakijk-modus aan/uit. Los van results_released — de leerkracht stelt
+  // expliciet open wanneer leerlingen hun toets mogen inzien.
+  async setReviewMode(sessionCode, enabled) {
+    const r = await query(
+      `UPDATE quiz_meta SET review_mode = $2 WHERE session_code = $1`,
+      [sessionCode, !!enabled]
+    );
+    return r.rowCount > 0;
+  },
+
+  // 37d: zoek het student_id van een leerling binnen één toets, op naam + klas.
+  // BELANGRIJK: quiz_answers.student_id is een sessie-gebonden UUID (geen students.id),
+  // dus de opzoeking gebeurt op de tekst-momentopname in quiz_answers zelf.
+  // Werkt daardoor ook nadat de live sessie uit het geheugen verdwenen is.
+  async findAnswerStudent(sessionCode, naam, klas) {
+    const r = await query(
+      `SELECT DISTINCT student_id, student_name, student_class
+         FROM quiz_answers
+        WHERE session_code = $1
+          AND lower(trim(student_name))  = lower(trim($2))
+          AND lower(trim(student_class)) = lower(trim($3))`,
+      [sessionCode, String(naam || ''), String(klas || '')]
+    );
+    return r.rows;
   },
 
   // ── Quiz Antwoorden (Sprint 16c) ──────────────────────────────────────────────

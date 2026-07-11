@@ -8,6 +8,60 @@ let _currentIdx = 0;      // huidige vraag index (in persoonlijke volgorde)
 let _answers = {};        // { questionId: { code, runCount, firstVisitAt, firstRunAt } }
 let _visited = new Set(); // bezochte vraag IDs
 let _timerInterval = null;
+
+// ── Sprint 37d: nakijk-modus ─────────────────────────────────────────────────
+// Het token blijft BEWUST in het geheugen (geen localStorage), zodat inzage op
+// elk toestel werkt en er niets achterblijft op een gedeelde computer.
+let _reviewToken = null;
+const _reviewCode = new URLSearchParams(location.search).get('code') || '';
+const _isReviewEntry = new URLSearchParams(location.search).get('nakijken') === '1';
+
+function showReviewLoginError(msg) {
+  const el = document.getElementById('review-login-error');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+async function reviewLogin() {
+  const naam = document.getElementById('review-naam')?.value.trim() || '';
+  const klas = document.getElementById('review-klas')?.value.trim() || '';
+  const btn = document.getElementById('review-login-btn');
+  document.getElementById('review-login-error')?.classList.add('hidden');
+  if (!naam || !klas) return showReviewLoginError('Vul je naam en klas in.');
+  if (!_reviewCode) return showReviewLoginError('Geen toetscode in de link.');
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Bezig…'; }
+  try {
+    const r = await fetch(`/api/quiz/${_reviewCode}/review-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ naam, klas }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Inloggen mislukt.');
+    _reviewToken = data.token;
+    document.getElementById('review-login-screen').style.display = 'none';
+    document.getElementById('review-screen').style.display = 'block';
+    // Sprint 37a vult dit scherm met de resultaten.
+    document.getElementById('review-screen').innerHTML =
+      `<p class="muted">Welkom ${data.naam}. Je resultaten worden hier getoond.</p>`;
+  } catch (e) {
+    showReviewLoginError(e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Bekijk mijn toets'; }
+  }
+}
+
+// Bij ?nakijken=1 tonen we meteen het nakijk-loginscherm i.p.v. de toetsflow.
+if (_isReviewEntry) {
+  document.addEventListener('DOMContentLoaded', () => {
+    const start = document.getElementById('start-screen');
+    if (start) start.style.display = 'none';
+    const rl = document.getElementById('review-login-screen');
+    if (rl) rl.style.display = 'flex';
+  });
+}
 let _studentId = null;
 let _sessionCode = null;
 let _totalSeconds = 0;

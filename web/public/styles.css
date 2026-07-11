@@ -374,3 +374,10 @@ kbd { background:var(--surface-soft); border:1px solid var(--border); border-rad
 @media (max-width: 640px) {
   .session-meta-grid { grid-template-columns:1fr; }
 }
+
+/* 33d: tag-chips in de vragenbank */
+.q-tags { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+.tag-chip {
+  font-size:0.7rem; background:#f1f5f9; color:#475569;
+  border-radius:10px; padding:2px 8px; white-space:nowrap;
+}

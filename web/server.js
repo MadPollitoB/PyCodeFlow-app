@@ -149,6 +149,8 @@ const validationLib = require('./lib/validation');
 // 32b: gestructureerde logger met niveaus (LOG_LEVEL env var, standaard 'info')
 const { createLogger } = require('./lib/logger');
 const log = createLogger();
+// 37d: nakijk-token (HMAC, stateless) voor leerling-inzage
+const { createReviewToken, verifyReviewToken } = require('./lib/review-token');
 const safeEqual = authLib.safeEqual;
 const createPasswordHash = authLib.createPasswordHash;
 const verifyPasswordWithHash = authLib.verifyPasswordWithHash;
@@ -964,7 +966,7 @@ app.get('/api/quiz/bank/subjects', requireTeacherAuth, async (req, res) => {
 });
 
 app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => {
-  const { text, subject, difficulty, maxPoints, questionType, choices } = req.body || {};
+  const { text, subject, difficulty, maxPoints, questionType, choices, tags } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: 'Vraagstelling is verplicht.' });
   if (text.length > 5000) return res.status(400).json({ error: 'Vraagstelling te lang (max 5000 tekens).' });
   const validTypes = ['code', 'open', 'multiple', 'single'];
@@ -994,6 +996,7 @@ app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => 
           correct: ch.correct === true,
         }))
       ),
+      tags: (tags || '').slice(0, 200),
       createdBy: teacher?.id || null,
     });
     res.json({ ok: true, id });
@@ -1001,7 +1004,7 @@ app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => 
 });
 
 app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) => {
-  const { text, subject, difficulty, maxPoints, questionType, choices } = req.body || {};
+  const { text, subject, difficulty, maxPoints, questionType, choices, tags } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: 'Vraagstelling is verplicht.' });
   const validTypes = ['code', 'open', 'multiple', 'single'];
   const qType = validTypes.includes(questionType) ? questionType : 'code';
@@ -1017,6 +1020,7 @@ app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) 
         correct: ch.correct === true,
       }))
     ),
+    tags: (tags || '').slice(0, 200),
   });
   res.json({ ok });
 });
@@ -1153,6 +1157,9 @@ app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireCsrf, async (re
     questions: questions.map((q, i) => ({
       bankId: q.bank_question_id, orderIndex: i,
       text: q.text_snapshot, subject: q.subject, points: q.points,
+      // 33e-fix: vraagtype + keuzes meekopiëren (anders worden meerkeuzevragen code-vragen)
+      questionType: q.question_type || 'code',
+      choicesJson: q.choices_json || '[]',
     })),
     randomize: meta.randomize,
     noTimer: meta.no_timer || false,
@@ -1193,6 +1200,70 @@ app.get('/api/quiz/:code/answers/:studentId', requireTeacherAuth, async (req, re
     );
     res.json({ answers, generalComment: comment });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 33a: scores-samenvatting exporteren als CSV (opent direct in Excel).
+// Eén rij per leerling, een kolom per vraag + totaal. Geen externe dependency nodig.
+app.get('/api/quiz/:code/export/csv', requireTeacherAuth, async (req, res) => {
+  try {
+    const code = req.params.code.toUpperCase();
+    const rows = await dbModule.getQuizAnswers(code);
+    const meta = await dbModule.getQuizMeta(code);
+    if (!rows.length) return res.status(404).json({ error: 'Geen resultaten om te exporteren.' });
+
+    // Bouw de vragenlijst (uniek, op order_index) en de leerling-matrix.
+    const questions = [];
+    const seenQ = new Set();
+    for (const r of rows) {
+      if (!seenQ.has(r.question_id)) {
+        seenQ.add(r.question_id);
+        questions.push({ id: r.question_id, order: r.order_index, points: r.points,
+          label: `V${r.order_index + 1}` });
+      }
+    }
+    questions.sort((a, b) => a.order - b.order);
+
+    // Groepeer per leerling
+    const students = new Map();
+    for (const r of rows) {
+      const key = r.student_id;
+      if (!students.has(key)) {
+        students.set(key, { name: r.student_name, klas: r.student_class, scores: {} });
+      }
+      students.get(key).scores[r.question_id] = r.score;
+    }
+
+    // CSV opbouwen. Puntkomma als scheidingsteken (NL Excel-standaard).
+    const esc = (v) => {
+      const s = String(v ?? '');
+      return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const maxTotal = questions.reduce((sum, q) => sum + (q.points || 0), 0);
+    const header = ['Naam', 'Klas', ...questions.map(q => `${q.label} (${q.points}pt)`),
+      `Totaal (/${maxTotal})`];
+    const lines = [header.map(esc).join(';')];
+    // Sorteer op klas, dan naam
+    const sorted = [...students.values()].sort((a, b) =>
+      (a.klas || '').localeCompare(b.klas || '') || (a.name || '').localeCompare(b.name || ''));
+    for (const s of sorted) {
+      let total = 0;
+      const cells = questions.map(q => {
+        const sc = s.scores[q.id];
+        if (sc !== null && sc !== undefined) total += sc;
+        return sc === null || sc === undefined ? '' : sc;
+      });
+      lines.push([esc(s.name), esc(s.klas), ...cells, total].join(';'));
+    }
+    // BOM zodat Excel UTF-8 (accenten) correct toont.
+    const csv = '\uFEFF' + lines.join('\r\n');
+    const fname = `resultaten_${code}_${(meta?.target_class || 'toets').replace(/[^a-zA-Z0-9]/g, '')}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+    res.send(csv);
+  } catch (e) {
+    log.error('[csv-export] fout:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/quiz/:code/run-history/:studentId/:questionId', requireTeacherAuth, async (req, res) => {
@@ -1241,6 +1312,93 @@ app.post('/api/quiz/:code/release', requireTeacherAuth, requireCsrf, async (req,
   dbModule.auditLog(actor, 'results_released', code, {}, req.ip).catch(() => {});
   res.json({ ok: true });
 });
+
+// ── Sprint 37d: nakijk-modus ──────────────────────────────────────────────────
+
+// Geheim voor het ondertekenen van nakijk-tokens. Hergebruikt hetzelfde geheim
+// als het leerkracht-cookie; valt terug op een vaste string zodat de app blijft
+// werken zonder configuratie (dan is het token enkel binnen deze run geldig).
+function reviewTokenSecret() {
+  return COOKIE_SECRET || PASSWORD_HASH || 'fallback_review_token_secret';
+}
+
+// Leerkracht zet nakijk-modus aan of uit voor één toets.
+app.post('/api/quiz/:code/review-mode', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const enabled = req.body?.enabled === true;
+  const ok = await dbModule.setReviewMode(code, enabled);
+  if (!ok) return res.status(404).json({ error: 'Toets niet gevonden.' });
+  const session = sessions.get(code);
+  if (session) io.to(session.code).emit('quiz_review_mode', { enabled });
+  const actor = getActorFromReq(req);
+  dbModule.auditLog(actor, enabled ? 'review_mode_opened' : 'review_mode_closed', code, {}, req.ip)
+    .catch(() => {});
+  res.json({ ok: true, enabled });
+});
+
+// Leerling logt opnieuw in om zijn eigen toets in te kijken.
+// Publiek endpoint — daarom streng: rate-limit, enkel bij openstaande nakijk-modus,
+// en er wordt nooit prijsgegeven of een naam wel/niet bestaat.
+app.post('/api/quiz/:code/review-login', async (req, res) => {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+  if (!checkJoinRateLimit(ip)) {
+    return res.status(429).json({ error: 'Te veel pogingen. Probeer over een minuut opnieuw.' });
+  }
+  const code = req.params.code.toUpperCase();
+  const naam = String(req.body?.naam || '').trim().slice(0, 64);
+  const klas = String(req.body?.klas || '').trim().slice(0, 64);
+  if (!naam || !klas) return res.status(400).json({ error: 'Geef je naam en klas in.' });
+
+  const meta = await dbModule.getQuizMeta(code);
+  // Bestaat de toets niet, of staat nakijken niet open → zelfde antwoord.
+  // Zo lekt dit endpoint niet welke toetscodes bestaan.
+  if (!meta || meta.review_mode !== true) {
+    return res.status(403).json({ error: 'Nakijken is voor deze toets niet opengesteld.' });
+  }
+
+  const matches = await dbModule.findAnswerStudent(code, naam, klas);
+  if (matches.length === 0) {
+    // Generieke melding: verklap niet of de naam bestaat.
+    return res.status(404).json({ error: 'Geen resultaten gevonden voor deze naam en klas.' });
+  }
+  if (matches.length > 1) {
+    return res.status(409).json({
+      error: 'Er zijn meerdere leerlingen met deze naam en klas. Vraag je leerkracht om hulp.',
+    });
+  }
+
+  const token = createReviewToken(code, matches[0].student_id, reviewTokenSecret());
+  res.json({ ok: true, token, naam: matches[0].student_name });
+});
+
+// Middleware: bewaakt alle nakijk-endpoints.
+// Het studentId komt UITSLUITEND uit het ondertekende token — nooit uit de URL.
+async function requireReviewToken(req, res, next) {
+  const code = req.params.code.toUpperCase();
+  const header = req.headers['x-review-token'] || '';
+  const token = String(header || req.query.token || '');
+
+  const meta = await dbModule.getQuizMeta(code);
+  if (!meta || meta.review_mode !== true) {
+    return res.status(403).json({ error: 'Nakijken is voor deze toets niet opengesteld.' });
+  }
+
+  const result = verifyReviewToken(token, reviewTokenSecret());
+  if (!result.ok) {
+    const status = result.reason === 'expired' ? 401 : 403;
+    return res.status(status).json({
+      error: result.reason === 'expired'
+        ? 'Je nakijk-sessie is verlopen. Log opnieuw in.'
+        : 'Geen geldige toegang tot dit nakijk-scherm.',
+    });
+  }
+  // Token van een ándere toets mag hier niet werken.
+  if (result.sessionCode !== code) {
+    return res.status(403).json({ error: 'Geen geldige toegang tot dit nakijk-scherm.' });
+  }
+  req.reviewStudentId = result.studentId;
+  next();
+}
 
 app.get('/api/quiz/:code/similarity', requireTeacherAuth, async (req, res) => {
   try {

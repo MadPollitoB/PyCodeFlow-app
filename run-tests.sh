@@ -26,7 +26,7 @@ echo "════════════════════════�
 section "1. JavaScript syntax-checks"
 # 32a: ook de geëxtraheerde pagina-scripts checken
 for f in "$WEB/server.js" "$WEB/public/app.js" \
-         "$WEB/lib/auth.js" "$WEB/lib/scoring.js" "$WEB/lib/validation.js" "$WEB/lib/logger.js" \
+         "$WEB/lib/auth.js" "$WEB/lib/scoring.js" "$WEB/lib/validation.js" "$WEB/lib/logger.js" "$WEB/lib/review-token.js" \
          "$WEB/scripts/manage-teacher.js" \
          "$WEB"/public/monitoring.js "$WEB"/public/quiz-bank.js "$WEB"/public/quiz-student.js \
          "$WEB"/public/quiz-review.js "$WEB"/public/quiz-teacher.js "$WEB"/public/quiz-archive.js \

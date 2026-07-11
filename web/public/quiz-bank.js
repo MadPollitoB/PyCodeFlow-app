@@ -74,12 +74,18 @@ async function loadQuestions() {
       '<div class="empty-state" style="grid-column:1/-1;">⚠️ Kon vragen niet laden. Herlaad de pagina.</div>';
     return;
   }
-  renderQuestions(_questions);
-  document.getElementById('q-count').textContent = `${_questions.length} vragen`;
+  // 33d: filter op tag (client-side, deelstring-match, hoofdletterongevoelig)
+  const tagFilter = (document.getElementById('filter-tag')?.value || '').trim().toLowerCase();
+  let shown = _questions;
+  if (tagFilter) {
+    shown = _questions.filter(q => (q.tags || '').toLowerCase().includes(tagFilter));
+  }
+  renderQuestions(shown);
+  document.getElementById('q-count').textContent = `${shown.length} vragen`;
   const byDiff = { makkelijk:0, gemiddeld:0, moeilijk:0 };
-  _questions.forEach(q => byDiff[q.difficulty] = (byDiff[q.difficulty]||0)+1);
+  shown.forEach(q => byDiff[q.difficulty] = (byDiff[q.difficulty]||0)+1);
   document.getElementById('stats-bar').innerHTML =
-    `<div class="stat-chip">Totaal: <strong>${_questions.length}</strong></div>` +
+    `<div class="stat-chip">Totaal: <strong>${shown.length}</strong></div>` +
     Object.entries(byDiff).map(([d,n]) => n > 0
       ? `<div class="stat-chip">${d}: <strong>${n}</strong></div>` : '').join('');
 }
@@ -108,6 +114,7 @@ function renderQuestions(qs) {
         ${q.archived ? '<span class="badge" style="background:#fee2e2;color:#991b1b;font-size:0.72rem;">Gearchiveerd</span>' : ''}
       </div>
       <div class="q-text md-preview" style="max-height:140px;overflow:auto;">${renderedText}</div>
+      ${q.tags ? `<div class="q-tags">${q.tags.split(',').map(t => t.trim()).filter(Boolean).map(t => `<span class="tag-chip">🏷 ${esc(t)}</span>`).join('')}</div>` : ''}
       <div class="q-actions">
         <button class="btn btn-muted small q-btn-edit">✏️ Bewerken</button>
         ${!q.archived
@@ -141,6 +148,7 @@ function editQuestion(id) {
   document.getElementById('q-subject').value = q.subject || '';
   document.getElementById('q-difficulty').value = q.difficulty;
   document.getElementById('q-points').value = q.max_points;
+  document.getElementById('q-tags').value = q.tags || '';
   document.getElementById('form-title').textContent = 'Vraag bewerken';
   const typeRadio = document.querySelector(`[name=q-type][value="${q.question_type||'code'}"]`);
   if (typeRadio) { typeRadio.checked = true; onTypeChange(q.question_type||'code'); }
@@ -163,6 +171,7 @@ function cancelEdit() {
   document.getElementById('q-subject').value = '';
   document.getElementById('q-difficulty').value = 'gemiddeld';
   document.getElementById('q-points').value = '4';
+  document.getElementById('q-tags').value = '';
   document.getElementById('form-title').textContent = 'Nieuwe vraag toevoegen';
   const codeRadio = document.querySelector('[name=q-type][value=code]');
   if (codeRadio) { codeRadio.checked = true; onTypeChange('code'); }
@@ -442,6 +451,7 @@ async function saveQuestion() {
     text,
     subject:      document.getElementById('q-subject').value.trim(),
     difficulty:   document.getElementById('q-difficulty').value,
+    tags:         document.getElementById('q-tags').value.trim(),
     maxPoints:    parseInt(document.getElementById('q-points').value) || 4,
     questionType: type,
     choices:      ['single','multiple'].includes(type) ? _choices : [],

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════════════
-# PyCodeFlow — Deployment verificatiescript v2026.2.34.8
+# PyCodeFlow — Deployment verificatiescript v2026.2.37.0
 # Gebruik: bash check-deployment.sh
 # Voer uit vanuit /volume3/docker/pycodeflow/
 # Sprint 27a-g: grep-regex fixes (backslash-pipe → pipe of -e flags)
@@ -69,7 +69,7 @@ check_not_contains() {
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "  PyCodeFlow — Deployment Verificatie v2026.2.34.8"
+echo "  PyCodeFlow — Deployment Verificatie v2026.2.37.0"
 echo "  $(date '+%d/%m/%Y %H:%M:%S')"
 echo "═══════════════════════════════════════════════════════════"
 
@@ -267,6 +267,18 @@ check_contains "$WEB/server.js" "429"                     "Rate limiting"
 check_contains "$WEB/server.js" "SESSION_MAX_AGE_SECONDS" "server.js: sessie Max-Age op cookie (sprint 30a)"
 check_contains "$WEB/server.js" "upgrade-insecure-requests" "server.js: CSP upgrade-insecure-requests (sprint 30c)"
 check_contains "$WEB/server.js" "Content-Security-Policy-Report-Only" "server.js: Report-Only CSP (sprint 30b-A)"
+check_contains "$WEB/db/database.js" "tags TEXT NOT NULL" "database.js: quiz_bank tags kolom (sprint 33d)"
+check_contains "$WEB/server.js" "export/csv" "server.js: CSV scores-export (sprint 33a)"
+check_contains "$PUB/quiz-review.js" "renderProgressChart" "quiz-review.js: voortgangsgrafiek (sprint 33b)"
+[[ -f "$WEB/lib/review-token.js" ]] && ok "lib/review-token.js aanwezig (sprint 37d)" || fail "review-token.js ONTBREEKT (sprint 37d)"
+check_contains "$WEB/db/database.js" "review_mode" "database.js: review_mode kolom (sprint 37d)"
+check_contains "$WEB/server.js" "requireReviewToken" "server.js: nakijk-token guard (sprint 37d)"
+check_contains "$WEB/server.js" "review-login" "server.js: leerling nakijk-login (sprint 37d)"
+if grep -q "my-result/:studentId" "$WEB/server.js"; then
+  fail "server.js: studentId in URL bij my-result (moet uit token komen!)"
+else
+  ok "server.js: geen studentId in nakijk-URL (sprint 37d)"
+fi
 if grep -rq "<script>" "$PUB"/*.html; then
   fail "Er zijn nog inline <script> blokken (sprint 30b-A verwacht 0)"
 else

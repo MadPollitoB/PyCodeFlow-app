@@ -1,3 +1,72 @@
+## v2026.2.37.0 — Sprint 37d: Nakijk-modus + toegangscontrole
+
+### Nakijk-modus (leerkracht stelt expliciet open)
+Nieuwe vlag quiz_meta.review_mode, los van results_released. De leerkracht zet nakijken
+aan met de knop "Nakijken: aan/uit" in de verbetermodule. Zolang die aan staat, kunnen
+leerlingen hun eigen toets read-only inkijken.
+
+### Leerling-herlogin op elk toestel (geen localStorage)
+Via ?nakijken=1 krijgt de leerling een apart loginscherm (naam + klas). De live-toetsflow
+blijft ongemoeid. Het nakijk-token blijft in het geheugen van de pagina — niet in
+localStorage — dus inzage werkt thuis op een andere pc en laat niets achter op een
+gedeelde computer.
+
+### Stateless nakijk-token (lib/review-token.js, nieuw)
+HMAC-SHA256 ondertekend token met { toetscode, studentId, vervaltijd }, 2u geldig,
+constante-tijd handtekeningcontrole. Geen extra tabel nodig.
+
+### Strenge toegangscontrole
+- nakijk-modus uit OF toets bestaat niet → 403 met identieke melding (lekt geen toetscodes)
+- onbekende naam → 404 generiek (geen naam-enumeratie)
+- dubbele naam+klas → 409 met verwijzing naar de leerkracht
+- rate-limiting (10/min) via de bestaande checkJoinRateLimit
+- middleware requireReviewToken haalt studentId UITSLUITEND uit het token, nooit uit de URL
+- token van toets A werkt niet op toets B
+
+### Belangrijke vondst
+quiz_answers.student_id is een sessie-gebonden UUID, geen students.id. De opzoeking
+naam+klas gebeurt daarom op quiz_answers zelf (tekst-momentopname). Voordeel: nakijken
+werkt ook nadat de les voorbij is. Let op: een sessie verwijderen wist de nakijk-data;
+archiveren behoudt ze.
+
+### Tests
+12 nieuwe tests (tests/review.test.js). Totaal 114 unit tests.
+
+**Betrokken bestanden:** db/database.js · server.js · lib/review-token.js (nieuw) ·
+quiz-review.html · quiz-review.js · quiz-student.html · quiz-student.js · run-tests.sh ·
+check-deployment.sh · tests/review.test.js (nieuw)
+
+---
+
+## v2026.2.34.9 — Sprint 33: Nice-to-haves (33a/b/d/e)
+
+### 33e — Toets dupliceren (bugfix)
+De dupliceer-functie bewaarde vraagtype + keuzes niet → meerkeuzevragen werden code-vragen.
+Nu worden question_type en choices correct meegekopieerd.
+
+### 33d — Vraag-tags in de vragenbank
+Nieuwe tags-kolom (komma-gescheiden, met migratie). Tags-invoerveld + tag-filter in de UI,
+tags als chips op de vraagkaarten. Client-side filtering (deelstring, hoofdletterongevoelig).
+
+### 33a — Scores naar Excel (CSV)
+Nieuw endpoint /api/quiz/:code/export/csv: scores-samenvatting, één rij per leerling, kolom
+per vraag + totaal. Puntkomma + UTF-8 BOM → opent direct correct in Excel. Bewust CSV i.p.v.
+.xlsx (geen dependency nodig). Optie 8 in het export-menu.
+
+### 33b — Voortgangsgrafiek
+SVG-staafgrafiek (geen dependency) in de verbetermodule: score per vraag t.o.v. maximum,
+kleurgecodeerd (groen/oranje/rood/grijs).
+
+### 33c — GESCHRAPT (donker/licht thema, wordt niet gedaan)
+
+### Tests
+10 nieuwe tests (CSV-matrix + tag-filtering). Totaal 102 unit tests.
+
+**Betrokken bestanden:** server.js · db/database.js · quiz-bank.html · quiz-bank.js ·
+quiz-review.js · styles.css · tests/export.test.js (nieuw)
+
+---
+
 ## v2026.2.34.8 — Sprint 30b Optie A: CSP-hardening (tijdelijk) + Optie C-plan
 
 ### 30b-A — Report-Only strikte CSP (tijdelijke beveiligingswinst)

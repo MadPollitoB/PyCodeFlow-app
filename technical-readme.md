@@ -1,7 +1,7 @@
 # PyCodeFlow — Technische documentatie
 
 > Interne werking, architectuur, API-referentie en ontwikkelaarsinformatie.
-> Versie: v2026.2.34.8
+> Versie: v2026.2.37.0
 
 ---
 
@@ -159,6 +159,8 @@ pycodeflow/
 | POST | `/api/teacher-login` | Login met username/password |
 | GET | `/api/teacher-logout` | Uitloggen |
 | GET | `/api/version` | Versie + uptime |
+| POST | `/api/quiz/:code/review-mode` | 37d: nakijk-modus aan/uit (leerkracht + CSRF) |
+| POST | `/api/quiz/:code/review-login` | 37d: leerling logt in met naam + klas → nakijk-token (publiek, rate-limited) |
 | GET | `/health` | Container health check |
 | GET | `/api/school-info` | Schoolnaam + logo URL |
 
@@ -323,4 +325,32 @@ BLOCKED_MODULES = {
 
 ---
 
-*PyCodeFlow · Atheneum Hoboken · technical-readme.md · v2026.2.34.8*
+*PyCodeFlow · Atheneum Hoboken · technical-readme.md · v2026.2.37.0*
+
+---
+
+## Nakijk-modus (sprint 37d)
+
+Leerlingen kunnen na een toets hun eigen werk inkijken, zodra de leerkracht dit
+expliciet openstelt (`quiz_meta.review_mode`).
+
+**Identificatie zonder localStorage.** `quiz_answers.student_id` is géén `students.id`,
+maar een sessie-gebonden UUID die bij het joinen wordt aangemaakt. De opzoeking gebeurt
+daarom op `quiz_answers.student_name` + `student_class` (tekst-momentopname). Voordeel:
+dit werkt ook nadat de live sessie uit het geheugen verdwenen is — dus dagen later,
+op elk toestel.
+
+> ⚠️ Een sessie **verwijderen** cascadeert naar `quiz_meta` en `quiz_answers`: de
+> nakijk-data is dan weg. **Archiveren** behoudt ze.
+
+**Token.** `lib/review-token.js` maakt een stateless, HMAC-SHA256-ondertekend token:
+`base64url({ c: code, s: studentId, e: exp }).base64url(hmac)`, standaard 2 uur geldig,
+ondertekend met `COOKIE_SECRET`. Handtekening wordt in constante tijd vergeleken.
+
+**Toegangsregels.** De middleware `requireReviewToken` haalt het `studentId`
+**uitsluitend uit het token** — nooit uit de URL. Ze weigert wanneer nakijken dichtstaat,
+de handtekening niet klopt, het token verlopen is, of het token bij een andere toets hoort.
+
+De `review-login`-endpoint geeft bewust identieke antwoorden voor "toets bestaat niet" en
+"nakijken staat dicht" (403), zodat het geen toetscodes prijsgeeft, en een generieke 404
+bij een onbekende naam zodat het geen namen prijsgeeft.

@@ -12,6 +12,7 @@ let _currentQIdx = 0;
 let _templates = [];
 let _simWarnings = [];
 let _editMode = false;   // "Aanpassen & testen" modus
+let _reviewMode = false; // 37d: staat nakijken open voor leerlingen?
 let _originalCode = '';
 
 
@@ -35,8 +36,10 @@ function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
 async function init() {
   // Laad meta
   const qr = await fetch(`/api/quiz/${sessionCode}`);
-  const { session, questions } = await qr.json();
+  const { session, questions, meta } = await qr.json();
   _questions = questions || [];
+  _reviewMode = meta?.review_mode === true;
+  updateReviewModeBtn();
   document.getElementById('review-title').textContent =
     (session?.name || 'Toets') + ' — Verbeteren';
 
@@ -98,6 +101,38 @@ function selectStudent(studentId) {
   renderReviewPanel();
 }
 
+// 33b: kleine SVG-staafgrafiek van de score per vraag (score vs. max, geen dependency).
+// Groen = volledig, oranje = deels, rood = nul, grijs = nog niet beoordeeld.
+function renderProgressChart(studentAnswers) {
+  if (!_questions.length) return '';
+  const W = 40, GAP = 10, H = 90, pad = 4;
+  const bars = _questions.map((q, i) => {
+    const ans = studentAnswers.find(a => a.question_id === q.id);
+    const scored = ans?.score !== null && ans?.score !== undefined;
+    const max = q.points || 1;
+    const val = scored ? ans.score : 0;
+    const ratio = scored ? Math.max(0, Math.min(1, val / max)) : 0;
+    const barH = scored ? Math.max(2, ratio * (H - 20)) : 3;
+    const x = i * (W + GAP) + pad;
+    const y = H - barH - 16;
+    let color = '#cbd5e1'; // grijs = niet beoordeeld
+    if (scored) {
+      if (ratio >= 0.999) color = 'var(--success-fg, #16a34a)';
+      else if (ratio > 0) color = '#f59e0b';
+      else color = 'var(--error-fg, #dc2626)';
+    }
+    const label = scored ? `${val}/${max}` : '?';
+    return `<rect x="${x}" y="${y}" width="${W}" height="${barH}" rx="3" fill="${color}"></rect>` +
+      `<text x="${x + W/2}" y="${H - 4}" text-anchor="middle" font-size="10" fill="var(--muted,#64748b)">V${i+1}</text>` +
+      `<text x="${x + W/2}" y="${y - 3}" text-anchor="middle" font-size="9" fill="var(--text,#334155)">${label}</text>`;
+  }).join('');
+  const totalW = _questions.length * (W + GAP) + pad;
+  return `<div class="progress-chart" style="margin:14px 0;overflow-x:auto;">
+    <div style="font-size:0.8rem;color:var(--muted);margin-bottom:4px;">📊 Score per vraag</div>
+    <svg width="${totalW}" height="${H}" role="img" aria-label="Score per vraag">${bars}</svg>
+  </div>`;
+}
+
 function renderReviewPanel() {
   if (!_currentStudent) return;
   const studentAnswers = _answers.filter(a => a.student_id === _currentStudent.id);
@@ -121,6 +156,7 @@ function renderReviewPanel() {
           onclick="selectQuestion(${i})">V${i+1} ${isScored ? ans.score+'/'+q.points : '?/'+q.points}</div>`;
       }).join('')}
     </div>
+    ${renderProgressChart(studentAnswers)}
     <div id="q-detail"></div>
     <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
       <strong>Algemeen commentaar</strong>
@@ -403,6 +439,46 @@ async function releaseResults() {
   pyToast('Resultaten vrijgegeven. Leerlingen kunnen ze bekijken via de sessiecode.', 'success', 5000);
 }
 
+// 37d: nakijk-modus. Zolang die aan staat, kunnen leerlingen met hun naam + klas
+// hun eigen toets read-only inkijken — op elk toestel.
+function updateReviewModeBtn() {
+  const btn = document.getElementById('review-mode-btn');
+  if (!btn) return;
+  btn.textContent = _reviewMode ? '👁 Nakijken: aan' : '👁 Nakijken: uit';
+  btn.classList.toggle('btn-soft', _reviewMode);
+  btn.classList.toggle('btn-muted', !_reviewMode);
+  btn.title = _reviewMode
+    ? 'Leerlingen kunnen hun eigen toets inkijken. Klik om te sluiten.'
+    : 'Leerlingen kunnen hun toets niet inkijken. Klik om open te stellen.';
+}
+
+async function toggleReviewMode() {
+  const aanzetten = !_reviewMode;
+  if (aanzetten) {
+    const ok = await pyConfirm({
+      title: 'Nakijk-modus openstellen',
+      body: 'Leerlingen kunnen dan met hun naam en klas hun eigen toets inkijken — ook thuis, op elk toestel. Ze zien enkel hun eigen antwoorden.',
+      confirmLabel: 'Openstellen',
+    });
+    if (!ok) return;
+  }
+  try {
+    const r = await fetch(`/api/quiz/${sessionCode}/review-mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: aanzetten }),
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'Mislukt');
+    _reviewMode = aanzetten;
+    updateReviewModeBtn();
+    pyToast(aanzetten
+      ? `Nakijken opengesteld. Leerlingen gebruiken toetscode ${sessionCode}.`
+      : 'Nakijken gesloten.', 'success', 5000);
+  } catch (e) {
+    pyAlert('Kon nakijk-modus niet wijzigen: ' + e.message, 'error');
+  }
+}
+
 function exportStudent(studentId, scored) {
   window.open(`/api/quiz/${sessionCode}/pdf/answers/${studentId}?scored=${scored}`, '_blank');
 }
@@ -416,7 +492,8 @@ function exportAll() {
     '4 = ZIP aparte PDF per leerling (zonder scores)\n' +
     '5 = ZIP aparte PDF per leerling (met scores) ← AANBEVOLEN\n' +
     '6 = Klasoverzicht PDF (scoreblad)\n' +
-    '7 = TXT export (code per leerling)'
+    '7 = TXT export (code per leerling)\n' +
+    '8 = Scores naar Excel (CSV) ← puntenlijst'
   );
   const base = '/api/quiz/' + sessionCode;
   const urls = {
@@ -427,6 +504,7 @@ function exportAll() {
     '5': base + '/pdf/zip?scored=true',
     '6': base + '/pdf/overview',
     '7': base + '/export/zip',
+    '8': base + '/export/csv',
   };
   if (urls[keuze]) window.open(urls[keuze], '_blank');
 }

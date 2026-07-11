@@ -1607,4 +1607,75 @@ cd web && node --test
 noteer de "Content-Security-Policy-Report-Only" waarschuwingen — dit is de checklist
 voor sprint 30b-vol (Optie C).
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.34.8 · 7 juli 2026*
+## 39. Sprint 33 — Nice-to-haves
+
+### 33e — Toets dupliceren
+```
+✅ Dupliceer-knop maakt een kopie met "(kopie)" in de naam
+✅ Meerkeuzevragen blijven meerkeuzevragen (question_type + choices bewaard)
+✅ Alle instellingen (timer, randomize, ...) worden meegekopieerd
+```
+
+### 33d — Vraag-tags
+```
+✅ Tag-veld bij vraag toevoegen/bewerken (komma-gescheiden)
+✅ Tags worden als chips op de vraagkaart getoond
+✅ Filter op tag werkt (deelstring, hoofdletterongevoelig)
+✅ Bestaande vragen zonder tags blijven werken (migratie)
+```
+
+### 33a — Excel-export (CSV)
+```
+✅ Export-menu → optie 8 → CSV download
+✅ Opent direct in Excel met correcte kolommen (accenten kloppen door BOM)
+✅ Eén rij per leerling, kolom per vraag, totaal-kolom
+✅ Niet-beoordeelde vragen → lege cel
+✅ Puntkomma/quotes in namen correct ge-escaped
+```
+
+### 33b — Voortgangsgrafiek
+```
+✅ Staafgrafiek verschijnt bij selecteren van een leerling
+✅ Groen=volledig, oranje=deels, rood=nul, grijs=onbeoordeeld
+✅ Score per vraag afleesbaar boven de vraag-details
+```
+
+## 40. Sprint 37d — Nakijk-modus + toegangscontrole
+
+### Leerkracht
+```
+✅ Verbetermodule toont knop "👁 Nakijken: uit"
+✅ Klikken → bevestigingsdialoog → knop wordt "👁 Nakijken: aan"
+✅ Toast toont de toetscode die leerlingen moeten gebruiken
+✅ Opnieuw klikken → nakijken gesloten
+✅ Status blijft behouden na herladen (komt uit meta.review_mode)
+```
+
+### Leerling — nakijken open
+```
+✅ /quiz-student.html?code=XXX&nakijken=1 toont het nakijk-loginscherm
+✅ Correcte naam + klas → "Welkom <naam>" (37a vult straks de resultaten)
+✅ Werkt op een ANDER toestel (geen localStorage nodig)
+✅ De gewone toetsflow (zonder ?nakijken=1) is ongewijzigd
+```
+
+### Leerling — toegang geweigerd
+```
+✅ Nakijken uit → "Nakijken is voor deze toets niet opengesteld" (403)
+✅ Onbestaande toetscode → zelfde melding (verklapt niet welke codes bestaan)
+✅ Onbekende naam → "Geen resultaten gevonden" (verklapt geen namen)
+✅ Twee leerlingen met dezelfde naam+klas → "Vraag je leerkracht om hulp" (409)
+✅ Meer dan 10 pogingen per minuut → "Te veel pogingen" (429)
+```
+
+### Token
+```
+✅ Token verloopt na 2 uur → "Je nakijk-sessie is verlopen"
+✅ Token van toets A werkt niet op toets B
+✅ Gemanipuleerd token wordt geweigerd (HMAC)
+```
+
+⚠️ **Let op bij testen:** een sessie *verwijderen* wist de nakijk-data (cascade).
+Archiveren behoudt ze.
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.37.0 · 8 juli 2026*
