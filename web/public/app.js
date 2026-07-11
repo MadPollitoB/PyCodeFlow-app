@@ -797,8 +797,10 @@
   function renderSessions(list, showClosed = false) {
     const host = qs('session-list');
     if (!host) return;
-    const activeList = list.filter(s => !s.closed);
-    const closedList = list.filter(s => s.closed);
+    // Sprint 43: toets-/taaksessies horen NIET in de gewone sessielijst — die staan onder de "Toetsen"-tab.
+    const isQuizLike = s => s.mode === 'quiz' || s.mode === 'task';
+    const activeList = list.filter(s => !s.closed && !isQuizLike(s));
+    const closedList = list.filter(s => s.closed && !isQuizLike(s));
     if (!activeList.length && !closedList.length) {
       host.innerHTML = `<div class="student-item"><strong>Nog geen lopende sessies</strong><div class="muted">Maak eerst een sessie aan.</div></div>`;
       return;
@@ -1189,37 +1191,62 @@
     if (name === 'quizzes') loadQuizSessions();
   };
 
+  // Sprint 43: toets/taak-badge, open/gesloten-status (tijdsvenster), online-teller
+  // en een link naar de live-meekijkpopup (teacher-grid).
+  function quizTypeBadge(quizType) {
+    return quizType === 'taak'
+      ? '<span class="badge" style="margin-left:6px;background:#ede9fe;color:#5b21b6;">📝 Taak</span>'
+      : '<span class="badge" style="margin-left:6px;background:#dbeafe;color:#1e40af;">🧪 Toets</span>';
+  }
+  function quizStatusBadge(q) {
+    const fmt = ts => new Date(ts).toLocaleString('nl-BE', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+    switch (q.availability) {
+      case 'closed':  return '<span class="badge" style="background:#fee2e2;color:#991b1b;margin-left:4px;">Gesloten</span>';
+      case 'pending': return `<span class="badge" style="background:#fef3c7;color:#92400e;margin-left:4px;" title="Opent op ${q.accessFrom ? fmt(q.accessFrom) : ''}">⏳ Nog niet open</span>`;
+      case 'expired': return '<span class="badge" style="background:#fee2e2;color:#991b1b;margin-left:4px;">⛔ Venster voorbij</span>';
+      default:        return '<span class="badge" style="background:#dcfce7;color:#166534;margin-left:4px;">🟢 Open</span>';
+    }
+  }
+
   async function loadQuizSessions() {
     try {
-      // Haal sessies op en filter op mode='quiz'
-      const r = await fetch('/api/sessions?includeClosed=true');
+      const r = await fetch('/api/quiz-sessions');
       if (!r.ok) return;
-      const sessions = await r.json();
-      const quizzes = sessions.filter(s => s.mode === 'quiz');
+      const quizzes = await r.json();
       const el = document.getElementById('quiz-list');
       if (!el) return;
       if (!quizzes.length) {
-        el.innerHTML = '<p class="muted">Nog geen toetsen aangemaakt. Klik op "+ Nieuwe toets aanmaken".</p>';
+        el.innerHTML = '<p class="muted">Nog geen toetsen of taken aangemaakt. Klik op "+ Nieuwe toets aanmaken".</p>';
         return;
       }
-      el.innerHTML = quizzes.map(q => `
+      el.innerHTML = quizzes.map(q => {
+        const isLive = q.availability === 'open';
+        const onlineChip = isLive
+          ? `<span class="badge" style="background:${q.onlineCount ? '#dcfce7' : '#f1f5f9'};color:${q.onlineCount ? '#166534' : '#64748b'};" title="Leerlingen nu online">👥 ${q.onlineCount} online</span>`
+          : '';
+        return `
         <div class="student-item" style="margin-bottom:8px;">
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
             <div>
               <strong>${escapeHtml(q.name || q.code)}</strong>
-              <span class="badge" style="margin-left:6px;">Toets</span>
-              ${q.closed ? '<span class="badge" style="background:#fee2e2;color:#991b1b;margin-left:4px;">Gesloten</span>' : ''}
+              ${quizTypeBadge(q.quizType)}
+              ${quizStatusBadge(q)}
             </div>
-            <div class="muted" style="font-size:0.82rem;margin-left:auto;">
-              Code: <strong>${q.code}</strong> ·
-              ${new Date(q.createdAt).toLocaleDateString('nl-BE',{day:'2-digit',month:'2-digit',year:'numeric'})}
+            <div style="display:flex;align-items:center;gap:6px;margin-left:auto;">
+              ${onlineChip}
+              <span class="muted" style="font-size:0.82rem;">
+                Code: <strong>${q.code}</strong> ·
+                ${new Date(q.createdAt).toLocaleDateString('nl-BE',{day:'2-digit',month:'2-digit',year:'numeric'})}
+              </span>
             </div>
-            <div style="display:flex;gap:6px;">
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <a class="btn btn-soft small" href="/teacher-grid.html?code=${q.code}" target="_blank" title="Live meekijken met de leerlingen">👁 Live</a>
               <a class="btn btn-muted small" href="/quiz-review.html?code=${q.code}">✏️ Verbeteren</a>
               <button class="btn btn-muted small" onclick="duplicateQuiz('${q.code}')">📋 Dupliceren</button>
             </div>
           </div>
-        </div>`).join('');
+        </div>`;
+      }).join('');
     } catch (e) { console.warn('[quiz-sessies] renderen mislukt:', e.message); }
   }
 
@@ -1430,6 +1457,15 @@
       setLS('studentName', data.student.name);
       setLS('studentState', data);
       go('/student-app.html');
+    });
+    // Sprint 43: server meldt dat deze code een toets/taak is → naar de toets-flow.
+    socket.on('redirect_to_quiz', data => {
+      const p = new URLSearchParams({
+        code: data.code || '',
+        name: data.name || '',
+        class: data.className || '',
+      });
+      go('/quiz-student.html?' + p.toString());
     });
     socket.on('error_message', msg => {
       const el = qs('student-start-error');

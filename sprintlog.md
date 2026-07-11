@@ -8,7 +8,9 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.42.0**
+**Huidige versie: v2026.2.43.0**
+
+> **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
 ---
 
@@ -16,14 +18,13 @@
 
 | Sprint | Prio | Cat | Inhoud | Inschatting |
 |---|---|---|---|---|
-| **43** | 🔴 P10 | ARCH/BUG | Toetsen/taken scheiden van gewone sessies: (a) `mode='quiz'`/`task` uit de "Lopende sessies"-lijst filteren, (b) leerling met toetscode naar de toets-flow i.p.v. sessie-editor, (c) toets↔taak type-label, (d) Toetsen-tab toont online-teller + open/gesloten (tijdsvenster) + link naar `teacher-grid.html?code=…` | ~2-3 dagen |
 | **44** | 🔴 P10 | BUG | Dupliceren in vragenoverzicht maakt méérdere kopieën: klik-listener wordt bij elke re-render opnieuw op `#q-grid` gebonden → listeners stapelen op. Listener één keer binden (of node vervangen). | ~0.5 dag |
-| **48** | 🔵 P9 | ARCH | Instapstructuur **Deel A+B** (restant van 42): startpagina die de app zélf serveert met automatisch meelopend versienummer (`{{APP_VERSION}}`), + gescheiden ingang `/student` vs `/teacher`. Deel C (branding/schoollogo) is al afgerond in v2026.2.42.0. | ~2 dagen |
-| **45** | 🟠 P8 | BUG/UX | Leerkracht-preview & toets-launch: (a) keuze-opties in stap 3 "Live preview" renderen verkeerd (lege kaders, checkbox los, tekst afgesneden), (b) "doen alsof je de toets maakt" blijft op "Toets laden…" hangen (vermoedelijk lege naam/klas → `error_message` niet getoond) | ~1 dag |
-| **46** | 🟠 P8 | UX | Vraag-editor & vraagweergave: (a) `hint` vs `tip` — mogelijk samenvoegen, (b) kader-label "📌 Kader" → "Extra informatie", (c) Python-codeblok als echt code-veld (syntax highlighting) i.p.v. platte zwarte tekst, (d) juist/fout groen/rood bij nakijken (deels al aanwezig in `quiz-review.js`) | ~1.5 dag |
-| **47** | 🔵 P9 | ARCH | ⛔ School-keuze bij leerkracht-login (modal indien >1 school) + `active_school_id` in sessie — **geblokkeerd:** vereist fase 1 + fase 3 (multi-tenant) | ~3 dagen |
+| **45** | 🔵 P9 | ARCH | Instapstructuur **Deel A+B** (restant van 42): startpagina die de app zélf serveert met automatisch meelopend versienummer (`{{APP_VERSION}}`), + gescheiden ingang `/student` vs `/teacher`. Deel C (branding/schoollogo) is al afgerond in v2026.2.42.0. | ~2 dagen |
+| **46** | 🟠 P8 | BUG/UX | Leerkracht-preview & toets-launch: (a) keuze-opties in stap 3 "Live preview" renderen verkeerd (lege kaders, checkbox los, tekst afgesneden), (b) "doen alsof je de toets maakt" blijft op "Toets laden…" hangen (vermoedelijk lege naam/klas → `error_message` niet getoond) | ~1 dag |
+| **47** | 🟠 P8 | UX | Vraag-editor & vraagweergave: (a) `hint` vs `tip` — mogelijk samenvoegen, (b) kader-label "📌 Kader" → "Extra informatie", (c) Python-codeblok als echt code-veld (syntax highlighting) i.p.v. platte zwarte tekst, (d) juist/fout groen/rood bij nakijken (deels al aanwezig in `quiz-review.js`) | ~1.5 dag |
+| **48** | 🔵 P9 | ARCH | ⛔ School-keuze bij leerkracht-login (modal indien >1 school) + `active_school_id` in sessie — **geblokkeerd:** vereist fase 1 + fase 3 (multi-tenant) | ~3 dagen |
 
-> **Sprint 42 is gesplitst:** Deel C (branding/schoollogo) is afgerond in v2026.2.42.0 (zie afgewerkte sprints); het restant (startpagina + leerling/leerkracht-ingang) leeft nu als **sprint 48**.
+> **Sprint 42 is gesplitst:** Deel C (branding/schoollogo) is afgerond in v2026.2.42.0 (zie afgewerkte sprints); het restant (startpagina + leerling/leerkracht-ingang) leeft nu als **sprint 45**.
 
 ---
 
@@ -84,7 +85,8 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 31 | **40** | `class_memberships`: leerling-lidmaatschap per schooljaar (vers schema) | v2026.2.40.0 |
 | 32 | **41** | Schooljaar-selector + read-only gearchiveerde jaren | v2026.2.41.0 |
 | 33 | **hotfix** | Opstart-crash (TDZ: `log` gebruikt vóór init in `loadVersionFromFile`) | v2026.2.41.1 |
-| 34 | **42 (deel C)** | Branding: eigen PyCodeFlow-logo in app-balk + landingspagina, footer opgeschoond (school-verwijzing weg) — deel A+B verplaatst naar sprint 48 | v2026.2.42.0 |
+| 34 | **42 (deel C)** | Branding: eigen PyCodeFlow-logo in app-balk + landingspagina, footer opgeschoond (school-verwijzing weg) — deel A+B verplaatst naar sprint 45 | v2026.2.42.0 |
+| 35 | **43** | Toetsen/taken scheiden van sessies + live-overzicht (filter uit sessielijst, leerling-redirect naar toets-flow, toets/taak-label, online-teller + open/gesloten-status + teacher-grid-link) | v2026.2.43.0 |
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
@@ -92,9 +94,17 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 
 ## Detailbeschrijvingen (recentste sprints)
 
-### Sprint 43 — Toetsen/taken scheiden van sessies + live-overzicht *(~2-3 dagen)* — 🆕 AANGEMELD
+### Sprint 43 — Toetsen/taken scheiden van sessies + live-overzicht *(~2-3 dagen)* — ✅ AFGEROND (v2026.2.43.0)
 
-**Aangemeld:** 11/07/2026 (leerkracht-feedback + screenshots) · **Status:** 🔴 P10, nog te plannen · **Cat:** ARCH/BUG
+**Aangemeld:** 11/07/2026 (leerkracht-feedback + screenshots) · **Afgerond:** 11/07/2026 · **Cat:** ARCH/BUG
+
+**Wat is gebouwd:**
+- **(a)** `renderSessions()` in `app.js` filtert nu toets-/taaksessies (`mode==='quiz'`/`'task'`) uit de "Lopende sessies"-lijst — zowel actief als gesloten. Ze verschijnen enkel nog onder de "Toetsen"-tab.
+- **(b)** De `student_join`-handler in `server.js` herkent een toets/taak-sessie en stuurt de leerling met een `redirect_to_quiz`-event naar `quiz-student.html?code=…&name=…&class=…` i.p.v. hem in de editor-sessie te zetten. De join-pagina (`app.js`) luistert op dat event en navigeert door. Leerling-instap toets vs. sessie is nu gescheiden.
+- **(c)** Type-label toets ↔ taak: afgeleid uit `quiz_meta.no_timer` (timerloos = **taak**, met timer = **toets**) en getoond als badge in de lijst. *Opmerking:* dit is de bestaande conventie ("∞ Geen tijdslimiet (taak)"); een volledig expliciete toets/taak-keuze bij het aanmaken kan later als kleine follow-up (bv. sprint 43.1) indien gewenst.
+- **(d)** Nieuw endpoint `GET /api/quiz-sessions` (`server.js`) levert per toets/taak: **online-teller** (leerlingen nu verbonden), **beschikbaarheid** op basis van het tijdsvenster (`open` / `pending` / `expired` / `closed`, via `access_from`/`access_until`), type en aantallen. De "Toetsen"-tab toont nu die badges plus een **👁 Live**-knop naar `teacher-grid.html?code=…` om read-only mee te kijken. Preview-sessies (`is_teacher_preview`) worden uit de lijst gefilterd.
+
+**Oorspronkelijke analyse (bij aanmelding):**
 
 **Kern van het probleem:** een toets is intern een sessie met `mode: 'quiz'` (zie `server.js` waar de quiz-sessie met `mode:'quiz'` wordt aangemaakt). Er is nog geen echte scheiding tussen "gewone codeersessie" en "toets/taak" in de leerkracht-UI én in de leerling-instap. Daardoor lekken toetsen door als gewone sessies en belanden leerlingen met een toetscode in het verkeerde scherm.
 
@@ -133,33 +143,7 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 
 ---
 
-### Sprint 45 — Leerkracht-preview & toets-launch fixes *(~1 dag)* — 🆕 AANGEMELD
-
-**Aangemeld:** 11/07/2026 (leerkracht-feedback + screenshots) · **Status:** 🟠 P8, nog te plannen · **Cat:** BUG/UX
-
-- **(a) Keuze-opties in de "Live preview" (stap 3 van toets aanmaken) renderen verkeerd.** Screenshot toont grote lege kaders met de checkbox los in het midden en de optietekst afgesneden aan de rechterrand ("tes 1", "pri tes"). De optie-`<label>`-opbouw zit in `renderPreviewQuestion()` (`quiz-teacher.js`, tak voor `single`/`multiple`). Uitzoeken of de flex-layout niet doorkomt (bv. conflicterende globale `.choice-*`-CSS die inlekt, of lege/whitespace optietekst uit de duplicatie-bug van sprint 44) en de optiekaart correct laten uitlijnen (selector links, tekst leesbaar ernaast, geen overflow).
-
-- **(b) "Doen alsof je de toets maakt" blijft hangen op "Toets laden…".** De leerkracht-preview opent `quiz-student.html` die bij load `quiz_start` emit en wacht op `quiz_state` (`quiz-student.js`). De server-handler `quiz_start` (`server.js`) doet o.a. `if (!studentName) return socket.emit('error_message', 'Naam is verplicht.')` — als de preview zonder naam/klas opent (screenshot toont "Jouw naam: —", "Klas: —") komt er dus nooit een `quiz_state` en blijft het startscherm hangen; de `error_message` wordt op dat scherm niet getoond. **Te bevestigen** in de browser, daarna: ofwel de preview een naam/klas meegeven, ofwel `error_message` op het "Toets laden…"-scherm zichtbaar maken zodat het niet stil hangt.
-
----
-
-### Sprint 46 — Vraag-editor & vraagweergave verbeteringen *(~1.5 dag)* — 🆕 AANGEMELD
-
-**Aangemeld:** 11/07/2026 (leerkracht-feedback + screenshot) · **Status:** 🟠 P8, nog te plannen · **Cat:** UX
-
-Context: de vier info-kaders staan in `quiz-bank.js`/`quiz-student.js`/`quiz-teacher.js` (`:::tip` → `.info-tip`, `:::opgelet` → `.info-opgelet`, `:::kader` → `.info-kader-blauw`, `:::hint` → `.info-hint`); de labels/kleuren in `styles.css` (regels ~352-355).
-
-- **(a) `hint` vs `tip` — is dit niet hetzelfde?** Beide bestaan als aparte kaders (💡 Tip, groen · ❓ Hint, paars). Overwegen om ze samen te voegen tot één begrip, of het onderscheid expliciet te documenteren (bv. Tip = advies vooraf, Hint = hulp bij vastlopen). Beslissing nog te maken.
-
-- **(b) "Kader" hernoemen naar "Extra informatie".** Het blauwe kader achter de duimspijker heet nu "📌 Kader" (`styles.css` + `quiz-bank.html`, `.info-kader-blauw::before { content:'📌 Kader'; }`, en de toolbar-knop-tooltip "Informatiekader (blauw)"). Label wijzigen naar "Extra informatie". *(De onderliggende `:::kader`-syntax kan blijven of mee hernoemd worden — bij hernoemen let op bestaande vragen die `:::kader` gebruiken; best backwards-compatibel houden.)*
-
-- **(c) Python-codeblok als echt code-veld.** Codeblokken in de vraagstelling worden via `marked.parse` als kale `<pre><code>` gerenderd; er is **geen** syntax-highlighting-library (geen Prism/hljs) en **geen** `pre`/`code`-styling in `styles.css` → de Python-code verschijnt als platte zwarte tekst. Toevoegen: een code-veld-look (donkere achtergrond, monospace) en bij voorkeur syntax highlighting, consistent in editor-preview, leerling-view én leerkracht-preview.
-
-- **(d) Juist/fout groen/rood bij nakijken.** *Deels al aanwezig:* in de nakijk-/verbeterweergave (`quiz-review.js`) krijgen keuzes al kleur — gekozen+juist → groen, gekozen+fout → rood, niet-gekozen+juist → amber. Wat de leerkracht als "modelantwoord" bij single/meerkeuze invult werkt als feedbackveld — dat is oké. **Resterende gap:** in de **editor** kleurt het juiste antwoord nu **blauw** (`.choice-row.correct-row` gebruikt `--primary`, niet groen). Afstemmen op groen voor "juist", en verifiëren dat de groen/rood-weergave overal consistent is (editor, nakijk, en waar de leerling zijn resultaat ziet).
-
----
-
-### Sprint 48 — Instapstructuur Deel A+B (startpagina + leerling/leerkracht-ingang) *(~2 dagen)* — 🆕 OPENSTAAND
+### Sprint 45 — Instapstructuur Deel A+B (startpagina + leerling/leerkracht-ingang) *(~2 dagen)* — 🆕 OPENSTAAND
 
 **Aangemeld:** 08/07/2026 (als deel van sprint 42) · **Status:** Deel A + B 🔄 openstaand · Deel C (branding) ✅ afgerond in v2026.2.42.0 → verhuisd naar afgewerkte sprints. Deze sprint is het **restant van sprint 42** na de splitsing.
 
@@ -187,8 +171,8 @@ Context: de vier info-kaders staan in `quiz-bank.js`/`quiz-student.js`/`quiz-tea
 ```
 - Nette, sprekende routes `/student` en `/teacher` (i.p.v. `.html`-bestandsnamen), met redirects zodat oude links blijven werken.
 - De **vrije oefensessie blijft werken zonder account** — bewuste sterkte, niet weg-ontwerpen.
-- `/teacher` is meteen de haak waar **sprint 47** later de school-keuze-modal aan hangt.
-- **Niet in scope:** echte leerling-login (14/15, methode nog niet gekozen) en school-keuze (47, vereist multi-tenant fundament).
+- `/teacher` is meteen de haak waar **sprint 48** later de school-keuze-modal aan hangt.
+- **Niet in scope:** echte leerling-login (14/15, methode nog niet gekozen) en school-keuze (48, vereist multi-tenant fundament).
 
 #### Deel C — Schoollogo per school (personalisatie) + branding-opschoning — ✅ AFGEROND (v2026.2.42.0)
 
@@ -202,7 +186,7 @@ Context: de vier info-kaders staan in `quiz-bank.js`/`quiz-student.js`/`quiz-tea
 
 **Uit te voeren (structureel):**
 - De balk-logo's koppelen aan `/api/school-info` → toont het **schoollogo** als dat er is, anders valt het terug op het PyCodeFlow-logo (default). Eén kleine helper die op elke pagina de `<img>` in `.logo-group` invult.
-- **Voorbereiding op multi-tenant:** het schoollogo hoort uiteindelijk bij de `schools`-tabel (fase 3), niet bij één env-var. In sprint 42 leggen we de **placeholder + het ophaalmechanisme** aan; bij het aanmaken van een school (fase 3 / sprint 47) wordt een logo meegegeven en per school geserveerd. Voor nu is de **default** het eigen PyCodeFlow-logo.
+- **Voorbereiding op multi-tenant:** het schoollogo hoort uiteindelijk bij de `schools`-tabel (fase 3), niet bij één env-var. In sprint 42 leggen we de **placeholder + het ophaalmechanisme** aan; bij het aanmaken van een school (fase 3 / sprint 48) wordt een logo meegegeven en per school geserveerd. Voor nu is de **default** het eigen PyCodeFlow-logo.
 - Zo heeft elke school straks een licht gepersonaliseerde app (eigen logo in de balk) zonder de rest te wijzigen.
 
 **Logo aangeleverd:** `pycodeflow-logo.png` (eigen PyCodeFlow-logo) — vervangt zowel het balk- als het schoollogo. Het AH-logo mag volledig verdwijnen.
@@ -210,6 +194,32 @@ Context: de vier info-kaders staan in `quiz-bank.js`/`quiz-student.js`/`quiz-tea
 **Tests (verwacht):** startpagina bevat de live versie (geen hardcoded string); `/student` en `/teacher` routes leiden juist; school-info valt terug op default als er geen logo is. ~4-5 tests.
 
 **Betrokken bestanden (verwacht):** `server.js` · `public/index.html` (keuzepagina) · `public/student-start.html` · nieuwe/aangepaste routes · `public/*.html` (balk-logo haak) · een klein `public/school-branding.js` · `tests/`
+
+---
+
+### Sprint 46 — Leerkracht-preview & toets-launch fixes *(~1 dag)* — 🆕 AANGEMELD
+
+**Aangemeld:** 11/07/2026 (leerkracht-feedback + screenshots) · **Status:** 🟠 P8, nog te plannen · **Cat:** BUG/UX
+
+- **(a) Keuze-opties in de "Live preview" (stap 3 van toets aanmaken) renderen verkeerd.** Screenshot toont grote lege kaders met de checkbox los in het midden en de optietekst afgesneden aan de rechterrand ("tes 1", "pri tes"). De optie-`<label>`-opbouw zit in `renderPreviewQuestion()` (`quiz-teacher.js`, tak voor `single`/`multiple`). Uitzoeken of de flex-layout niet doorkomt (bv. conflicterende globale `.choice-*`-CSS die inlekt, of lege/whitespace optietekst uit de duplicatie-bug van sprint 44) en de optiekaart correct laten uitlijnen (selector links, tekst leesbaar ernaast, geen overflow).
+
+- **(b) "Doen alsof je de toets maakt" blijft hangen op "Toets laden…".** De leerkracht-preview opent `quiz-student.html` die bij load `quiz_start` emit en wacht op `quiz_state` (`quiz-student.js`). De server-handler `quiz_start` (`server.js`) doet o.a. `if (!studentName) return socket.emit('error_message', 'Naam is verplicht.')` — als de preview zonder naam/klas opent (screenshot toont "Jouw naam: —", "Klas: —") komt er dus nooit een `quiz_state` en blijft het startscherm hangen; de `error_message` wordt op dat scherm niet getoond. **Te bevestigen** in de browser, daarna: ofwel de preview een naam/klas meegeven, ofwel `error_message` op het "Toets laden…"-scherm zichtbaar maken zodat het niet stil hangt.
+
+---
+
+### Sprint 47 — Vraag-editor & vraagweergave verbeteringen *(~1.5 dag)* — 🆕 AANGEMELD
+
+**Aangemeld:** 11/07/2026 (leerkracht-feedback + screenshot) · **Status:** 🟠 P8, nog te plannen · **Cat:** UX
+
+Context: de vier info-kaders staan in `quiz-bank.js`/`quiz-student.js`/`quiz-teacher.js` (`:::tip` → `.info-tip`, `:::opgelet` → `.info-opgelet`, `:::kader` → `.info-kader-blauw`, `:::hint` → `.info-hint`); de labels/kleuren in `styles.css` (regels ~352-355).
+
+- **(a) `hint` vs `tip` — is dit niet hetzelfde?** Beide bestaan als aparte kaders (💡 Tip, groen · ❓ Hint, paars). Overwegen om ze samen te voegen tot één begrip, of het onderscheid expliciet te documenteren (bv. Tip = advies vooraf, Hint = hulp bij vastlopen). Beslissing nog te maken.
+
+- **(b) "Kader" hernoemen naar "Extra informatie".** Het blauwe kader achter de duimspijker heet nu "📌 Kader" (`styles.css` + `quiz-bank.html`, `.info-kader-blauw::before { content:'📌 Kader'; }`, en de toolbar-knop-tooltip "Informatiekader (blauw)"). Label wijzigen naar "Extra informatie". *(De onderliggende `:::kader`-syntax kan blijven of mee hernoemd worden — bij hernoemen let op bestaande vragen die `:::kader` gebruiken; best backwards-compatibel houden.)*
+
+- **(c) Python-codeblok als echt code-veld.** Codeblokken in de vraagstelling worden via `marked.parse` als kale `<pre><code>` gerenderd; er is **geen** syntax-highlighting-library (geen Prism/hljs) en **geen** `pre`/`code`-styling in `styles.css` → de Python-code verschijnt als platte zwarte tekst. Toevoegen: een code-veld-look (donkere achtergrond, monospace) en bij voorkeur syntax highlighting, consistent in editor-preview, leerling-view én leerkracht-preview.
+
+- **(d) Juist/fout groen/rood bij nakijken.** *Deels al aanwezig:* in de nakijk-/verbeterweergave (`quiz-review.js`) krijgen keuzes al kleur — gekozen+juist → groen, gekozen+fout → rood, niet-gekozen+juist → amber. Wat de leerkracht als "modelantwoord" bij single/meerkeuze invult werkt als feedbackveld — dat is oké. **Resterende gap:** in de **editor** kleurt het juiste antwoord nu **blauw** (`.choice-row.correct-row` gebruikt `--primary`, niet groen). Afstemmen op groen voor "juist", en verifiëren dat de groen/rood-weergave overal consistent is (editor, nakijk, en waar de leerling zijn resultaat ziet).
 
 ---
 
@@ -449,10 +459,10 @@ school
 |---|---|---|---|---|
 | **40** | 🔵 ARCH | `class_memberships`-tabel in **vers schema** (leerling-lidmaatschap per schooljaar; géén datamigratie nu) | ✅ Afgerond (v2026.2.40.0) | ~2-3 dagen |
 | **41** | 🔵 ARCH | Schooljaar-selector in de leerkracht-UI + read-only gearchiveerde jaren | ✅ Afgerond (v2026.2.41.0) | ~3 dagen |
-| **42** | 🔵 ARCH | Instapstructuur: deel C (branding/schoollogo) ✅ afgerond v2026.2.42.0; deel A+B (startpagina + `/student`/`/teacher`) → **sprint 48** | 🔄 Deels afgerond | ~2 dagen (restant) |
-| **47** | 🔵 ARCH | School-keuze bij leerkracht-login (modal indien >1 school) + `active_school_id` in de sessie | 🔄 Gepland | ~3 dagen |
+| **42** | 🔵 ARCH | Instapstructuur: deel C (branding/schoollogo) ✅ afgerond v2026.2.42.0; deel A+B (startpagina + `/student`/`/teacher`) → **sprint 45** | 🔄 Deels afgerond | ~2 dagen (restant) |
+| **48** | 🔵 ARCH | School-keuze bij leerkracht-login (modal indien >1 school) + `active_school_id` in de sessie | 🔄 Gepland | ~3 dagen |
 
-**Afhankelijkheden:** sprint 47 vereist fase 1 (echte per-gebruiker sessie) én fase 3 (`schools`-tabel). Sprint 40 kan **nu al**, onafhankelijk van multi-tenancy — en is ook voor één school waardevol, want vandaag kun je de klassamenstelling van vorig jaar niet correct bewaren. Sprint 42 kan eveneens nu al.
+**Afhankelijkheden:** sprint 48 vereist fase 1 (echte per-gebruiker sessie) én fase 3 (`schools`-tabel). Sprint 40 kan **nu al**, onafhankelijk van multi-tenancy — en is ook voor één school waardevol, want vandaag kun je de klassamenstelling van vorig jaar niet correct bewaren. Sprint 42 kan eveneens nu al.
 
 **Aanbeveling:** doe **sprint 40 vroeg** en benut het lege-database-venster. Nu bouwen betekent het juiste model meteen goed, zonder migratiecode. Zodra er echte leerlingdata in zit, is dat venster gesloten en wordt een schema-evolutie mét migratie nodig (fase 3).
 

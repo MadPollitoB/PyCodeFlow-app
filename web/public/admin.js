@@ -24,7 +24,7 @@ document.querySelectorAll('.admin-tab').forEach(btn => {
     btn.classList.add('active');
     document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'teachers') loadTeachers();
-    if (btn.dataset.tab === 'classes')  loadClasses();
+    if (btn.dataset.tab === 'classes')  { loadSchoolYears().then(loadClasses); }
     if (btn.dataset.tab === 'students') { loadClassFilter(); loadStudents(); }
   });
 });
@@ -89,22 +89,54 @@ async function deleteTeacher(username) {
 }
 
 // ── Klassen ───────────────────────────────────────────────────────────────────
+// Sprint 41: schooljaren in de selector laden (met markering voor gearchiveerde jaren).
+async function loadSchoolYears() {
+  const sel = document.getElementById('year-filter');
+  if (!sel) return;
+  try {
+    const r = await fetch('/api/admin/school-years');
+    const years = await r.json();
+    const huidige = sel.value;
+    sel.innerHTML = '<option value="">Alle jaren</option>' +
+      years.map(y => `<option value="${escHtml(y.schoolYear)}">${escHtml(y.schoolYear)}${y.allArchived ? ' 🔒' : ''}</option>`).join('');
+    if (huidige) sel.value = huidige;
+    _yearInfo = {};
+    years.forEach(y => { _yearInfo[y.schoolYear] = y; });
+  } catch { /* stil: selector blijft "Alle jaren" */ }
+}
+
+let _yearInfo = {};
+
 async function loadClasses() {
   const archived = document.getElementById('show-archived-classes')?.checked;
-  const r = await fetch(`/api/admin/classes${archived ? '?archived=true' : ''}`);
+  const year = document.getElementById('year-filter')?.value || '';
+  const params = new URLSearchParams();
+  if (archived) params.set('archived', 'true');
+  if (year) params.set('schoolYear', year);
+  const r = await fetch(`/api/admin/classes${params.toString() ? '?' + params : ''}`);
   const classes = await r.json();
+
+  // Sprint 41: een volledig gearchiveerd schooljaar is read-only.
+  const jaarReadonly = year && _yearInfo[year]?.allArchived === true;
+  const banner = document.getElementById('year-readonly-banner');
+  if (banner) banner.style.display = jaarReadonly ? 'block' : 'none';
+
   const tbody = document.getElementById('classes-tbody');
-  tbody.innerHTML = classes.map(c => `
+  tbody.innerHTML = classes.map(c => {
+    const readonly = jaarReadonly || c.archived;
+    return `
     <tr style="${c.archived ? 'opacity:0.5;' : ''}">
       <td><strong>${escHtml(c.name)}</strong></td>
       <td>${escHtml(c.school_year)}</td>
       <td>${c.student_count ?? 0}</td>
       <td>${c.archived ? '<span class="badge">Gearchiveerd</span>' : '<span class="status-active">Actief</span>'}</td>
       <td style="display:flex;gap:6px;">
-        ${!c.archived ? `<button class="btn btn-muted small" onclick="archiveClass('${c.id}')">Archiveren</button>` : ''}
-        <button class="btn btn-danger small" onclick="deleteClass('${c.id}','${escHtml(c.name)}')">Verwijderen</button>
+        ${readonly ? '<span class="muted" style="font-size:0.8rem;">🔒 alleen-lezen</span>' : `
+          ${!c.archived ? `<button class="btn btn-muted small" onclick="archiveClass('${c.id}')">Archiveren</button>` : ''}
+          <button class="btn btn-danger small" onclick="deleteClass('${c.id}','${escHtml(c.name)}')">Verwijderen</button>`}
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 
 async function addClass() {
@@ -113,7 +145,7 @@ async function addClass() {
   if (!name) return await pyAlert('Naam is verplicht.', "warn");
   const res = await apiFetch('/api/admin/classes', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, schoolYear: year }) });
   const data = await res.json();
-  if (data.ok) { document.getElementById('new-class-name').value = ''; loadClasses(); }
+  if (data.ok) { document.getElementById('new-class-name').value = ''; loadSchoolYears().then(loadClasses); }
   else await pyAlert('Fout: ' + data.error, "error");
 }
 

@@ -2612,6 +2612,51 @@ app.get("/api/sessions", requireTeacherAuth, async (req, res) => {
   res.json([...activeList, ...closedList]);
 });
 
+// ── Sprint 43: toets-/taaklijst met live-status (type, tijdsvenster, online-teller) ──
+function quizSummaryRow(code, name, createdAt, closed, meta, onlineCount, studentCount, now) {
+  const accessFrom  = meta && meta.access_from  != null ? Number(meta.access_from)  : null;
+  const accessUntil = meta && meta.access_until != null ? Number(meta.access_until) : null;
+  const quizType = (meta && meta.no_timer) ? 'taak' : 'toets';
+  // Beschikbaarheid op basis van het tijdsvenster — los van de handmatige 'closed'-vlag.
+  let availability = 'open';
+  if (closed)                                    availability = 'closed';
+  else if (accessFrom  && now < accessFrom)      availability = 'pending';  // venster nog niet begonnen
+  else if (accessUntil && now > accessUntil)     availability = 'expired';  // venster voorbij
+  return { code, name, createdAt, closed, quizType, accessFrom, accessUntil, availability, onlineCount, studentCount };
+}
+
+app.get("/api/quiz-sessions", requireTeacherAuth, async (req, res) => {
+  const now = Date.now();
+  const out = [];
+
+  // Actieve (in-memory) toets/taak-sessies
+  for (const s of sessions.values()) {
+    if (s.deleted || s.closed) continue;
+    if (s.mode !== 'quiz' && s.mode !== 'task') continue;
+    let meta = null;
+    try { meta = await dbModule.getQuizMeta(s.code); } catch { /* meta optioneel */ }
+    if (meta && meta.is_teacher_preview) continue;              // preview-sessies verbergen
+    const students = Object.values(s.students || {}).filter(st => !st.removed);
+    const onlineCount = students.filter(st => st.online).length;
+    out.push(quizSummaryRow(s.code, s.name, s.createdAt, false, meta, onlineCount, students.length, now));
+  }
+
+  // Gesloten toets/taak-sessies (uit DB)
+  try {
+    const closed = await dbModule.loadClosedSessions();
+    for (const s of closed) {
+      if (s.mode !== 'quiz' && s.mode !== 'task') continue;
+      let meta = null;
+      try { meta = await dbModule.getQuizMeta(s.code); } catch { /* */ }
+      if (meta && meta.is_teacher_preview) continue;
+      out.push(quizSummaryRow(s.code, s.name, s.createdAt, true, meta, 0, s.studentCount || 0, now));
+    }
+  } catch { /* gesloten optioneel */ }
+
+  out.sort((a, b) => b.createdAt - a.createdAt);
+  res.json(out);
+});
+
 // ── ZIP Export: alle leerlingencode + output per sessie ───────────────────────
 app.get("/api/sessions/:code/export", requireTeacherAuth, (req, res) => {
   const code = (req.params.code || '').toUpperCase();
@@ -3348,6 +3393,15 @@ io.on("connection", (socket) => {
     if (!session || session.closed || session.deleted || session.blocked) return socket.emit("error_message", "Sessie niet gevonden of niet bereikbaar");
     if (!normalizedName) return socket.emit("error_message", "Geef eerst je naam in. De placeholder telt niet als naam.");
     if (!normalizedCode) return socket.emit("error_message", "Geef eerst je sessiecode in.");
+
+    // Sprint 43: een toets/taak is géén gewone codeersessie. Wie met een toetscode
+    // op de generieke "Deelnemen"-pagina binnenkomt, wordt naar de toets-flow gestuurd
+    // i.p.v. in de editor-sessie te belanden.
+    if (session.mode === 'quiz' || session.mode === 'task') {
+      return socket.emit('redirect_to_quiz', {
+        code: normalizedCode, name: normalizedName, className: normalizedClass,
+      });
+    }
 
     // Sprint 13B: duplicaat-detectie binnen dezelfde sessie
     const activeNames = Object.values(session.students)

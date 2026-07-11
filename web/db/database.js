@@ -585,19 +585,49 @@ module.exports = {
   },
 
   // ── Klassen (Sprint 12b) ──────────────────────────────────────────────────────
-  async listClasses(includeArchived = false) {
+  // Sprint 41: optioneel filteren op schooljaar.
+  async listClasses(includeArchived = false, schoolYear = null) {
     // Sprint 40: leerlingtelling via class_memberships (matcht op klas + schooljaar).
+    const params = [includeArchived];
+    let yearFilter = '';
+    if (schoolYear) { params.push(schoolYear); yearFilter = ` AND c.school_year = $${params.length}`; }
     const r = await query(
       `SELECT c.*, COUNT(m.student_id)::int AS student_count
        FROM classes c
        LEFT JOIN class_memberships m
               ON m.class_id = c.id AND m.school_year = c.school_year
-       WHERE ($1 OR c.archived = false)
+       WHERE ($1 OR c.archived = false)${yearFilter}
        GROUP BY c.id
        ORDER BY c.school_year DESC, c.name`,
-      [includeArchived]
+      params
     );
     return r.rows;
+  },
+
+  // Sprint 41: alle schooljaren waarvoor klassen bestaan (bron van waarheid voor
+  // het membership-model). Nieuwste eerst. Met per jaar of het volledig gearchiveerd is.
+  async getSchoolYears() {
+    const r = await query(
+      `SELECT c.school_year,
+              bool_and(c.archived) AS all_archived,
+              COUNT(*)::int        AS class_count
+         FROM classes c
+        GROUP BY c.school_year
+        ORDER BY c.school_year DESC`
+    );
+    return r.rows.map(row => ({
+      schoolYear: row.school_year,
+      allArchived: row.all_archived === true,
+      classCount: row.class_count,
+    }));
+  },
+
+  // Sprint 41: is deze klas gearchiveerd? Wordt gebruikt om schrijfacties op
+  // gearchiveerde (read-only) jaren server-side te weigeren.
+  async isClassArchived(classId) {
+    const r = await query(`SELECT archived FROM classes WHERE id = $1`, [classId]);
+    if (!r.rows.length) return null; // klas bestaat niet
+    return r.rows[0].archived === true;
   },
 
   async createClass(name, schoolYear = '2025-2026') {
