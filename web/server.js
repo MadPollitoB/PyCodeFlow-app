@@ -115,13 +115,15 @@ function loadVersionFromFile() {
         const raw = fs.readFileSync(versionPath, 'utf8').trim();
         const m = raw.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
         if (m) {
-          log.info(`[versie] Geladen uit ${versionPath}: ${raw}`);
+          // NB: dit draait vóór de logger (createLogger) geïnitialiseerd is,
+          // dus bewust console.* i.p.v. log.* — anders TDZ ReferenceError.
+          console.log(`[versie] Geladen uit ${versionPath}: ${raw}`);
           return { year: m[1], major: m[2], minor: m[3], build: m[4] };
         }
-        log.warn(`[versie] Ongeldig formaat in ${versionPath}: "${raw}"`);
+        console.warn(`[versie] Ongeldig formaat in ${versionPath}: "${raw}"`);
       }
     } catch (e) {
-      log.warn(`[versie] Lezen van ${versionPath} mislukt:`, e.message);
+      console.warn(`[versie] Lezen van ${versionPath} mislukt:`, e.message);
     }
   }
   return null;
@@ -767,8 +769,18 @@ app.delete('/api/admin/teachers/:username', requireTeacherAuth, requireCsrf, asy
 
 app.get('/api/admin/classes', requireTeacherAuth, async (req, res) => {
   try {
-    const classes = await dbModule.listClasses(req.query.archived === 'true');
+    const classes = await dbModule.listClasses(
+      req.query.archived === 'true',
+      req.query.schoolYear || null
+    );
     res.json(classes);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Sprint 41: beschikbare schooljaren (voor de selector), nieuwste eerst.
+app.get('/api/admin/school-years', requireTeacherAuth, async (req, res) => {
+  try {
+    res.json(await dbModule.getSchoolYears());
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -824,6 +836,14 @@ app.post('/api/admin/students', requireTeacherAuth, requireCsrf, async (req, res
   const { name, classId, source, status } = req.body || {};
   if (!name?.trim()) return res.status(400).json({ error: 'Naam vereist' });
   try {
+    // Sprint 41: gearchiveerde schooljaren zijn read-only.
+    if (classId) {
+      const archived = await dbModule.isClassArchived(classId);
+      if (archived === null) return res.status(404).json({ error: 'Klas niet gevonden.' });
+      if (archived) return res.status(403).json({
+        error: 'Deze klas hoort bij een gearchiveerd schooljaar en is alleen-lezen.',
+      });
+    }
     const id = await dbModule.createStudent(name.trim().slice(0, 64), classId || null, source || 'manual', status || 'active');
     res.json({ ok: true, id });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -838,6 +858,14 @@ app.put('/api/admin/students/:id/status', requireTeacherAuth, requireCsrf, async
 
 app.put('/api/admin/students/:id/class', requireTeacherAuth, requireCsrf, async (req, res) => {
   const { classId } = req.body || {};
+  // Sprint 41: niet in een gearchiveerd (read-only) schooljaar plaatsen.
+  if (classId) {
+    const archived = await dbModule.isClassArchived(classId);
+    if (archived === null) return res.status(404).json({ error: 'Klas niet gevonden.' });
+    if (archived) return res.status(403).json({
+      error: 'Deze klas hoort bij een gearchiveerd schooljaar en is alleen-lezen.',
+    });
+  }
   await dbModule.updateStudentClass(req.params.id, classId || null);
   res.json({ ok: true });
 });

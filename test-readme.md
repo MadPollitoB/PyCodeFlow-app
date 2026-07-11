@@ -1795,4 +1795,23 @@ Archiveren behoudt ze.
 ⚠️ **Vereist een verse database** (of leeg volume). Geen migratie van bestaande
 class_id-data — die komt pas bij fase 3.
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.40.0 · 8 juli 2026*
+## 46. Sprint 41 — Schooljaar-selector + read-only gearchiveerde jaren
+
+### Selector
+```
+✅ Admin → Klassen: schooljaar-dropdown boven de lijst
+✅ "Alle jaren" toont alles; een specifiek jaar filtert de klassen
+✅ Volledig gearchiveerde jaren tonen een 🔒 in de dropdown
+✅ Nieuwe klas in een nieuw jaar → dropdown ververst mee
+```
+
+### Read-only
+```
+✅ Gearchiveerd jaar geselecteerd → gele "alleen-lezen"-banner
+✅ Actieknoppen vervangen door "🔒 alleen-lezen"
+✅ Server weigert leerling toevoegen aan gearchiveerde klas (403)
+✅ Server weigert leerling verplaatsen naar gearchiveerde klas (403)
+✅ Bekijken en exporteren van oude jaren blijft mogelijk
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.41.1 · 8 juli 2026*

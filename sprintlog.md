@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.40.0**
+**Huidige versie: v2026.2.41.1**
 
 ---
 
@@ -16,8 +16,7 @@
 
 | Sprint | Prio | Cat | Inhoud | Inschatting |
 |---|---|---|---|---|
-| **41** | 🔵 P9 | ARCH | Schooljaar-selector in de leerkracht-UI + read-only gearchiveerde jaren (bouwt op sprint 40) | ~3 dagen |
-| **42** | 🔵 P9 | ARCH | Instapstructuur: `pycodeflow.org` keuzepagina → gescheiden leerling-/leerkracht-ingang | ~2 dagen |
+| **42** | 🔵 P9 | ARCH | Instapstructuur: keuzepagina op `/` (live versie, schoollogo) → gescheiden leerling-/leerkracht-ingang + schoollogo in de app-balk | ~3 dagen |
 | **43** | 🔵 P9 | ARCH | ⛔ School-keuze bij leerkracht-login (modal indien >1 school) + `active_school_id` in sessie — **geblokkeerd:** vereist fase 1 + fase 3 (multi-tenant) | ~3 dagen |
 | **35b** | 🟠 P6 | A11Y | Statusinformatie niet enkel via kleur (klaar/hand/tab-weg) — voor kleurenblinden | ~1 dag |
 | **35a** | 🟠 P6 | A11Y | Aria-labels/roles toevoegen (vrijwel geen nu) — screenreaders bruikbaar maken | ~2 dagen |
@@ -77,12 +76,90 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 29 | **37c** | Commentaar per vraag + algemeen commentaar zichtbaar | v2026.2.37.3 |
 | 30 | **38** | Vraag dupliceren in het vragenoverzicht | v2026.2.38.0 |
 | 31 | **40** | `class_memberships`: leerling-lidmaatschap per schooljaar (vers schema) | v2026.2.40.0 |
+| 32 | **41** | Schooljaar-selector + read-only gearchiveerde jaren | v2026.2.41.0 |
+| 33 | **hotfix** | Opstart-crash (TDZ: `log` gebruikt vóór init in `loadVersionFromFile`) | v2026.2.41.1 |
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 42 — Instapstructuur + startpagina + schoollogo *(~3 dagen)* — 🔄 GEPLAND
+
+**Aangemeld:** 08/07/2026 · **Status:** 🔄 Gepland
+
+**Doel:** een duidelijke instapstructuur (leerling vs. leerkracht), een startpagina waarvan het versienummer **automatisch** meeloopt, en een **schoollogo** dat de app per school personaliseert.
+
+#### Deel A — Startpagina met live versie (aanpak B)
+
+**Situatie nu:** `pycodeflow.org` is een **losse statische pagina** met een **handmatig ingetypt** versienummer (staat verouderd op `v2026.1.12.3` terwijl de app op `2026.2.41.0` zit) en het AH-logo. Volledig los van de app.
+
+**Aanpak B — de app serveert de startpagina zelf** (gekozen boven een losse static site + fetch/CORS, en boven versie-injectie bij build):
+- De keuzepagina wordt door de Node-app geserveerd op `/`. Het versienummer wordt **server-side ingevuld**: de app vervangt een placeholder (bv. `{{APP_VERSION}}`) door `APP_VERSION` op het moment van serveren. **Geen `fetch`, geen CORS, werkt zelfs zonder JavaScript**, en klopt altijd omdat de app zijn eigen versie kent (`sync-version.sh` → `VERSION` → `.env`).
+- Zo verdwijnt de losse statische pagina; er is nog maar **één** ding te onderhouden.
+- In Cloudflare laat je `pycodeflow.org` naar dezelfde tunnel/app wijzen als `app.pycodeflow.org` (één DNS-instelling; de app-code regelt de rest). `app.pycodeflow.org` blijft exact zoals hij is.
+
+**Waarom niet aanpak A (static + fetch):** vereist CORS openzetten voor het kale domein en breekt zonder JavaScript. **Waarom niet C (injectie bij build):** houdt twee werelden gescheiden en vergt aparte deploy van de statische pagina.
+
+#### Deel B — Instapstructuur (leerling vs. leerkracht)
+
+```
+/  (keuzepagina)  → "Ben je leerling of leerkracht?"
+   ├── /student   → leerling-ingang
+   │                 ├─ Vrije sessie (naam + klas + code)   ← blijft ZONDER account
+   │                 └─ Mijn toets nakijken (?nakijken=1, sprint 37)
+   └── /teacher   → leerkracht-login → leerkrachtenplatform
+```
+- Nette, sprekende routes `/student` en `/teacher` (i.p.v. `.html`-bestandsnamen), met redirects zodat oude links blijven werken.
+- De **vrije oefensessie blijft werken zonder account** — bewuste sterkte, niet weg-ontwerpen.
+- `/teacher` is meteen de haak waar **sprint 43** later de school-keuze-modal aan hangt.
+- **Niet in scope:** echte leerling-login (14/15, methode nog niet gekozen) en school-keuze (43, vereist multi-tenant fundament).
+
+#### Deel C — Schoollogo per school (personalisatie)
+
+**Situatie nu:** het logo in de app-balk is op **elke** pagina hardgecodeerd naar `/assets/logo.svg`. Er bestaat al een half-af mechanisme uit sprint 19b (`/api/school-info` + `/school-logo`, gevoed door `SCHOOL_LOGO_PATH`), maar **de frontend gebruikt het nergens**.
+
+**Uit te voeren:**
+- De balk-logo's koppelen aan `/api/school-info` → toont het **schoollogo** als dat er is, anders valt het terug op het PyCodeFlow-logo (placeholder). Eén kleine helper die op elke pagina de `<img>` in `.logo-group` invult.
+- **Voorbereiding op multi-tenant:** het schoollogo hoort uiteindelijk bij de `schools`-tabel (fase 3), niet bij één env-var. In sprint 42 leggen we de **placeholder + het ophaalmechanisme** aan; bij het aanmaken van een school (fase 3 / sprint 43-omgeving) wordt een logo meegegeven en per school geserveerd. Voor nu: één schoollogo via de bestaande config, met de frontend-haak die later per-school data kan tonen.
+- Zo heeft elke school straks een licht gepersonaliseerde app (eigen logo in de balk) zonder de rest te wijzigen.
+
+**Nodig van de gebruiker:** het eigen logootje (PNG/SVG) voor de startpagina en als default schoollogo. Zolang dat er niet is, blijft de bestaande `logo.svg` de placeholder.
+
+**Tests (verwacht):** startpagina bevat de live versie (geen hardcoded string); `/student` en `/teacher` routes leiden juist; school-info valt terug op default als er geen logo is. ~4-5 tests.
+
+**Betrokken bestanden (verwacht):** `server.js` · `public/index.html` (keuzepagina) · `public/student-start.html` · nieuwe/aangepaste routes · `public/*.html` (balk-logo haak) · een klein `public/school-branding.js` · `tests/`
+
+---
+
+### Sprint 41 — Schooljaar-selector + read-only gearchiveerde jaren *(~3 dagen)* — ✅ AFGEROND (v2026.2.41.0)
+
+**Aangemeld:** 07/07/2026 · **Uitgevoerd:** 08/07/2026 · bouwt op het membership-model uit sprint 40
+
+**Doel:** leerkrachten kunnen per **schooljaar** filteren en de gegevens van vorige jaren inzien. Gearchiveerde jaren zijn **alleen-lezen** (bekijken en exporteren mag, wijzigen niet) zodat oude cijfers niet per ongeluk veranderen.
+
+**Uitgevoerd:**
+- **Database (`db/database.js`):**
+  - `listClasses(includeArchived, schoolYear)` — optioneel filteren op schooljaar.
+  - Nieuw `getSchoolYears()` — distinct schooljaren uit `classes` (de bron van waarheid voor het membership-model), nieuwste eerst, elk met `allArchived` (via `bool_and`) en `classCount`.
+  - Nieuw `isClassArchived(classId)` — `null` (bestaat niet) / `true` / `false`, voor de server-side read-only afdwinging.
+- **Server (`server.js`):**
+  - `GET /api/admin/classes` accepteert `?schoolYear=`.
+  - Nieuw `GET /api/admin/school-years` voor de selector.
+  - 🔒 **Read-only afgedwongen server-side**, niet enkel in de UI: `POST /api/admin/students` en `PUT /api/admin/students/:id/class` weigeren een gearchiveerde klas (**403**), of geven 404 als de klas niet bestaat. Zo kan een read-only jaar ook niet via een directe API-call gewijzigd worden.
+- **Frontend (`admin.html` + `admin.js`):**
+  - Schooljaar-dropdown boven de klassenlijst (gearchiveerde jaren met 🔒). Standaard "Alle jaren".
+  - Bij een volledig gearchiveerd jaar: een gele "alleen-lezen"-banner en de actieknoppen worden vervangen door "🔒 alleen-lezen".
+  - De selector ververst mee wanneer een klas in een nieuw jaar wordt toegevoegd.
+
+**Belangrijk ontwerp:** de read-only-afdwinging zit **server-side** (403), de UI-markering is enkel een hulpmiddel. Een uitgeschakelde knop alleen zou onvoldoende zijn.
+
+**Tests:** 10 nieuwe in `tests/schoolyear.test.js` (jaar-aggregatie + `allArchived`; sortering nieuwste eerst; de 404/403/200-beslisregel; read-only in de UI). Totaal **159 unit tests**.
+
+**Betrokken bestanden:** `db/database.js` · `server.js` · `public/admin.html` · `public/admin.js` · `tests/schoolyear.test.js` (nieuw)
+
+---
 
 ### Sprint 40 — `class_memberships`: lidmaatschap per schooljaar *(~2-3 dagen)* — ✅ AFGEROND (v2026.2.40.0)
 
@@ -186,7 +263,7 @@ Dit moet sowieso, in beide modellen. Zonder dit is niets anders zinvol.
 Wat een systeem "verkoopbaar" maakt bovenop de techniek:
 - **Onboarding**: een school aanmaken, eerste admin uitnodigen, klassen importeren (CSV), zonder dat jij handmatig in de DB moet.
 - **Licentie/abonnement**: limieten per school (aantal leerkrachten, leerlingen, sessies), vervaldatum, en wat er gebeurt bij verlopen.
-- **Branding per school**: logo en naam nu via `SCHOOL_NAME` env-var → naar de `schools`-tabel (staat al deels klaar in de PDF-export).
+- **Branding per school**: logo en naam nu via `SCHOOL_NAME`/`SCHOOL_LOGO_PATH` env-var → naar de `schools`-tabel. Sprint 42 legt de **frontend-haak** (`/api/school-info` → balk-logo) en de placeholder aan; fase 3 koppelt dit per school aan de `schools`-tabel en laat een logo meegeven bij het aanmaken van een school.
 - **Facturatie**: buiten scope van de app zelf, maar de licentiedata moet het ondersteunen.
 - **Selfservice-beheer**: wachtwoord-reset per e-mail (nu enkel via `pycodeflow.sh` op de NAS — onwerkbaar voor externe scholen).
 - **Status/monitoring per school**: de bestaande monitoring-pagina uitbreiden met een school-filter.
@@ -291,8 +368,8 @@ school
 | Sprint | Cat | Inhoud | Status | Inschatting |
 |---|---|---|---|---|
 | **40** | 🔵 ARCH | `class_memberships`-tabel in **vers schema** (leerling-lidmaatschap per schooljaar; géén datamigratie nu) | ✅ Afgerond (v2026.2.40.0) | ~2-3 dagen |
-| **41** | 🔵 ARCH | Schooljaar-selector in de leerkracht-UI + read-only gearchiveerde jaren | 🔄 Gepland | ~3 dagen |
-| **42** | 🔵 ARCH | Instapstructuur: `pycodeflow.org` keuzepagina → gescheiden leerling-/leerkracht-ingang | 🔄 Gepland | ~2 dagen |
+| **41** | 🔵 ARCH | Schooljaar-selector in de leerkracht-UI + read-only gearchiveerde jaren | ✅ Afgerond (v2026.2.41.0) | ~3 dagen |
+| **42** | 🔵 ARCH | Instapstructuur: keuzepagina op `/` (live versie, schoollogo) → gescheiden leerling-/leerkracht-ingang + schoollogo in de app-balk | 🔄 Gepland | ~3 dagen |
 | **43** | 🔵 ARCH | School-keuze bij leerkracht-login (modal indien >1 school) + `active_school_id` in de sessie | 🔄 Gepland | ~3 dagen |
 
 **Afhankelijkheden:** sprint 43 vereist fase 1 (echte per-gebruiker sessie) én fase 3 (`schools`-tabel). Sprint 40 kan **nu al**, onafhankelijk van multi-tenancy — en is ook voor één school waardevol, want vandaag kun je de klassamenstelling van vorig jaar niet correct bewaren. Sprint 42 kan eveneens nu al.

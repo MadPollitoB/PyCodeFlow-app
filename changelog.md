@@ -1,3 +1,55 @@
+## v2026.2.41.1 — Hotfix: opstart-crash (TDZ ReferenceError)
+
+### Kritieke opstartbug opgelost
+De web-container crashte bij het starten met:
+`ReferenceError: Cannot access 'log' before initialization` (server.js:124).
+
+Oorzaak: loadVersionFromFile() draait tijdens het laden van de module (regel 130),
+maar gebruikte log.* — terwijl `const log` pas op regel 151 wordt geïnitialiseerd.
+Een `const` in de "temporal dead zone" aanspreken vóór zijn declaratie gooit een
+ReferenceError. Gevolg: de app startte nooit op → Cloudflare toonde 502 Bad Gateway.
+
+Fix: loadVersionFromFile() gebruikt nu console.* i.p.v. log.* — dit is bootstrap-code
+die per definitie vóór de logger draait, dus console is hier correct. De 4 andere
+log.*-aanroepen vóór regel 151 zitten in de async db-init-callback en draaien pas
+ná initialisatie — die zijn veilig en ongewijzigd.
+
+Extra: check-deployment.sh heeft nu een guard die faalt als loadVersionFromFile ooit
+opnieuw log.* zou gebruiken.
+
+**Betrokken bestanden:** web/server.js · check-deployment.sh
+
+---
+
+## v2026.2.41.0 — Sprint 41: Schooljaar-selector + read-only gearchiveerde jaren
+
+### Schooljaar-selector
+De admin-pagina heeft nu een schooljaar-dropdown boven de klassenlijst. Leerkrachten
+kunnen zo de klassen (en leerlingen) van vorige jaren inzien. Gearchiveerde jaren staan
+gemarkeerd met een slotje. Bouwt op het membership-model uit sprint 40.
+
+### Gearchiveerde jaren zijn alleen-lezen
+Een volledig gearchiveerd schooljaar toont een "alleen-lezen"-banner en de actieknoppen
+worden vervangen door "🔒 alleen-lezen". Bekijken en exporteren kan; wijzigen niet.
+
+### Read-only server-side afgedwongen
+Niet enkel in de UI: de endpoints POST /api/admin/students en
+PUT /api/admin/students/:id/class weigeren een gearchiveerde klas (403). Zo kan een
+read-only jaar ook niet via een directe API-call gewijzigd worden — een uitgeschakelde
+knop alleen zou onvoldoende zijn.
+
+### Nieuw
+- GET /api/admin/school-years — beschikbare jaren met archief-status
+- db: getSchoolYears(), isClassArchived(), listClasses() met jaar-filter
+
+### Tests
+10 nieuwe tests (tests/schoolyear.test.js). Totaal 159 unit tests.
+
+**Betrokken bestanden:** db/database.js · server.js · public/admin.html · public/admin.js ·
+tests/schoolyear.test.js (nieuw)
+
+---
+
 ## v2026.2.40.0 — Sprint 40: leerling-lidmaatschap per schooljaar
 
 ### class_memberships (vers schema, geen datamigratie)

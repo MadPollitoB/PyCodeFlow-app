@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════════════
-# PyCodeFlow — Deployment verificatiescript v2026.2.40.0
+# PyCodeFlow — Deployment verificatiescript v2026.2.41.0
 # Gebruik: bash check-deployment.sh
 # Voer uit vanuit /volume3/docker/pycodeflow/
 # Sprint 27a-g: grep-regex fixes (backslash-pipe → pipe of -e flags)
@@ -69,7 +69,7 @@ check_not_contains() {
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "  PyCodeFlow — Deployment Verificatie v2026.2.40.0"
+echo "  PyCodeFlow — Deployment Verificatie v2026.2.41.0"
 echo "  $(date '+%d/%m/%Y %H:%M:%S')"
 echo "═══════════════════════════════════════════════════════════"
 
@@ -161,6 +161,13 @@ check_contains "$WEB/server.js" "X-Frame-Options"         "server.js: clickjacki
 # 27m: bootstrap admin check
 check_contains "$WEB/server.js" "bootstrap"               "server.js: bootstrap admin bij lege DB (sprint 27m)"
 check_contains "$WEB/server.js" "loadVersionFromFile"    "server.js: VERSION-bestand support (sprint 29)"
+# Hotfix v2026.2.41.1: loadVersionFromFile draait vóór de logger bestaat en mag
+# dus GEEN log.* gebruiken (anders TDZ-crash bij opstart). Guard hierop.
+if awk '/^function loadVersionFromFile/,/^}/' "$WEB/server.js" | grep -q "log\.\(info\|warn\|error\|debug\)"; then
+  fail "server.js: loadVersionFromFile gebruikt log.* vóór logger-init (TDZ-crash!)"
+else
+  ok "server.js: loadVersionFromFile gebruikt geen log.* vóór init (hotfix 41.1)"
+fi
 # 27l: query export in database.js
 check_contains "$WEB/db/database.js" "module.exports" "database.js: module.exports aanwezig"
 
@@ -287,6 +294,11 @@ check_contains "$WEB/server.js" "bank/:id/duplicate" "server.js: dupliceer-endpo
 check_contains "$WEB/public/quiz-bank.js" "q-btn-duplicate" "quiz-bank: dupliceer-knop (sprint 38)"
 check_contains "$WEB/db/database.js" "class_memberships" "database.js: class_memberships tabel (sprint 40)"
 check_contains "$WEB/db/database.js" "addStudentToClass" "database.js: membership-koppeling (sprint 40)"
+check_contains "$WEB/db/database.js" "getSchoolYears" "database.js: schooljaren-functie (sprint 41)"
+check_contains "$WEB/db/database.js" "isClassArchived" "database.js: read-only check (sprint 41)"
+check_contains "$WEB/server.js" "school-years" "server.js: schooljaren-endpoint (sprint 41)"
+check_contains "$WEB/server.js" "gearchiveerd schooljaar" "server.js: read-only afdwinging (sprint 41)"
+check_contains "$WEB/public/admin.js" "loadSchoolYears" "admin.js: schooljaar-selector (sprint 41)"
 if grep -q "s.class_id" "$WEB/db/database.js"; then
   fail "database.js: oude students.class_id nog in gebruik (sprint 40 incompleet)"
 else
