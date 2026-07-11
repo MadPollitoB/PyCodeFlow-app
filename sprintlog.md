@@ -90,9 +90,9 @@ Voor een onderwijstool vaak ook een wettelijke vereiste (WCAG / EN 301 549).
 | Sprint | Cat | Inhoud | Status | Inschatting |
 |---|---|---|---|---|
 | **37d** | 🔵 FEAT | Nakijk-modus (leerkracht zet aan) + herlogin via naam+klas+code (geen localStorage) + strenge toegangscontrole | ✅ Afgerond | ~2 dagen |
-| **37a** | 🔵 FEAT | Leerling-nakijkscherm: eigen score + antwoorden per vraag | 🔄 Gepland | ~2 dagen |
-| **37b** | 🔵 FEAT | Juiste antwoorden (meerkeuze) + modelcode (leerkracht geeft in) tonen | 🔄 Gepland | ~2 dagen |
-| **37c** | 🔵 FEAT | Commentaar per vraag + algemeen commentaar zichtbaar voor leerling | 🔄 Gepland | ~1 dag |
+| **37a** | 🔵 FEAT | Leerling-nakijkscherm: eigen score + antwoorden per vraag | ✅ Afgerond | ~2 dagen |
+| **37b** | 🔵 FEAT | Juiste antwoorden (meerkeuze) + modelcode (leerkracht geeft in) tonen | ✅ Afgerond | ~2 dagen |
+| **37c** | 🔵 FEAT | Commentaar per vraag + algemeen commentaar zichtbaar voor leerling | ✅ Afgerond | ~1 dag |
 
 ### ⏸ Uitgesteld (bewust geparkeerd)
 
@@ -523,9 +523,9 @@ Monaco wordt geserveerd vanuit `node_modules/monaco-editor`; de versie is sinds 
 
 ---
 
-### Sprint 37 — Leerling-inzage in resultaten (37a/b/c/d) *(~7 dagen)* — 🔄 IN UITVOERING
+### Sprint 37 — Leerling-inzage in resultaten (37a/b/c/d) *(~7 dagen)* — ✅ AFGEROND
 
-**Aangemeld:** 07/07/2026 · **Status:** 37d ✅ afgerond (v2026.2.37.0) · 37a/b/c 🔄 gepland
+**Aangemeld:** 07/07/2026 · **Status:** ✅ VOLLEDIG AFGEROND — 37d (v37.0) · 37a (v37.1) · 37b (v37.2) · 37c (v37.3)
 
 **Doel:** na een toets kan de leerkracht een **nakijk-modus** openstellen. Leerlingen loggen dan (op om het even welk toestel) opnieuw in met dezelfde toets en zien hun eigen antwoorden, score per vraag, de juiste antwoorden, de modelcode van de leerkracht, en het commentaar per vraag + algemeen.
 
@@ -565,21 +565,57 @@ Monaco wordt geserveerd vanuit `node_modules/monaco-editor`; de versie is sinds 
 
 **Betrokken bestanden:** `db/database.js` · `server.js` · `lib/review-token.js` (nieuw) · `quiz-review.html` · `quiz-review.js` · `quiz-student.html` · `quiz-student.js` · `run-tests.sh` · `tests/review.test.js` (nieuw)
 
-#### 37a — Leerling-resultatenscherm *(~2 dagen)*
-- **Nieuw endpoint** `GET /api/quiz/:code/my-result` — achter de `requireReviewToken`-middleware uit 37d. **Geen `studentId` in de URL**: dat komt uitsluitend uit het ondertekende token, anders kan iemand andermans resultaten opvragen door het id te wijzigen. Geeft per vraag de vraagtekst, het eigen antwoord (code of gekozen opties), score + max, plus totaalscore.
-- **Nieuw scherm** in `quiz-student.html` (`review-screen`): totaalscore bovenaan, dan per vraag een kaartje. Hergebruik van de SVG-voortgangsgrafiek uit sprint 33b (`renderProgressChart`).
-- De leerling komt hier via de herlogin uit 37d (naam+klas+code in nakijk-modus). De lege `socket.on('quiz_results_released')`-handler wordt vervangen/aangevuld door de nakijk-flow.
+#### 37a — Leerling-nakijkscherm — ✅ AFGEROND (v2026.2.37.1)
 
-#### 37b — Juiste antwoorden + modelcode tonen *(~2 dagen)*
-- **Modelcode-opslag:** nieuw veld `quiz_question_snapshots.model_answer` (TEXT, default '') + migratie. Ook `quiz_bank.model_answer` zodat de modelcode aan de bronvraag hangt en automatisch mee overgenomen wordt in nieuwe toetsen.
-- **Toets dupliceren (33e) moet de modelcode meekopiëren.** Dit is triviaal: het model-antwoord staat per vraag op de snapshot, en de duplicate-logica mapt de snapshot-velden al expliciet (`questionType`, `choicesJson`, …). Er komt simpelweg `modelAnswer: q.model_answer || ''` bij in die map. **Testcase toevoegen** die borgt dat een gedupliceerde toets de modelcode behoudt (net zoals we dat voor `question_type`/`choices` doen sinds de 33e-fix).
-- **Leerkracht-UI:** per vraag in de verbetermodule een veld "Modelantwoord / modelcode". Nieuw endpoint `PUT /api/quiz/:code/question/:questionId/model` om het op te slaan.
-- **Leerlingweergave meerkeuze/single:** alle opties tonen, de **juiste** groen ✓ gemarkeerd, de **eigen keuze** aangeduid (rood ✗ indien fout).
-- **Leerlingweergave code/open:** eigen antwoord + score + (indien ingevuld) de modelcode in een apart "modeloplossing"-blok, met syntax-highlighting/Markdown.
+**Uitgevoerd:**
+- **Database:** `getMyResult(sessionCode, studentId)` — **LEFT JOIN** van `quiz_question_snapshots` naar `quiz_answers`, zodat óók niet-beantwoorde vragen in het overzicht verschijnen (score `null`) i.p.v. stilletjes te ontbreken. `teacher_comment` wordt bewust nog niet geselecteerd (dat is 37c).
+- **Nieuw: `lib/review-result.js`** — `buildMyResult(rows, opties)` zet de ruwe rijen om naar de leerling-payload en berekent totaal, maxtotaal en aantal ingevulde vragen.
+  - 🔒 **Lekpreventie:** dit is de enige plek waar de `correct`-vlag uit `choices_json` wordt **gestript**. Een leerling ziet in 37a wél zijn eigen keuze, maar nog **niet** welke optie juist was. De vlag `onthulJuisteAntwoorden` is de bewuste hook die sprint 37b aanzet.
+  - Robuust tegen `null`-waarden uit de LEFT JOIN en tegen kapotte `choices_json`.
+- **Nieuw endpoint** `GET /api/quiz/:code/my-result` — achter `requireReviewToken` (37d). **Geen `studentId` in het pad**: dat komt uitsluitend uit het ondertekende token. Roept `buildMyResult(..., { onthulJuisteAntwoorden: false })` aan.
+- **Leerling-UI** (`quiz-student.js`): het scherm uit 37d wordt nu gevuld.
+  - Kop met naam, aantal ingevulde vragen, totaalscore + percentage.
+  - Waarschuwing wanneer nog niet alles verbeterd is ("de score kan nog wijzigen").
+  - Eigen SVG-staafgrafiek (score per vraag, groen/oranje/rood/grijs) — geen dependency.
+  - Kaartje per vraag: vraagtekst via `renderMarkdown` (marked + DOMPurify), daaronder het eigen antwoord — code in een codeblok, meerkeuze met de eigen keuze gemarkeerd (`◉ … jouw keuze`).
+  - Niet-ingevulde vragen tonen expliciet "Je hebt deze vraag niet ingevuld."
 
-#### 37c — Commentaar zichtbaar voor leerling *(~1 dag)*
-- Per vraag: `teacher_comment` tonen onder het antwoord in een "commentaar"-blok (Markdown via marked + DOMPurify, zodat code-blokjes werken). Leeg commentaar → geen blok.
-- Algemeen: `general_comment` bovenaan of onderaan het nakijk-scherm.
+**Tests:** 15 nieuwe tests in `tests/review-result.test.js`, waaronder twee expliciete lek-tests (de payload bevat nergens `"correct"`). Totaal **129 unit tests**.
+
+**Betrokken bestanden:** `db/database.js` · `server.js` · `lib/review-result.js` (nieuw) · `quiz-student.js` · `run-tests.sh` · `tests/review-result.test.js` (nieuw)
+
+#### 37b — Juiste antwoorden + modelcode tonen — ✅ AFGEROND (v2026.2.37.2)
+
+**Uitgevoerd:**
+- **Database (was grotendeels voorbereid):** kolommen `quiz_bank.model_answer` én `quiz_question_snapshots.model_answer` (TEXT, default '') met migratie; `createQuizQuestion`/`updateQuizQuestion` nemen `modelAnswer`; `setSnapshotModelAnswer(code, questionId, modelAnswer)`; `getMyResult` selecteert `model_answer`. Nieuw toegevoegd: `getQuizBankByIds(ids)`.
+- **Juiste antwoorden onthuld:** het `/my-result`-endpoint roept nu `buildMyResult(..., { onthulJuisteAntwoorden: true })`. `lib/review-result.js` geeft daardoor de `correct`-vlag terug én stuurt de modelcode mee — **maar enkel bij onthulling**, nooit tijdens de toets. Twee tests borgen die grens.
+- **Modelcode-opslag leerkracht:** `POST/PUT /api/quiz/bank` nemen `modelAnswer` mee; nieuw veld "Modelantwoord / modelcode" in het vragenbank-formulier (`quiz-bank.html`/`.js`). In de verbetermodule (`quiz-review.js`) staat per vraag een inklapbaar modelantwoord-veld met eigen opslagknop → `PUT /api/quiz/:code/question/:questionId/model`.
+- 🔴 **Duplicatie-fix (twee plaatsen):**
+  - *Toets dupliceren:* de `questions.map(...)` kopieert nu ook `modelAnswer: q.model_answer || ''` (zelfde patroon als de 33e-fix).
+  - *Toets áánmaken uit de bank:* deze route mapte enkel id/tekst/punten — vraagtype, keuzes én modelantwoord gingen verloren in de snapshot. Opgelost met `getQuizBankByIds`: de volledige bankvraag wordt opgehaald zodat `question_type`, `choices_json` én `model_answer` correct in de snapshot belanden. (Dit repareerde meteen een sluimerende bug waarbij meerkeuzevragen uit de bank code-vragen werden.)
+- **Leerlingweergave:** meerkeuze toont nu de juiste optie groen ✓, een fout gekozen optie rood ✗, met labels "jouw keuze" / "juist". Code/open toont het eigen antwoord plus, indien ingevuld, een groen "Modelantwoord"-blok (Markdown via marked + DOMPurify).
+
+**Tests:** 7 nieuwe (4 in `review-result.test.js` voor de modelAnswer-grens + onthulde `correct`-vlag; 3 in `export.test.js` die borgen dat modelcode én vraagtype/keuzes een toets-duplicatie overleven). Totaal **136 unit tests**.
+
+**Betrokken bestanden:** `db/database.js` · `server.js` · `lib/review-result.js` · `quiz-bank.html` · `quiz-bank.js` · `quiz-review.js` · `quiz-student.js` · `tests/review-result.test.js` · `tests/export.test.js`
+
+#### 37c — Commentaar zichtbaar voor leerling — ✅ AFGEROND (v2026.2.37.3)
+
+**Meevaller:** de leerkracht-kant bestond al volledig. Commentaar per vraag wordt opgeslagen via `saveScore` (`quiz_answers.teacher_comment`), en algemeen commentaar via `saveGeneralComment` → `quiz_general_comments`. 37c hoefde enkel de leerlingweergave te bouwen.
+
+**Uitgevoerd:**
+- **Database:** `getMyResult` selecteert nu ook `a.teacher_comment`.
+- **`lib/review-result.js`:** commentaar per vraag (`commentaar`) en algemeen commentaar (`algemeenCommentaar`) worden meegestuurd — **enkel bij onthulling** (`onthulJuisteAntwoorden`), want een opmerking kan een hint naar het juiste antwoord bevatten. Leeg commentaar → veld weggelaten / `null`.
+- **Endpoint:** `/my-result` haalt het algemeen commentaar op via `getQuizGeneralComment` en geeft het door aan `buildMyResult`.
+- **Leerlingweergave (`quiz-student.js`):** commentaar per vraag in een blauw "💬 Commentaar van je leerkracht"-blok onder het antwoord (Markdown via marked + DOMPurify). Algemeen commentaar in een blauw blok bovenaan het nakijk-scherm. Beide enkel getoond als ze gevuld zijn.
+
+**Tests:** 6 nieuwe tests (commentaar per vraag lekt niet vóór onthulling; verschijnt erna; leeg → weggelaten; algemeen commentaar idem; robuust bij ontbreken). Totaal **142 unit tests**.
+
+**Betrokken bestanden:** `db/database.js` · `server.js` · `lib/review-result.js` · `quiz-student.js` · `tests/review-result.test.js`
+
+---
+
+**✅ Sprint 37 volledig afgerond.** De leerling-nakijkmodus is compleet: nakijk-modus openstellen (37d), eigen scherm met score (37a), juiste antwoorden + modelcode (37b), en commentaar per vraag + algemeen (37c). Van v2026.2.37.0 tot v2026.2.37.3.
 
 **Volgorde van uitvoering:** 37d eerst (fundament + beveiliging), dan 37a (scherm), dan 37b (antwoorden + modelcode), dan 37c (commentaar). Test na elke stap.
 

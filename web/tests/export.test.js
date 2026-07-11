@@ -120,3 +120,39 @@ test('tag-filter: vraag zonder tags telt niet mee bij filter', () => {
   const r = filterByTag(sampleQuestions, 'h');
   assert.strictEqual(r.every(q => q.tags), true);
 });
+
+// ── Sprint 37b: modelcode overleeft toets-duplicatie ──────────────────────────
+// Repliceert de questions.map(...) uit de duplicate-route in server.js.
+function duplicateMap(snapshotRows) {
+  return snapshotRows.map((q, i) => ({
+    bankId: q.bank_question_id, orderIndex: i,
+    text: q.text_snapshot, subject: q.subject, points: q.points,
+    questionType: q.question_type || 'code',
+    choicesJson: q.choices_json || '[]',
+    modelAnswer: q.model_answer || '',
+  }));
+}
+
+test('duplicatie: modelcode wordt meegekopieerd', () => {
+  const rows = [{ bank_question_id: 'b1', text_snapshot: 'V', subject: 'X', points: 4,
+    question_type: 'code', choices_json: '[]', model_answer: 'print("modeloplossing")' }];
+  const out = duplicateMap(rows);
+  assert.strictEqual(out[0].modelAnswer, 'print("modeloplossing")');
+});
+
+test('duplicatie: vraagtype + keuzes blijven behouden (33e + 37b samen)', () => {
+  const rows = [{ bank_question_id: 'b1', text_snapshot: 'Kies', subject: '', points: 6,
+    question_type: 'single', choices_json: '[{"id":"a","text":"A","correct":true}]',
+    model_answer: '' }];
+  const out = duplicateMap(rows);
+  assert.strictEqual(out[0].questionType, 'single');
+  assert.match(out[0].choicesJson, /"correct":true/);
+  assert.strictEqual(out[0].modelAnswer, '');
+});
+
+test('duplicatie: ontbrekend modelantwoord → lege string, geen undefined', () => {
+  const rows = [{ bank_question_id: 'b1', text_snapshot: 'V', subject: '', points: 4,
+    question_type: 'code', choices_json: '[]' }];
+  const out = duplicateMap(rows);
+  assert.strictEqual(out[0].modelAnswer, '');
+});

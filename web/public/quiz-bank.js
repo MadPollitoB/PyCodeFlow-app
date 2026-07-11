@@ -149,6 +149,7 @@ function editQuestion(id) {
   document.getElementById('q-difficulty').value = q.difficulty;
   document.getElementById('q-points').value = q.max_points;
   document.getElementById('q-tags').value = q.tags || '';
+  document.getElementById('q-model').value = q.model_answer || '';
   document.getElementById('form-title').textContent = 'Vraag bewerken';
   const typeRadio = document.querySelector(`[name=q-type][value="${q.question_type||'code'}"]`);
   if (typeRadio) { typeRadio.checked = true; onTypeChange(q.question_type||'code'); }
@@ -172,6 +173,7 @@ function cancelEdit() {
   document.getElementById('q-difficulty').value = 'gemiddeld';
   document.getElementById('q-points').value = '4';
   document.getElementById('q-tags').value = '';
+  document.getElementById('q-model').value = '';
   document.getElementById('form-title').textContent = 'Nieuwe vraag toevoegen';
   const codeRadio = document.querySelector('[name=q-type][value=code]');
   if (codeRadio) { codeRadio.checked = true; onTypeChange('code'); }
@@ -452,6 +454,7 @@ async function saveQuestion() {
     subject:      document.getElementById('q-subject').value.trim(),
     difficulty:   document.getElementById('q-difficulty').value,
     tags:         document.getElementById('q-tags').value.trim(),
+    modelAnswer:  document.getElementById('q-model').value,
     maxPoints:    parseInt(document.getElementById('q-points').value) || 4,
     questionType: type,
     choices:      ['single','multiple'].includes(type) ? _choices : [],

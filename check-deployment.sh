@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════════════
-# PyCodeFlow — Deployment verificatiescript v2026.2.37.0
+# PyCodeFlow — Deployment verificatiescript v2026.2.37.3
 # Gebruik: bash check-deployment.sh
 # Voer uit vanuit /volume3/docker/pycodeflow/
 # Sprint 27a-g: grep-regex fixes (backslash-pipe → pipe of -e flags)
@@ -69,7 +69,7 @@ check_not_contains() {
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "  PyCodeFlow — Deployment Verificatie v2026.2.37.0"
+echo "  PyCodeFlow — Deployment Verificatie v2026.2.37.3"
 echo "  $(date '+%d/%m/%Y %H:%M:%S')"
 echo "═══════════════════════════════════════════════════════════"
 
@@ -274,6 +274,14 @@ check_contains "$PUB/quiz-review.js" "renderProgressChart" "quiz-review.js: voor
 check_contains "$WEB/db/database.js" "review_mode" "database.js: review_mode kolom (sprint 37d)"
 check_contains "$WEB/server.js" "requireReviewToken" "server.js: nakijk-token guard (sprint 37d)"
 check_contains "$WEB/server.js" "review-login" "server.js: leerling nakijk-login (sprint 37d)"
+[[ -f "$WEB/lib/review-result.js" ]] && ok "lib/review-result.js aanwezig (sprint 37a)" || fail "review-result.js ONTBREEKT (sprint 37a)"
+check_contains "$WEB/db/database.js" "getMyResult" "database.js: getMyResult LEFT JOIN (sprint 37a)"
+check_contains "$WEB/server.js" "onthulJuisteAntwoorden: true" "server.js: juiste antwoorden onthuld in nakijk (sprint 37b)"
+check_contains "$WEB/db/database.js" "getQuizBankByIds" "database.js: bankvragen ophalen voor snapshot (sprint 37b)"
+check_contains "$WEB/server.js" "question/:questionId/model" "server.js: modelcode-endpoint (sprint 37b)"
+check_contains "$WEB/public/quiz-bank.html" "q-model" "quiz-bank: modelantwoord-veld (sprint 37b)"
+check_contains "$WEB/db/database.js" "a.teacher_comment" "database.js: commentaar in my-result (sprint 37c)"
+check_contains "$WEB/lib/review-result.js" "algemeenCommentaar" "review-result: algemeen commentaar (sprint 37c)"
 if grep -q "my-result/:studentId" "$WEB/server.js"; then
   fail "server.js: studentId in URL bij my-result (moet uit token komen!)"
 else

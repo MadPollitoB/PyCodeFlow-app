@@ -314,6 +314,15 @@ async function selectQuestion(idx) {
         </div>` : `<div style="margin-top:4px;"><button class="btn btn-muted small" onclick="addTemplate()" style="font-size:0.78rem;">+ Commentaar template toevoegen</button></div>`}
       </div>
     </div>
+    <details style="margin-top:10px;" ${q.model_answer ? 'open' : ''}>
+      <summary style="cursor:pointer;font-size:0.85rem;color:var(--muted);">
+        ✅ Modelantwoord ${q.model_answer ? '(ingevuld)' : '(nog leeg)'}
+      </summary>
+      <textarea id="model-input" placeholder="Modelantwoord / modelcode die leerlingen bij het nakijken zien…"
+        style="font-family:monospace;font-size:0.85rem;width:100%;min-height:80px;margin-top:6px;">${esc(q.model_answer || '')}</textarea>
+      <button class="btn btn-muted small" style="margin-top:6px;"
+        onclick="saveModelAnswer('${esc(q.id)}')">💾 Modelantwoord opslaan</button>
+    </details>
     <div style="margin-top:10px;display:flex;gap:8px;">
       <button class="btn btn-soft small" onclick="saveScore('${ans?.id||''}', ${idx})">💾 Opslaan</button>
       ${idx < _questions.length - 1 ? `<button class="btn btn-muted small" onclick="saveAndNext('${ans?.id||''}',${idx})">💾 Opslaan & volgende →</button>` : ''}
@@ -327,6 +336,24 @@ async function selectQuestion(idx) {
   }
   const out = document.getElementById('review-output');
   if (out) out.textContent = '';
+}
+
+async function saveModelAnswer(questionId) {
+  const val = document.getElementById('model-input')?.value || '';
+  try {
+    const r = await fetch(`/api/quiz/${sessionCode}/question/${questionId}/model`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modelAnswer: val }),
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'Mislukt');
+    // Werk de lokale kopie bij zodat de badge klopt zonder herladen.
+    const q = _questions.find(x => x.id === questionId);
+    if (q) q.model_answer = val;
+    pyToast('Modelantwoord opgeslagen.', 'success');
+  } catch (e) {
+    pyAlert('Kon modelantwoord niet opslaan: ' + e.message, 'error');
+  }
 }
 
 function toggleEditMode() {

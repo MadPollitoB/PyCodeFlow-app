@@ -1,3 +1,95 @@
+## v2026.2.37.3 — Sprint 37c: Commentaar zichtbaar (sprint 37 VOLLEDIG afgerond)
+
+### Commentaar voor de leerling
+Het nakijk-scherm toont nu ook het commentaar van de leerkracht:
+- Per vraag: een blauw blok "💬 Commentaar van je leerkracht" onder het antwoord
+- Algemeen: een blauw blok bovenaan het scherm
+Beide via Markdown (marked + DOMPurify), en enkel getoond als ze ingevuld zijn.
+
+### Lek-grens
+Commentaar kan een hint naar het antwoord bevatten, dus het wordt — net als de
+juiste antwoorden en de modelcode — enkel meegestuurd bij onthulling (nakijk-modus),
+nooit tijdens de toets.
+
+### Leerkracht-kant bestond al
+Commentaar per vraag (via de score-opslag) en algemeen commentaar waren al aanwezig.
+37c bouwde enkel de leerlingweergave.
+
+### Tests
+6 nieuwe tests. Totaal 142 unit tests.
+
+### 🎉 Sprint 37 volledig afgerond
+De leerling-nakijkmodus is compleet: nakijk-modus openstellen (37d), eigen scherm met
+score (37a), juiste antwoorden + modelcode (37b), commentaar per vraag + algemeen (37c).
+
+**Betrokken bestanden:** db/database.js · server.js · lib/review-result.js ·
+quiz-student.js · tests/review-result.test.js
+
+---
+
+## v2026.2.37.2 — Sprint 37b: Juiste antwoorden + modelcode
+
+### Juiste antwoorden onthuld bij het nakijken
+Het nakijk-scherm toont nu bij meerkeuzevragen welke optie juist was (groen ✓),
+en markeert een fout gekozen optie rood ✗. buildMyResult() draait nu met
+onthulJuisteAntwoorden: true — maar enkel achter de nakijk-token-guard, dus de
+antwoorden lekken nooit tijdens de toets.
+
+### Modelcode / modelantwoord
+De leerkracht kan per vraag een modelantwoord ingeven:
+- In de vragenbank (nieuw veld, hangt aan de bronvraag)
+- In de verbetermodule per toets (inklapbaar veld, eigen opslagknop)
+De leerling ziet het modelantwoord bij het nakijken in een groen blok (Markdown).
+
+### Twee duplicatie-bugs opgelost
+- Toets DUPLICEREN kopieert nu ook de modelcode mee.
+- Toets AANMAKEN uit de bank haalde enkel id/tekst/punten op → vraagtype, keuzes
+  én modelantwoord gingen verloren in de snapshot. Nu wordt de volledige bankvraag
+  opgehaald (getQuizBankByIds). Dit repareerde meteen een sluimerende bug waarbij
+  meerkeuzevragen uit de bank code-vragen werden.
+
+### Tests
+7 nieuwe tests (modelAnswer-grens, onthulde correct-vlag, duplicatie behoudt modelcode
++ vraagtype/keuzes). Totaal 136 unit tests.
+
+**Betrokken bestanden:** db/database.js · server.js · lib/review-result.js ·
+quiz-bank.html · quiz-bank.js · quiz-review.js · quiz-student.js ·
+tests/review-result.test.js · tests/export.test.js
+
+---
+
+## v2026.2.37.1 — Sprint 37a: Leerling-nakijkscherm
+
+### Eigen resultaten inkijken
+Nieuw endpoint GET /api/quiz/:code/my-result achter de nakijk-token-guard uit 37d.
+Geen studentId in het pad — dat komt uitsluitend uit het ondertekende token.
+De leerling ziet: totaalscore + percentage, een staafgrafiek per vraag, en per vraag
+een kaartje met de vraagtekst en het eigen antwoord.
+
+### Lekpreventie (lib/review-result.js, nieuw)
+buildMyResult() strippt de `correct`-vlag uit de antwoordopties. Een leerling ziet in
+37a wel zijn eigen keuze, maar nog NIET welke optie juist was. De vlag
+onthulJuisteAntwoorden is de bewuste hook die sprint 37b aanzet.
+Twee tests borgen dat het woord "correct" nergens in de payload voorkomt.
+
+### Ook niet-beantwoorde vragen zichtbaar
+getMyResult() gebruikt een LEFT JOIN van de vraag-snapshots naar de antwoorden, zodat
+overgeslagen vragen in het overzicht verschijnen ("Je hebt deze vraag niet ingevuld")
+in plaats van stilletjes te ontbreken.
+
+### Details
+- Waarschuwing wanneer nog niet alles verbeterd is (score kan nog wijzigen)
+- Score 0 telt als beoordeeld; niet-beoordeeld telt niet mee in het totaal
+- Robuust tegen null-waarden en kapotte choices_json
+
+### Tests
+15 nieuwe tests (tests/review-result.test.js). Totaal 129 unit tests.
+
+**Betrokken bestanden:** db/database.js · server.js · lib/review-result.js (nieuw) ·
+quiz-student.js · run-tests.sh · check-deployment.sh · tests/review-result.test.js (nieuw)
+
+---
+
 ## v2026.2.37.0 — Sprint 37d: Nakijk-modus + toegangscontrole
 
 ### Nakijk-modus (leerkracht stelt expliciet open)

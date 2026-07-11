@@ -210,6 +210,8 @@ async function initSchema() {
       -- JSON: [{"id":"uuid","text":"...","correct":true/false}]
       tags            TEXT NOT NULL DEFAULT '',
       -- 33d: komma-gescheiden vrije labels voor filtering (bv. "hoofdstuk3,herhaling")
+      model_answer    TEXT NOT NULL DEFAULT '',
+      -- 37b: modelantwoord/modelcode van de leerkracht (getoond in nakijk-modus)
       created_by   TEXT REFERENCES teachers(id) ON DELETE SET NULL,
       created_at   BIGINT NOT NULL,
       updated_at   BIGINT NOT NULL,
@@ -220,6 +222,7 @@ async function initSchema() {
       BEGIN ALTER TABLE quiz_bank ADD COLUMN question_type TEXT NOT NULL DEFAULT 'code'; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE quiz_bank ADD COLUMN choices_json TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE quiz_bank ADD COLUMN tags TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE quiz_bank ADD COLUMN model_answer TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
     CREATE INDEX IF NOT EXISTS idx_quiz_bank_subject ON quiz_bank(subject);
     CREATE INDEX IF NOT EXISTS idx_quiz_bank_archived ON quiz_bank(archived);
@@ -233,11 +236,14 @@ async function initSchema() {
       subject          TEXT NOT NULL DEFAULT '',
       points           INTEGER NOT NULL DEFAULT 4,
       question_type    TEXT NOT NULL DEFAULT 'code',
-      choices_json     TEXT NOT NULL DEFAULT '[]'
+      choices_json     TEXT NOT NULL DEFAULT '[]',
+      model_answer     TEXT NOT NULL DEFAULT ''
     );
     DO $$ BEGIN
       BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN question_type TEXT NOT NULL DEFAULT 'code'; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN choices_json TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- 37b: modelantwoord bevroren bij de toets (kan per toets afwijken van de bankvraag)
+      BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN model_answer TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
     CREATE INDEX IF NOT EXISTS idx_quiz_snapshots_session
       ON quiz_question_snapshots(session_code);
@@ -776,28 +782,50 @@ module.exports = {
   },
 
   async createQuizQuestion({ text, subject = '', difficulty = 'gemiddeld', maxPoints = 4,
-                               questionType = 'code', choicesJson = '[]', tags = '', createdBy = null }) {
+                               questionType = 'code', choicesJson = '[]', tags = '',
+                               modelAnswer = '', createdBy = null }) {
     const id = crypto.randomUUID();
     const now = Date.now();
     await query(
       `INSERT INTO quiz_bank (id, text, subject, difficulty, max_points,
-         question_type, choices_json, tags, created_by, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+         question_type, choices_json, tags, model_answer, created_by, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [id, text.trim(), subject.trim(), difficulty, maxPoints,
-       questionType, choicesJson, (tags || '').trim(), createdBy, now, now]
+       questionType, choicesJson, (tags || '').trim(), String(modelAnswer || ''), createdBy, now, now]
     );
     return id;
   },
 
-  async updateQuizQuestion(id, { text, subject, difficulty, maxPoints, questionType, choicesJson, tags }) {
+  async updateQuizQuestion(id, { text, subject, difficulty, maxPoints, questionType,
+                                 choicesJson, tags, modelAnswer }) {
     const r = await query(
       `UPDATE quiz_bank SET text=$1, subject=$2, difficulty=$3, max_points=$4,
-         question_type=$5, choices_json=$6, tags=$7, updated_at=$8
-       WHERE id=$9`,
+         question_type=$5, choices_json=$6, tags=$7, model_answer=$8, updated_at=$9
+       WHERE id=$10`,
       [text.trim(), subject.trim(), difficulty, maxPoints,
-       questionType || 'code', choicesJson || '[]', (tags || '').trim(), Date.now(), id]
+       questionType || 'code', choicesJson || '[]', (tags || '').trim(),
+       String(modelAnswer || ''), Date.now(), id]
     );
     return r.rowCount > 0;
+  },
+
+  // 37b: modelantwoord van één vraag-snapshot bijwerken (per toets).
+  async setSnapshotModelAnswer(sessionCode, questionId, modelAnswer) {
+    const r = await query(
+      `UPDATE quiz_question_snapshots SET model_answer = $3
+        WHERE session_code = $1 AND id = $2`,
+      [sessionCode, questionId, String(modelAnswer || '').slice(0, 10000)]
+    );
+    return r.rowCount > 0;
+  },
+
+  // 37b: haal volledige bankvragen op voor een lijst id's (behoudt vraagtype,
+  // keuzes én modelantwoord bij het aanmaken van een toets uit de bank).
+  async getQuizBankByIds(ids) {
+    if (!Array.isArray(ids) || ids.length === 0) return [];
+    const r = await query(`SELECT * FROM quiz_bank WHERE id = ANY($1::text[])`, [ids]);
+    const byId = new Map(r.rows.map(row => [row.id, row]));
+    return byId;
   },
 
   async archiveQuizQuestion(id) {
@@ -874,10 +902,10 @@ module.exports = {
         await client.query(
           `INSERT INTO quiz_question_snapshots
              (id, session_code, bank_question_id, order_index, text_snapshot, subject, points,
-              question_type, choices_json)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+              question_type, choices_json, model_answer)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
           [crypto.randomUUID(), sessionCode, q.bankId, q.orderIndex, q.text, q.subject, q.points,
-           q.questionType || 'code', q.choicesJson || '[]']
+           q.questionType || 'code', q.choicesJson || '[]', q.modelAnswer || '']
         );
       }
     });
@@ -1011,6 +1039,38 @@ module.exports = {
        WHERE a.session_code = $1
        ORDER BY a.student_name, q.order_index`,
       [sessionCode]
+    );
+    return r.rows;
+  },
+
+  // 37a: alle vragen van één toets met het eigen antwoord van één leerling.
+  // LEFT JOIN: ook niet-beantwoorde vragen komen mee (score = null).
+  // choices_json wordt hier RUW teruggegeven; de server strippt de `correct`-vlag
+  // vóór verzending naar de leerling (zie sanitizeChoicesForStudent in server.js).
+  // teacher_comment wordt sinds 37c wél meegestuurd (commentaar per vraag).
+  async getMyResult(sessionCode, studentId) {
+    const r = await query(
+      `SELECT q.id            AS question_id,
+              q.order_index,
+              q.text_snapshot,
+              q.subject,
+              q.points,
+              q.question_type,
+              q.choices_json,
+              q.model_answer,
+              a.code,
+              a.score,
+              a.selected_choices,
+              a.auto_scored,
+              a.teacher_comment
+         FROM quiz_question_snapshots q
+         LEFT JOIN quiz_answers a
+                ON a.question_id  = q.id
+               AND a.session_code = q.session_code
+               AND a.student_id   = $2
+        WHERE q.session_code = $1
+        ORDER BY q.order_index`,
+      [sessionCode, studentId]
     );
     return r.rows;
   },

@@ -1678,4 +1678,88 @@ voor sprint 30b-vol (Optie C).
 ⚠️ **Let op bij testen:** een sessie *verwijderen* wist de nakijk-data (cascade).
 Archiveren behoudt ze.
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.37.0 · 8 juli 2026*
+## 41. Sprint 37a — Leerling-nakijkscherm
+
+### Weergave
+```
+✅ Na inloggen verschijnt "👁 Jouw toets" met naam en totaalscore
+✅ Percentage klopt (totaal / maxtotaal)
+✅ Staafgrafiek toont score per vraag (groen/oranje/rood/grijs)
+✅ Per vraag: vraagtekst (markdown) + jouw antwoord
+✅ Code-vraag → eigen code in een codeblok
+✅ Meerkeuze → eigen keuze gemarkeerd met "◉ ... jouw keuze"
+✅ Overgeslagen vraag → "Je hebt deze vraag niet ingevuld."
+✅ Nog niet alles verbeterd → waarschuwing dat de score kan wijzigen
+```
+
+### 🔒 Lekpreventie (belangrijk!)
+```
+✅ De leerling ziet NIET welke optie juist was (komt pas in 37b)
+✅ Netwerk-tabblad: de JSON van /my-result bevat nergens "correct"
+✅ Score 0 telt als beoordeeld; niet-beoordeeld telt niet mee in het totaal
+```
+
+### Toegang
+```
+✅ Zonder geldig token → 403 (nakijk-token uit 37d vereist)
+✅ Nakijk-modus uit → 403, ook met geldig token
+✅ Verlopen token → "Je nakijk-sessie is verlopen"
+```
+
+## 42. Sprint 37b — Juiste antwoorden + modelcode
+
+### Modelcode invoeren (leerkracht)
+```
+✅ Vragenbank: veld "Modelantwoord / modelcode" bij toevoegen/bewerken
+✅ Verbetermodule: inklapbaar modelantwoord-veld per vraag met opslagknop
+✅ Badge toont "(ingevuld)" of "(nog leeg)"
+✅ Opgeslagen modelcode blijft na herladen
+```
+
+### Weergave bij het nakijken (leerling)
+```
+✅ Meerkeuze: juiste optie groen ✓, fout gekozen optie rood ✗
+✅ Labels "jouw keuze" en "juist" verschijnen correct
+✅ Code/open: modelantwoord in groen blok (indien ingevuld)
+✅ Leeg modelantwoord → geen blok
+```
+
+### 🔒 Lek-grens (belangrijk!)
+```
+✅ Tijdens de toets lekken juiste antwoorden NIET (my-result vereist nakijk-token)
+✅ Modelcode verschijnt enkel bij onthulling, niet tijdens de toets
+```
+
+### Duplicatie (regressietest)
+```
+✅ Toets dupliceren behoudt de modelcode
+✅ Toets aanmaken uit bank: meerkeuze blijft meerkeuze (was stille bug)
+✅ Modelcode komt correct in de snapshot terecht
+```
+
+## 43. Sprint 37c — Commentaar zichtbaar voor leerling
+
+### Weergave
+```
+✅ Commentaar per vraag → blauw blok onder het antwoord (indien ingevuld)
+✅ Algemeen commentaar → blauw blok bovenaan (indien ingevuld)
+✅ Markdown werkt (code-blokjes, opmaak)
+✅ Leeg commentaar → geen blok
+```
+
+### 🔒 Lek-grens
+```
+✅ Commentaar lekt NIET tijdens de toets (enkel bij onthulling)
+✅ Zowel per-vraag als algemeen commentaar volgen de nakijk-grens
+```
+
+### Sprint 37 volledig (end-to-end test)
+```
+✅ Leerkracht: nakijken openstellen, punten + commentaar + modelcode invoeren
+✅ Leerling: ?nakijken=1, inloggen met naam+klas
+✅ Leerling ziet: score, juiste antwoorden, modelcode, commentaar, algemeen commentaar
+✅ Werkt op een ander toestel dan waarop de toets gemaakt werd
+✅ Niets zichtbaar zolang nakijken niet opengesteld is
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.37.3 · 8 juli 2026*

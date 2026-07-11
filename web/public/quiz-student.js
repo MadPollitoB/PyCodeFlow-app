@@ -43,9 +43,7 @@ async function reviewLogin() {
     _reviewToken = data.token;
     document.getElementById('review-login-screen').style.display = 'none';
     document.getElementById('review-screen').style.display = 'block';
-    // Sprint 37a vult dit scherm met de resultaten.
-    document.getElementById('review-screen').innerHTML =
-      `<p class="muted">Welkom ${data.naam}. Je resultaten worden hier getoond.</p>`;
+    await loadMyResult(data.naam);
   } catch (e) {
     showReviewLoginError(e.message);
   } finally {
@@ -61,6 +59,151 @@ if (_isReviewEntry) {
     const rl = document.getElementById('review-login-screen');
     if (rl) rl.style.display = 'flex';
   });
+}
+
+// ── Sprint 37a: nakijk-scherm ────────────────────────────────────────────────
+
+async function loadMyResult(naam) {
+  const paneel = document.getElementById('review-screen');
+  paneel.innerHTML = '<div class="loading-row"><span class="spinner"></span>Je resultaten laden…</div>';
+  try {
+    const r = await fetch(`/api/quiz/${_reviewCode}/my-result`, {
+      headers: { 'X-Review-Token': _reviewToken },
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Kon je resultaten niet laden.');
+    renderMyResult(naam, data);
+  } catch (e) {
+    paneel.innerHTML =
+      `<div style="background:#fee2e2;color:#991b1b;border-radius:10px;padding:14px;">
+         ${escHtml(e.message)}
+       </div>`;
+  }
+}
+
+// Kleine SVG-staafgrafiek: score per vraag t.o.v. het maximum.
+// Groen = volledig, oranje = deels, rood = nul, grijs = nog niet beoordeeld.
+function renderReviewChart(vragen) {
+  if (!vragen.length) return '';
+  const W = 34, GAP = 8, H = 90;
+  const staven = vragen.map((v, i) => {
+    const max = v.punten || 1;
+    const ratio = v.beoordeeld ? Math.max(0, Math.min(1, (v.score || 0) / max)) : 0;
+    const hoogte = v.beoordeeld ? Math.max(2, ratio * (H - 26)) : 3;
+    const x = i * (W + GAP) + 2;
+    const y = H - hoogte - 16;
+    let kleur = '#cbd5e1';
+    if (v.beoordeeld) {
+      if (ratio >= 0.999) kleur = '#16a34a';
+      else if (ratio > 0) kleur = '#f59e0b';
+      else kleur = '#dc2626';
+    }
+    const label = v.beoordeeld ? `${v.score}/${max}` : '?';
+    return `<rect x="${x}" y="${y}" width="${W}" height="${hoogte}" rx="3" fill="${kleur}"></rect>` +
+      `<text x="${x + W/2}" y="${H - 4}" text-anchor="middle" font-size="10" fill="#64748b">V${v.nummer}</text>` +
+      `<text x="${x + W/2}" y="${y - 3}" text-anchor="middle" font-size="9" fill="#334155">${label}</text>`;
+  }).join('');
+  const breedte = vragen.length * (W + GAP) + 4;
+  return `<div style="overflow-x:auto;margin:12px 0 4px;">
+    <svg width="${breedte}" height="${H}" role="img" aria-label="Score per vraag">${staven}</svg>
+  </div>`;
+}
+
+function renderVraagKaart(v) {
+  const scoreTekst = v.beoordeeld
+    ? `<strong>${v.score}</strong> / ${v.punten}`
+    : `<span class="muted">nog niet beoordeeld</span>`;
+
+  let antwoordHtml;
+  if (v.type === 'multiple' || v.type === 'single') {
+    // 37b: juiste antwoorden onthuld. Groen ✓ = juist, rood ✗ = fout gekozen.
+    antwoordHtml = `<ul style="list-style:none;padding:0;margin:8px 0 0;">` +
+      (v.opties || []).map(o => {
+        const juist = o.correct === true;
+        const foutGekozen = o.gekozen && !juist;
+        let bg = 'var(--surface-soft)', mark = '○';
+        if (juist) { bg = '#dcfce7'; mark = '✓'; }
+        else if (foutGekozen) { bg = '#fee2e2'; mark = '✗'; }
+        const labels = [];
+        if (o.gekozen) labels.push('jouw keuze');
+        if (juist) labels.push('juist');
+        return `
+        <li style="padding:6px 10px;border-radius:8px;margin-bottom:4px;background:${bg};
+                   ${o.gekozen ? 'font-weight:600;' : ''}">
+          ${mark} ${escHtml(o.text)}
+          ${labels.length ? `<span class="muted" style="font-size:0.8rem;font-weight:400;"> — ${labels.join(', ')}</span>` : ''}
+        </li>`;
+      }).join('') + `</ul>`;
+  } else if (v.eigenCode && v.eigenCode.trim()) {
+    antwoordHtml = `<pre style="background:#1e1e1e;color:#d4d4d4;padding:10px 12px;border-radius:8px;
+      overflow:auto;font-size:0.85rem;margin:8px 0 0;">${escHtml(v.eigenCode)}</pre>`;
+  } else {
+    antwoordHtml = `<p class="muted" style="margin:8px 0 0;">Je hebt deze vraag niet ingevuld.</p>`;
+  }
+
+  // 37b: modelantwoord/modelcode van de leerkracht (indien ingevuld), via Markdown.
+  const modelHtml = v.modelAnswer ? `
+    <div style="margin-top:10px;">
+      <div style="font-size:0.85rem;color:var(--muted);margin-bottom:4px;">✅ Modelantwoord:</div>
+      <div class="md-preview" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;">
+        ${renderMarkdown(v.modelAnswer)}
+      </div>
+    </div>` : '';
+
+  // 37c: commentaar van de leerkracht bij deze vraag (indien ingevuld), via Markdown.
+  const commentaarHtml = v.commentaar ? `
+    <div style="margin-top:10px;">
+      <div style="font-size:0.85rem;color:var(--muted);margin-bottom:4px;">💬 Commentaar van je leerkracht:</div>
+      <div class="md-preview" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 12px;">
+        ${renderMarkdown(v.commentaar)}
+      </div>
+    </div>` : '';
+
+  return `<div style="background:var(--surface);border:1px solid var(--border);
+      border-radius:12px;padding:14px 16px;margin-bottom:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
+      <strong>Vraag ${v.nummer}${v.onderwerp ? ` · <span class="muted" style="font-weight:normal;">${escHtml(v.onderwerp)}</span>` : ''}</strong>
+      <span>${scoreTekst}</span>
+    </div>
+    <div class="md-preview" style="margin-top:8px;">${renderMarkdown(v.tekst)}</div>
+    <div style="margin-top:10px;font-size:0.85rem;color:var(--muted);">Jouw antwoord:</div>
+    ${antwoordHtml}
+    ${modelHtml}
+    ${commentaarHtml}
+  </div>`;
+}
+
+function renderMyResult(naam, data) {
+  const { vragen, totaal, maxTotaal, beantwoord, algemeenCommentaar } = data;
+  const pct = maxTotaal > 0 ? Math.round((totaal / maxTotaal) * 100) : 0;
+  const allesBeoordeeld = vragen.every(v => v.beoordeeld);
+
+  const algemeenHtml = algemeenCommentaar ? `
+    <div class="md-preview" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;
+        padding:12px 14px;margin-top:12px;">
+      <div style="font-size:0.85rem;color:var(--muted);margin-bottom:4px;">💬 Algemeen commentaar:</div>
+      ${renderMarkdown(algemeenCommentaar)}
+    </div>` : '';
+
+  document.getElementById('review-screen').innerHTML = `
+    <div style="max-width:760px;margin:0 auto;">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;
+                  padding:18px 20px;margin-bottom:16px;">
+        <h2 style="margin:0 0 4px;">👁 Jouw toets</h2>
+        <p class="muted" style="margin:0 0 10px;">${escHtml(naam)} · ${beantwoord}/${vragen.length} vragen ingevuld</p>
+        <div style="font-size:1.6rem;font-weight:700;">
+          ${totaal} <span style="font-size:1rem;font-weight:400;color:var(--muted);">/ ${maxTotaal} punten (${pct}%)</span>
+        </div>
+        ${allesBeoordeeld ? '' :
+          '<p class="muted" style="font-size:0.84rem;margin:8px 0 0;">⏳ Niet alle vragen zijn al verbeterd. De score kan nog wijzigen.</p>'}
+        ${renderReviewChart(vragen)}
+        ${algemeenHtml}
+      </div>
+      ${vragen.map(renderVraagKaart).join('')}
+      <p class="muted" style="text-align:center;font-size:0.8rem;margin:18px 0;">
+        Vragen over je score? Spreek je leerkracht aan.
+      </p>
+    </div>`;
 }
 let _studentId = null;
 let _sessionCode = null;

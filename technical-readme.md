@@ -1,7 +1,7 @@
 # PyCodeFlow — Technische documentatie
 
 > Interne werking, architectuur, API-referentie en ontwikkelaarsinformatie.
-> Versie: v2026.2.37.0
+> Versie: v2026.2.37.3
 
 ---
 
@@ -161,6 +161,8 @@ pycodeflow/
 | GET | `/api/version` | Versie + uptime |
 | POST | `/api/quiz/:code/review-mode` | 37d: nakijk-modus aan/uit (leerkracht + CSRF) |
 | POST | `/api/quiz/:code/review-login` | 37d: leerling logt in met naam + klas → nakijk-token (publiek, rate-limited) |
+| GET | `/api/quiz/:code/my-result` | 37a/b: eigen resultaten + juiste antwoorden + modelcode (nakijk-token vereist) |
+| PUT | `/api/quiz/:code/question/:questionId/model` | 37b: modelantwoord per vraag opslaan (leerkracht + CSRF) |
 | GET | `/health` | Container health check |
 | GET | `/api/school-info` | Schoolnaam + logo URL |
 
@@ -325,7 +327,7 @@ BLOCKED_MODULES = {
 
 ---
 
-*PyCodeFlow · Atheneum Hoboken · technical-readme.md · v2026.2.37.0*
+*PyCodeFlow · Atheneum Hoboken · technical-readme.md · v2026.2.37.3*
 
 ---
 
@@ -354,3 +356,19 @@ de handtekening niet klopt, het token verlopen is, of het token bij een andere t
 De `review-login`-endpoint geeft bewust identieke antwoorden voor "toets bestaat niet" en
 "nakijken staat dicht" (403), zodat het geen toetscodes prijsgeeft, en een generieke 404
 bij een onbekende naam zodat het geen namen prijsgeeft.
+
+### Lekpreventie bij `/my-result` (sprint 37a)
+
+`lib/review-result.js` bouwt de payload voor de leerling. Dat is de **enige** plek waar
+de `correct`-vlag uit `choices_json` wordt gestript:
+
+```js
+buildMyResult(rows, { onthulJuisteAntwoorden: false })  // 37a: leerling ziet enkel eigen keuze
+buildMyResult(rows, { onthulJuisteAntwoorden: true })   // 37b: juiste antwoorden onthuld
+```
+
+Tests borgen dat de JSON-payload in 37a nergens het woord `"correct"` bevat. Wie hier iets
+wijzigt, moet die tests groen houden — anders lekken de juiste antwoorden tijdens de toets.
+
+`getMyResult()` gebruikt een **LEFT JOIN** van `quiz_question_snapshots` naar `quiz_answers`,
+zodat overgeslagen vragen zichtbaar blijven (score `null`) in plaats van te ontbreken.

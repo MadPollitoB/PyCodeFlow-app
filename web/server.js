@@ -151,6 +151,8 @@ const { createLogger } = require('./lib/logger');
 const log = createLogger();
 // 37d: nakijk-token (HMAC, stateless) voor leerling-inzage
 const { createReviewToken, verifyReviewToken } = require('./lib/review-token');
+// 37a: bouwt het nakijk-resultaat en strippt de juiste antwoorden
+const { buildMyResult } = require('./lib/review-result');
 const safeEqual = authLib.safeEqual;
 const createPasswordHash = authLib.createPasswordHash;
 const verifyPasswordWithHash = authLib.verifyPasswordWithHash;
@@ -966,7 +968,7 @@ app.get('/api/quiz/bank/subjects', requireTeacherAuth, async (req, res) => {
 });
 
 app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => {
-  const { text, subject, difficulty, maxPoints, questionType, choices, tags } = req.body || {};
+  const { text, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: 'Vraagstelling is verplicht.' });
   if (text.length > 5000) return res.status(400).json({ error: 'Vraagstelling te lang (max 5000 tekens).' });
   const validTypes = ['code', 'open', 'multiple', 'single'];
@@ -997,6 +999,7 @@ app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => 
         }))
       ),
       tags: (tags || '').slice(0, 200),
+      modelAnswer: String(modelAnswer || '').slice(0, 10000),
       createdBy: teacher?.id || null,
     });
     res.json({ ok: true, id });
@@ -1004,7 +1007,7 @@ app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => 
 });
 
 app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) => {
-  const { text, subject, difficulty, maxPoints, questionType, choices, tags } = req.body || {};
+  const { text, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: 'Vraagstelling is verplicht.' });
   const validTypes = ['code', 'open', 'multiple', 'single'];
   const qType = validTypes.includes(questionType) ? questionType : 'code';
@@ -1021,6 +1024,7 @@ app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) 
       }))
     ),
     tags: (tags || '').slice(0, 200),
+    modelAnswer: String(modelAnswer || '').slice(0, 10000),
   });
   res.json({ ok });
 });
@@ -1093,13 +1097,22 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
 
   try {
     await dbModule.persistSession(session);
+    // 37b: haal de volledige bankvragen op zodat vraagtype, keuzes én modelantwoord
+    // correct in de snapshot terechtkomen (de frontend stuurt enkel id/text/punten mee).
+    const bankById = await dbModule.getQuizBankByIds(questions.map(q => q.id));
     await dbModule.createQuizSession({
       sessionCode: code,
-      questions: questions.map((q, i) => ({
-        bankId: q.id, orderIndex: i,
-        text: q.text, subject: q.subject || '',
-        points: parseInt(q.points) || parseInt(q.max_points) || 4,
-      })),
+      questions: questions.map((q, i) => {
+        const bank = bankById.get ? bankById.get(q.id) : null;
+        return {
+          bankId: q.id, orderIndex: i,
+          text: q.text, subject: q.subject || '',
+          points: parseInt(q.points) || parseInt(q.max_points) || 4,
+          questionType: bank?.question_type || 'code',
+          choicesJson: bank?.choices_json || '[]',
+          modelAnswer: bank?.model_answer || '',
+        };
+      }),
       randomize: randomize !== false,
       // Sprint 17: no_timer = true → geen tijdslimiet
       noTimer: noTimer === true,
@@ -1160,6 +1173,8 @@ app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireCsrf, async (re
       // 33e-fix: vraagtype + keuzes meekopiëren (anders worden meerkeuzevragen code-vragen)
       questionType: q.question_type || 'code',
       choicesJson: q.choices_json || '[]',
+      // 37b: modelantwoord ook meekopiëren bij toets-duplicatie
+      modelAnswer: q.model_answer || '',
     })),
     randomize: meta.randomize,
     noTimer: meta.no_timer || false,
@@ -1399,6 +1414,40 @@ async function requireReviewToken(req, res, next) {
   req.reviewStudentId = result.studentId;
   next();
 }
+
+// 37a: eigen resultaten van de leerling.
+// Het studentId komt uit het TOKEN (req.reviewStudentId), nooit uit de URL —
+// daarom staat er geen :studentId in dit pad.
+app.get('/api/quiz/:code/my-result', requireReviewToken, async (req, res) => {
+  try {
+    const code = req.params.code.toUpperCase();
+    const rows = await dbModule.getMyResult(code, req.reviewStudentId);
+    if (!rows.length) return res.status(404).json({ error: 'Geen toetsgegevens gevonden.' });
+
+    // 37c: algemeen commentaar van de leerkracht voor deze leerling.
+    const algemeenCommentaar = await dbModule.getQuizGeneralComment(code, req.reviewStudentId);
+
+    // 37b: juiste antwoorden + modelcode worden nu WEL onthuld in nakijk-modus.
+    // De toegang is al afgeschermd door requireReviewToken; nakijk-modus staat open.
+    const resultaat = buildMyResult(rows, {
+      onthulJuisteAntwoorden: true,
+      algemeenCommentaar,
+    });
+    res.json(resultaat);
+  } catch (e) {
+    log.error('[my-result] fout:', e.message);
+    res.status(500).json({ error: 'Kon je resultaten niet laden.' });
+  }
+});
+
+// 37b: leerkracht slaat de modelcode/het modelantwoord van één vraag op (per toets).
+app.put('/api/quiz/:code/question/:questionId/model', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const modelAnswer = String(req.body?.modelAnswer || '');
+  const ok = await dbModule.setSnapshotModelAnswer(code, req.params.questionId, modelAnswer);
+  if (!ok) return res.status(404).json({ error: 'Vraag niet gevonden in deze toets.' });
+  res.json({ ok: true });
+});
 
 app.get('/api/quiz/:code/similarity', requireTeacherAuth, async (req, res) => {
   try {
