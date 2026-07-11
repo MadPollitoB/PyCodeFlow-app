@@ -828,6 +828,42 @@ module.exports = {
     return byId;
   },
 
+  // 38: dupliceer één bankvraag. Alle velden mee (incl. tags + modelantwoord).
+  // 🔴 Meerkeuze-opties krijgen NIEUWE id's, anders delen origineel en kopie
+  //    dezelfde optie-id's (zelfde valkuil als de 33e-bug).
+  async duplicateQuizQuestion(id, createdBy = null) {
+    const src = await query(`SELECT * FROM quiz_bank WHERE id = $1`, [id]);
+    if (!src.rows.length) return null;
+    const q = src.rows[0];
+
+    // Optie-id's vernieuwen bij keuzevragen.
+    let choicesJson = q.choices_json || '[]';
+    if (q.question_type === 'multiple' || q.question_type === 'single') {
+      try {
+        const opts = JSON.parse(choicesJson);
+        if (Array.isArray(opts)) {
+          choicesJson = JSON.stringify(opts.map(o => ({
+            id: crypto.randomUUID(),
+            text: String(o?.text ?? ''),
+            correct: o?.correct === true,
+          })));
+        }
+      } catch { choicesJson = '[]'; }
+    }
+
+    return await this.createQuizQuestion({
+      text: `${q.text} (kopie)`,
+      subject: q.subject || '',
+      difficulty: q.difficulty || 'gemiddeld',
+      maxPoints: q.max_points || 4,
+      questionType: q.question_type || 'code',
+      choicesJson,
+      tags: q.tags || '',
+      modelAnswer: q.model_answer || '',
+      createdBy,
+    });
+  },
+
   async archiveQuizQuestion(id) {
     await query(`UPDATE quiz_bank SET archived = true, updated_at = $1 WHERE id = $2`, [Date.now(), id]);
   },

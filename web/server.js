@@ -1029,6 +1029,21 @@ app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) 
   res.json({ ok });
 });
 
+// 38: dupliceer één bankvraag in het vragenoverzicht (los van toets dupliceren).
+app.post('/api/quiz/bank/:id/duplicate', requireTeacherAuth, requireCsrf, async (req, res) => {
+  try {
+    const teacher = await dbModule.getTeacherByUsername(
+      parseBasicAuthHeader(req.headers.authorization)?.username || ''
+    );
+    const newId = await dbModule.duplicateQuizQuestion(req.params.id, teacher?.id || null);
+    if (!newId) return res.status(404).json({ error: 'Vraag niet gevonden.' });
+    res.json({ ok: true, id: newId });
+  } catch (e) {
+    log.error('[bank-duplicate] fout:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.put('/api/quiz/bank/:id/archive', requireTeacherAuth, requireCsrf, async (req, res) => {
   await dbModule.archiveQuizQuestion(req.params.id);
   res.json({ ok: true });

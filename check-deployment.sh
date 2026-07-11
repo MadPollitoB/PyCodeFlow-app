@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════════════
-# PyCodeFlow — Deployment verificatiescript v2026.2.37.3
+# PyCodeFlow — Deployment verificatiescript v2026.2.38.0
 # Gebruik: bash check-deployment.sh
 # Voer uit vanuit /volume3/docker/pycodeflow/
 # Sprint 27a-g: grep-regex fixes (backslash-pipe → pipe of -e flags)
@@ -69,7 +69,7 @@ check_not_contains() {
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "  PyCodeFlow — Deployment Verificatie v2026.2.37.3"
+echo "  PyCodeFlow — Deployment Verificatie v2026.2.38.0"
 echo "  $(date '+%d/%m/%Y %H:%M:%S')"
 echo "═══════════════════════════════════════════════════════════"
 
@@ -282,6 +282,9 @@ check_contains "$WEB/server.js" "question/:questionId/model" "server.js: modelco
 check_contains "$WEB/public/quiz-bank.html" "q-model" "quiz-bank: modelantwoord-veld (sprint 37b)"
 check_contains "$WEB/db/database.js" "a.teacher_comment" "database.js: commentaar in my-result (sprint 37c)"
 check_contains "$WEB/lib/review-result.js" "algemeenCommentaar" "review-result: algemeen commentaar (sprint 37c)"
+check_contains "$WEB/db/database.js" "duplicateQuizQuestion" "database.js: vraag dupliceren (sprint 38)"
+check_contains "$WEB/server.js" "bank/:id/duplicate" "server.js: dupliceer-endpoint (sprint 38)"
+check_contains "$WEB/public/quiz-bank.js" "q-btn-duplicate" "quiz-bank: dupliceer-knop (sprint 38)"
 if grep -q "my-result/:studentId" "$WEB/server.js"; then
   fail "server.js: studentId in URL bij my-result (moet uit token komen!)"
 else

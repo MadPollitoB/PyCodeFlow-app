@@ -1,107 +1,122 @@
 # PyCodeFlow — Sprintlog & Roadmap
 
-> **Openstaande sprints zijn geordend op belangrijkheid** (kritiek → nice-to-have).
-> Aanbevolen uitvoervolgorde = van boven naar beneden. Afgeronde sprints staan onderaan.
-> Gedetailleerde beschrijvingen per sprint volgen na de overzichtstabellen.
+> **Structuur van dit document:**
+> 1. **Openstaande sprints** — nog te doen, op dalende prioriteit.
+> 2. **Uitgestelde sprints** — bewust geparkeerd, op dalende prioriteit.
+> 3. **Afgewerkte sprints** — in volgorde van uitvoering (oudste eerst).
+>
+> Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
+> beschrijvingen per sprint als naslag.
+
+**Huidige versie: v2026.2.40.0**
 
 ---
 
-## Openstaande sprints — geordend op prioriteit
+## 1. Openstaande sprints (op dalende prioriteit)
 
-### 🔴 Prioriteit 1 — Kritieke bugs (eerst doen)
-
-Echte defecten die functionaliteit breken of debuggen bemoeilijken. Laag risico, hoge opbrengst.
-
-| Sprint | Cat | Inhoud | Status | Inschatting |
+| Sprint | Prio | Cat | Inhoud | Inschatting |
 |---|---|---|---|---|
-| **29a** | 🔴 BUG | teacher-grid.html: sprint 27i fallback werkt nooit — `pycodeflow_teacherSessionCode` key bestaat niet + `setLS` JSON-encodeert (quotes in code) → leerlingenoverzicht blijft leeg | ✅ Afgerond | ~0.5 dag |
-| **29b** | 🔴 BUG | quiz-teacher.html lijn 303: laatste icon-only ✕ knop zonder title/aria-label | ✅ Afgerond | ~0.1 dag |
-| **29c** | 🔴 BUG | 15× `catch {}` in app.js zonder logging — stille fouten, moeilijk te debuggen | ✅ Afgerond | ~0.5 dag |
-| **30-cfg** | 🔴 BUG | Sessie-instellingen (auto-indent enz.) worden niet live toegepast: een wijziging neemt pas effect zodra een **andere** checkbox wordt aangeklikt. Ondanks sprint 29p2-a. Gekozen oplossing: checkboxes registreren de staat, een **"Toepassen"-knop** stuurt alles in één keer door | ✅ Afgerond | ~0.5 dag |
+| **41** | 🔵 P9 | ARCH | Schooljaar-selector in de leerkracht-UI + read-only gearchiveerde jaren (bouwt op sprint 40) | ~3 dagen |
+| **42** | 🔵 P9 | ARCH | Instapstructuur: `pycodeflow.org` keuzepagina → gescheiden leerling-/leerkracht-ingang | ~2 dagen |
+| **43** | 🔵 P9 | ARCH | ⛔ School-keuze bij leerkracht-login (modal indien >1 school) + `active_school_id` in sessie — **geblokkeerd:** vereist fase 1 + fase 3 (multi-tenant) | ~3 dagen |
+| **35b** | 🟠 P6 | A11Y | Statusinformatie niet enkel via kleur (klaar/hand/tab-weg) — voor kleurenblinden | ~1 dag |
+| **35a** | 🟠 P6 | A11Y | Aria-labels/roles toevoegen (vrijwel geen nu) — screenreaders bruikbaar maken | ~2 dagen |
+| **35c** | 🟡 P6 | A11Y | Toetsenbordnavigatie: focus-volgorde, focus-trap, skip-links | ~1.5 dag |
+| **35d** | 🟡 P6 | A11Y | Modals (pyAlert/pyConfirm): `role="dialog"` + `aria-modal` + focus-return | ~0.5 dag |
+| **30b-vol** | 🟠 P3 | SEC | CSP `unsafe-inline` VOLLEDIG weg (Optie C): 123 inline handlers → addEventListener, 384 inline `style=` → CSS, dan enforce + Report-Only weg | ~8-10 dagen |
 
-### 🔴 Prioriteit 2 — Testbasis (fundament vóór grote wijzigingen)
+> **Toegankelijkheid (P6) wordt een wettelijke vereiste** (EN 301 549 / WCAG 2.1 AA) zodra je aan overheidsscholen verkoopt. Nu geparkeerd op prioriteit, maar niet vrijblijvend op termijn.
 
-Zonder tests is elke volgende sprint risicovol. De sprint 26/27 regressies waren hiermee meteen gevangen.
+---
 
-| Sprint | Cat | Inhoud | Status | Inschatting |
+## 2. Uitgestelde sprints (bewust geparkeerd, op dalende prioriteit)
+
+| Sprint | Cat | Inhoud | Reden van uitstel | Inschatting |
 |---|---|---|---|---|
-| **34a** | 🔴 TEST | Testsuite voor kritieke paden (login, rate limiting, auto-scoring, sessie-herstel, CSRF, DB-whitelist) via `node:test` | ✅ Afgerond | ~4 dagen |
-| **34b** | 🟠 TEST | CI-pipeline: `node --check` + tests + `npm audit` bij elke wijziging | ✅ Afgerond | ~1 dag |
-| **34c** | 🟠 TEST | Runner sandbox-escape tests automatiseren (nu enkel handmatig in security-testplan §6.1) | ✅ Afgerond | ~1 dag |
+| **14** | AUTH | Google OAuth leerlingen | Leerling-login-methode nog niet gekozen | ~3 dagen |
+| **15** | AUTH | Smartschool SSO | Leerling-login-methode nog niet gekozen | ~1 week |
 
-### 🟠 Prioriteit 3 — Security hardening
+> **Leerling-authenticatie — nog te beslissen.** Leerlingen identificeren zich nu via naam + klas + sessiecode. Er komt op termijn een echte login, maar de methode is nog niet gekozen: **Smartschool SSO** (15), **Google OAuth** (14), of een eigen login op **e-mail/gebruikersnaam**. Deze keuze raakt sprint 37 (nakijk-modus): zolang er geen echte login is, steunt de nakijk-toegang op naam+klas+code — een bewust aanvaarde beperking, afgeschermd door rate-limiting en doordat de leerkracht de nakijk-modus expliciet moet openstellen.
 
-| Sprint | Cat | Inhoud | Status | Inschatting |
-|---|---|---|---|---|
-| **30a** | 🟠 SEC | Login-cookie zonder Max-Age — geen bewuste sessieduur/timeout | ✅ Afgerond | ~0.5 dag |
-| **30c** | 🟠 SEC | `upgrade-insecure-requests` ontbreekt in CSP (HSTS is wel aanwezig) | ✅ Afgerond | ~0.2 dag |
-| **30d** | 🟡 SEC | Geen automatische DB-backup (cron) — enkel handmatig via pycodeflow.sh optie 16 | ✅ Afgerond | ~1 dag |
-| **30b-A** | 🟠 SEC | CSP-hardening TIJDELIJK (Optie A): laatste inline `<script>` geëxtraheerd + strikte **Report-Only** CSP die violations toont zonder iets te breken | ✅ Afgerond | ~0.5 dag |
-| **30b-vol** | 🟠 SEC | CSP `unsafe-inline` VOLLEDIG verwijderen (Optie C): 123 inline event-handlers → addEventListener, 384 inline `style=` → CSS-klassen, dan enforce strikte CSP + Report-Only weg. Gefaseerd plan hieronder | 🔄 Gepland | ~8-10 dagen |
+---
 
-### 🟠 Prioriteit 4 — Data-integriteit & robuustheid
+## 3. Afgewerkte sprints (in volgorde van uitvoering)
 
-| Sprint | Cat | Inhoud | Status | Inschatting |
-|---|---|---|---|---|
-| **36a** | 🟠 DATA | Geen transacties bij multi-step schrijfacties (toets + vragen koppelen) — risico op halve data bij crash | ✅ Afgerond | ~1 dag |
-| **36c** | 🟡 DATA | Geen centrale validatie-laag op API-input (types, grenzen) — nu ad-hoc per endpoint | ✅ Afgerond | ~2 dagen |
-| **36b** | 🟡 DATA | persistSession zonder debounce — race conditions + DB-belasting bij snel typen | ✅ Afgerond | ~1 dag |
-| **36d** | 🟢 DATA | Dependencies met `^` pinnen naar exacte versies + `npm audit` in CI | ✅ Afgerond | ~0.5 dag |
+Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 
-### 🟠 Prioriteit 5 — UX & consistentie
+| # | Sprint | Inhoud | Versie |
+|---|---|---|---|
+| 1 | **1-11** | Basiswerking → PostgreSQL-migratie (fundament: editor, runner, login, sessies, annotaties, history, archief) | tot v2026.2.9.0 |
+| 2 | **12-13** | PostgreSQL + admin-pagina + klas-dropdown + sessie-config | v2026.2.11.0 |
+| 3 | **12a-D** | Monaco bundelen + CSP versterkt | v2026.2.12.0 |
+| 4 | **16** | Toetsmodule | v2026.2.13.0 |
+| 5 | **17** | Log-rotatie + toets-archief | v2026.2.14.0 |
+| 6 | **18** | Vraagtypen (open/meerkeuze/single) + auto-scoring | v2026.2.15.0 |
+| 7 | **19** | Betrouwbaarheid & uitbreidingen (quiz-backup, logo, notificaties, Markdown) | v2026.2.16.0 |
+| 8 | **20** | Afwerking | v2026.2.17.0 |
+| 9 | **22** | Bugfix & UX ronde | v2026.2.22.0 |
+| 10 | **23** | Senior tester audit + dark mode verwijderd | v2026.2.23.0 |
+| 11 | **24** | UI/UX ronde 2 + in-app modals | v2026.2.24.0 |
+| 12 | **25** | Rijke vraagstelling-editor | v2026.2.25.0 |
+| 13 | **26** | Bugfixes + check-deployment bijgewerkt | v2026.2.26.0 |
+| 14 | **27** | Bugfixes + tooltips + DB-beheer | v2026.2.27.0 |
+| 15 | **28** | DOMPurify + subnav + structuurfix | v2026.2.28.0 |
+| 16 | **29 + 29_part2** | Kritieke bugs + versie-automatisering + vervolgbugs | v2026.2.29.1 |
+| 17 | **34** | Geautomatiseerd testen + CI (testbasis) | v2026.2.34.0 |
+| 18 | **30-copy** | Contextuele kopieerknop | v2026.2.34.3 |
+| 19 | **30-cfg** | Sessie-instellingen live toepassen ("Toepassen"-knop) | v2026.2.34.x |
+| 20 | **30 (a/c/d)** | Security hardening (cookie Max-Age, upgrade-insecure, DB-backup-script) | v2026.2.34.4 |
+| 21 | **36** | Data-integriteit (transacties, validatie, debounce, deps pinnen) | v2026.2.34.5 |
+| 22 | **31** | UX & consistentie (localStorage-prefix, spinners, uniforme fouten) | v2026.2.34.6 |
+| 23 | **32** | Technische schuld (logger, scripts extraheren, Monaco pinnen) | v2026.2.34.7 |
+| 24 | **30b-A** | CSP-hardening tijdelijk (Optie A): Report-Only CSP | v2026.2.34.8 |
+| 25 | **33** | Nice-to-haves (toets dupliceren, tags, CSV-export, voortgangsgrafiek) | v2026.2.34.9 |
+| 26 | **37d** | Nakijk-modus + toegangscontrole (leerling-inzage fundament) | v2026.2.37.0 |
+| 27 | **37a** | Leerling-nakijkscherm (score + eigen antwoorden) | v2026.2.37.1 |
+| 28 | **37b** | Juiste antwoorden + modelcode tonen | v2026.2.37.2 |
+| 29 | **37c** | Commentaar per vraag + algemeen commentaar zichtbaar | v2026.2.37.3 |
+| 30 | **38** | Vraag dupliceren in het vragenoverzicht | v2026.2.38.0 |
+| 31 | **40** | `class_memberships`: leerling-lidmaatschap per schooljaar (vers schema) | v2026.2.40.0 |
 
-| Sprint | Cat | Inhoud | Status | Inschatting |
-|---|---|---|---|---|
-| **31b** | 🟠 UX | localStorage sleutels inconsistent (`pycodeflow_` prefix soms wel/niet) — botsingsrisico, gerelateerd aan 29a | ✅ Afgerond | ~0.5 dag |
-| **31a** | 🟠 UX | Loading states inconsistent — slechts 5/18 pagina's hebben een spinner | ✅ Afgerond | ~1 dag |
-| **31c** | 🟡 UX | Foutmeldingen niet uniform — mix van pyAlert, inline tekst en output-panel | ✅ Afgerond | ~1 dag |
+> Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
-### 🟠 Prioriteit 6 — Toegankelijkheid (a11y)
+---
 
-Voor een onderwijstool vaak ook een wettelijke vereiste (WCAG / EN 301 549).
+## Detailbeschrijvingen (recentste sprints)
 
-| Sprint | Cat | Inhoud | Status | Inschatting |
-|---|---|---|---|---|
-| **35b** | 🟠 A11Y | Statusinformatie enkel via kleur (klaar/hand/tab-weg) — probleem voor kleurenblinden | 🔄 Gepland | ~1 dag |
-| **35d** | 🟡 A11Y | Modals (pyAlert/pyConfirm) missen `role="dialog"` + `aria-modal` + focus-return | 🔄 Gepland | ~0.5 dag |
-| **35a** | 🟠 A11Y | Vrijwel geen aria-labels/roles (1 in hele app) — screenreaders onbruikbaar | 🔄 Gepland | ~2 dagen |
-| **35c** | 🟡 A11Y | Toetsenbordnavigatie niet getest — focus-volgorde, focus-trap, skip-links | 🔄 Gepland | ~1.5 dag |
+### Sprint 40 — `class_memberships`: lidmaatschap per schooljaar *(~2-3 dagen)* — ✅ AFGEROND (v2026.2.40.0)
 
-### 🟡 Prioriteit 7 — Technische schuld & onderhoudbaarheid
+**Aangemeld:** 07/07/2026 · **Uitgevoerd:** 08/07/2026 · vers schema, geen datamigratie
 
-| Sprint | Cat | Inhoud | Status | Inschatting |
-|---|---|---|---|---|
-| **32b** | 🟡 TECH | 15× console.log in server.js → gestructureerde logger met niveaus (`LOG_LEVEL`) | ✅ Afgerond | ~1 dag |
-| **32a** | 🟡 TECH | Inline scripts te groot (monitoring.html 762 rgls) → naar aparte `.js` bestanden (helpt ook 30b) | ✅ Afgerond | ~4 dagen |
-| **32c** | 🟢 TECH | Monaco-versie centraal pinnen i.p.v. verspreid over HTML | ✅ Afgerond | ~0.5 dag |
+**Het probleem dat dit oplost:** `students.class_id` was een directe verwijzing naar één klas. Een leerling hoorde in het datamodel dus voor altijd bij precies één klas. Verplaatste je hem naar volgend jaar, dan klopte de historiek van vorig jaar niet meer. Nu de database leeg herstartbaar is, kon het juiste model meteen in het verse schema — zonder de risicovolle datamigratie.
 
-### 🟢 Prioriteit 8 — Nice-to-haves
+**Uitgevoerd:**
+- **Schema herzien.** `students` is nu puur de **persoon** (naam, status, google-koppeling) — `class_id` is eruit. Nieuwe tabel:
+  ```sql
+  CREATE TABLE class_memberships (
+    student_id  TEXT REFERENCES students(id) ON DELETE CASCADE,
+    class_id    TEXT REFERENCES classes(id)  ON DELETE CASCADE,
+    school_year TEXT NOT NULL,
+    status      TEXT DEFAULT 'active',   -- active | left | pending
+    PRIMARY KEY (student_id, class_id, school_year)
+  );
+  ```
+  De oude `UNIQUE INDEX ON students(name, class_id)` verdwijnt; de samengestelde PK borgt nu dat dezelfde leerling niet dubbel in dezelfde klas+jaar zit.
+- **Functies herschreven** (`db/database.js`), met behoud van hun signaturen zodat server en frontend ongewijzigd blijven werken:
+  - `listStudents(classId)` — via de koppeltabel; zonder classId een lijst met per persoon de samengevatte klassen.
+  - `createStudent(name, classId, …)` — maakt de persoon aan en koppelt via het lidmaatschap.
+  - `getStudentByName(name, classId)` — zoekt via lidmaatschap.
+  - `updateStudentClass(id, classId)` — koppelt aan de nieuwe klas; **oude lidmaatschappen blijven staan** → historiek behouden.
+  - `listClasses()` — leerlingtelling via de koppeltabel (matcht op klas + schooljaar).
+  - Nieuw: `addStudentToClass(studentId, classId, status)` en `removeStudentFromClass(studentId, classId)`.
+  - CSV-import aangepast naar het membership-model.
+- **Server & frontend:** ongewijzigd — alle endpoints roepen dezelfde DB-functies aan, en de admin-UI gebruikt `student_count` / `class_name` die de nieuwe queries nog steeds leveren.
 
-| Sprint | Cat | Inhoud | Status | Inschatting |
-|---|---|---|---|---|
-| **33e** | 🟢 NICE | Toets dupliceren-knop (kopie als sjabloon) — kleine moeite, veel tijdwinst | ✅ Afgerond | ~0.5 dag |
-| **33d** | 🟢 NICE | Vraag-tags/labels voor filtering in vragenbank | ✅ Afgerond | ~1 dag |
-| **33a** | 🟢 NICE | Toets-resultaten exporteren naar Excel (.xlsx) naast PDF | ✅ Afgerond | ~2 dagen |
-| **33b** | 🟢 NICE | Leerling-voortgang grafiek in verbetermodule (scores per vraag) | ✅ Afgerond | ~2 dagen |
-| **38** | 🟢 NICE | Vraag dupliceren in het vragenoverzicht (los van toets dupliceren) | 🔄 Gepland | ~0.5 dag |
+**Bewust uitgesteld (niet weg):** het migratiepad (bestaande `class_id` → membership zonder verlies) is nog nodig zodra een school echte, te behouden data heeft. Dat hoort bij **fase 3** van de multi-tenant roadmap (schema-evolutie zonder wissen).
 
-### 🔵 Prioriteit 9 — Leerling-inzage in resultaten
+**Tests:** 8 nieuwe in `tests/membership.test.js` (leerling in twee jaren/klassen; historiek intact bij verplaatsen; geen dubbel lidmaatschap; telling per jaar; klassen met dezelfde naam maar ander jaar zijn los). Totaal **154 unit tests**.
 
-| Sprint | Cat | Inhoud | Status | Inschatting |
-|---|---|---|---|---|
-| **37d** | 🔵 FEAT | Nakijk-modus (leerkracht zet aan) + herlogin via naam+klas+code (geen localStorage) + strenge toegangscontrole | ✅ Afgerond | ~2 dagen |
-| **37a** | 🔵 FEAT | Leerling-nakijkscherm: eigen score + antwoorden per vraag | ✅ Afgerond | ~2 dagen |
-| **37b** | 🔵 FEAT | Juiste antwoorden (meerkeuze) + modelcode (leerkracht geeft in) tonen | ✅ Afgerond | ~2 dagen |
-| **37c** | 🔵 FEAT | Commentaar per vraag + algemeen commentaar zichtbaar voor leerling | ✅ Afgerond | ~1 dag |
-
-### ⏸ Uitgesteld (bewust geparkeerd)
-
-| Sprint | Cat | Inhoud | Status | Inschatting |
-|---|---|---|---|---|
-| **14** | ⏸ | Google OAuth leerlingen | ⏸ Uitgesteld (later) | ~3 dagen |
-| **15** | ⏸ | Smartschool SSO | ⏸ Uitgesteld (optioneel) | ~1 week |
-
-> **Leerling-authenticatie — nog te beslissen.** Leerlingen identificeren zich nu via naam + klas + sessiecode. Er komt op termijn een echte login, maar de methode is nog niet gekozen: **Smartschool SSO** (sprint 15), **Google OAuth** (sprint 14), of een eigen login op **e-mail/gebruikersnaam**. Deze keuze raakt sprint 37 (nakijk-modus): zolang er geen echte login is, steunt de nakijk-toegang op naam+klas+code — een bewust aanvaarde beperking, afgeschermd door rate-limiting en doordat de leerkracht de nakijk-modus expliciet moet openstellen. Zodra de login er is, wordt de nakijk-toegang daarop gebaseerd.
+**Betrokken bestanden:** `db/database.js` · `tests/membership.test.js` (nieuw)
 
 ---
 
@@ -196,7 +211,7 @@ Bij verkoop aan scholen worden dit harde eisen, geen bijzaken:
 ### Belangrijkste risico's
 
 - **Datalek tussen scholen** (fase 3). Eén vergeten `WHERE school_id = …` en school A ziet de toetsen van school B. Daarom RLS op databaseniveau i.p.v. vertrouwen op applicatiecode.
-- **Migratie van bestaande data.** Atheneum Hoboken draait live; alles moet naar `school_id = 1` zonder verlies.
+- **Migratie van bestaande data** (relevant vanaf fase 3, niet nu). Zolang de database leeg herstartbaar is, bouwen we het schema vers. Zodra een school echte data heeft die behouden moet blijven, moet de schema-evolutie (o.a. `school_id` toevoegen, `class_memberships` invullen) mét migratie gebeuren, zonder verlies. Dat migratiepad wordt in fase 3 uitgewerkt en getest.
 - **Scope-creep in fase 5.** Facturatie en onboarding zijn een product op zich. Begin handmatig (jij maakt scholen aan), automatiseer pas bij volume.
 - **De fundament-fases overslaan.** Fase 3 bouwen zonder fase 1-2 betekent dat je tenant-isolatie bouwt op een auth-systeem dat gebruikers niet eens uit elkaar houdt.
 
@@ -259,7 +274,11 @@ school
      PRIMARY KEY (student_id, class_id, school_year)
    );
    ```
-   De leerling (persoon) bestaat **één keer**; het lidmaatschap van een klas bestaat **per schooljaar**. Zo blijft de historiek intact: je ziet dat Jan in 2024-2025 in 3A zat en in 2025-2026 in 4B. `students.class_id` wordt daarmee overbodig (migratie: bestaande koppelingen omzetten naar een membership-rij met het huidige schooljaar).
+   De leerling (persoon) bestaat **één keer**; het lidmaatschap van een klas bestaat **per schooljaar**. Zo blijft de historiek intact: je ziet dat Jan in 2024-2025 in 3A zat en in 2025-2026 in 4B. `students.class_id` wordt daarmee overbodig.
+
+   > **🟢 Vereenvoudigd (08/07/2026):** de database is op dit moment leeg (enkel testdata die weg mag). We bouwen het **juiste eindmodel meteen in het verse schema** — `class_memberships` als koppeltabel, géén `students.class_id` meer — zonder datamigratie. Dat schrapt het zwaarste en risicovolste deel van sprint 40. **De eerste school (Atheneum Hoboken) begint dus met een schone lei**, net als elke latere school. Zie de aangepaste inschatting hieronder.
+   >
+   > ⚠️ **Wel bewust van:** de migratielogica (bestaande `class_id` → membership zonder verlies, en de `UNIQUE INDEX` veilig verhuizen) is hiermee **niet weg, enkel uitgesteld**. Zodra een school echte, te behouden leerlingdata heeft, is een beproefd migratiepad nodig. Dit hoort thuis bij **fase 3** van de multi-tenant roadmap (schema-evolutie zonder wissen) en wordt daar opgepakt.
 
 3. **Inzage in vorige jaren.** Zodra lidmaatschap per jaar bestaat, wordt dit vanzelf mogelijk. Nodig:
    - Een **schooljaar-selector** in de leerkracht-UI (klassen, vragenbank, toetsarchief). Standaard het huidige jaar; gearchiveerde jaren blijven kiesbaar.
@@ -271,14 +290,14 @@ school
 
 | Sprint | Cat | Inhoud | Status | Inschatting |
 |---|---|---|---|---|
-| **40** | 🔵 ARCH | `class_memberships`-tabel: leerling-lidmaatschap per schooljaar (+ migratie van `students.class_id`) | 🔄 Gepland | ~1 week |
+| **40** | 🔵 ARCH | `class_memberships`-tabel in **vers schema** (leerling-lidmaatschap per schooljaar; géén datamigratie nu) | ✅ Afgerond (v2026.2.40.0) | ~2-3 dagen |
 | **41** | 🔵 ARCH | Schooljaar-selector in de leerkracht-UI + read-only gearchiveerde jaren | 🔄 Gepland | ~3 dagen |
 | **42** | 🔵 ARCH | Instapstructuur: `pycodeflow.org` keuzepagina → gescheiden leerling-/leerkracht-ingang | 🔄 Gepland | ~2 dagen |
 | **43** | 🔵 ARCH | School-keuze bij leerkracht-login (modal indien >1 school) + `active_school_id` in de sessie | 🔄 Gepland | ~3 dagen |
 
 **Afhankelijkheden:** sprint 43 vereist fase 1 (echte per-gebruiker sessie) én fase 3 (`schools`-tabel). Sprint 40 kan **nu al**, onafhankelijk van multi-tenancy — en is ook voor één school waardevol, want vandaag kun je de klassamenstelling van vorig jaar niet correct bewaren. Sprint 42 kan eveneens nu al.
 
-**Aanbeveling:** doe **sprint 40 vroeg**. Hoe langer je wacht, hoe meer schooljaren met een fout model in de database staan, en hoe pijnlijker de migratie wordt.
+**Aanbeveling:** doe **sprint 40 vroeg** en benut het lege-database-venster. Nu bouwen betekent het juiste model meteen goed, zonder migratiecode. Zodra er echte leerlingdata in zit, is dat venster gesloten en wordt een schema-evolutie mét migratie nodig (fase 3).
 
 ---
 
@@ -286,22 +305,11 @@ school
 
 ---
 
-## Aanbevolen uitvoervolgorde
 
-1. **Sprint 29** — kritieke bugs wegwerken (o.a. teacher-grid die nog steeds stuk is)
-2. **Sprint 34a/b** — testbasis + CI opzetten zodat de rest veilig kan
-3. **Sprint 30** — security hardening (30a/c/d eerst, 30b na 32a)
-4. **Sprint 36** — data-integriteit (transacties, validatie)
-5. **Sprint 31** — UX-consistentie (31b samen met 29a)
-6. **Sprint 35** — toegankelijkheid
-7. **Sprint 32** — technische schuld (32a maakt 30b mogelijk)
-8. **Sprint 33** — nice-to-haves naar wens
+## Detailtabel — alle sprints (legacy overzicht)
 
-**Totale schatting openstaand:** ~40 dagen werk (excl. uitgesteld).
-
----
-
-## Afgeronde sprints
+> Dit is het historische overzicht met alle sub-sprints en hun status.
+> De beknopte uitvoervolgorde staat bovenaan in sectie 3.
 
 | Sprint | Cat | Inhoud | Status | Inschatting |
 |---|---|---|---|---|
@@ -501,25 +509,24 @@ Monaco wordt geserveerd vanuit `node_modules/monaco-editor`; de versie is sinds 
 
 ---
 
-### Sprint 38 — Vraag dupliceren in het vragenoverzicht *(~0.5 dag)* — 🔄 GEPLAND
+### Sprint 38 — Vraag dupliceren in het vragenoverzicht *(~0.5 dag)* — ✅ AFGEROND (v2026.2.38.0)
 
-**Aangemeld:** 07/07/2026 · **Status:** 🔄 Gepland
+**Aangemeld:** 07/07/2026 · **Status:** ✅ Afgerond (v2026.2.38.0)
 
-**Doel:** naast een hele toets dupliceren (33e) moet ook een **losse vraag** in de vragenbank gedupliceerd kunnen worden. Handig om een variant te maken van een bestaande vraag (andere getallen, andere opties) zonder alles opnieuw in te typen.
+**Doel:** naast een hele toets dupliceren (33e) kan nu ook een **losse vraag** in de vragenbank gedupliceerd worden. Handig om een variant te maken (andere getallen, andere opties) zonder alles opnieuw in te typen.
 
-**Onderscheid met 33e:** 33e dupliceert een **toets** (sessie + vraag-snapshots). Sprint 38 dupliceert één **bankvraag** in het vragenoverzicht (`quiz-bank.html`) — de bron, niet een toets-snapshot.
+**Onderscheid met 33e:** 33e dupliceert een **toets** (sessie + vraag-snapshots). Sprint 38 dupliceert één **bankvraag** in het vragenoverzicht — de bron, niet een snapshot.
 
-**Uitgangspunt:** `createQuizQuestion({ text, subject, difficulty, maxPoints, questionType, choicesJson, tags, createdBy })` bestaat al en neemt alle velden aan. Dupliceren is dus vooral: de bestaande vraag ophalen, de velden hergebruiken, en met een aangepaste titel opnieuw wegschrijven.
+**Uitgevoerd:**
+- **Database:** `duplicateQuizQuestion(id, createdBy)` — haalt de bronvraag op en hergebruikt `createQuizQuestion`. Kopieert alle velden: `text` (met `" (kopie)"`-suffix), `subject`, `difficulty`, `max_points`, `question_type`, `choices_json`, `tags` én `model_answer`. Nieuwe `id`, `created_by` = huidige leerkracht, `archived = false`.
+- 🔴 **Meerkeuze-valkuil afgevangen:** bij keuzevragen krijgt elke antwoordoptie een **nieuwe `id`** (tekst + `correct` blijven behouden). Anders zouden origineel en kopie dezelfde optie-id's delen — dezelfde soort fout als de 33e-bug.
+- **Endpoint** `POST /api/quiz/bank/:id/duplicate` (teacher + CSRF).
+- **UI:** "⧉ Dupliceren"-knop op elke niet-gearchiveerde vraagkaart, via event-delegation (CSP-vriendelijk, geen inline onclick). Na dupliceren wordt de lijst herladen en meteen het bewerk-formulier op de kopie geopend, zodat de leerkracht direct kan aanpassen.
+- **Duplicaat-detectie:** de tekst-controle (`SELECT 1 FROM quiz_bank WHERE text = $1`) zit enkel in de CSV-import, niet in `createQuizQuestion` — de duplicatie wordt dus niet geblokkeerd. De `" (kopie)"`-suffix maakt de kopie sowieso onderscheidbaar.
 
-**Uit te voeren:**
-- **Nieuw endpoint** `POST /api/quiz/bank/:id/duplicate` (teacher, CSRF): haalt de bronvraag op en maakt een kopie met alle velden — `text` (met een duidelijke markering, bv. `" (kopie)"` achteraan of vooraan), `subject`, `difficulty`, `max_points`, `question_type`, `choices_json`, `tags`, en **`model_answer`** (zodra dat veld bestaat na sprint 37b). Nieuwe `id`, `created_by` = huidige leerkracht, verse `created_at`/`updated_at`, `archived = false`.
-- **Belangrijk bij meerkeuze:** de `choices_json` bevat per optie een eigen `id`. Bij het dupliceren moeten die **nieuwe id's** krijgen (anders delen twee vragen dezelfde optie-id's). Zelfde valkuil als bij de 33e-bugfix — hier vooraf afvangen.
-- **UI:** een "⧉ Dupliceren"-knop op elke vraagkaart in `quiz-bank.html`/`quiz-bank.js`, naast bewerken/archiveren. Na dupliceren de lijst herladen en (optioneel) meteen het bewerk-formulier openen op de kopie, zodat de leerkracht direct kan aanpassen.
-- **Duplicaat-detectie:** de bank heeft al een controle op identieke vraagtekst (zie `SELECT 1 FROM quiz_bank WHERE text = $1`). De `" (kopie)"`-suffix voorkomt dat die controle de duplicatie blokkeert; dit expliciet verifiëren.
+**Tests:** 4 nieuwe in `tests/export.test.js` (suffix; alle velden incl. tags + modelcode; nieuwe optie-id's; code-vraag houdt lege choices). Totaal **146 unit tests**.
 
-**Tests (verwacht):** kopie bevat alle velden (incl. tags, question_type, choices, model_answer); optie-id's zijn nieuw en niet gedeeld met het origineel; archived-vlag staat op false; de vraagtekst is gemarkeerd als kopie. ~5 tests.
-
-**Betrokken bestanden (verwacht):** `server.js` · `db/database.js` (`getQuizQuestionById` indien nog niet aanwezig) · `quiz-bank.html` · `quiz-bank.js` · `tests/`
+**Betrokken bestanden:** `server.js` · `db/database.js` · `quiz-bank.js` · `tests/export.test.js`
 
 ---
 

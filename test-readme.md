@@ -1762,4 +1762,16 @@ Archiveren behoudt ze.
 ✅ Niets zichtbaar zolang nakijken niet opengesteld is
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.37.3 · 8 juli 2026*
+## 44. Sprint 38 — Vraag dupliceren
+
+```
+✅ "⧉ Dupliceren"-knop op elke niet-gearchiveerde vraagkaart
+✅ Kopie krijgt "(kopie)" achter de vraagtekst
+✅ Alle velden mee: onderwerp, moeilijkheid, punten, tags, modelcode
+✅ Bewerk-formulier opent meteen op de kopie
+✅ Meerkeuze: opties behouden tekst + juist/fout, maar krijgen nieuwe id's
+✅ Origineel blijft ongewijzigd
+✅ Code-vraag blijft code-vraag (geen valse keuzes)
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.38.0 · 8 juli 2026*

@@ -156,3 +156,66 @@ test('duplicatie: ontbrekend modelantwoord → lege string, geen undefined', () 
   const out = duplicateMap(rows);
   assert.strictEqual(out[0].modelAnswer, '');
 });
+
+// ── Sprint 38: vraag dupliceren in het vragenoverzicht ────────────────────────
+// Repliceert de kernlogica van duplicateQuizQuestion (nieuwe optie-id's + velden).
+function duplicateBankQuestion(q) {
+  let choicesJson = q.choices_json || '[]';
+  if (q.question_type === 'multiple' || q.question_type === 'single') {
+    const opts = JSON.parse(choicesJson);
+    if (Array.isArray(opts)) {
+      choicesJson = JSON.stringify(opts.map(o => ({
+        id: 'nieuw-' + Math.random().toString(36).slice(2),
+        text: String(o?.text ?? ''),
+        correct: o?.correct === true,
+      })));
+    }
+  }
+  return {
+    text: `${q.text} (kopie)`,
+    subject: q.subject || '',
+    difficulty: q.difficulty || 'gemiddeld',
+    maxPoints: q.max_points || 4,
+    questionType: q.question_type || 'code',
+    choicesJson,
+    tags: q.tags || '',
+    modelAnswer: q.model_answer || '',
+  };
+}
+
+test('vraag dupliceren: tekst krijgt "(kopie)"-suffix', () => {
+  const out = duplicateBankQuestion({ text: 'Wat is 2+2?', question_type: 'code' });
+  assert.strictEqual(out.text, 'Wat is 2+2? (kopie)');
+});
+
+test('vraag dupliceren: alle velden meegekopieerd (incl. tags + modelcode)', () => {
+  const out = duplicateBankQuestion({
+    text: 'V', subject: 'Wiskunde', difficulty: 'moeilijk', max_points: 8,
+    question_type: 'code', choices_json: '[]', tags: 'examen,herhaling',
+    model_answer: 'print(4)',
+  });
+  assert.strictEqual(out.subject, 'Wiskunde');
+  assert.strictEqual(out.difficulty, 'moeilijk');
+  assert.strictEqual(out.maxPoints, 8);
+  assert.strictEqual(out.tags, 'examen,herhaling');
+  assert.strictEqual(out.modelAnswer, 'print(4)');
+});
+
+test('vraag dupliceren: meerkeuze-opties krijgen NIEUWE id\'s', () => {
+  const origineel = JSON.stringify([
+    { id: 'oud-a', text: 'A', correct: false },
+    { id: 'oud-b', text: 'B', correct: true },
+  ]);
+  const out = duplicateBankQuestion({ text: 'Kies', question_type: 'single', choices_json: origineel });
+  const nieuweOpts = JSON.parse(out.choicesJson);
+  // Tekst en correct behouden, maar id's mogen NIET gelijk zijn aan het origineel.
+  assert.strictEqual(nieuweOpts[0].text, 'A');
+  assert.strictEqual(nieuweOpts[1].correct, true);
+  assert.notStrictEqual(nieuweOpts[0].id, 'oud-a');
+  assert.notStrictEqual(nieuweOpts[1].id, 'oud-b');
+});
+
+test('vraag dupliceren: code-vraag houdt lege choices', () => {
+  const out = duplicateBankQuestion({ text: 'V', question_type: 'code', choices_json: '[]' });
+  assert.strictEqual(out.choicesJson, '[]');
+});

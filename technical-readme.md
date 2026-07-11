@@ -1,7 +1,7 @@
 # PyCodeFlow — Technische documentatie
 
 > Interne werking, architectuur, API-referentie en ontwikkelaarsinformatie.
-> Versie: v2026.2.37.3
+> Versie: v2026.2.38.0
 
 ---
 
@@ -163,6 +163,7 @@ pycodeflow/
 | POST | `/api/quiz/:code/review-login` | 37d: leerling logt in met naam + klas → nakijk-token (publiek, rate-limited) |
 | GET | `/api/quiz/:code/my-result` | 37a/b: eigen resultaten + juiste antwoorden + modelcode (nakijk-token vereist) |
 | PUT | `/api/quiz/:code/question/:questionId/model` | 37b: modelantwoord per vraag opslaan (leerkracht + CSRF) |
+| POST | `/api/quiz/bank/:id/duplicate` | 38: bankvraag dupliceren (leerkracht + CSRF) |
 | GET | `/health` | Container health check |
 | GET | `/api/school-info` | Schoolnaam + logo URL |
 
@@ -327,7 +328,7 @@ BLOCKED_MODULES = {
 
 ---
 
-*PyCodeFlow · Atheneum Hoboken · technical-readme.md · v2026.2.37.3*
+*PyCodeFlow · Atheneum Hoboken · technical-readme.md · v2026.2.38.0*
 
 ---
 

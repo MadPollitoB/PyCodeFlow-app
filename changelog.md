@@ -1,3 +1,26 @@
+## v2026.2.38.0 — Sprint 38: Vraag dupliceren in het vragenoverzicht
+
+### Losse vraag dupliceren
+Nieuwe "⧉ Dupliceren"-knop op elke vraagkaart in de vragenbank. Maakt een kopie met
+alle velden (onderwerp, moeilijkheid, punten, vraagtype, keuzes, tags én modelcode) en
+een "(kopie)"-suffix. Na dupliceren opent meteen het bewerk-formulier op de kopie.
+
+### Meerkeuze-valkuil afgevangen
+Bij keuzevragen krijgt elke antwoordoptie een NIEUWE id (tekst + correct blijven behouden).
+Anders zouden origineel en kopie dezelfde optie-id's delen — dezelfde soort fout als de
+33e-bug bij toets-duplicatie.
+
+### Onderscheid met 33e
+33e dupliceert een hele TOETS (sessie + snapshots). Sprint 38 dupliceert één BANKVRAAG
+in het overzicht — de bron, niet een snapshot.
+
+### Tests
+4 nieuwe tests. Totaal 146 unit tests.
+
+**Betrokken bestanden:** server.js · db/database.js · quiz-bank.js · tests/export.test.js
+
+---
+
 ## v2026.2.37.3 — Sprint 37c: Commentaar zichtbaar (sprint 37 VOLLEDIG afgerond)
 
 ### Commentaar voor de leerling

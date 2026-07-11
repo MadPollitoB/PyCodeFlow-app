@@ -118,7 +118,8 @@ function renderQuestions(qs) {
       <div class="q-actions">
         <button class="btn btn-muted small q-btn-edit">✏️ Bewerken</button>
         ${!q.archived
-          ? '<button class="btn btn-muted small q-btn-delete">🗑 Verwijderen</button>'
+          ? '<button class="btn btn-muted small q-btn-duplicate">⧉ Dupliceren</button>' +
+            '<button class="btn btn-muted small q-btn-delete">🗑 Verwijderen</button>'
           : '<button class="btn btn-muted small q-btn-restore">↩ Herstellen</button>' +
             '<button class="btn btn-danger small q-btn-destroy">🗑 Definitief verwijderen</button>'
         }
@@ -132,8 +133,9 @@ function renderQuestions(qs) {
     const id = card.dataset.qid;
     const q  = _questions.find(x => x.id === id);
     if (!q) return;
-    if (e.target.closest('.q-btn-edit'))    { editQuestion(id); return; }
-    if (e.target.closest('.q-btn-delete'))  { verwijderOfArchiveer(id, q.text.slice(0,40)); return; }
+    if (e.target.closest('.q-btn-edit'))      { editQuestion(id); return; }
+    if (e.target.closest('.q-btn-duplicate')) { duplicateQuestion(id); return; }
+    if (e.target.closest('.q-btn-delete'))    { verwijderOfArchiveer(id, q.text.slice(0,40)); return; }
     if (e.target.closest('.q-btn-restore')) { unarchiveQuestion(id); return; }
     if (e.target.closest('.q-btn-destroy')) { deleteQuestion(id, q.text.slice(0,40)); return; }
   });
@@ -496,6 +498,19 @@ async function unarchiveQuestion(id) {
   try {
     await apiFetch(`/api/quiz/bank/${id}/unarchive`, { method:'PUT' });
     loadQuestions();
+  } catch(e) { await pyAlert('Fout: ' + e.message, "error"); }
+}
+
+// 38: dupliceer een vraag in het overzicht. Opent daarna meteen het bewerk-formulier
+// op de kopie, zodat de leerkracht direct kan aanpassen.
+async function duplicateQuestion(id) {
+  try {
+    const r = await apiFetch(`/api/quiz/bank/${id}/duplicate`, { method:'POST' });
+    const data = await r.json();
+    if (!data.ok) { await pyAlert('Kon niet dupliceren: ' + (data.error || ''), "error"); return; }
+    await loadQuestions();
+    pyToast('Vraag gedupliceerd. Pas de kopie gerust aan.', 'success');
+    if (data.id) editQuestion(data.id);
   } catch(e) { await pyAlert('Fout: ' + e.message, "error"); }
 }
 
