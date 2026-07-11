@@ -1,6 +1,6 @@
 # PyCodeFlow — Security Testplan
 
-> **Versie:** v2026.2.38.0 · **Bijgewerkt:** 27 juni 2026
+> **Versie:** v2026.2.40.0 · **Bijgewerkt:** 27 juni 2026
 > Ghost-testplan: alle beveiligingslagen systematisch testen.
 > Uitvoeren op: `https://app.pycodeflow.org` (productie) of lokaal via `http://localhost:3000`
 >
@@ -795,5 +795,5 @@ for row in d['rows']:
 
 ---
 
-*PyCodeFlow · Atheneum Hoboken · security-testplan.md · v2026.2.38.0 · 27 juni 2026*
+*PyCodeFlow · Atheneum Hoboken · security-testplan.md · v2026.2.40.0 · 27 juni 2026*
 *Opgesteld op basis van volledige code-audit van server.js, database.js, runner/app.py en alle HTML-pagina's.*

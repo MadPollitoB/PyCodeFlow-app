@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════════════
-# PyCodeFlow — Deployment verificatiescript v2026.2.38.0
+# PyCodeFlow — Deployment verificatiescript v2026.2.40.0
 # Gebruik: bash check-deployment.sh
 # Voer uit vanuit /volume3/docker/pycodeflow/
 # Sprint 27a-g: grep-regex fixes (backslash-pipe → pipe of -e flags)
@@ -69,7 +69,7 @@ check_not_contains() {
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "  PyCodeFlow — Deployment Verificatie v2026.2.38.0"
+echo "  PyCodeFlow — Deployment Verificatie v2026.2.40.0"
 echo "  $(date '+%d/%m/%Y %H:%M:%S')"
 echo "═══════════════════════════════════════════════════════════"
 
@@ -285,6 +285,13 @@ check_contains "$WEB/lib/review-result.js" "algemeenCommentaar" "review-result: 
 check_contains "$WEB/db/database.js" "duplicateQuizQuestion" "database.js: vraag dupliceren (sprint 38)"
 check_contains "$WEB/server.js" "bank/:id/duplicate" "server.js: dupliceer-endpoint (sprint 38)"
 check_contains "$WEB/public/quiz-bank.js" "q-btn-duplicate" "quiz-bank: dupliceer-knop (sprint 38)"
+check_contains "$WEB/db/database.js" "class_memberships" "database.js: class_memberships tabel (sprint 40)"
+check_contains "$WEB/db/database.js" "addStudentToClass" "database.js: membership-koppeling (sprint 40)"
+if grep -q "s.class_id" "$WEB/db/database.js"; then
+  fail "database.js: oude students.class_id nog in gebruik (sprint 40 incompleet)"
+else
+  ok "database.js: geen students.class_id meer (sprint 40)"
+fi
 if grep -q "my-result/:studentId" "$WEB/server.js"; then
   fail "server.js: studentId in URL bij my-result (moet uit token komen!)"
 else

@@ -136,11 +136,10 @@ async function initSchema() {
       PRIMARY KEY (teacher_id, class_id)
     );
 
-    -- Sprint 12c: leerlingen
+    -- Sprint 12c: leerlingen (de PERSOON — bestaat één keer, los van schooljaar)
     CREATE TABLE IF NOT EXISTS students (
       id           TEXT PRIMARY KEY,
       name         TEXT NOT NULL,
-      class_id     TEXT REFERENCES classes(id) ON DELETE SET NULL,
       status       TEXT NOT NULL DEFAULT 'active',
       source       TEXT NOT NULL DEFAULT 'manual',
       google_email TEXT UNIQUE,
@@ -149,10 +148,23 @@ async function initSchema() {
       last_seen    BIGINT,
       notes        TEXT NOT NULL DEFAULT ''
     );
-    CREATE INDEX IF NOT EXISTS idx_students_class ON students(class_id);
-    CREATE INDEX IF NOT EXISTS idx_students_name  ON students(name);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_students_name_class
-      ON students(name, class_id) WHERE class_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_students_name ON students(name);
+
+    -- Sprint 40: lidmaatschap van een klas, PER SCHOOLJAAR.
+    -- Een klas (classes) is al jaargebonden via school_year; deze koppeltabel laat
+    -- toe dat dezelfde leerling over de jaren heen in verschillende klassen zit,
+    -- zonder de historiek te verliezen. school_year staat expliciet mee voor
+    -- directe filtering en per-jaar status.
+    CREATE TABLE IF NOT EXISTS class_memberships (
+      student_id   TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      class_id     TEXT NOT NULL REFERENCES classes(id)  ON DELETE CASCADE,
+      school_year  TEXT NOT NULL,
+      status       TEXT NOT NULL DEFAULT 'active',   -- active | left | pending
+      created_at   BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT * 1000,
+      PRIMARY KEY (student_id, class_id, school_year)
+    );
+    CREATE INDEX IF NOT EXISTS idx_membership_class ON class_memberships(class_id);
+    CREATE INDEX IF NOT EXISTS idx_membership_year  ON class_memberships(school_year);
 
     -- Sprint 19g: sessie-config persistent
     DO $$ BEGIN
@@ -574,10 +586,12 @@ module.exports = {
 
   // ── Klassen (Sprint 12b) ──────────────────────────────────────────────────────
   async listClasses(includeArchived = false) {
+    // Sprint 40: leerlingtelling via class_memberships (matcht op klas + schooljaar).
     const r = await query(
-      `SELECT c.*, COUNT(s.id)::int AS student_count
+      `SELECT c.*, COUNT(m.student_id)::int AS student_count
        FROM classes c
-       LEFT JOIN students s ON s.class_id = c.id
+       LEFT JOIN class_memberships m
+              ON m.class_id = c.id AND m.school_year = c.school_year
        WHERE ($1 OR c.archived = false)
        GROUP BY c.id
        ORDER BY c.school_year DESC, c.name`,
@@ -629,53 +643,108 @@ module.exports = {
     return r.rows;
   },
 
-  // ── Leerlingen (Sprint 12c) ───────────────────────────────────────────────────
+  // ── Leerlingen (Sprint 12c, herzien in sprint 40) ─────────────────────────────
+  // Een leerling is een persoon; het klaslidmaatschap zit in class_memberships.
+  // listStudents(classId) geeft de leerlingen van één klas (via de koppeltabel),
+  // met class_name en school_year erbij. Zonder classId: alle leerlingen, elk met
+  // hun (eventuele) lidmaatschappen samengevat.
   async listStudents(classId = null, includeBlocked = true) {
+    if (classId) {
+      const r = await query(
+        `SELECT s.*, c.name AS class_name, c.school_year, m.status AS membership_status
+         FROM class_memberships m
+         JOIN students s ON s.id = m.student_id
+         JOIN classes  c ON c.id = m.class_id AND c.school_year = m.school_year
+         WHERE m.class_id = $1
+           AND ($2 OR s.status != 'blocked')
+         ORDER BY s.name`,
+        [classId, includeBlocked]
+      );
+      return r.rows;
+    }
+    // Geen klas opgegeven: alle leerlingen (persoon), met een samenvatting van hun
+    // klassen (kan leeg zijn als de leerling nog nergens lid is).
     const r = await query(
-      `SELECT s.*, c.name AS class_name
+      `SELECT s.*,
+              STRING_AGG(DISTINCT c.name, ', ' ORDER BY c.name) AS class_name
        FROM students s
-       LEFT JOIN classes c ON c.id = s.class_id
-       WHERE ($1::text IS NULL OR s.class_id = $1)
-         AND ($2 OR s.status != 'blocked')
-       ORDER BY c.name NULLS LAST, s.name`,
-      [classId, includeBlocked]
+       LEFT JOIN class_memberships m ON m.student_id = s.id
+       LEFT JOIN classes c ON c.id = m.class_id AND c.school_year = m.school_year
+       WHERE ($1 OR s.status != 'blocked')
+       GROUP BY s.id
+       ORDER BY s.name`,
+      [includeBlocked]
     );
     return r.rows;
   },
 
+  // Zoek een leerling op naam binnen een specifieke klas (via lidmaatschap).
   async getStudentByName(name, classId) {
     const r = await query(
-      `SELECT * FROM students WHERE LOWER(name) = LOWER($1) AND class_id = $2 LIMIT 1`,
+      `SELECT s.* FROM students s
+       JOIN class_memberships m ON m.student_id = s.id
+       WHERE LOWER(s.name) = LOWER($1) AND m.class_id = $2 LIMIT 1`,
       [name, classId]
     );
     return r.rows[0] || null;
   },
 
+  // Maak een leerling aan én koppel die aan een klas (indien opgegeven).
+  // De klas bepaalt het schooljaar (classes.school_year). Bestaat de persoon met
+  // dezelfde naam al in die klas, dan wordt niets dubbel aangemaakt.
   async createStudent(name, classId, source = 'manual', status = 'active') {
-    // Controleer eerst of leerling al bestaat (naam + klas combinatie)
-    // ON CONFLICT ON CONSTRAINT werkt niet met partial indexes in PostgreSQL
     if (classId) {
+      // Bestaat deze leerling al in deze klas?
       const exists = await query(
-        `SELECT id FROM students WHERE name = $1 AND class_id = $2 LIMIT 1`,
+        `SELECT s.id FROM students s
+         JOIN class_memberships m ON m.student_id = s.id
+         WHERE LOWER(s.name) = LOWER($1) AND m.class_id = $2 LIMIT 1`,
         [name, classId]
       );
       if (exists.rows.length > 0) return exists.rows[0].id;
     }
     const id = crypto.randomUUID();
     await query(
-      `INSERT INTO students (id, name, class_id, status, source, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [id, name, classId, status, source, Date.now()]
+      `INSERT INTO students (id, name, status, source, created_at)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [id, name, status, source, Date.now()]
     );
+    if (classId) await this.addStudentToClass(id, classId);
     return id;
+  },
+
+  // Sprint 40: koppel een bestaande leerling aan een klas voor het schooljaar
+  // van die klas. Idempotent (PK vangt duplicaten af).
+  async addStudentToClass(studentId, classId, status = 'active') {
+    const cls = await query(`SELECT school_year FROM classes WHERE id = $1`, [classId]);
+    if (!cls.rows.length) return false;
+    const schoolYear = cls.rows[0].school_year;
+    await query(
+      `INSERT INTO class_memberships (student_id, class_id, school_year, status, created_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (student_id, class_id, school_year) DO NOTHING`,
+      [studentId, classId, schoolYear, status, Date.now()]
+    );
+    return true;
+  },
+
+  async removeStudentFromClass(studentId, classId) {
+    const r = await query(
+      `DELETE FROM class_memberships WHERE student_id = $1 AND class_id = $2`,
+      [studentId, classId]
+    );
+    return r.rowCount > 0;
   },
 
   async updateStudentStatus(id, status) {
     await query(`UPDATE students SET status = $1 WHERE id = $2`, [status, id]);
   },
 
+  // Sprint 40: "verplaats" een leerling naar een andere klas. Omdat lidmaatschap
+  // nu per jaar geldt, betekent dit: koppel aan de nieuwe klas (voor haar jaar).
+  // Oude lidmaatschappen blijven staan → historiek behouden.
   async updateStudentClass(id, classId) {
-    await query(`UPDATE students SET class_id = $1 WHERE id = $2`, [classId, id]);
+    if (classId) await this.addStudentToClass(id, classId);
   },
 
   async updateStudentLastSeen(id) {
@@ -733,21 +802,25 @@ module.exports = {
           }
         }
 
-        // Check duplicaat
+        // Check duplicaat (leerling al in deze klas via lidmaatschap?)
         if (classRow) {
           const existing = await query(
-            `SELECT id FROM students WHERE LOWER(name) = LOWER($1) AND class_id = $2 LIMIT 1`,
+            `SELECT s.id FROM students s
+             JOIN class_memberships m ON m.student_id = s.id
+             WHERE LOWER(s.name) = LOWER($1) AND m.class_id = $2 LIMIT 1`,
             [name, classRow.id]
           );
           if (existing.rows.length > 0) { skipped++; continue; }
         }
 
+        // Sprint 40: maak de persoon aan en koppel via class_memberships.
         const id = crypto.randomUUID();
         await query(
-          `INSERT INTO students (id, name, class_id, status, source, created_at)
-           VALUES ($1, $2, $3, 'active', 'csv', $4)`,
-          [id, name, classRow?.id || null, Date.now()]
+          `INSERT INTO students (id, name, status, source, created_at)
+           VALUES ($1, $2, 'active', 'csv', $3)`,
+          [id, name, Date.now()]
         );
+        if (classRow) await this.addStudentToClass(id, classRow.id);
         added++;
       } catch (e) {
         errors.push(`${row.name}: ${e.message}`);

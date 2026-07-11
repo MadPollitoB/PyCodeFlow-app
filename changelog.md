@@ -1,3 +1,31 @@
+## v2026.2.40.0 — Sprint 40: leerling-lidmaatschap per schooljaar
+
+### class_memberships (vers schema, geen datamigratie)
+students.class_id verdwijnt; students is nu puur de PERSOON. Een nieuwe koppeltabel
+class_memberships(student_id, class_id, school_year, status) legt vast in welke klas
+een leerling per schooljaar zit. Zo kan dezelfde leerling over de jaren heen in
+verschillende klassen zitten zonder dat de historiek verloren gaat.
+
+Mogelijk omdat de database leeg herstartbaar is — het juiste model gaat meteen in het
+verse schema, zonder de risicovolle migratie. De eerste school start met een schone lei.
+
+### Functies herschreven (signaturen behouden)
+listStudents, createStudent, getStudentByName, updateStudentClass en listClasses werken
+nu via de koppeltabel. Nieuw: addStudentToClass / removeStudentFromClass. Server en
+frontend blijven ongewijzigd omdat de functie-signaturen gelijk bleven.
+"Verplaatsen" naar een andere klas laat oude lidmaatschappen staan → historiek intact.
+
+### Uitgesteld (niet weg)
+Het migratiepad (bestaande class_id → membership zonder verlies) is nog nodig zodra een
+school echte data heeft. Dat hoort bij fase 3 van de multi-tenant roadmap.
+
+### Tests
+8 nieuwe tests (tests/membership.test.js). Totaal 154 unit tests.
+
+**Betrokken bestanden:** db/database.js · tests/membership.test.js (nieuw)
+
+---
+
 ## v2026.2.38.0 — Sprint 38: Vraag dupliceren in het vragenoverzicht
 
 ### Losse vraag dupliceren

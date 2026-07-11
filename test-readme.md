@@ -1774,4 +1774,25 @@ Archiveren behoudt ze.
 ✅ Code-vraag blijft code-vraag (geen valse keuzes)
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.38.0 · 8 juli 2026*
+## 45. Sprint 40 — Leerling-lidmaatschap per schooljaar
+
+### Verse installatie
+```
+✅ Schema maakt class_memberships aan; students heeft geen class_id meer
+✅ Leerling aanmaken met klas → persoon + lidmaatschap ontstaan samen
+✅ Admin-pagina toont leerlingen per klas (via lidmaatschap)
+✅ Klas-overzicht toont juiste leerlingtelling per schooljaar
+```
+
+### Model-gedrag
+```
+✅ Leerling verplaatsen naar nieuwe klas → oude klas blijft in historiek
+✅ Dezelfde leerling kan in twee schooljaren in verschillende klassen zitten
+✅ Zelfde leerling niet dubbel in dezelfde klas+jaar (PK)
+✅ CSV-import maakt personen + lidmaatschappen aan
+```
+
+⚠️ **Vereist een verse database** (of leeg volume). Geen migratie van bestaande
+class_id-data — die komt pas bij fase 3.
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.40.0 · 8 juli 2026*

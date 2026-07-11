@@ -1,7 +1,7 @@
 # PyCodeFlow — Technische documentatie
 
 > Interne werking, architectuur, API-referentie en ontwikkelaarsinformatie.
-> Versie: v2026.2.38.0
+> Versie: v2026.2.40.0
 
 ---
 
@@ -328,7 +328,7 @@ BLOCKED_MODULES = {
 
 ---
 
-*PyCodeFlow · Atheneum Hoboken · technical-readme.md · v2026.2.38.0*
+*PyCodeFlow · Atheneum Hoboken · technical-readme.md · v2026.2.40.0*
 
 ---
 
