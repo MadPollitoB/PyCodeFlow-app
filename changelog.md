@@ -1,3 +1,26 @@
+## v2026.2.42.0 — Sprint 42 (Deel C): Branding & schoollogo
+
+### Eigen PyCodeFlow-logo
+Het eigen PyCodeFlow-logo (pycodeflow-logo.png) vervangt nu:
+- het kleine balk-logo bovenaan op alle 13 pagina's (was logo.svg)
+- het grote landingslogo op de startpagina (was atheneum-hoboken-logo.png)
+
+### Atheneum Hoboken-verwijzingen verwijderd
+- Footer: "GO! Atheneum Hoboken — alle rechten voorbehouden" → verwijderd.
+  Blijft: "© 2026 PyCodeFlow — ontwikkeld door B. Claes" + versie.
+- De uitgecommentarieerde AH-subtitel op de startpagina is verwijderd.
+- Geen enkele Atheneum/Hoboken-verwijzing meer in de app.
+
+### Nog te komen in sprint 42
+- Deel A: startpagina die door de app geserveerd wordt met live versienummer
+- Deel B: instapstructuur (/student en /teacher routes)
+- Deel C-structuur: balk-logo dynamisch via /api/school-info (default = PyCodeFlow-logo)
+
+**Betrokken bestanden:** public/app.js · public/index.html · 13× public/*.html (balk-logo) ·
+public/assets/pycodeflow-logo.png (nieuw)
+
+---
+
 ## v2026.2.41.1 — Hotfix: opstart-crash (TDZ ReferenceError)
 
 ### Kritieke opstartbug opgelost

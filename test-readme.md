@@ -1814,4 +1814,4 @@ class_id-data — die komt pas bij fase 3.
 ✅ Bekijken en exporteren van oude jaren blijft mogelijk
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.41.1 · 8 juli 2026*
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.42.0 · 8 juli 2026*

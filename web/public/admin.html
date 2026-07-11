@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Beheer</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.34.7"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.42.0"/>
   <style>
     .admin-tabs { display:flex; gap:8px; margin-bottom:24px; border-bottom:2px solid var(--border); padding-bottom:0; }
     .admin-tab  { padding:10px 20px; cursor:pointer; border:none; background:none; font-weight:700; font-size:0.95rem; color:var(--muted); border-bottom:3px solid transparent; margin-bottom:-2px; }
@@ -32,7 +32,7 @@
 <body>
 <div class="topbar"><div class="topbar-inner">
   <div class="logo-group">
-    <img src="/assets/logo.svg" class="logo-small" alt="PyCodeFlow logo"/>
+    <img src="/assets/pycodeflow-logo.png" class="logo-small" alt="PyCodeFlow logo"/>
     <span>PyCodeFlow</span>
     <span class="badge" style="margin-left:8px;">Beheer</span>
   </div>
@@ -77,13 +77,22 @@
 
   <!-- KLASSEN -->
   <div class="admin-panel" id="panel-classes">
-    <div class="inline-form">
+    <div class="inline-form" style="align-items:flex-end;">
+      <div><label>Schooljaar</label>
+        <select id="year-filter" onchange="loadClasses()" style="width:150px;">
+          <option value="">Alle jaren</option>
+        </select>
+      </div>
       <div><label>Klasnaam</label><input id="new-class-name" placeholder="6A Informatica" style="width:200px;"/></div>
       <div><label>Schooljaar</label><input id="new-class-year" value="2025-2026" style="width:120px;"/></div>
       <button class="btn btn-soft small" onclick="addClass()">+ Toevoegen</button>
       <label style="margin-left:16px;display:flex;align-items:center;gap:6px;font-size:0.82rem;">
         <input type="checkbox" id="show-archived-classes" onchange="loadClasses()"> Toon gearchiveerde
       </label>
+    </div>
+    <div id="year-readonly-banner" style="display:none;background:#fef3c7;color:#92400e;
+      border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:0.85rem;">
+      🔒 Dit schooljaar is gearchiveerd — alleen-lezen. Bekijken en exporteren kan; wijzigen niet.
     </div>
     <table class="admin-table">
       <thead><tr><th>Naam</th><th>Schooljaar</th><th>Leerlingen</th><th>Status</th><th>Acties</th></tr></thead>
@@ -131,7 +140,7 @@
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=v2026.2.34.7"></script>
-<script src="/admin.js?v=v2026.2.34.7"></script>
+<script src="/app.js?v=v2026.2.42.0"></script>
+<script src="/admin.js?v=v2026.2.42.0"></script>
 </body>
 </html>

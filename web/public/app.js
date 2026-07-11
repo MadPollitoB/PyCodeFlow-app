@@ -2699,8 +2699,7 @@ async function applyStudentState(data) {
   const footer = document.createElement('div');
   footer.className = 'footer-note';
   footer.innerHTML = `
-    © 2026 PyCodeFlow — ontwikkeld door B. Claes<br/>
-    GO! Atheneum Hoboken — alle rechten voorbehouden${versionText}
+    © 2026 PyCodeFlow — ontwikkeld door B. Claes${versionText}
   `;
 
   document.body.appendChild(footer);
