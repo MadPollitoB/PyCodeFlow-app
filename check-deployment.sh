@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════════════
-# PyCodeFlow — Deployment verificatiescript v2026.2.34.6
+# PyCodeFlow — Deployment verificatiescript v2026.2.34.8
 # Gebruik: bash check-deployment.sh
 # Voer uit vanuit /volume3/docker/pycodeflow/
 # Sprint 27a-g: grep-regex fixes (backslash-pipe → pipe of -e flags)
@@ -69,7 +69,7 @@ check_not_contains() {
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"
-echo "  PyCodeFlow — Deployment Verificatie v2026.2.34.6"
+echo "  PyCodeFlow — Deployment Verificatie v2026.2.34.8"
 echo "  $(date '+%d/%m/%Y %H:%M:%S')"
 echo "═══════════════════════════════════════════════════════════"
 
@@ -266,10 +266,21 @@ check_not_contains "$WEB/server.js" "'unsafe-eval'"       "CSP: unsafe-eval afwe
 check_contains "$WEB/server.js" "429"                     "Rate limiting"
 check_contains "$WEB/server.js" "SESSION_MAX_AGE_SECONDS" "server.js: sessie Max-Age op cookie (sprint 30a)"
 check_contains "$WEB/server.js" "upgrade-insecure-requests" "server.js: CSP upgrade-insecure-requests (sprint 30c)"
+check_contains "$WEB/server.js" "Content-Security-Policy-Report-Only" "server.js: Report-Only CSP (sprint 30b-A)"
+if grep -rq "<script>" "$PUB"/*.html; then
+  fail "Er zijn nog inline <script> blokken (sprint 30b-A verwacht 0)"
+else
+  ok "Geen inline <script> blokken meer (sprint 30b-A)"
+fi
 [[ -f "$BASE/scripts/backup-db.sh" ]] && ok "scripts/backup-db.sh aanwezig (sprint 30d)" || fail "backup-db.sh ONTBREEKT (sprint 30d)"
 check_contains "$WEB/db/database.js" "withTransaction" "database.js: transactie-helper (sprint 36a)"
 check_contains "$PUB/app.js" "_lsKey" "app.js: localStorage prefix-helper (sprint 31b)"
 check_contains "$PUB/app.js" "migrateLegacyKeys" "app.js: localStorage migratie (sprint 31b)"
+[[ -f "$WEB/lib/logger.js" ]] && ok "lib/logger.js aanwezig (sprint 32b)" || fail "logger.js ONTBREEKT (sprint 32b)"
+check_contains "$WEB/server.js" "createLogger" "server.js: logger geïntegreerd (sprint 32b)"
+for pjs in monitoring quiz-bank quiz-student quiz-review quiz-teacher quiz-archive admin teacher-grid; do
+  [[ -f "$PUB/$pjs.js" ]] && ok "$pjs.js geëxtraheerd (sprint 32a)" || fail "$pjs.js ONTBREEKT (sprint 32a)"
+done
 if grep -qE "[^y]alert\(|[^y]confirm\(" "$PUB/app.js" | grep -v "pyAlert\|pyConfirm\|window\."; then
   warn "app.js: nog browser alert()/confirm() (sprint 31c)"
 else

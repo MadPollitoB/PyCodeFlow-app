@@ -24,9 +24,13 @@ echo "════════════════════════�
 
 # ── 1. JS syntax-checks ───────────────────────────────────────────────────────
 section "1. JavaScript syntax-checks"
+# 32a: ook de geëxtraheerde pagina-scripts checken
 for f in "$WEB/server.js" "$WEB/public/app.js" \
-         "$WEB/lib/auth.js" "$WEB/lib/scoring.js" "$WEB/lib/validation.js" \
-         "$WEB/scripts/manage-teacher.js"; do
+         "$WEB/lib/auth.js" "$WEB/lib/scoring.js" "$WEB/lib/validation.js" "$WEB/lib/logger.js" \
+         "$WEB/scripts/manage-teacher.js" \
+         "$WEB"/public/monitoring.js "$WEB"/public/quiz-bank.js "$WEB"/public/quiz-student.js \
+         "$WEB"/public/quiz-review.js "$WEB"/public/quiz-teacher.js "$WEB"/public/quiz-archive.js \
+         "$WEB"/public/admin.js "$WEB"/public/teacher-grid.js "$WEB"/public/teacher-login.js; do
   if [[ ! -f "$f" ]]; then
     fail "$(basename "$f") — bestand ONTBREEKT (niet gedeployed?)"
   elif node --check "$f" 2>/dev/null; then

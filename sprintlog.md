@@ -36,7 +36,8 @@ Zonder tests is elke volgende sprint risicovol. De sprint 26/27 regressies waren
 | **30a** | 🟠 SEC | Login-cookie zonder Max-Age — geen bewuste sessieduur/timeout | ✅ Afgerond | ~0.5 dag |
 | **30c** | 🟠 SEC | `upgrade-insecure-requests` ontbreekt in CSP (HSTS is wel aanwezig) | ✅ Afgerond | ~0.2 dag |
 | **30d** | 🟡 SEC | Geen automatische DB-backup (cron) — enkel handmatig via pycodeflow.sh optie 16 | ✅ Afgerond | ~1 dag |
-| **30b** | 🟠 SEC | CSP `unsafe-inline` in script-src — verzwakt XSS-bescherming; 130 inline onclick handlers zijn de oorzaak (grote taak, na 32a) | 🔄 Gepland | ~3 dagen |
+| **30b-A** | 🟠 SEC | CSP-hardening TIJDELIJK (Optie A): laatste inline `<script>` geëxtraheerd + strikte **Report-Only** CSP die violations toont zonder iets te breken | ✅ Afgerond | ~0.5 dag |
+| **30b-vol** | 🟠 SEC | CSP `unsafe-inline` VOLLEDIG verwijderen (Optie C): 123 inline event-handlers → addEventListener, 384 inline `style=` → CSS-klassen, dan enforce strikte CSP + Report-Only weg. Gefaseerd plan hieronder | 🔄 Gepland | ~8-10 dagen |
 
 ### 🟠 Prioriteit 4 — Data-integriteit & robuustheid
 
@@ -70,9 +71,9 @@ Voor een onderwijstool vaak ook een wettelijke vereiste (WCAG / EN 301 549).
 
 | Sprint | Cat | Inhoud | Status | Inschatting |
 |---|---|---|---|---|
-| **32b** | 🟡 TECH | 15× console.log in server.js → gestructureerde logger met niveaus (`LOG_LEVEL`) | 🔄 Gepland | ~1 dag |
-| **32a** | 🟡 TECH | Inline scripts te groot (monitoring.html 762 rgls) → naar aparte `.js` bestanden (helpt ook 30b) | 🔄 Gepland | ~4 dagen |
-| **32c** | 🟢 TECH | Monaco-versie centraal pinnen i.p.v. verspreid over HTML | 🔄 Gepland | ~0.5 dag |
+| **32b** | 🟡 TECH | 15× console.log in server.js → gestructureerde logger met niveaus (`LOG_LEVEL`) | ✅ Afgerond | ~1 dag |
+| **32a** | 🟡 TECH | Inline scripts te groot (monitoring.html 762 rgls) → naar aparte `.js` bestanden (helpt ook 30b) | ✅ Afgerond | ~4 dagen |
+| **32c** | 🟢 TECH | Monaco-versie centraal pinnen i.p.v. verspreid over HTML | ✅ Afgerond | ~0.5 dag |
 
 ### 🟢 Prioriteit 8 — Nice-to-haves
 
@@ -287,7 +288,92 @@ De app mengde blokkerende browser-`alert()`/`confirm()` met de eigen pyAlert/pyT
 
 ---
 
-#### 29b 🔴 — Laatste icon-only knop zonder tooltip
+### Sprint 32 — Technische schuld (32a/b/c) *(~5.5 dagen)* — ✅ AFGEROND (v2026.2.34.7)
+
+**Aangemeld:** 05/07/2026 · **Status:** ✅ Afgerond (v2026.2.34.7)
+
+#### 32b — Gestructureerde logger met niveaus
+43 losse `console.*`-statements in server.js, alles altijd geprint. **Fix:** nieuwe `lib/logger.js` met niveaus (error < warn < info < debug) en een `LOG_LEVEL` env-var (standaard `info`). Elke regel krijgt een tijdstempel + niveau-prefix. Alle `console.*` (behalve de decoratieve bootstrap-box) vervangen door `log.error/warn/info`. Op `info` geen debug-ruis; zet `LOG_LEVEL=debug` voor uitgebreide logs. 11 tests.
+
+#### 32c — Monaco-versie centraal
+Monaco wordt geserveerd vanuit `node_modules/monaco-editor`; de versie is sinds 36d al centraal gepind in package.json (0.47.0). De HTML verwijst enkel naar het route-prefix `/monaco/min/vs` — nergens een los versienummer. Verificatie + verduidelijkende comment toegevoegd. Eén Monaco-update = enkel package.json + rebuild.
+
+#### 32a — Inline scripts naar aparte bestanden
+8 pagina's hadden grote inline `<script>`-blokken (monitoring 758 rgls, quiz-bank 552, quiz-student 502, …). **Fix:** alle inline JS geëxtraheerd naar aparte bestanden (`monitoring.js`, `quiz-bank.js`, enz.), ingeladen via `<script src>`. De code verhuist alleen — top-level functies blijven globaal (external scripts delen global scope), dus de inline `onclick`-handlers blijven werken. Laadvolgorde bewaakt: pagina-scripts laden ná hun afhankelijkheden (marked, DOMPurify, socket.io, Monaco). Dit deblokkeert sprint 30b (unsafe-inline uit CSP kan nu). De CI syntax-checkt nu ook alle 8 geëxtraheerde bestanden.
+
+**Bonusvangst:** de extractie legde bloot dat `quiz-review.html` nooit `socket.io.js` inlaadde, terwijl het script `io()` aanroept — een latente bug die nu gefixt is (socket.io-tag toegevoegd).
+
+**Tests:** 11 logger-tests. Totaal 90 unit tests.
+
+**Betrokken bestanden:** `server.js` · `lib/logger.js` (nieuw) · 8× `*.js` (nieuw, geëxtraheerd) · 8× `*.html` · `run-tests.sh` · `.env.example` · `tests/logger.test.js` (nieuw)
+
+---
+
+### Sprint 30b-A — CSP-hardening TIJDELIJK (Optie A) *(~0.5 dag)* — ✅ AFGEROND (v2026.2.34.8)
+
+**Aangemeld:** 07/07/2026 · **Status:** ✅ Afgerond (v2026.2.34.8)
+
+**Doel:** een échte, veilige beveiligingswinst nu, zonder de ~500 wijzigingen van de volledige oplossing (Optie C) te riskeren.
+
+**Uitgevoerd:**
+- Het laatste resterende inline `<script>`-blok (`teacher-login.html`) geëxtraheerd naar `teacher-login.js`. Er zijn nu **nergens** nog inline `<script>`-blokken.
+- Een strikte CSP toegevoegd in **Report-Only**-modus (`Content-Security-Policy-Report-Only`): `script-src 'self'`, `style-src 'self'` — dus **zonder** `unsafe-inline`. Deze breekt niets (report-only), maar laat in de browserconsole exact zien wat geblokkeerd zou worden. Zo levert Optie C straks een concrete checklist op.
+- De handhavende CSP houdt voorlopig `unsafe-inline` (nodig voor de 123 inline event-handlers + 384 inline styles), met een duidelijke `⚠️ TIJDELIJK`-comment die naar het Optie C-plan verwijst.
+
+**Betrokken bestanden:** `server.js` · `teacher-login.html` · `teacher-login.js` (nieuw) · `run-tests.sh` · `tests/security.test.js`
+
+---
+
+### Sprint 30b-vol — `unsafe-inline` VOLLEDIG verwijderen (Optie C) *(~8-10 dagen)* — 🔄 GEPLAND
+
+**Doel:** de handhavende CSP volledig verstrengen naar `script-src 'self'` en `style-src 'self'` (geen `unsafe-inline` meer), zodat geïnjecteerde inline scripts én styles hard geblokkeerd worden. Dit is de definitieve XSS-hardening.
+
+**Waarom gefaseerd:** het gaat om **123 inline event-handlers** (`onclick=`, `onchange=`, …) en **384 inline `style=` attributen** over 13 bestanden. Alles-in-één is te risicovol; per pagina met een test na elke stap is veilig. De Report-Only CSP uit 30b-A geeft per pagina de exacte violation-lijst.
+
+**Randvoorwaarde:** sprint 32a (inline scripts → aparte `.js`) moet af zijn — ✅ dat is zo. De handlers worden verplaatst naar de bijbehorende geëxtraheerde `.js`-bestanden.
+
+#### Fase 1 — Event-handlers → addEventListener *(~5 dagen)*
+Per pagina de inline `on*=`-handlers vervangen door `addEventListener` in het bijbehorende `.js`-bestand. Volgorde van klein naar groot (risico-opbouw), met `bash run-tests.sh` + handmatige smoke-test na elke pagina:
+
+| Stap | Pagina | Handlers | Aanpak |
+|---|---|---|---|
+| 1.1 | free-editor, student-app | 2 + 2 | Eenvoudig, statische handlers → `id`-based listeners |
+| 1.2 | quiz-review, teacher-sessions | 3 + 3 | Idem |
+| 1.3 | teacher-grid, admin | 4 + 8 | Deels dynamisch (`data-*` attributen introduceren) |
+| 1.4 | quiz-student, quiz-archive | 8 + 10 | Dynamische lijsten → event-delegation op container |
+| 1.5 | teacher-app, quiz-teacher | 11 + 12 | Event-delegation + `data-action` patroon |
+| 1.6 | monitoring | 14 | Idem |
+| 1.7 | quiz-bank | 46 | Grootste; volledig event-delegation via `data-action` |
+
+**Techniek voor dynamische handlers** (`onclick="fn('${id}')"`): vervangen door `data-action="fn" data-id="${id}"` op het element, en één gedelegeerde listener per container die `data-action` afhandelt. Dit schaalt en vermijdt her-binding bij herrenderen.
+
+#### Fase 2 — Inline `style=` → CSS-klassen *(~3 dagen)*
+De 384 inline styles vervangen door herbruikbare CSS-klassen in `styles.css`. Veel zijn herhalingen (bv. `style="display:none"` → `.hidden`, die al bestaat). Aanpak: eerst de meest voorkomende patronen als utility-klassen, dan de rest per pagina. Monitoring (105) en teacher-app/quiz-teacher (~50 elk) zijn de grootste.
+
+| Stap | Focus | Styles |
+|---|---|---|
+| 2.1 | Utility-klassen aanmaken (display, spacing, kleuren) | — |
+| 2.2 | quiz-bank, quiz-archive, admin, quiz-review | ~90 |
+| 2.3 | quiz-student, teacher-sessions, student-app, free-editor | ~80 |
+| 2.4 | teacher-app, quiz-teacher | ~100 |
+| 2.5 | monitoring | 105 |
+
+*Let op:* echt dynamische styles (bv. een progressbar-breedte `style="width:${pct}%"`) kunnen NIET naar een klasse. Die blijven, en vereisen `style-src 'unsafe-inline'` OF een nonce OF het zetten via `element.style.width` in JS. Voorkeur: via JS zetten, zodat `style-src 'self'` haalbaar blijft.
+
+#### Fase 3 — CSP verstrengen + Optie A verwijderen *(~1 dag)*
+Zodra fase 1 en 2 af zijn en de Report-Only CSP geen violations meer meldt:
+1. In `server.js` de handhavende CSP wijzigen naar `script-src 'self' https://cdnjs.cloudflare.com` en `style-src 'self'` (dus **`unsafe-inline` weg** uit beide).
+2. **De `Content-Security-Policy-Report-Only` header VERWIJDEREN** (die was enkel het meetinstrument van Optie A — niet meer nodig zodra de echte CSP strikt is).
+3. De `⚠️ TIJDELIJK`-comment uit 30b-A verwijderen.
+4. `dompurify`/`marked` van cdnjs: overwegen deze lokaal te hosten zodat ook `https://cdnjs.cloudflare.com` uit `script-src` kan (volledige `'self'`).
+5. Tests: security.test.js aanpassen zodat de enforce-CSP nu `unsafe-inline`-vrij is; de Report-Only-tests verwijderen.
+6. check-deployment.sh: controle toevoegen dat `unsafe-inline` niet meer in de CSP staat.
+
+**Definition of done:** geen `unsafe-inline` in de handhavende CSP, geen Report-Only header meer, alle 12 pagina's functioneel getest, testsuite groen, en de browserconsole toont geen CSP-violations.
+
+**Betrokken bestanden (verwacht):** `server.js` · alle 12 `*.html` · bijbehorende `*.js` · `styles.css` · `tests/security.test.js` · `check-deployment.sh`
+
+---
 `quiz-teacher.html` lijn 303: de ✕ knop (vraag uit selectie verwijderen) heeft nog geen `title`. Sprint 27h ving deze niet omdat de replace-string niet exact matchte. **Fix:** `title="Vraag uit selectie verwijderen"` toevoegen.
 
 #### 29c 🔴 — Stille fouten door lege catch-blokken

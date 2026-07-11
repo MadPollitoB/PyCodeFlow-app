@@ -1566,4 +1566,45 @@ cd web && node --test
 ✅ Bevestigingen (sessie sluiten) via pyConfirm
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.34.6 · 6 juli 2026*
+## 37. Sprint 32 — Technische schuld
+
+### 32b — Logger
+```
+✅ Server-logs tonen [tijdstempel NIVEAU] prefix
+✅ LOG_LEVEL=info (standaard) → geen debug-ruis
+✅ LOG_LEVEL=debug → uitgebreide logs zichtbaar
+✅ LOG_LEVEL=error → enkel fouten
+✅ Bootstrap-kader (admin-account) blijft netjes leesbaar
+```
+
+### 32a — Inline scripts geëxtraheerd
+```
+✅ Alle 8 pagina's laden hun .js via <script src>
+✅ Geen inline <script> blokken meer in die pagina's
+✅ onclick-handlers werken nog (functies globaal)
+✅ Laadvolgorde correct: marked/DOMPurify/socket.io/Monaco vóór pagina-script
+✅ quiz-review.html laadt nu socket.io.js (was ontbrekend)
+✅ CI syntax-checkt alle geëxtraheerde .js bestanden
+```
+
+### 32c — Monaco
+```
+✅ Monaco-versie enkel in package.json (0.47.0)
+✅ Geen los versienummer in HTML
+```
+
+## 38. Sprint 30b-A — CSP-hardening (tijdelijk)
+
+```
+✅ Geen inline <script> blokken meer in enige HTML-pagina
+✅ teacher-login.html laadt teacher-login.js extern
+✅ Response bevat Content-Security-Policy-Report-Only header (strikt, geen unsafe-inline)
+✅ App werkt normaal (handhavende CSP houdt unsafe-inline tijdelijk)
+✅ Browserconsole toont CSP-Report-Only violations (input voor Optie C)
+```
+
+**Handmatige a11y/CSP-verificatie:** open de browserconsole (F12) op elke pagina en
+noteer de "Content-Security-Policy-Report-Only" waarschuwingen — dit is de checklist
+voor sprint 30b-vol (Optie C).
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.34.8 · 7 juli 2026*

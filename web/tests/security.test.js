@@ -81,3 +81,26 @@ test('CSP heeft geen unsafe-eval', () => {
 test('CSP: default-src is self', () => {
   assert.match(buildCSP(), /default-src 'self'/);
 });
+
+// ── 30b Optie A: Report-Only strikte CSP ──────────────────────────────────────
+function buildReportOnlyCSP() {
+  return "default-src 'self'; " +
+    "script-src 'self' https://cdnjs.cloudflare.com; " +
+    "style-src 'self'; " +
+    "font-src 'self' data:; " +
+    "img-src 'self' data:; " +
+    "worker-src 'self' blob:; " +
+    "connect-src 'self' ws: wss:; " +
+    "frame-ancestors 'none';";
+}
+
+test('Report-Only CSP: geen unsafe-inline (strikt, sprint 30b Optie A)', () => {
+  const ro = buildReportOnlyCSP();
+  assert.doesNotMatch(ro, /unsafe-inline/);
+  assert.doesNotMatch(ro, /unsafe-eval/);
+});
+
+test('Report-Only CSP: script-src enkel self + cdnjs', () => {
+  const ro = buildReportOnlyCSP();
+  assert.match(ro, /script-src 'self' https:\/\/cdnjs\.cloudflare\.com/);
+});

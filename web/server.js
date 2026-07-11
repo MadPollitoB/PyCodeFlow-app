@@ -12,7 +12,7 @@ const dbModule = require('./db/database');
 let _dbReady = false;
 dbModule.init().then(async () => {
   _dbReady = true;
-  console.log('[db] PostgreSQL schema OK');
+  log.info('[db] PostgreSQL schema OK');
   // 27m: bootstrap admin — als teachers-tabel leeg is én .env credentials beschikbaar zijn,
   // maak automatisch een admin-account aan zodat inloggen altijd mogelijk is
   try {
@@ -30,14 +30,14 @@ dbModule.init().then(async () => {
     } else if (teachers.length > 0) {
       // Log de bestaande inlognaam/-namen zodat duidelijk is waarmee in te loggen
       const names = teachers.map(t => t.username).join(', ');
-      console.log(`[auth] ${teachers.length} leerkracht(en) in DB. Inlognaam/-namen: ${names}`);
+      log.info(`[auth] ${teachers.length} leerkracht(en) in DB. Inlognaam/-namen: ${names}`);
     }
   } catch (bootstrapErr) {
-    console.warn('[bootstrap] Kon geen admin-account aanmaken:', bootstrapErr.message);
+    log.warn('[bootstrap] Kon geen admin-account aanmaken:', bootstrapErr.message);
   }
   await checkAuthConfig();
 }).catch(err => {
-  console.error('[db] FATALE FOUT — database niet bereikbaar:', err.message);
+  log.error('[db] FATALE FOUT — database niet bereikbaar:', err.message);
   process.exit(1);
 });
 
@@ -115,13 +115,13 @@ function loadVersionFromFile() {
         const raw = fs.readFileSync(versionPath, 'utf8').trim();
         const m = raw.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
         if (m) {
-          console.log(`[versie] Geladen uit ${versionPath}: ${raw}`);
+          log.info(`[versie] Geladen uit ${versionPath}: ${raw}`);
           return { year: m[1], major: m[2], minor: m[3], build: m[4] };
         }
-        console.warn(`[versie] Ongeldig formaat in ${versionPath}: "${raw}"`);
+        log.warn(`[versie] Ongeldig formaat in ${versionPath}: "${raw}"`);
       }
     } catch (e) {
-      console.warn(`[versie] Lezen van ${versionPath} mislukt:`, e.message);
+      log.warn(`[versie] Lezen van ${versionPath} mislukt:`, e.message);
     }
   }
   return null;
@@ -146,6 +146,9 @@ const freeStudents = new Map();
 const authLib = require('./lib/auth');
 const scoringLib = require('./lib/scoring');
 const validationLib = require('./lib/validation');
+// 32b: gestructureerde logger met niveaus (LOG_LEVEL env var, standaard 'info')
+const { createLogger } = require('./lib/logger');
+const log = createLogger();
 const safeEqual = authLib.safeEqual;
 const createPasswordHash = authLib.createPasswordHash;
 const verifyPasswordWithHash = authLib.verifyPasswordWithHash;
@@ -223,7 +226,7 @@ async function credentialsAreValid(authHeader) {
       return valid;
     }
   } catch (e) {
-    console.error('[auth] DB fout:', e.message);
+    log.error('[auth] DB fout:', e.message);
   }
 
   // Fallback: .env credentials
@@ -268,17 +271,17 @@ async function checkAuthConfig() {
   // Sprint 12a: async check - wordt later opgelost in startup sequentie
   // Tijdelijk: vertrouw op .env credentials als DB nog niet klaar is
   let dbHasTeacher = false;
-  try { dbHasTeacher = (await dbModule.listTeachers()).length > 0; } catch (e) { console.warn('[auth] teacher-check mislukt:', e.message); }
+  try { dbHasTeacher = (await dbModule.listTeachers()).length > 0; } catch (e) { log.warn('[auth] teacher-check mislukt:', e.message); }
   const envHasCredentials = !!(BASIC_AUTH_USER && PASSWORD_HASH
     && BASIC_AUTH_USER !== "CHANGE_ME" && BASIC_AUTH_PASS_HASH !== "CHANGE_ME_HASH");
 
   if (!dbHasTeacher && !envHasCredentials) {
-    console.error("POC Basic Auth is actief maar er zijn geen leerkrachtenaccounts gevonden.");
-    console.error("[auth] Voeg een leerkracht toe via pycodeflow.sh → optie 10, of via admin.html");
+    log.error("POC Basic Auth is actief maar er zijn geen leerkrachtenaccounts gevonden.");
+    log.error("[auth] Voeg een leerkracht toe via pycodeflow.sh → optie 10, of via admin.html");
     process.exit(1);
   }
   if (dbHasTeacher) {
-    dbModule.listTeachers().then(ts => console.log(`[auth] ${ts.length} leerkracht(en) geladen vanuit database.`)).catch(()=>{});
+    dbModule.listTeachers().then(ts => log.info(`[auth] ${ts.length} leerkracht(en) geladen vanuit database.`)).catch(()=>{});
   }
 }
 
@@ -286,7 +289,7 @@ if (passwordConfigUsesLegacyPlaintext) {
   // POC_BASIC_PASS (plain text) wordt ondersteund als fallback.
   // De server hasht het intern — dit is veilig genoeg voor gebruik.
   // Optioneel: vervang door POC_BASIC_PASS_HASH voor nog betere beveiliging.
-  console.log('[auth] Fallback login actief via POC_BASIC_USER/POC_BASIC_PASS uit .env');
+  log.info('[auth] Fallback login actief via POC_BASIC_USER/POC_BASIC_PASS uit .env');
 }
 
 const app = express();
@@ -338,9 +341,19 @@ function socketIsTeacherAuthorized(socket) {
 
 // Fix SEC-3: HTTP security headers
 app.use((req, res, next) => {
-  // CSP: unsafe-inline nodig voor inline scripts in HTML-bestanden
-  // unsafe-eval verwijderd (Sprint 12a-D) — Monaco ESM workers via blob: URLs
-  // cdnjs.cloudflare.com toegevoegd voor marked.js + DOMPurify (sprint 28c)
+  // ── CSP (sprint 30b — OPTIE A, TIJDELIJK) ────────────────────────────────────
+  // Alle inline <script> BLOKKEN zijn geëxtraheerd (sprint 32a), dus scripts laden
+  // via 'self'. 'unsafe-inline' in script-src blijft ENKEL nog nodig voor de ~123
+  // inline event-handlers (onclick=, onchange=, …) in de HTML.
+  // 'unsafe-inline' in style-src is nodig voor ~384 inline style= attributen.
+  //
+  // ⚠️ TIJDELIJK: dit wordt volledig verwijderd in sprint 30b-vol (Optie C):
+  //    - alle inline event-handlers → addEventListener in de geëxtraheerde .js
+  //    - alle inline style= → CSS-klassen
+  //    - daarna: 'unsafe-inline' uit script-src én style-src
+  // Zie sprintlog "Sprint 30b-vol" voor het gefaseerde plan.
+  //
+  // unsafe-eval is al weg (Sprint 12a-D, Monaco workers via blob:).
   res.setHeader('Content-Security-Policy',
     "default-src 'self'; " +
     "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; " +
@@ -351,6 +364,20 @@ app.use((req, res, next) => {
     "connect-src 'self' ws: wss:; " +
     "frame-ancestors 'none'; " +
     "upgrade-insecure-requests;"
+  );
+  // 30b Optie A: strikte CSP in REPORT-ONLY modus. Deze breekt niets, maar laat
+  // in de browserconsole zien wat er geblokkeerd zóu worden zonder 'unsafe-inline'.
+  // Zo kunnen we tijdens Optie C gericht de resterende inline handlers/styles opsporen.
+  // Wordt verwijderd zodra de enforce-CSP (Optie C) live gaat.
+  res.setHeader('Content-Security-Policy-Report-Only',
+    "default-src 'self'; " +
+    "script-src 'self' https://cdnjs.cloudflare.com; " +
+    "style-src 'self'; " +
+    "font-src 'self' data:; " +
+    "img-src 'self' data:; " +
+    "worker-src 'self' blob:; " +
+    "connect-src 'self' ws: wss:; " +
+    "frame-ancestors 'none';"
   );
   // Voorkomt dat de pagina in een iframe geladen wordt (clickjacking)
   res.setHeader('X-Frame-Options', 'DENY');
@@ -856,7 +883,7 @@ setInterval(async () => {
           await dbModule.submitQuizAnswers(code, student.id, true).catch(() => {});
         }
       }
-      console.log(`[quiz] Sessie ${code}: deadline bereikt`);
+      log.info(`[quiz] Sessie ${code}: deadline bereikt`);
     } catch (e) { /* stille fout — zie debug */ }
   }
 }, 60 * 1000);
@@ -1947,7 +1974,7 @@ app.post('/api/admin/logs/cleanup-all', requireTeacherAuth, requireCsrf, (req, r
     for (const f of files) {
       try { fs.unlinkSync(path.join(LOGS_DIR, f)); removed++; } catch (e) { /* bestand mogelijk al verwijderd */ }
     }
-    console.log(`[logs] Handmatige volledige cleanup: ${removed} bestanden verwijderd`);
+    log.info(`[logs] Handmatige volledige cleanup: ${removed} bestanden verwijderd`);
     res.json({ ok: true, removed });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2127,6 +2154,10 @@ app.get('/api/monitoring', requireTeacherAuth, async (req, res) => {
 });
 
 app.use(express.static(path.join(__dirname, "public")));
+// 32c: Monaco wordt geserveerd vanuit node_modules/monaco-editor. De VERSIE is
+// centraal gepind in package.json (monaco-editor 0.47.0, sprint 36d). De HTML-pagina's
+// verwijzen enkel naar het route-prefix /monaco/min/vs — dus nergens een los versienummer.
+// Eén Monaco-versie updaten = enkel package.json + rebuild.
 app.use("/monaco", express.static(path.join(__dirname, "node_modules", "monaco-editor")));
 
 
@@ -2177,7 +2208,7 @@ function maybeSnapshot(session, student, code) {
   if (now - last < SNAPSHOT_INTERVAL_MS) return;
   snapshotLastSaved.set(key, now);
   try {
-    dbModule.saveSnapshot(session.code, student.id, student.name, code || '').catch(e => console.error('[db] saveSnapshot:', e.message));
+    dbModule.saveSnapshot(session.code, student.id, student.name, code || '').catch(e => log.error('[db] saveSnapshot:', e.message));
   } catch(e) { /* stil falen */ }
 }
 const RUN_RATE_LIMIT_MS = 3000; // minimale tijd tussen twee runs per socket
@@ -2262,10 +2293,10 @@ function nextRevision(current) {
       sessions.set(session.code, session);
     }
     if (persisted.length > 0) {
-      console.log(`[db] ${persisted.length} sessie(s) hersteld vanuit database.`);
+      log.info(`[db] ${persisted.length} sessie(s) hersteld vanuit database.`);
     }
   } catch(e) {
-    console.error('[db] Kon sessies niet laden:', e.message);
+    log.error('[db] Kon sessies niet laden:', e.message);
   }
 })();
 
@@ -2675,11 +2706,11 @@ function scheduleRunDisconnect(runId) {
   if (!runId) return;
   clearDisconnectTimer(runId);
   runnerDisconnect(runId).catch(err => {
-    console.error("runnerDisconnect error", err);
+    log.error("runnerDisconnect error", err);
   });
   const timer = setTimeout(() => {
     runnerCancel(runId).catch(err => {
-      console.error("runnerCancel error", err);
+      log.error("runnerCancel error", err);
     }).finally(() => {
       disconnectTimers.delete(runId);
     });
@@ -2691,7 +2722,7 @@ function resumeRunIfNeeded(runId) {
   if (!runId) return;
   clearDisconnectTimer(runId);
   runnerResume(runId).catch(err => {
-    console.error("runnerResume error", err);
+    log.error("runnerResume error", err);
   });
 }
 
@@ -2843,7 +2874,7 @@ async function startPythonRun({ session, code, targetStudentId = null, audience 
   };
   activeRuns.set(runId, info);
   pollRun(runId).catch(err => {
-    console.error("pollRun error", err);
+    log.error("pollRun error", err);
   });
   return runId;
 }
@@ -2874,7 +2905,7 @@ function schedulePersist(session, delayMs = 2000) {
   const timer = setTimeout(() => {
     persistTimers.delete(session.code);
     dbModule.persistSession(session).catch(e => {
-      console.error('[db] persistSession fout:', e.message);
+      log.error('[db] persistSession fout:', e.message);
     });
   }, delayMs);
   persistTimers.set(session.code, timer);
@@ -2885,7 +2916,7 @@ function persistNow(session) {
   const existing = persistTimers.get(session.code);
   if (existing) { clearTimeout(existing); persistTimers.delete(session.code); }
   dbModule.persistSession(session).catch(e => {
-    console.error('[db] persistNow fout:', e.message);
+    log.error('[db] persistNow fout:', e.message);
   });
 }
 
@@ -3107,7 +3138,7 @@ io.on("connection", (socket) => {
         joinBadge = 'guest'; // geen klas opgegeven
       }
     } catch (e) {
-      console.error('[join] DB fout bij leerling opzoeken:', e.message);
+      log.error('[join] DB fout bij leerling opzoeken:', e.message);
       // Niet blokkeren bij DB fout — leerling mag toch joinen
     }
 
@@ -4245,7 +4276,7 @@ io.on("connection", (socket) => {
       code, runCount: runCount || 0,
       firstVisitAt: firstVisitAt || null, firstRunAt: firstRunAt || null,
       selectedChoices: JSON.stringify(data?.selectedChoices || []),
-    }).catch(e => console.error('[quiz] saveQuizAnswer:', e.message));
+    }).catch(e => log.error('[quiz] saveQuizAnswer:', e.message));
 
     socket.emit('quiz_answer_saved', { questionId });
 
@@ -4492,11 +4523,11 @@ function cleanOldLogs() {
       } catch { /* bestand al weg */ }
     }
     if (removed > 0) {
-      console.log(`[logs] ${removed} logbestand(en) ouder dan ${LOG_RETENTION_DAYS} dagen verwijderd`);
+      log.info(`[logs] ${removed} logbestand(en) ouder dan ${LOG_RETENTION_DAYS} dagen verwijderd`);
     }
     return removed;
   } catch (e) {
-    console.error('[logs] Cleanup fout:', e.message);
+    log.error('[logs] Cleanup fout:', e.message);
     return 0;
   }
 }
@@ -4513,7 +4544,7 @@ cleanOldLogs();
     cleanOldLogs();
     setInterval(cleanOldLogs, 24 * 60 * 60 * 1000);
   }, msUntil3am);
-  console.log(`[logs] Automatische cleanup gepland om 03:00 (over ${Math.round(msUntil3am/3600000)}u)`);
+  log.info(`[logs] Automatische cleanup gepland om 03:00 (over ${Math.round(msUntil3am/3600000)}u)`);
 })();
 
 // API endpoint voor handmatige log cleanup (via pycodeflow.sh)
@@ -4931,7 +4962,7 @@ function writeStressLog(testType, logLines, summary) {
     fs.writeFileSync(filepath, header + logLines.join('\n') + footer, 'utf8');
     return filename;
   } catch(e) {
-    console.error('Kon logbestand niet schrijven:', e.message);
+    log.error('Kon logbestand niet schrijven:', e.message);
     return null;
   }
 }
@@ -5567,7 +5598,7 @@ app.post('/api/stress-test/start', requireTeacherAuth, requireCsrf, async (req, 
 
     activeStressTest = null;
   })().catch(e => {
-    console.error('Stresstest crash:', e);
+    log.error('Stresstest crash:', e);
     activeStressTest = null;
   });
 });
@@ -5583,10 +5614,10 @@ function scheduleAutocheck() {
   next.setHours(6, 0, 0, 0);
   if (next <= now) next.setDate(next.getDate() + 1);
   const msUntil = next - now;
-  console.log(`[autocheck] Volgende gezondheidscheck om ${next.toISOString()} (over ${Math.round(msUntil/60000)} min)`);
+  log.info(`[autocheck] Volgende gezondheidscheck om ${next.toISOString()} (over ${Math.round(msUntil/60000)} min)`);
   setTimeout(async () => {
     if (!activeStressTest) {
-      console.log('[autocheck] Start dagelijkse gezondheidscheck...');
+      log.info('[autocheck] Start dagelijkse gezondheidscheck...');
       const emitter = new EventEmitter();
       emitter.setMaxListeners(10);
       const logLines = [];
@@ -5601,13 +5632,13 @@ function scheduleAutocheck() {
           `Oordeel    : ${ok ? '✅ GESLAAGD' : '❌ GEFAALD'}`,
         ]);
         lastAutocheck = { timestamp: Date.now(), passed, total, pct, ok, logFilename };
-        console.log(`[autocheck] Klaar: ${passed}/${total} OK (${pct}%) — ${ok ? 'GESLAAGD' : 'GEFAALD'}`);
+        log.info(`[autocheck] Klaar: ${passed}/${total} OK (${pct}%) — ${ok ? 'GESLAAGD' : 'GEFAALD'}`);
       } catch(e) {
-        console.error('[autocheck] Fout:', e.message);
+        log.error('[autocheck] Fout:', e.message);
         lastAutocheck = { timestamp: Date.now(), passed: 0, total: 0, pct: 0, ok: false, logFilename: null };
       }
     } else {
-      console.log('[autocheck] Overgeslagen — stresstest actief');
+      log.info('[autocheck] Overgeslagen — stresstest actief');
     }
     scheduleAutocheck(); // Plan volgende check
   }, msUntil);
@@ -5618,4 +5649,4 @@ app.get('/api/stress-test/autocheck-status', requireTeacherAuth, (req, res) => {
   res.json({ lastAutocheck });
 });
 
-server.listen(PORT, () => console.log(`Listening on http://localhost:${PORT}`));
+server.listen(PORT, () => log.info(`Listening on http://localhost:${PORT}`));

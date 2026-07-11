@@ -1,3 +1,53 @@
+## v2026.2.34.8 — Sprint 30b Optie A: CSP-hardening (tijdelijk) + Optie C-plan
+
+### 30b-A — Report-Only strikte CSP (tijdelijke beveiligingswinst)
+Het laatste inline <script> (teacher-login.html) geëxtraheerd naar teacher-login.js —
+er zijn nu nergens nog inline <script> blokken. Een strikte CSP toegevoegd in Report-Only
+modus (script-src 'self', style-src 'self', geen unsafe-inline): breekt niets, maar toont
+in de browserconsole exact welke inline handlers/styles Optie C moet opruimen. De
+handhavende CSP houdt voorlopig unsafe-inline met een duidelijke TIJDELIJK-markering.
+
+### Optie C volledig gepland (sprint 30b-vol)
+Gefaseerd plan in de sprintlog om unsafe-inline volledig te verwijderen: 123 inline
+event-handlers → addEventListener (fase 1, per pagina), 384 inline style= → CSS-klassen
+(fase 2), dan enforce strikte CSP én verwijder de Report-Only header van Optie A (fase 3).
+~8-10 dagen, veilig gefaseerd met test na elke pagina.
+
+### Tests
+2 nieuwe Report-Only CSP-tests. Totaal 92 unit tests.
+
+**Betrokken bestanden:** server.js · teacher-login.html · teacher-login.js (nieuw) ·
+run-tests.sh · sprintlog.md · tests/security.test.js
+
+---
+
+## v2026.2.34.7 — Sprint 32: Technische schuld (32a/b/c)
+
+### 32b — Gestructureerde logger met niveaus
+Nieuwe lib/logger.js: niveaus error/warn/info/debug via LOG_LEVEL env-var (standaard info).
+Alle 43 console.* in server.js vervangen door log.* met tijdstempel + niveau-prefix.
+LOG_LEVEL=debug voor uitgebreide logs; info onderdrukt debug-ruis. 11 tests.
+
+### 32c — Monaco-versie centraal
+Geverifieerd: versie gepind in package.json (0.47.0, sinds 36d), geserveerd uit
+node_modules. HTML verwijst enkel naar route-prefix /monaco/min/vs. Comment toegevoegd.
+
+### 32a — Inline scripts naar aparte bestanden
+8 pagina's met grote inline <script> (monitoring 758 rgls, quiz-bank 552, ...) → alle JS
+geëxtraheerd naar aparte .js-bestanden via <script src>. Deblokkeert sprint 30b (unsafe-
+inline uit CSP). Laadvolgorde bewaakt (marked/DOMPurify/socket.io/Monaco vóór pagina-script).
+CI checkt nu alle 8 geëxtraheerde bestanden.
+
+Bonusvangst: quiz-review.html laadde nooit socket.io.js terwijl het io() aanroept — gefixt.
+
+### Tests
+11 logger-tests. Totaal 90 unit tests.
+
+**Betrokken bestanden:** server.js · lib/logger.js (nieuw) · 8× *.js (geëxtraheerd) ·
+8× *.html · run-tests.sh · .env.example · check-deployment.sh · tests/logger.test.js (nieuw)
+
+---
+
 ## v2026.2.34.6 — Sprint 31: UX & consistentie (31a/b/c)
 
 ### 31b — localStorage-sleutels geharmoniseerd
