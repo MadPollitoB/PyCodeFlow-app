@@ -1241,14 +1241,59 @@
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap;">
               <a class="btn btn-soft small" href="/teacher-grid.html?code=${q.code}" target="_blank" title="Live meekijken met de leerlingen">👁 Live</a>
+              <button class="btn btn-soft small" onclick="toggleQuizRoster('${q.code}')" title="Wie is klaar / bezig / nog niet begonnen">👥 Voortgang</button>
               <a class="btn btn-muted small" href="/quiz-review.html?code=${q.code}">✏️ Verbeteren</a>
               <button class="btn btn-muted small" onclick="duplicateQuiz('${q.code}')">📋 Dupliceren</button>
             </div>
           </div>
+          <div id="roster-${q.code}" class="quiz-roster" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);"></div>
         </div>`;
       }).join('');
     } catch (e) { console.warn('[quiz-sessies] renderen mislukt:', e.message); }
   }
+
+  // Sprint 43.1: voortgang van de gekoppelde klas-leerlingen bij een toets/taak.
+  const _rosterDot = { submitted:'#16a34a', started:'#f59e0b', none:'#94a3b8' };
+  const _rosterBg  = { submitted:'#dcfce7', started:'#fef3c7', none:'#f1f5f9' };
+  const _rosterLbl = { submitted:'Ingeleverd', started:'Bezig', none:'Nog niets' };
+  function rosterChip(s) {
+    return `<span title="${_rosterLbl[s.status]}" style="display:inline-flex;align-items:center;gap:6px;background:${_rosterBg[s.status]};border:1px solid var(--border);border-radius:999px;padding:3px 10px;font-size:0.82rem;">
+      <span style="width:9px;height:9px;border-radius:50%;background:${_rosterDot[s.status]};flex-shrink:0;"></span>${escapeHtml(s.name)}</span>`;
+  }
+  window.toggleQuizRoster = async function(code) {
+    const box = document.getElementById('roster-' + code);
+    if (!box) return;
+    if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+    box.style.display = 'block';
+    box.innerHTML = '<span class="muted" style="font-size:0.85rem;">Voortgang laden…</span>';
+    try {
+      const r = await fetch('/api/quiz-sessions/' + code + '/roster');
+      const d = await r.json();
+      if (!r.ok) { box.innerHTML = '<span class="muted">Kon voortgang niet laden.</span>'; return; }
+      if (!d.hasClass) {
+        box.innerHTML = '<span class="muted" style="font-size:0.85rem;">Aan deze toets is geen klas gekoppeld, dus er is geen leerlingenlijst om te volgen.</span>';
+        return;
+      }
+      const legend = `
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:0.82rem;">
+          <strong>${escapeHtml(d.className || 'Klas')}</strong>
+          <span style="color:#166534;">🟢 ${d.counts.submitted} ingeleverd</span>
+          <span style="color:#92400e;">🟡 ${d.counts.started} bezig</span>
+          <span style="color:#64748b;">⚪ ${d.counts.none} nog niets</span>
+          <span class="muted">· ${d.counts.total} leerlingen</span>
+          <button class="btn btn-muted small" style="margin-left:auto;" onclick="toggleQuizRoster('${code}');toggleQuizRoster('${code}')" title="Vernieuwen">↻</button>
+        </div>`;
+      const chips = d.students.length
+        ? `<div style="display:flex;gap:6px;flex-wrap:wrap;">${d.students.map(rosterChip).join('')}</div>`
+        : '<span class="muted" style="font-size:0.85rem;">Geen leerlingen in deze klas voor dit schooljaar.</span>';
+      const extras = (d.extras && d.extras.length)
+        ? `<div style="margin-top:10px;font-size:0.8rem;"><span class="muted">Niet in de klas (andere naam ingetypt?):</span><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">${d.extras.map(rosterChip).join('')}</div></div>`
+        : '';
+      box.innerHTML = legend + chips + extras;
+    } catch (e) {
+      box.innerHTML = '<span class="muted">Fout bij laden voortgang.</span>';
+    }
+  };
 
   window.duplicateQuiz = async function(code) {
     const name = prompt('Naam voor de kopie:', '');
@@ -1346,7 +1391,7 @@
     });
   }
 
-  if (page === 'student-start.html') {
+  if (page === 'student-start.html' || page === 'student') {
     // Sprint 13B: klas-dropdown initialiseren
     (async () => {
       const loading = document.getElementById('student-class-loading');

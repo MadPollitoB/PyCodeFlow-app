@@ -351,7 +351,7 @@ kbd { background:var(--surface-soft); border:1px solid var(--border); border-rad
 .info-kader::before { font-weight:800; display:block; margin-bottom:4px; }
 .info-tip::before     { content:'💡 Tip'; }
 .info-opgelet::before { content:'⚠️ Opgelet'; }
-.info-kader-blauw::before { content:'📌 Kader'; }
+.info-kader-blauw::before { content:'📌 Extra informatie'; }
 .info-hint::before    { content:'❓ Hint'; }
 
 /* Markdown-tabellen */
@@ -359,6 +359,31 @@ kbd { background:var(--surface-soft); border:1px solid var(--border); border-rad
 .md-preview th, .q-text th { background:var(--primary-soft); color:var(--primary); padding:7px 10px; border:1px solid var(--border); font-weight:700; text-align:left; }
 .md-preview td, .q-text td { padding:6px 10px; border:1px solid var(--border); }
 .md-preview tr:nth-child(even) td, .q-text tr:nth-child(even) td { background:var(--surface-soft); }
+
+/* ── Sprint 47: Python-codeblokken in de vraagstelling als echt "code-veld" ──────
+   Fenced code (```python) rendert via marked als <pre><code>. Zonder styling was dit
+   platte zwarte tekst; nu een donker code-veld met monospace, consistent in de
+   editor-preview, de leerling-weergave én de leerkracht-preview (allemaal .md-preview). */
+.md-preview pre, .q-text pre {
+  background:#1e1e1e; color:#d4d4d4; padding:12px 14px; border-radius:8px;
+  margin:10px 0; overflow-x:auto; border:1px solid #333;
+}
+.md-preview pre code, .q-text pre code {
+  font-family:Consolas,'Courier New',monospace; font-size:0.85rem; line-height:1.55;
+  background:none; color:inherit; padding:0; white-space:pre; display:block;
+}
+.md-preview :not(pre) > code, .q-text :not(pre) > code {
+  font-family:Consolas,'Courier New',monospace; font-size:0.85em;
+  background:#f1f5f9; color:#0f172a; padding:1px 6px; border-radius:4px;
+}
+
+/* Sprint 47.1: token-kleuren voor Python syntax highlighting (code-highlight.js).
+   Gescoped op .hl-python zodat het enkel de gehighlighte codeblokken raakt. */
+.hl-python .tok-kw      { color:#569cd6; }
+.hl-python .tok-str     { color:#ce9178; }
+.hl-python .tok-com     { color:#6a9955; font-style:italic; }
+.hl-python .tok-num     { color:#b5cea8; }
+.hl-python .tok-builtin { color:#dcdcaa; }
 
 /* ── Responsive ──────────────────────────────────────────────────────────────── */
 @media (max-width: 980px) {

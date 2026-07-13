@@ -48,7 +48,7 @@
         : '<span class="badge badge-success">actief</span>';
       return `<tr>
         <td><strong>${s.name}</strong><br/><span class="muted" style="font-size:0.8rem;">${s.code}</span></td>
-        <td>${s.mode === 'exam' ? 'Examen' : 'Klas'}</td>
+        <td>${s.mode === 'exam' ? 'Examen' : s.mode === 'quiz' ? 'Toets' : s.mode === 'task' ? 'Taak' : 'Klas'}</td>
         <td>${s.online} / ${s.total}</td>
         <td>
           <div class="run-mini-bar">

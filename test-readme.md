@@ -1,6 +1,6 @@
 # PyCodeFlow — Volledig Testboek
 
-> **Versie:** v2026.2.27.0 · **Bijgewerkt:** 27 juni 2026
+> **Versie:** v2026.2.47.1 · **Bijgewerkt:** 12 juli 2026
 > Volledig stappenplan voor alle functies, pagina's, layouts en PDF-exports.
 > Voer tests uit op: `https://app.pycodeflow.org` (productie) of `http://localhost:3000` (lokaal)
 
@@ -20,6 +20,13 @@ Via `admin.html` vóór je begint:
 | Vragen bank | Minstens 3 vragen: 1× Python code, 1× Open vraag, 1× Single choice |
 | Toets | `Testtoets H1` — 3 vragen, timer 45 min, random volgorde |
 
+> **Herstel na herinstall (47.2/47.3):** een verse DB heeft geen leerkracht → de web-container stopt zichzelf (`checkAuthConfig`). Maak dan een leerkracht aan **zonder** dat de web-container hoeft te draaien:
+> ```bash
+> docker compose run --rm web node scripts/manage-teacher.js add <naam> '<wachtwoord>' admin
+> docker compose up -d --force-recreate web
+> ```
+> Controleer daarna dat `/api/version` het juiste versienummer toont (zie 0.2).
+
 ### 0.2 Regressie baseline (na elke deploy uitvoeren)
 
 ```bash
@@ -35,6 +42,9 @@ curl -sf http://localhost:3000/health
 curl -s http://localhost:3000/api/version | python3 -m json.tool
 # ✅ version: "2026.2.24.0"
 # ✅ uptime, node, platform zichtbaar
+# ⚠️ REGRESSIE (47.2): version MOET gelijk zijn aan het VERSION-bestand.
+#     Wijkt het af (bv. oude/fallback-waarde), dan kon de app zijn VERSION niet lezen
+#     — controleer op "[versie] Lezen van ... mislukt" in de weblogs (fs-TDZ).
 
 docker compose logs web --tail=20 | grep -iE "ERROR|FATAL|Cannot find"
 # ✅ Geen kritieke fouten
@@ -1814,4 +1824,93 @@ class_id-data — die komt pas bij fase 3.
 ✅ Bekijken en exporteren van oude jaren blijft mogelijk
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.42.0 · 8 juli 2026*
+## 47. Sprint 43 — Toetsen/taken scheiden van sessies
+
+```
+LEERKRACHT — Sessies vs Toetsen
+✅ Maak een toets aan met een gekoppelde klas → verschijnt onder "Toetsen", NIET onder "Lopende sessies"
+✅ "Lopende sessies" toont enkel echte codeersessies (geen toets/taak meer)
+✅ Toetsen-tab: type-badge 🧪 Toets (met timer) of 📝 Taak (geen tijdslimiet)
+✅ Toetsen-tab: status-badge 🟢 Open / ⏳ Nog niet open / ⛔ Venster voorbij / Gesloten
+✅ Toetsen-tab: 👥-online-teller telt leerlingen die nu bezig zijn
+✅ Toetsen-tab: 👁 Live opent teacher-grid.html?code=… in nieuw tabblad
+
+LEERLING — juiste instap
+✅ Leerling geeft een TOETS-code in op de deelnemen-pagina → belandt in de TOETS (niet in een gewone sessie-editor)
+✅ Leerling met een gewone SESSIE-code → belandt zoals vroeger in de editor
+```
+
+## 48. Sprint 43.1 — Voortgang per klas-leerling
+
+```
+✅ Toets met gekoppelde klas → knop "👥 Voortgang" toont de klaslijst
+✅ Leerling die niets deed → grijs (⚪ Nog niets)
+✅ Leerling die bezig is (code/keuze/run, niet ingeleverd) → geel (🟡 Bezig)
+✅ Leerling die inleverde → groen (🟢 Ingeleverd)
+✅ Telling 🟢/🟡/⚪ bovenaan klopt met de chips
+✅ Deelnemer met naam die niet in de klas zit → apart onder "Niet in de klas"
+✅ Toets zonder gekoppelde klas → nette melding i.p.v. lege lijst
+```
+
+## 49. Sprint 44 — Dupliceren maakt exact één kopie
+
+```
+✅ Doe eerst een paar acties in het vragenoverzicht (bewerken/archiveren) om te her-renderen
+✅ Klik daarna op "Dupliceren" → er verschijnt PRECIES ÉÉN kopie (niet meerdere)
+✅ Herhaal na nog meer acties → nog steeds telkens één kopie
+✅ Andere kaartknoppen (bewerken, verwijderen, herstellen) vuren ook één keer
+```
+
+## 50. Sprint 45 — Startpagina + instap-routes
+
+```
+✅ Open "/" → keuzepagina toont "Ben je leerling of leerkracht?"
+✅ Footer toont de LIVE versie (klopt met /api/version), ook met JavaScript uit
+✅ "Ik ben leerling" → /student → deelnemen-scherm werkt
+✅ "Ik ben leerkracht" → /teacher → leerkracht-login/platform
+✅ Oude links (/student-start.html, /teacher-sessions.html) blijven werken
+✅ Vrije oefensessie blijft zonder account bereikbaar
+```
+
+## 51. Sprint 46 — Leerkracht-preview & toets-launch
+
+```
+✅ Toets aanmaken → stap "Live preview": keuze-opties netjes (selector links, tekst leesbaar ernaast, geen afgesneden tekst, ook bij lange opties/code)
+✅ "Doen alsof je de toets maakt" → toets laadt door (geen eindeloze "Bezig met laden…")
+✅ Bij een geweigerde start (bv. lege naam) → duidelijke foutmelding op het startscherm i.p.v. stil hangen
+✅ Na ~10s zonder laden → nette time-out-melding
+```
+
+## 52. Sprint 47 — Vraag-editor & vraagweergave
+
+```
+✅ Toolbar: het blauwe kader heet nu "Extra informatie" (tooltip + gerenderd label 📌 Extra informatie)
+✅ Bestaande vragen met :::kader tonen automatisch het nieuwe label
+✅ Codeblok (```python) rendert als donker code-veld (monospace), niet als platte zwarte tekst
+✅ In de editor kleurt het JUISTE keuze-antwoord GROEN (niet blauw)
+✅ Nakijken: gekozen+juist groen, gekozen+fout rood, gemist+juist amber
+```
+
+## 53. Sprint 47.1 — Syntax highlighting + Tip/Hint
+
+```
+✅ Codeblok toont gekleurde tokens: keywords/builtins/strings/comments/getallen
+✅ Consistent in editor-preview, leerkracht-preview én leerling-weergave
+✅ Code met <, > of & rendert correct (geen kapotte weergave)
+✅ Toolbar: Hint-knop is weg; "Tip" dekt nu advies én hulp
+✅ Bestaande :::hint-vragen renderen nog steeds
+✅ Automatische test: `cd web && npm test` → highlight.test.js slaagt (deel van 165 tests)
+```
+
+## 54. Sprint 47.4 — Toets zichtbaar + statistieken kloppen
+
+```
+✅ Maak een toets aan (checkbox "Test als leerkracht – PREVIEW" UIT) + enkele vragen
+✅ Admin-dashboard → Quiz statistieken: "Vragen in bank" en "Toetsen ooit" tonen het echte aantal (niet 0)
+✅ "Antwoorden totaal" en "Gem. runs/antwoord" tonen echte waarden (niet 0)
+✅ Teacher → Toetsen-tab: de aangemaakte toets is zichtbaar
+✅ Admin "Lopende sessies": een toets krijgt type "Toets" (een taak "Taak"), niet "Klas"
+⚠️ Een toets die WÉL met de PREVIEW-checkbox is aangemaakt hoort NIET in de Toetsen-tab (preview blijft verborgen)
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.1 · 12 juli 2026*

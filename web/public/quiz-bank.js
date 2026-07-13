@@ -126,8 +126,21 @@ function renderQuestions(qs) {
       </div>
     </div>`;
   }).join('');
+  // Sprint 44: binding gebeurt nu exact ÉÉN keer (idempotent). Vroeger stond deze
+  // addEventListener binnen renderQuestions, waardoor bij elke re-render een extra
+  // click-listener op het blijvende #q-grid werd gestapeld en één klik op "Dupliceren"
+  // N keer vuurde (N = aantal re-renders sinds paginaladen) → meerdere kopieën.
+  bindQGridActionsOnce();
+}
+
+let _qGridActionsBound = false;
+function bindQGridActionsOnce() {
+  if (_qGridActionsBound) return;
+  const grid = document.getElementById('q-grid');
+  if (!grid) return;
+  _qGridActionsBound = true;
   // Event delegation: knoppen op q-cards via data-qid op de parent card
-  document.getElementById('q-grid').addEventListener('click', function(e) {
+  grid.addEventListener('click', function(e) {
     const card = e.target.closest('[data-qid]');
     if (!card) return;
     const id = card.dataset.qid;
@@ -136,8 +149,8 @@ function renderQuestions(qs) {
     if (e.target.closest('.q-btn-edit'))      { editQuestion(id); return; }
     if (e.target.closest('.q-btn-duplicate')) { duplicateQuestion(id); return; }
     if (e.target.closest('.q-btn-delete'))    { verwijderOfArchiveer(id, q.text.slice(0,40)); return; }
-    if (e.target.closest('.q-btn-restore')) { unarchiveQuestion(id); return; }
-    if (e.target.closest('.q-btn-destroy')) { deleteQuestion(id, q.text.slice(0,40)); return; }
+    if (e.target.closest('.q-btn-restore'))   { unarchiveQuestion(id); return; }
+    if (e.target.closest('.q-btn-destroy'))   { deleteQuestion(id, q.text.slice(0,40)); return; }
   });
 }
 

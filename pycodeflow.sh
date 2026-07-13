@@ -420,7 +420,8 @@ setup_eerste_start() {
     if [[ -n "$lk_user" ]] && [[ -n "$lk_pw" ]]; then
       read -rp "  Account '$lk_user' aanmaken in database? (j/n) [j]: " aanmaken
       if [[ "${aanmaken:-j}" =~ ^[jJ]$ ]]; then
-        docker exec pycodeflow-web-1           node /app/scripts/manage-teacher.js add "$lk_user" "$lk_pw" "admin"
+        # 47.3: wegwerp-container i.p.v. exec, zodat dit ook werkt als de web-container down is
+        $COMPOSE --project-directory "$BASE" run --rm -T web node /app/scripts/manage-teacher.js add "$lk_user" "$lk_pw" "admin"
         if [[ $? -eq 0 ]]; then
           ok "Leerkrachtsaccount aangemaakt in database"
         else
@@ -780,7 +781,8 @@ actie_leerkracht() {
   [[ "$lk_rol" != "admin" ]] && lk_rol="teacher"
 
   echo ""
-  docker exec pycodeflow-web-1     node /app/scripts/manage-teacher.js add "$lk_user" "$lk_pw" "$lk_rol"
+  # 47.3: wegwerp-container i.p.v. exec, zodat dit ook werkt als de web-container down is
+        $COMPOSE --project-directory "$BASE" run --rm -T web node /app/scripts/manage-teacher.js add "$lk_user" "$lk_pw" "$lk_rol"
 
   echo ""
   if [[ $? -eq 0 ]]; then

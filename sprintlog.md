@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.43.0**
+**Huidige versie: v2026.2.47.4**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -18,10 +18,6 @@
 
 | Sprint | Prio | Cat | Inhoud | Inschatting |
 |---|---|---|---|---|
-| **44** | 🔴 P10 | BUG | Dupliceren in vragenoverzicht maakt méérdere kopieën: klik-listener wordt bij elke re-render opnieuw op `#q-grid` gebonden → listeners stapelen op. Listener één keer binden (of node vervangen). | ~0.5 dag |
-| **45** | 🔵 P9 | ARCH | Instapstructuur **Deel A+B** (restant van 42): startpagina die de app zélf serveert met automatisch meelopend versienummer (`{{APP_VERSION}}`), + gescheiden ingang `/student` vs `/teacher`. Deel C (branding/schoollogo) is al afgerond in v2026.2.42.0. | ~2 dagen |
-| **46** | 🟠 P8 | BUG/UX | Leerkracht-preview & toets-launch: (a) keuze-opties in stap 3 "Live preview" renderen verkeerd (lege kaders, checkbox los, tekst afgesneden), (b) "doen alsof je de toets maakt" blijft op "Toets laden…" hangen (vermoedelijk lege naam/klas → `error_message` niet getoond) | ~1 dag |
-| **47** | 🟠 P8 | UX | Vraag-editor & vraagweergave: (a) `hint` vs `tip` — mogelijk samenvoegen, (b) kader-label "📌 Kader" → "Extra informatie", (c) Python-codeblok als echt code-veld (syntax highlighting) i.p.v. platte zwarte tekst, (d) juist/fout groen/rood bij nakijken (deels al aanwezig in `quiz-review.js`) | ~1.5 dag |
 | **48** | 🔵 P9 | ARCH | ⛔ School-keuze bij leerkracht-login (modal indien >1 school) + `active_school_id` in sessie — **geblokkeerd:** vereist fase 1 + fase 3 (multi-tenant) | ~3 dagen |
 
 > **Sprint 42 is gesplitst:** Deel C (branding/schoollogo) is afgerond in v2026.2.42.0 (zie afgewerkte sprints); het restant (startpagina + leerling/leerkracht-ingang) leeft nu als **sprint 45**.
@@ -87,6 +83,15 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 33 | **hotfix** | Opstart-crash (TDZ: `log` gebruikt vóór init in `loadVersionFromFile`) | v2026.2.41.1 |
 | 34 | **42 (deel C)** | Branding: eigen PyCodeFlow-logo in app-balk + landingspagina, footer opgeschoond (school-verwijzing weg) — deel A+B verplaatst naar sprint 45 | v2026.2.42.0 |
 | 35 | **43** | Toetsen/taken scheiden van sessies + live-overzicht (filter uit sessielijst, leerling-redirect naar toets-flow, toets/taak-label, online-teller + open/gesloten-status + teacher-grid-link) | v2026.2.43.0 |
+| 36 | **43.1** | Voortgang per gekoppelde klas-leerling bij een toets/taak (groen=ingeleverd, geel=bezig, grijs=niets) via de Voortgang-knop | v2026.2.43.1 |
+| 37 | **44** | Bug fix: dupliceren maakte meerdere kopieën — click-listener op #q-grid werd bij elke re-render gestapeld; nu exact één keer gebonden | v2026.2.44.0 |
+| 38 | **45** | Instapstructuur Deel A+B: app serveert startpagina op `/` met server-side versie-injectie (`{{APP_VERSION}}`) + nette routes `/student` en `/teacher` | v2026.2.45.0 |
+| 39 | **46** | Leerkracht-preview & toets-launch: keuze-opties in preview renderen correct (geen overflow/afgesneden tekst) + startscherm hangt niet meer stil (inline foutmelding + time-out) | v2026.2.46.0 |
+| 40 | **47** | Vraag-editor & vraagweergave: kader→"Extra informatie", Tip/Hint-doel verduidelijkt, Python-codeblok als donker code-veld, juist-antwoord groen in editor | v2026.2.47.0 |
+| 41 | **47.1** | Follow-ups van 47: echte Python syntax highlighting (zelf-gehost, CSP-veilig) + Tip/Hint samengevoegd tot één kader | v2026.2.47.1 |
+| 42 | **47.2** | Testbevinding: opstart-crash na herinstall gediagnosticeerd (auth-guard) + fs-TDZ in versie-loader gefixt | v2026.2.47.2 |
+| 43 | **47.3** | Deadlock-fix: `pycodeflow.sh` maakt leerkracht nu aan via wegwerp-container (`docker compose run`) i.p.v. `docker exec` in de down-zijnde web-container | v2026.2.47.3 |
+| 44 | **47.4** | Testbevinding: admin-quizstatistieken stonden op 0 (niet-geëxporteerde `dbModule.pool`) + toets onzichtbaar in Toetsen-tab (lijst nu uit `quiz_meta`) + admin-sessietype herkent toets/taak | v2026.2.47.4 |
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
@@ -129,23 +134,46 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 
 ---
 
-### Sprint 44 — Bug: dupliceren maakt meerdere kopieën *(~0.5 dag)* — 🆕 AANGEMELD
+### Sprint 43.1 — Voortgang per gekoppelde klas-leerling *(~0.5 dag)* — ✅ AFGEROND (v2026.2.43.1)
 
-**Aangemeld:** 11/07/2026 (leerkracht-feedback) · **Status:** 🔴 P10, nog te plannen · **Cat:** BUG
+**Aangemeld:** 11/07/2026 · **Afgerond:** 11/07/2026 · **Cat:** UX · *(tussengeschoven vóór 44 volgens de decimale nummering-afspraak)*
 
-**Symptoom:** in het vragenoverzicht maakt "⧉ Dupliceren" niet één kopie maar een schijnbaar willekeurig aantal kopieën.
+**Vraag:** bij een toets/taak (en de Live-knop) wil de leerkracht zien wie al **ingeleverd** heeft, wie **bezig** is en wie **nog niets** deed — met kleur: 🟢 groen = ingeleverd, 🟡 geel = al iets gemaakt maar niet ingeleverd, ⚪ grijs = niets.
 
-**Root cause (bevestigd in `quiz-bank.js`):** de click-listener voor de kaartknoppen wordt **binnen** `renderQuestions()` gebonden — helemaal onderaan, ná het opbouwen van de kaarten wordt `document.getElementById('q-grid').addEventListener('click', …)` uitgevoerd. `#q-grid` is een blijvend element (enkel z'n `innerHTML` wisselt), dus bij elke re-render komt er een **extra** listener bovenop de vorige. `renderQuestions()` loopt via `loadQuestions()` bij initieel laden én na elke bewaar-, verwijder-, archiveer-, herstel- en dupliceer-actie. Gevolg: na N renders vuurt één klik op "Dupliceren" `duplicateQuestion()` N keer → N kopieën. Het lijkt "willekeurig" maar is in feite gelijk aan het aantal re-renders sinds het laden van de pagina.
+**Wat is gebouwd:**
+- Nieuw endpoint `GET /api/quiz-sessions/:code/roster` (`server.js`). De "gekoppelde leerlingen" komen uit de **klas die aan de toets hangt** (`quiz_meta.target_class` = klas-id) voor het schooljaar van die klas, via `class_memberships` (`dbModule.listStudents(classId)`, actieve lidmaatschappen).
+- Status per leerling wordt bepaald uit `quiz_answers`: `submitted_at` gezet → **ingeleverd**; wel inhoud (code, gekozen opties, runs of een eerste run) maar niet ingeleverd → **bezig**; geen zinvolle activiteit → **nog niets**. Matching gebeurt op **naam** (genormaliseerd), want een toets-leerling krijgt bij `quiz_start` een eigen, niet-globale id — dus id-matching met `class_memberships` zou niet kloppen.
+- Deelnemers die niet in de gekoppelde klas zitten (bv. verkeerde naam ingetypt) worden apart als "Niet in de klas" getoond, zodat niemand onzichtbaar blijft.
+- UI: een **👥 Voortgang**-knop per toets/taak (naast 👁 Live) in de Toetsen-tab (`app.js`) klapt een paneel open met gekleurde leerling-chips + een telling (🟢/🟡/⚪) en een vernieuw-knop.
 
-**Fix (richting):** de listener **één keer** binden (bv. in `DOMContentLoaded` via event-delegation op `#q-grid`, buiten `renderQuestions()`), of vóór elk binden de vorige verwijderen / het element vervangen. Daarna verifiëren dat elke knop (bewerken, dupliceren, verwijderen, herstellen, definitief verwijderen) exact één keer vuurt.
-
-> **Let op — mogelijk breder:** ditzelfde patroon (listener binden binnen een re-render-functie op een blijvend element) kan elders voorkomen. Bij de fix meteen controleren of andere overzichten (sessies, toetsen) hetzelfde doen.
+**Bewust nu niet gedaan (maar voorzien):** er wordt **één** klas aan een toets gekoppeld; de roster-logica werkt al per klas-id, dus meerdere klassen koppelen is later een kleine uitbreiding (klas-id's → meerdere `listStudents`-oproepen samenvoegen) zonder herontwerp.
 
 ---
 
-### Sprint 45 — Instapstructuur Deel A+B (startpagina + leerling/leerkracht-ingang) *(~2 dagen)* — 🆕 OPENSTAAND
+### Sprint 44 — Bug: dupliceren maakt meerdere kopieën *(~0.5 dag)* — ✅ AFGEROND (v2026.2.44.0)
 
-**Aangemeld:** 08/07/2026 (als deel van sprint 42) · **Status:** Deel A + B 🔄 openstaand · Deel C (branding) ✅ afgerond in v2026.2.42.0 → verhuisd naar afgewerkte sprints. Deze sprint is het **restant van sprint 42** na de splitsing.
+**Aangemeld:** 11/07/2026 (leerkracht-feedback) · **Afgerond:** 11/07/2026 · **Cat:** BUG
+
+**Symptoom:** in het vragenoverzicht maakte "⧉ Dupliceren" niet één kopie maar een schijnbaar willekeurig aantal kopieën.
+
+**Root cause (bevestigd in `quiz-bank.js`):** de click-listener voor de kaartknoppen werd **binnen** `renderQuestions()` gebonden — na het opbouwen van de kaarten werd `document.getElementById('q-grid').addEventListener('click', …)` uitgevoerd. `#q-grid` is een blijvend element (enkel z'n `innerHTML` wisselt), dus bij elke re-render kwam er een extra listener bovenop. `renderQuestions()` loopt via `loadQuestions()` bij het laden én na elke bewaar-, verwijder-, archiveer-, herstel- en dupliceer-actie. Gevolg: na N renders vuurde één klik op "Dupliceren" `duplicateQuestion()` N keer → N kopieën. Het leek willekeurig maar was gelijk aan het aantal re-renders sinds paginaladen.
+
+**Fix (gebouwd):** de delegatie-listener is uit `renderQuestions()` gehaald en zit nu in `bindQGridActionsOnce()`, met een module-vlag `_qGridActionsBound` zodat hij **exact één keer** aan `#q-grid` hangt, ongeacht hoe vaak er opnieuw gerenderd wordt. Alle knoppen (bewerken, dupliceren, verwijderen, herstellen, definitief verwijderen) vuren nu één keer.
+
+**Bredere check (uit de aanmelding):** hetzelfde patroon is elders nagekeken. `renderSessions()` in `app.js` bindt per knop op **vers aangemaakte** elementen (`host.querySelectorAll('[data-…]').forEach(btn => btn.addEventListener(…))`) die bij elke re-render weggegooid worden — daar stapelt dus niets op. De bug was uniek voor `quiz-bank.js`; geen verdere fixes nodig.
+
+---
+
+### Sprint 45 — Instapstructuur Deel A+B (startpagina + leerling/leerkracht-ingang) *(~2 dagen)* — ✅ AFGEROND (v2026.2.45.0)
+
+**Aangemeld:** 08/07/2026 (als deel van sprint 42) · **Afgerond:** 11/07/2026 · Deel C (branding) was al afgerond in v2026.2.42.0.
+
+**Wat is gebouwd (Deel A + B):**
+- **Deel A — startpagina met live versie:** de Node-app serveert de keuzepagina nu zélf op `/` en `/index.html` en vult server-side de placeholder `{{APP_VERSION}}` in met `APP_VERSION` (helper `renderLanding()` in `server.js`, gecachet per proces). Geen `fetch`/CORS, werkt zonder JavaScript, en klopt altijd (VERSION → .env → APP_VERSION). De losse statische pagina met handmatig versienummer is daarmee overbodig; in Cloudflare laat je `pycodeflow.org` naar dezelfde app wijzen.
+- **Deel B — instap-routes:** nette routes `/student` (serveert de leerling-ingang) en `/teacher` (leidt naar het leerkrachtenplatform → login indien nodig). De landingspagina vraagt nu expliciet "Ben je leerling of leerkracht?" met twee `<a>`-links die zónder JavaScript werken. `page`-detectie in `app.js` herkent nu ook de clean URL `/student`. Oude `.html`-links blijven werken via `express.static`. De vrije oefensessie blijft zonder account werken.
+- **Haak voor later:** `/teacher` is het aanknopingspunt waar sprint 48 (school-keuze) later op voortbouwt.
+
+**Oorspronkelijk plan (bij aanmelding):**
 
 **Doel:** een duidelijke instapstructuur (leerling vs. leerkracht), een startpagina waarvan het versienummer **automatisch** meeloopt, en een **schoollogo** dat de app per school personaliseert.
 
@@ -197,9 +225,15 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 
 ---
 
-### Sprint 46 — Leerkracht-preview & toets-launch fixes *(~1 dag)* — 🆕 AANGEMELD
+### Sprint 46 — Leerkracht-preview & toets-launch fixes *(~1 dag)* — ✅ AFGEROND (v2026.2.46.0)
 
-**Aangemeld:** 11/07/2026 (leerkracht-feedback + screenshots) · **Status:** 🟠 P8, nog te plannen · **Cat:** BUG/UX
+**Aangemeld:** 11/07/2026 (leerkracht-feedback + screenshots) · **Afgerond:** 11/07/2026 · **Cat:** BUG/UX
+
+**Wat is gebouwd:**
+- **(a) Preview-opties renderen nu correct.** Root cause gevonden: de echte leerling-weergave (`quiz-student.js`) zette al `min-width:0` op de tekstkolom, maar de **preview** (`renderPreviewQuestion` in `quiz-teacher.js`) niet — daardoor liepen lange opties/code over en werd de tekst rechts afgesneden. Bovendien lekte de globale regel `label{display:block;font-weight:800;margin-bottom:8px}` (styles.css) in de preview. Fix: de optiekaart is gelijkgetrokken met de leerling-weergave — `min-width:0;overflow-wrap:anywhere` op de tekstkolom, expliciete `font-weight:400;margin:0;box-sizing:border-box;width:100%` op de `<label>`, en een vaste checkbox-grootte. Selector links, tekst leesbaar ernaast, geen overflow.
+- **(b) Startscherm hangt niet meer stil.** De preview opende `quiz-student.html` mét naam (`Leerkracht Test`) maar zonder klas; nu wordt ook een klas (`Preview`) meegegeven. Belangrijker: `startQuiz()` toont nu een laadstatus en zet een **time-out van 10s** — komt er geen `quiz_state`, dan verschijnt een duidelijke melding i.p.v. eindeloos "Bezig met laden…". En elke `error_message` wordt nu **inline op het startscherm** getoond (naast de modal), zodat een geweigerde start (lege naam, dubbele verbinding, config weg, …) zichtbaar is i.p.v. stil te hangen. `quiz_state`, `error_message` en `quiz_access_expired` wissen de time-out.
+
+**Oorspronkelijke analyse (bij aanmelding):**
 
 - **(a) Keuze-opties in de "Live preview" (stap 3 van toets aanmaken) renderen verkeerd.** Screenshot toont grote lege kaders met de checkbox los in het midden en de optietekst afgesneden aan de rechterrand ("tes 1", "pri tes"). De optie-`<label>`-opbouw zit in `renderPreviewQuestion()` (`quiz-teacher.js`, tak voor `single`/`multiple`). Uitzoeken of de flex-layout niet doorkomt (bv. conflicterende globale `.choice-*`-CSS die inlekt, of lege/whitespace optietekst uit de duplicatie-bug van sprint 44) en de optiekaart correct laten uitlijnen (selector links, tekst leesbaar ernaast, geen overflow).
 
@@ -207,9 +241,79 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 
 ---
 
-### Sprint 47 — Vraag-editor & vraagweergave verbeteringen *(~1.5 dag)* — 🆕 AANGEMELD
+### Sprint 47.4 — Testbevinding: quizstatistieken 0 + toets onzichtbaar *(~0.5 dag)* — ✅ AFGEROND (v2026.2.47.4)
 
-**Aangemeld:** 11/07/2026 (leerkracht-feedback + screenshot) · **Status:** 🟠 P8, nog te plannen · **Cat:** UX
+**Aangemeld:** 12/07/2026 (jouw testronde: toets + 3 vragen aangemaakt, zichtbaar in DB, maar dashboard toont 0 en toets niet in de Toetsen-tab) · **Cat:** BUG
+
+**Drie problemen gevonden:**
+
+1. **Admin-quizstatistieken stonden altijd op 0** (Vragen in bank, Toetsen ooit, Antwoorden totaal, Gem. runs). Oorzaak: die vier queries gebruikten `dbModule.pool`, maar `db/database.js` exporteert **enkel `query`**, niet `pool` → `dbModule.pool` was `undefined` → de ternary viel telkens terug op `0`. **Fix:** de vier queries gebruiken nu `dbModule.query(…)` (dat wél geëxporteerd is). Latente bug, niets met 43–47.x te maken.
+2. **Aangemaakte toets niet zichtbaar in de Toetsen-tab.** `/api/quiz-sessions` bouwde de lijst op uit de **in-memory sessies**. Daardoor kon een toets die wel in de DB stond (`quiz_meta`) maar niet (meer) in het geheugen zat, ontbreken. **Fix:** de lijst komt nu uit **`quiz_meta`** (de bron van waarheid voor ‘toetsen’), verrijkt met sessie-info uit geheugen óf DB en met de online-teller. Elke echte toets verschijnt nu, ongeacht de geheugenstaat. Preview-toetsen (`is_teacher_preview = true`) blijven bewust verborgen — dus als een toets écht niet opduikt, check of de checkbox **“Test als leerkracht – PREVIEW”** aanstond bij het aanmaken.
+3. **Admin ‘Lopende sessies’ labelde een toets als “Klas”.** `monitoring.js` kende enkel `exam` vs `Klas`. Nu toont het ook **Toets**/**Taak**.
+
+**Tests:** volledige suite **165/165 groen**; `test-readme.md` uitgebreid met een regressiecheck (na een toets aanmaken: telt in de statistieken én verschijnt in de Toetsen-tab). *Kanttekening:* deze fixes raken serverlogica die inline in `server.js` zit; echte unit-tests vereisen die stukjes eerst naar een `lib/`-module te trekken (kandidaat voor later).
+
+---
+
+### Sprint 47.3 — Deadlock-fix: leerkracht aanmaken terwijl de web-container down is *(~0.5 dag)* — ✅ AFGEROND (v2026.2.47.3)
+
+**Aangemeld:** 12/07/2026 (vervolg op 47.2 — 502 bleef, teacher-add via optie 10 gaf "Container is restarting") · **Cat:** BUG (tooling)
+
+**De deadlock:** de web-container stopt (`checkAuthConfig` → `process.exit(1)`) omdat er geen leerkracht is. Om dat op te lossen laat `pycodeflow.sh` (optie 10 én de auto-rescue) de leerkracht aanmaken via `docker exec pycodeflow-web-1 node .../manage-teacher.js add …` — máár dat exect *in de web-container die net down is*. Resultaat: `Error response from daemon: Container … is restarting` en de "✓ aangemaakt"-melding was misleidend (de exec draaide nooit). Je kon dus de leerkracht niet toevoegen omdat de container down was, en de container was down omdat er geen leerkracht was.
+
+**De fix:** `manage-teacher.js` praat rechtstreeks met Postgres (`pg.Pool` → `postgres:5432`) en heeft de web-container helemaal niet nodig. Beide teacher-*add*-aanroepen in `pycodeflow.sh` gebruiken nu een **wegwerp-container**:
+
+```
+$COMPOSE --project-directory "$BASE" run --rm -T web node /app/scripts/manage-teacher.js add …
+```
+
+`docker compose run` start een nieuwe container uit dezelfde `web`-service (zelfde image, env en netwerk), draait enkel het script en verdwijnt — los van de crashende `pycodeflow-web-1`. Zo werkt de rescue net **wanneer** je hem nodig hebt: als de web-container down is. Het schema bestaat al (de crashende container draait `dbModule.init()` elke cyclus), dus de INSERT slaagt. `bash -n` OK.
+
+**Handmatige noodgreep** (zonder scriptwijziging, meteen bruikbaar): `docker compose run --rm web node scripts/manage-teacher.js add <naam> '<wachtwoord>' admin`, daarna `docker compose up -d --force-recreate web`.
+
+---
+
+### Sprint 47.2 — Testbevinding: opstart-crash na herinstall + versie-loader-fix *(~0.5 dag)* — ✅ AFGEROND (v2026.2.47.2)
+
+**Aangemeld:** 12/07/2026 (jouw testronde, na *herinstall* + eerste start) · **Cat:** BUG · *(eerste bevinding uit de 47.x-testreeks)*
+
+**Symptoom:** de web-container blijft herstarten (exponentiële back-off). In de logs: `[versie] Lezen van /VERSION mislukt: Cannot access 'fs' before initialization` én `POC Basic Auth is actief maar er zijn geen leerkrachtenaccounts gevonden`.
+
+**Twee losse oorzaken — gevonden en uit elkaar getrokken:**
+
+1. **De crash-loop = de auth-guard, niet de code van 43–47.1.** `checkAuthConfig()` in `server.js` doet `process.exit(1)` als er **geen** leerkracht in de DB én **geen** geldige `.env`-credentials zijn. Na een *herinstall* (optie 14) is de database leeg, en de `.env` had blijkbaar wel `POC_BASIC_PASS` maar geen geldige `POC_BASIC_USER` (leeg of `CHANGE_ME`). De log `[auth] Fallback login actief via POC_BASIC_USER/POC_BASIC_PASS` is misleidend: die kijkt enkel naar het wachtwoord, terwijl de guard óók een geldige gebruikersnaam eist. Omdat de guard *na* `Listening` draait, lijkt de start eerst te lukken en volgt de exit een fractie later. **Dit staat los van de sprint-wijzigingen** — geen van die wijzigingen draait bij het opstarten.
+   - **Operationele fix (om weer te starten):** zet in `.env` een echte `POC_BASIC_USER` én `POC_BASIC_PASS` (geen lege waarde / geen `CHANGE_ME`) en herstart; óf voeg een leerkracht toe via `pycodeflow.sh → optie 10` (werkt tegen de DB terwijl de webserver stil ligt — admin.html kan niet, want die heeft de draaiende server nodig). Daarna start de server en kun je verder leerkrachten beheren via admin.html.
+2. **`fs`-TDZ in de versie-loader (echte codefix).** `loadVersionFromFile()` draait tijdens module-load (regel ~132) maar `const fs = require('fs')` stond pas op regel ~3262 — dus `fs` zat in zijn *temporal dead zone*. De `try/catch` ving dit op, dus het craêshte niet, maar de app kon zijn eigen `VERSION` niet lezen en viel terug op een **verkeerd versienummer** (o.a. de startpagina-footer uit sprint 45). **Fix:** `const fs = require('fs')` verplaatst naar het requires-blok bovenaan `server.js`, vóór elk gebruik. Latente bug (bestond al vóór 43–47.1), nu opgelost nu hij zichtbaar werd.
+
+**Bewust niet aangeraakt:** de `process.exit(1)`-guard zelf. Dat is opzettelijke beveiliging (draai geen auth-app zonder accounts). Wel een **kleine, veilige verbetering mogelijk** als je wil: de "Fallback login actief"-melding pas tonen als óók de gebruikersnaam volledig is, en de fatale melding het exacte `.env`-pad noemen — zeg maar of ik dat als 47.3 meepak.
+
+**Tests:** regressiestap toegevoegd aan `test-readme.md` (0.2): `/api/version` moet gelijk zijn aan het `VERSION`-bestand — wijkt het af, dan is de versie-loader teruggevallen (precies dit TDZ-symptoom).
+
+---
+
+### Sprint 47.1 — Follow-ups: syntax highlighting + Tip/Hint samenvoegen *(~0.5 dag)* — ✅ AFGEROND (v2026.2.47.1)
+
+**Aangemeld:** 12/07/2026 (afronding van de open puntjes uit sprint 47) · **Cat:** UX · *(decimaal tussengeschoven na 47)*
+
+**Wat is gebouwd:**
+- **(c-vervolg) Echte Python syntax highlighting.** Nieuw, **zelf-gehost** bestand `public/code-highlight.js` (geen externe library, geen CDN, CSP-veilig onder `script-src 'self'`). Het haakt in op de code-renderer van `marked` (al geladen op de quizpagina's) en tokeniseert Python: keywords, builtins, strings, comments en getallen krijgen `.tok-…`-spans; kleuren staan in `styles.css` onder `.hl-python`. **Fail-safe:** gaat er iets mis, dan valt een blok terug op gewone (ge-escapete) tekst — code wordt nooit kapotgemaakt, en operatoren als `<`, `>`, `&` worden correct ge-escaped. Ingeladen op `quiz-bank.html`, `quiz-teacher.html` en `quiz-student.html`, dus consistent in editor-preview, leerkracht-preview én leerling-weergave.
+- **(a-vervolg) Tip en Hint samengevoegd.** De aparte **Hint-knop** is uit de editor-toolbar gehaald; "Tip" dekt nu één begrip (advies óf hulp). Bestaande vragen met `:::hint` blijven gewoon renderen (backwards-compatibel) — enkel de knop verdwijnt, zodat de verwarring "twee bijna-identieke kaders" weg is. `:::hint` handmatig typen kan technisch nog; wil je het volledig als alias van Tip laten renderen (paars → groen), dan is dat een piepkleine extra stap.
+
+**Tests:** `web/tests/highlight.test.js` toegevoegd (6 unit-tests; `public/code-highlight.js` exporteert de pure functie in een Node-omgeving zodat ze testbaar is). Volledige suite: **165/165 groen**. Handmatig testboek `test-readme.md` uitgebreid met secties 47–53 (sprints 43 t/m 47.1) en bijgewerkt naar v2026.2.47.1.
+
+---
+
+### Sprint 47 — Vraag-editor & vraagweergave verbeteringen *(~1.5 dag)* — ✅ AFGEROND (v2026.2.47.0)
+
+**Aangemeld:** 11/07/2026 (leerkracht-feedback + screenshot) · **Afgerond:** 11/07/2026 · **Cat:** UX
+
+**Wat is gebouwd:**
+- **(a) Tip vs Hint — beide behouden, doel verduidelijkt.** Bewust *niet* samengevoegd (dat zou bestaande vragen met `:::hint`/`:::tip` breken). In plaats daarvan zijn de toolbar-tooltips expliciet gemaakt: "Tip: advies vooraf" vs "Hint: hulp bij vastlopen", zodat het onderscheid duidelijk is. Samenvoegen blijft een optie (47.x) als je dat later toch wil. → **gedaan in 47.1** (Hint-knop verwijderd, samengevoegd met Tip).
+- **(b) "Kader" → "Extra informatie".** Het label van het blauwe kader is hernoemd in `styles.css` én `quiz-bank.html` (`.info-kader-blauw::before` → "📌 Extra informatie") en de toolbar-tooltip. De onderliggende `:::kader`-syntax blijft ongewijzigd, dus bestaande vragen tonen automatisch het nieuwe label — backwards-compatibel.
+- **(c) Python-codeblok als echt code-veld.** Fenced code (```python) rendert via marked als `<pre><code>`; er was geen styling → platte zwarte tekst. Toegevoegd in `styles.css`: `.md-preview pre`/`.q-text pre` als **donker code-veld** (achtergrond #1e1e1e, licht monospace, padding, rounded, horizontale scroll) + nette inline-code-stijl. Consistent in editor-preview, leerling-weergave én leerkracht-preview (alle drie `.md-preview`). *Token-kleuring (echte syntax highlighting) is bewust niet meegenomen:* dat vereist een highlight-library + CSP-uitzondering en is een optionele follow-up (47.x); het donkere code-veld dekt de gevraagde "code-veld layout". → **gedaan in 47.1** (zelf-gehoste highlighter, geen library/CDN).
+- **(d) Juist-antwoord groen in de editor.** De nakijk-/verbeterweergave (`quiz-review.js`) kleurde al groen/rood/amber. De resterende gap zat in de **editor**: `.choice-row.correct-row` gebruikte `--primary` (blauw) → nu **groen** (#10b981 / #f0fdf4), consistent met "juist = groen".
+
+**Oorspronkelijke analyse (bij aanmelding):**
 
 Context: de vier info-kaders staan in `quiz-bank.js`/`quiz-student.js`/`quiz-teacher.js` (`:::tip` → `.info-tip`, `:::opgelet` → `.info-opgelet`, `:::kader` → `.info-kader-blauw`, `:::hint` → `.info-hint`); de labels/kleuren in `styles.css` (regels ~352-355).
 

@@ -59,7 +59,7 @@
       border-radius: 10px; padding: 10px 12px;
       box-sizing: border-box; width: 100%;
     }
-    .choice-row.correct-row { border-color: var(--primary); background: var(--primary-soft); }
+    .choice-row.correct-row { border-color: #10b981; background: #f0fdf4; }
     .choice-selector { margin-top: 8px; width: 16px; height: 16px; cursor: pointer; flex-shrink: 0; }
     .choice-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; width: 100%; }
     .choice-text-input {
@@ -134,7 +134,7 @@
     .info-kader::before { font-weight: 800; display: block; margin-bottom: 4px; }
     .info-tip::before     { content: '💡 Tip'; }
     .info-opgelet::before { content: '⚠️ Opgelet'; }
-    .info-kader-blauw::before { content: '📌 Kader'; }
+    .info-kader-blauw::before { content: '📌 Extra informatie'; }
     .info-hint::before    { content: '❓ Hint'; }
 
     /* 25c: tabel-modal */
@@ -272,10 +272,9 @@
           <button type="button" class="etb-btn" title="Python code-blok" onclick="insertMdBlock('\`\`\`python','\`\`\`')">&lt;/&gt;</button>
           <div class="etb-sep"></div>
           <!-- 25b: Info-kaders -->
-          <button type="button" class="etb-btn" title="Tip-kader (groen)" onclick="insertKader('tip')" style="color:#10b981;">💡</button>
+          <button type="button" class="etb-btn" title="Tip / hint: advies of hulp (groen)" onclick="insertKader('tip')" style="color:#10b981;">💡</button>
           <button type="button" class="etb-btn" title="Opgelet-kader (oranje)" onclick="insertKader('opgelet')" style="color:#f59e0b;">⚠️</button>
-          <button type="button" class="etb-btn" title="Informatiekader (blauw)" onclick="insertKader('kader')" style="color:#3b82f6;">📌</button>
-          <button type="button" class="etb-btn" title="Hint-kader (paars)" onclick="insertKader('hint')" style="color:#8b5cf6;">❓</button>
+          <button type="button" class="etb-btn" title="Extra informatie (blauw)" onclick="insertKader('kader')" style="color:#3b82f6;">📌</button>
           <div class="etb-sep"></div>
           <!-- 25a: Kleur -->
           <div style="position:relative;">
@@ -410,6 +409,7 @@ Lussen,makkelijk,2,"Druk de getallen 1 tot 10 af met een lus."</pre>
 <script src="/app.js?v=v2026.2.43.0"></script>
 <!-- 22d: marked.js voor Markdown preview — geladen VOOR inline script -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script src="/code-highlight.js?v=v2026.2.43.0"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
 <script src="/quiz-bank.js?v=v2026.2.43.0"></script>
 </body>

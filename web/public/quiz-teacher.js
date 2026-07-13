@@ -164,11 +164,15 @@ function renderPreviewQuestion(idx) {
     answerHtml = '<div style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">' +
       choices.map(function(ch) {
         var textHtml = ch.isCode
-          ? '<pre style="background:#1e1e1e;color:#d4d4d4;padding:8px;border-radius:6px;font-size:0.82rem;margin:0;overflow-x:auto;">' + esc(ch.text) + '</pre>'
-          : '<span>' + esc(ch.text) + '</span>';
-        return '<label style="display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border:2px solid var(--border);border-radius:8px;cursor:pointer;background:var(--surface);">' +
-          '<input type="' + (type==='single'?'radio':'checkbox') + '" name="prev-ch-' + id + '" style="margin-top:2px;flex-shrink:0;"/>' +
-          '<div style="flex:1;">' + textHtml + '</div></label>';
+          ? '<pre style="background:#1e1e1e;color:#d4d4d4;padding:8px 12px;border-radius:6px;font-family:Consolas,monospace;font-size:0.82rem;margin:0;overflow-x:auto;white-space:pre-wrap;">' + esc(ch.text) + '</pre>'
+          : '<span style="font-size:0.95rem;line-height:1.5;">' + esc(ch.text) + '</span>';
+        // Sprint 46: expliciet font-weight/margin overschrijft de globale regel
+        // `label{display:block;font-weight:800;margin-bottom:8px}` (styles.css) die anders in de
+        // preview inlekte. min-width:0 op de tekstkolom voorkomt dat lange opties/code overlopen en
+        // rechts afgesneden worden (dezelfde aanpak als de echte leerling-weergave in quiz-student.js).
+        return '<label style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border:2px solid var(--border);border-radius:10px;cursor:pointer;background:var(--surface);font-weight:400;margin:0;box-sizing:border-box;width:100%;">' +
+          '<input type="' + (type==='single'?'radio':'checkbox') + '" name="prev-ch-' + id + '" style="margin-top:' + (ch.isCode?'10px':'2px') + ';width:16px;height:16px;flex-shrink:0;"/>' +
+          '<div style="flex:1;min-width:0;overflow-wrap:anywhere;">' + textHtml + '</div></label>';
       }).join('') + '</div>';
   }
 
@@ -267,7 +271,7 @@ async function createQuiz() {
     });
     const data = await r.json();
     if (data.ok) {
-      const previewUrl = `/quiz-student.html?code=${data.code}&name=${encodeURIComponent('Leerkracht Test')}`;
+      const previewUrl = `/quiz-student.html?code=${data.code}&name=${encodeURIComponent('Leerkracht Test')}&class=${encodeURIComponent('Preview')}`;
       if (isTeacherPreview) {
         const gaNaar = await pyConfirm({
           title: 'Toets aangemaakt (PREVIEW)',

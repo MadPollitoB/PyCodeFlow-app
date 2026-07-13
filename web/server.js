@@ -2,6 +2,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const path = require("path");
+const fs = require("fs");
 const crypto = require("crypto");
 
 // SQLite database — sessie-persistentie en leerkrachtenaccounts
@@ -485,14 +486,37 @@ app.get('/teacher-app.html', requireTeacherAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'teacher-app.html'));
 });
 // teacher-start.html route verwijderd (sprint 23c) — bestand bestond niet
+
+// ── Sprint 45 (Deel A): de app serveert de startpagina zélf en vult de live versie
+// server-side in (placeholder {{APP_VERSION}}). Geen fetch/CORS, werkt zonder JavaScript,
+// en klopt altijd omdat de app zijn eigen versie kent (VERSION → .env → APP_VERSION).
+let _landingHtmlCache = null;
+function renderLanding() {
+  if (_landingHtmlCache) return _landingHtmlCache;
+  const fsSync = require('fs');
+  const raw = fsSync.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+  _landingHtmlCache = raw.replace(/\{\{APP_VERSION\}\}/g, APP_VERSION);
+  return _landingHtmlCache;
+}
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.type('html').send(renderLanding());
 });
 app.get('/index.html', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.type('html').send(renderLanding());
 });
 app.get('/landing.html', (req, res) => {
   res.redirect('/index.html');
+});
+
+// ── Sprint 45 (Deel B): nette instap-routes (leerling vs. leerkracht).
+// Oude .html-links blijven werken via express.static verderop.
+app.get('/student', (req, res) => {
+  // Clean URL; student-start.html blijft ook rechtstreeks bereikbaar.
+  res.sendFile(path.join(__dirname, 'public', 'student-start.html'));
+});
+app.get('/teacher', (req, res) => {
+  // Leidt naar het leerkrachtenplatform; requireTeacherAuth stuurt zo nodig door naar login.
+  res.redirect('/teacher-sessions.html');
 });
 
 app.get('/api/version', (req, res) => {
@@ -2384,10 +2408,10 @@ app.get('/api/monitoring', requireTeacherAuth, async (req, res) => {
       quizStats: await (async () => {
         try {
           const [questions, sessions2, answers, runs] = await Promise.all([
-            dbModule.pool ? dbModule.pool.query(`SELECT COUNT(*) FROM quiz_bank WHERE archived=false`) : Promise.resolve({rows:[{count:0}]}),
-            dbModule.pool ? dbModule.pool.query(`SELECT COUNT(*) FROM quiz_meta`) : Promise.resolve({rows:[{count:0}]}),
-            dbModule.pool ? dbModule.pool.query(`SELECT COUNT(*) FROM quiz_answers`) : Promise.resolve({rows:[{count:0}]}),
-            dbModule.pool ? dbModule.pool.query(`SELECT ROUND(AVG(run_count),1) as avg FROM quiz_answers`) : Promise.resolve({rows:[{avg:0}]}),
+            dbModule.query ? dbModule.query(`SELECT COUNT(*) FROM quiz_bank WHERE archived=false`) : Promise.resolve({rows:[{count:0}]}),
+            dbModule.query ? dbModule.query(`SELECT COUNT(*) FROM quiz_meta`) : Promise.resolve({rows:[{count:0}]}),
+            dbModule.query ? dbModule.query(`SELECT COUNT(*) FROM quiz_answers`) : Promise.resolve({rows:[{count:0}]}),
+            dbModule.query ? dbModule.query(`SELECT ROUND(AVG(run_count),1) as avg FROM quiz_answers`) : Promise.resolve({rows:[{avg:0}]}),
           ]);
           return {
             totalQuestions: Number(questions.rows[0].count || 0),
@@ -2629,32 +2653,100 @@ app.get("/api/quiz-sessions", requireTeacherAuth, async (req, res) => {
   const now = Date.now();
   const out = [];
 
-  // Actieve (in-memory) toets/taak-sessies
-  for (const s of sessions.values()) {
-    if (s.deleted || s.closed) continue;
-    if (s.mode !== 'quiz' && s.mode !== 'task') continue;
-    let meta = null;
-    try { meta = await dbModule.getQuizMeta(s.code); } catch { /* meta optioneel */ }
-    if (meta && meta.is_teacher_preview) continue;              // preview-sessies verbergen
-    const students = Object.values(s.students || {}).filter(st => !st.removed);
-    const onlineCount = students.filter(st => st.online).length;
-    out.push(quizSummaryRow(s.code, s.name, s.createdAt, false, meta, onlineCount, students.length, now));
-  }
-
-  // Gesloten toets/taak-sessies (uit DB)
+  // Sprint 47.4: de lijst van toetsen/taken komt uit quiz_meta (de bron van waarheid),
+  // niet enkel uit de in-memory sessies. Zo verschijnt élke aangemaakte toets, ook als
+  // z'n sessie (nog) niet in het geheugen staat. Preview-toetsen blijven verborgen.
+  let metas = [];
   try {
-    const closed = await dbModule.loadClosedSessions();
-    for (const s of closed) {
-      if (s.mode !== 'quiz' && s.mode !== 'task') continue;
-      let meta = null;
-      try { meta = await dbModule.getQuizMeta(s.code); } catch { /* */ }
-      if (meta && meta.is_teacher_preview) continue;
-      out.push(quizSummaryRow(s.code, s.name, s.createdAt, true, meta, 0, s.studentCount || 0, now));
+    metas = (await dbModule.query(`SELECT * FROM quiz_meta WHERE is_teacher_preview = false`)).rows || [];
+  } catch (e) { log.warn('[quiz-sessions] quiz_meta lezen mislukt:', e.message); }
+
+  for (const meta of metas) {
+    const code = meta.session_code;
+    const mem = sessions.get(code);
+    let name = mem && mem.name, createdAt = mem && mem.createdAt;
+    let closed = mem ? !!mem.closed : false, deleted = mem ? !!mem.deleted : false;
+    if (!mem) {
+      // Sessie niet in geheugen → naam/status uit de DB halen.
+      try {
+        const r = await dbModule.query(`SELECT name, created_at, closed, deleted FROM sessions WHERE code = $1`, [code]);
+        if (r.rows[0]) {
+          name = r.rows[0].name;
+          createdAt = Number(r.rows[0].created_at);
+          closed  = r.rows[0].closed  === 1 || r.rows[0].closed  === true;
+          deleted = r.rows[0].deleted === 1 || r.rows[0].deleted === true;
+        }
+      } catch { /* sessie-info optioneel */ }
     }
-  } catch { /* gesloten optioneel */ }
+    if (deleted) continue;
+    const students = mem ? Object.values(mem.students || {}).filter(st => !st.removed) : [];
+    const onlineCount = students.filter(st => st.online).length;
+    out.push(quizSummaryRow(code, name || code, createdAt || 0, closed, meta, onlineCount, students.length, now));
+  }
 
   out.sort((a, b) => b.createdAt - a.createdAt);
   res.json(out);
+});
+
+// ── Sprint 43.1: voortgang per gekoppelde klas-leerling ──────────────────────
+// Groen = ingeleverd, geel = al iets gemaakt (niet ingeleverd), grijs = niets.
+// De "gekoppelde" leerlingen zijn de leden van de aan de toets gekoppelde klas
+// (van dat schooljaar), via class_memberships. Matching op naam, omdat een
+// toets-leerling een eigen (niet-globale) id krijgt bij quiz_start.
+app.get("/api/quiz-sessions/:code/roster", requireTeacherAuth, async (req, res) => {
+  const code = (req.params.code || '').toUpperCase();
+  const meta = await dbModule.getQuizMeta(code);
+  if (!meta) return res.status(404).json({ error: 'Toets niet gevonden.' });
+
+  const classId = meta.target_class || '';
+  let roster = [];
+  if (classId) {
+    try { roster = await dbModule.listStudents(classId); } catch { roster = []; }
+    // enkel actieve lidmaatschappen van dat schooljaar (listStudents joint al op klas+jaar)
+    roster = roster.filter(s => (s.membership_status || 'active') === 'active');
+  }
+
+  const answers = await dbModule.getQuizAnswers(code).catch(() => []);
+  const norm = n => (n || '').trim().toLowerCase();
+
+  // Activiteit groeperen per (genormaliseerde) naam.
+  const byName = new Map();
+  for (const a of answers) {
+    const key = norm(a.student_name);
+    if (!key) continue;
+    let g = byName.get(key);
+    if (!g) { g = { name: a.student_name, submitted: false, hasContent: false }; byName.set(key, g); }
+    if (a.submitted_at) g.submitted = true;
+    const hasCode    = (a.code || '').trim() !== '';
+    const hasChoices = (a.selected_choices || '[]').trim() !== '[]' && (a.selected_choices || '').trim() !== '';
+    if (hasCode || hasChoices || (a.run_count || 0) > 0 || a.first_run_at) g.hasContent = true;
+  }
+  const statusOf = g => !g ? 'none' : (g.submitted ? 'submitted' : (g.hasContent ? 'started' : 'none'));
+
+  const students = roster.map(s => ({ id: s.id, name: s.name, status: statusOf(byName.get(norm(s.name))) }));
+
+  // Deelnemers die (nog) niet in de klas zitten (bv. andere naam ingetypt) — apart tonen.
+  const rosterNames = new Set(roster.map(s => norm(s.name)));
+  const extras = [];
+  for (const [key, g] of byName) {
+    if (!rosterNames.has(key)) extras.push({ name: g.name, status: statusOf(g) });
+  }
+  extras.sort((a, b) => a.name.localeCompare(b.name, 'nl'));
+
+  const counts = {
+    submitted: students.filter(s => s.status === 'submitted').length,
+    started:   students.filter(s => s.status === 'started').length,
+    none:      students.filter(s => s.status === 'none').length,
+    total:     students.length,
+  };
+
+  res.json({
+    code, classId,
+    className: roster[0]?.class_name || '',
+    schoolYear: meta.school_year || '',
+    hasClass: !!classId,
+    students, extras, counts,
+  });
 });
 
 // ── ZIP Export: alle leerlingencode + output per sessie ───────────────────────
@@ -3175,7 +3267,6 @@ async function startPythonRun({ session, code, targetStudentId = null, audience 
 }
 
 // ── Auditlog vrije sessie ────────────────────────────────────────────────────
-const fs = require('fs');
 const FREE_AUDIT_LOG = require('path').join(process.env.LOG_DIR || '/app/logs', 'free-audit.log');
 
 function logFreeRun(name, className, runCount) {

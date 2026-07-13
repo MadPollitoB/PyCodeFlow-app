@@ -229,11 +229,31 @@ if (!urlName) {
   document.querySelector('.start-card button').disabled = true;
 }
 
+// Sprint 46: laadstatus + time-out zodat het startscherm nooit stil blijft hangen
+// als quiz_start faalt (lege naam, dubbele verbinding, config weg, netwerk, …).
+let _startTimeout = null;
+function _showStartError(msg) {
+  const info = document.getElementById('start-info');
+  if (info) { info.textContent = msg; info.style.color = '#991b1b'; info.style.fontWeight = '700'; }
+  const btn = document.querySelector('.start-card button');
+  if (btn) { btn.disabled = false; btn.textContent = '🚀 START TOETS'; }
+}
+function _clearStartTimeout() { if (_startTimeout) { clearTimeout(_startTimeout); _startTimeout = null; } }
+
 function startQuiz() {
+  const btn = document.querySelector('.start-card button');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Bezig met laden…'; }
+  const info = document.getElementById('start-info');
+  if (info) { info.textContent = 'Bezig met laden…'; info.style.color = ''; info.style.fontWeight = ''; }
+  _clearStartTimeout();
+  _startTimeout = setTimeout(function() {
+    _showStartError('De toets laadt niet. Ververs de pagina of controleer met je leerkracht dat de toets openstaat.');
+  }, 10000);
   socket.emit('quiz_start', { code: urlCode, name: urlName, className: urlClass });
 }
 
 socket.on('quiz_state', async (state) => {
+  _clearStartTimeout();
   _state = state;
   _studentId = state.studentId;
   _sessionCode = urlCode;
@@ -307,6 +327,7 @@ socket.on('quiz_results_released', () => {
 
 // Sprint 19j: toegangsvenster verlopen
 socket.on('quiz_access_expired', ({ deadlineStr, autoSubmitLate }) => {
+  _clearStartTimeout();
   document.getElementById('start-screen').style.display = 'none';
   document.getElementById('quiz-screen').style.display = 'none';
   document.getElementById('submit-screen').classList.remove('visible');
@@ -319,7 +340,14 @@ socket.on('quiz_access_expired', ({ deadlineStr, autoSubmitLate }) => {
 });
 
 socket.on('error_message', async (msg) => {
-  await pyAlert(typeof msg === 'string' ? msg : msg.message || 'Fout', "error");
+  _clearStartTimeout();
+  const text = typeof msg === 'string' ? msg : msg.message || 'Fout';
+  // Als we nog op het startscherm staan: toon de fout daar zichtbaar i.p.v. stil te blijven hangen.
+  const startScreen = document.getElementById('start-screen');
+  if (startScreen && startScreen.style.display !== 'none') {
+    _showStartError(text);
+  }
+  await pyAlert(text, "error");
 });
 
 // Sprint 19d: herinnering van leerkracht
