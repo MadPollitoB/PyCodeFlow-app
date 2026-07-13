@@ -1255,6 +1255,20 @@ app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireCsrf, async (re
   res.json({ ok: true, code: newCode });
 });
 
+// ── Sprint 43.2b: preview-toets activeren (→ echte toets die gestart kan worden) ──
+app.post('/api/quiz/:code/activate', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const code = String(req.params.code || '').toUpperCase();
+  try {
+    await dbModule.query('UPDATE quiz_meta SET is_teacher_preview = false WHERE session_code = $1', [code]);
+    const s = sessions.get(code);
+    if (s) s.isTeacherPreview = false;
+    res.json({ ok: true });
+  } catch (e) {
+    log.warn('[quiz activate] mislukt:', e.message);
+    res.status(500).json({ ok: false, error: 'Activeren mislukt.' });
+  }
+});
+
 // ── 16b: Toets pauzeren ──────────────────────────────────────────────────────
 
 app.post('/api/quiz/:code/pause', requireTeacherAuth, requireCsrf, async (req, res) => {
@@ -2646,19 +2660,35 @@ function quizSummaryRow(code, name, createdAt, closed, meta, onlineCount, studen
   if (closed)                                    availability = 'closed';
   else if (accessFrom  && now < accessFrom)      availability = 'pending';  // venster nog niet begonnen
   else if (accessUntil && now > accessUntil)     availability = 'expired';  // venster voorbij
-  return { code, name, createdAt, closed, quizType, accessFrom, accessUntil, availability, onlineCount, studentCount };
+  return {
+    code, name, createdAt, closed, quizType, accessFrom, accessUntil, availability, onlineCount, studentCount,
+    // Sprint 43.2: extra velden voor de toetsen-/takenbank
+    isPreview:   !!(meta && meta.is_teacher_preview),
+    archived:    !!(meta && meta.archived),
+    schoolYear:  (meta && meta.school_year) || '',
+    targetClass: (meta && meta.target_class) || '',
+    className:   '',
+  };
 }
 
 app.get("/api/quiz-sessions", requireTeacherAuth, async (req, res) => {
   const now = Date.now();
   const out = [];
+  // Sprint 43.2: bank-modus toont ook preview-/onafgewerkte toetsen (met vlag),
+  // zodat niets onbereikbaar "zweeft". Zonder bank blijven previews verborgen.
+  const bank = req.query.bank === '1' || req.query.bank === 'true';
 
-  // Sprint 47.4: de lijst van toetsen/taken komt uit quiz_meta (de bron van waarheid),
-  // niet enkel uit de in-memory sessies. Zo verschijnt élke aangemaakte toets, ook als
-  // z'n sessie (nog) niet in het geheugen staat. Preview-toetsen blijven verborgen.
+  // Klas-id → naam, zodat de bank de klasnaam kan tonen/filteren.
+  let classMap = {};
+  try {
+    const cls = await dbModule.listClasses(true);
+    for (const c of cls) classMap[c.id] = c.name;
+  } catch { /* klasnamen optioneel */ }
+
   let metas = [];
   try {
-    metas = (await dbModule.query(`SELECT * FROM quiz_meta WHERE is_teacher_preview = false`)).rows || [];
+    const where = bank ? '' : 'WHERE is_teacher_preview = false';
+    metas = (await dbModule.query(`SELECT * FROM quiz_meta ${where}`)).rows || [];
   } catch (e) { log.warn('[quiz-sessions] quiz_meta lezen mislukt:', e.message); }
 
   for (const meta of metas) {
@@ -2681,7 +2711,9 @@ app.get("/api/quiz-sessions", requireTeacherAuth, async (req, res) => {
     if (deleted) continue;
     const students = mem ? Object.values(mem.students || {}).filter(st => !st.removed) : [];
     const onlineCount = students.filter(st => st.online).length;
-    out.push(quizSummaryRow(code, name || code, createdAt || 0, closed, meta, onlineCount, students.length, now));
+    const row = quizSummaryRow(code, name || code, createdAt || 0, closed, meta, onlineCount, students.length, now);
+    row.className = classMap[row.targetClass] || '';
+    out.push(row);
   }
 
   out.sort((a, b) => b.createdAt - a.createdAt);

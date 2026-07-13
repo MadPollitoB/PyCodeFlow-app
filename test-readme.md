@@ -1913,4 +1913,37 @@ LEERLING — juiste instap
 ⚠️ Een toets die WÉL met de PREVIEW-checkbox is aangemaakt hoort NIET in de Toetsen-tab (preview blijft verborgen)
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.1 · 12 juli 2026*
+## 55. Sprint 43.2 — Toetsen-/takenbank
+
+```
+✅ Teacher → tab "Toetsen": toont álle toetsen/taken (ook oudere), niet enkel actieve sessies
+✅ Filters werken: Klas, Type (toets/taak), Status (open/gesloten/preview), Schooljaar
+✅ Een preview/onafgewerkte toets is nu zichtbaar met badge "👁 preview"
+✅ 🗑 Verwijderen haalt een toets/taak uit de bank (bevestiging gevraagd)
+✅ De eerder "zwevende" (onbereikbare) toets kan je nu terugvinden én verwijderen
+✅ Verbeteren / Dupliceren / (Live + Voortgang bij niet-previews) werken per item
+```
+
+## 56. Sprint 43.2b — Bank vindbaar + status-groepen
+
+```
+✅ Nav-link "📚 Toetsen & taken" staat op elke leerkrachtpagina en opent de bank-tab
+✅ Bank toont groepen: 🟢 Actief / 👁 Preview-onafgewerkt / ✅ Afgerond-te verbeteren
+✅ Preview-item heeft knop "▶ Activeren" → wordt een echte toets (schuift naar Actief) en is startbaar
+✅ Dupliceren vraagt de naam via een SCHERM-popup (niet de browser-prompt)
+✅ Verwijderen vraagt bevestiging via scherm-popup
+```
+
+## 57. Sprint 43.6 — Leerling-login + sessie-tabs
+
+```
+✅ Leerling gaat naar landing → "Ik ben leerling" (/student), vult naam+klas+code in
+✅ Knop "Deelnemen" WERKT (leerling komt in de sessie) — was stuk op /student
+✅ Knop "Vrij oefenen" werkt
+✅ Ook rechtstreeks /student-start.html blijft werken
+✅ Sessie-overzicht heeft tabs: Sessies / Toetsen / Taken
+✅ Toetsen-tab toont enkel actieve toetsen (geen preview); Taken-tab enkel actieve taken
+✅ Volledige bank (incl. preview + activeren) blijft bereikbaar via nav "📚 Toetsen & taken"
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.7 · 12 juli 2026*

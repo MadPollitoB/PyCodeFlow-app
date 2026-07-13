@@ -59,6 +59,7 @@
   <div class="subnav-inner">
     <a href="/quiz-bank.html">📋 Vragenbank</a>
     <a href="/quiz-teacher.html">📝 Nieuwe toets</a>
+  <a href="/teacher-sessions.html?tab=quizzes">📚 Toetsen &amp; taken</a>
     <a href="/quiz-archive.html">📦 Archief</a>
     <div class="subnav-sep"></div>
     <a href="/admin.html">👤 Beheer</a>
@@ -121,9 +122,10 @@
           <button class="btn btn-soft small" id="sessions-refresh-btn" title="Vernieuwen">↻</button>
         </div>
       </div>
-      <div style="display:flex;gap:8px;margin-bottom:8px;">
+      <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
         <button class="btn btn-muted small active-tab" onclick="showTab('sessions',this)">Sessies</button>
-        <button class="btn btn-muted small" onclick="showTab('quizzes',this)">📝 Toetsen</button>
+        <button class="btn btn-muted small" onclick="showTab('toetsen',this)">🧪 Toetsen</button>
+        <button class="btn btn-muted small" onclick="showTab('taken',this)">📝 Taken</button>
       </div>
       <div id="tab-sessions">
       <div class="inline-note">Klik op <strong>Open</strong> om te bewerken, of <strong>Waarnemen</strong> om read-only mee te kijken.</div>
@@ -136,9 +138,20 @@
       </div>
       <div class="session-list" id="session-list"></div>
       </div><!-- /tab-sessions -->
+      <div id="tab-toetsen" style="display:none;">
+        <div class="inline-note">Actieve toetsen (zonder previews). <a href="/teacher-sessions.html?tab=quizzes">Volledig overzicht &amp; previews →</a></div>
+        <div id="toets-list"><p class="muted">Laden…</p></div>
+        <div style="margin-top:12px;"><a href="/quiz-teacher.html" class="btn btn-soft small">+ Nieuwe toets aanmaken</a></div>
+      </div><!-- /tab-toetsen -->
+      <div id="tab-taken" style="display:none;">
+        <div class="inline-note">Actieve taken (zonder previews). <a href="/teacher-sessions.html?tab=quizzes">Volledig overzicht &amp; previews →</a></div>
+        <div id="taak-list"><p class="muted">Laden…</p></div>
+        <div style="margin-top:12px;"><a href="/quiz-teacher.html" class="btn btn-soft small">+ Nieuwe taak aanmaken</a></div>
+      </div><!-- /tab-taken -->
       <div id="tab-quizzes" style="display:none;">
-        <div class="inline-note">Toetsen en taken die je hebt aangemaakt.</div>
-        <div id="quiz-list"><p class="muted">Geen toetsen gevonden.</p></div>
+        <div class="inline-note">Alle toetsen en taken die je hebt aangemaakt (toetsen-/takenbank).</div>
+        <div id="quiz-filters" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0;"></div>
+        <div id="quiz-list"><p class="muted">Laden…</p></div>
         <div style="margin-top:12px;">
           <a href="/quiz-teacher.html" class="btn btn-soft small">+ Nieuwe toets aanmaken</a>
         </div>

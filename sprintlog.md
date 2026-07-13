@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.47.4**
+**Huidige versie: v2026.2.47.7**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -18,6 +18,10 @@
 
 | Sprint | Prio | Cat | Inhoud | Inschatting |
 |---|---|---|---|---|
+| **43.7** | 🟠 P8 | FEAT | **Toets-overzicht & taak-overzicht als aparte pagina's** (zoals de vragenbank): volledige beheerpagina's per type, mét aanmaken/bewerken. Nav: **"Nieuwe toets" weg**, **"Toets overzicht"** + **"Taak overzicht"** erbij. (De actieve Toetsen/Taken-tabs in het sessie-overzicht bestaan al sinds 43.6b.) | ~1.5 dag |
+| **43.3** | 🟠 P8 | FEAT | **Type toets vs taak** expliciet: kolom `type` op `quiz_meta` ('toets'/'taak', bestaande rijen afgeleid uit `no_timer`). Keuze bij aanmaken; bank/tab filteren erop. *Deadline-regel te bevestigen (zie detail).* | ~1 dag |
+| **43.4** | 🟠 P8 | FEAT | **Leerling-selectie per toets/taak**: klas kiezen → knop "Leerlingen" → popup met checkboxes (standaard alles aan), "alles aan/uit", opslaan/annuleren. Nieuwe tabel `assignment_students`; leeg = alle klasleerlingen. Beschikbaarheid afgedwongen bij join. | ~1.5 dag |
+| **43.5** | 🟡 P6 | REFACTOR | **Hernoemen tabellen** `quiz_bank` → `question_bank`, `quiz_meta` → `assignment_bank` (DB-migratie + alle codereferenties). Risicovol/mechanisch → bewust als laatste. *Scope te bevestigen (zie detail).* | ~1-1.5 dag |
 | **48** | 🔵 P9 | ARCH | ⛔ School-keuze bij leerkracht-login (modal indien >1 school) + `active_school_id` in sessie — **geblokkeerd:** vereist fase 1 + fase 3 (multi-tenant) | ~3 dagen |
 
 > **Sprint 42 is gesplitst:** Deel C (branding/schoollogo) is afgerond in v2026.2.42.0 (zie afgewerkte sprints); het restant (startpagina + leerling/leerkracht-ingang) leeft nu als **sprint 45**.
@@ -92,12 +96,88 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 42 | **47.2** | Testbevinding: opstart-crash na herinstall gediagnosticeerd (auth-guard) + fs-TDZ in versie-loader gefixt | v2026.2.47.2 |
 | 43 | **47.3** | Deadlock-fix: `pycodeflow.sh` maakt leerkracht nu aan via wegwerp-container (`docker compose run`) i.p.v. `docker exec` in de down-zijnde web-container | v2026.2.47.3 |
 | 44 | **47.4** | Testbevinding: admin-quizstatistieken stonden op 0 (niet-geëxporteerde `dbModule.pool`) + toets onzichtbaar in Toetsen-tab (lijst nu uit `quiz_meta`) + admin-sessietype herkent toets/taak | v2026.2.47.4 |
+| 45 | **43.2** | Toetsen-/takenbank: overzicht van álle toetsen/taken (incl. previews) met filters (klas/type/status/jaar) + verwijderen — lost de zwevende toets op | v2026.2.47.5 |
+| 46 | **43.2b** | Bank vindbaar via nav-link "📚 Toetsen & taken" + status-groepen (Actief/Preview/Afgerond) + preview activeren + dupliceer-naam via scherm-modal (pyPrompt) | v2026.2.47.6 |
+| 47 | **43.6** | Bugfix: leerlingen konden niet inloggen op de clean `/student`-route — `'student'` ontbrak in `_socketPages`, dus de socket was een no-op stub (knoppen deden niets) | v2026.2.47.7 |
+| 48 | **43.6b** | Sessie-overzicht: aparte tabs **Sessies / Toetsen / Taken**, elk enkel actieve items (geen previews); volledige bank blijft via nav bereikbaar | v2026.2.47.7 |
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 43.2 — Toetsen-/takenbank (overzichtspagina) *(~1.5 dag)* — ✅ AFGEROND (v2026.2.47.5)
+
+**Aangemeld:** 12/07/2026 (testronde) · **Afgerond:** 12/07/2026 · **Cat:** UX/BUG
+
+**Wat is gebouwd:** de "Toetsen"-tab (`teacher-sessions.html` + `app.js`) is uitgebouwd tot een **toetsen-/takenbank**. `/api/quiz-sessions?bank=1` levert nu álle items uit `quiz_meta` — **inclusief previews** (met vlag `isPreview`) en met `schoolYear`, `targetClass` + `className`. De bank toont per item type (toets/taak), status, preview-badge, klas en datum, met filters (**klas, type, status, schooljaar**, client-side) en acties **Live, Voortgang, Verbeteren, Dupliceren en Verwijderen**. Verwijderen hergebruikt `DELETE /api/sessions/:code` (soft-delete) — dat haalt de zwevende/preview-toets uit de lijst. Zo is niets nog onbereikbaar.
+
+---
+
+### Sprint 43.2b — Bank vindbaar + status-groepen + preview activeren *(~0.5 dag)* — ✅ AFGEROND (v2026.2.47.6)
+
+**Aangemeld:** 12/07/2026 (testronde) · **Cat:** UX
+
+**Wat is gebouwd:**
+- **Vindbaarheid:** nav-link **"📚 Toetsen & taken"** toegevoegd op alle leerkrachtpagina's → `teacher-sessions.html?tab=quizzes`, dat de bank-tab meteen opent. (De bank zat al in de "Toetsen"-tab maar was niet bereikbaar vanuit het toets-aanmaakscherm.)
+- **Status-groepen** in de bank: **🟢 Actief**, **👁 Preview / onafgewerkt**, **✅ Afgerond / te verbeteren** — met kop per groep.
+- **Preview activeren:** knop **▶ Activeren** op preview-items → `POST /api/quiz/:code/activate` zet `is_teacher_preview=false`, waardoor de preview een echte, startbare toets wordt (los daarmee ook het "kan preview niet later starten"-probleem op).
+- **Dupliceer-naam** vraagt nu via een **scherm-modal** (`pyPrompt`) i.p.v. de browser-`prompt()`. Meteen ook een bug in de verwijder-bevestiging gefixt (`pyConfirm` kreeg een string i.p.v. een options-object).
+
+---
+
+### Sprint 43.6 — Bugfix leerling-login + sessie-overzicht tabs *(~0.5 dag)* — ✅ AFGEROND (v2026.2.47.7)
+
+**Aangemeld:** 12/07/2026 (testronde: "knoppen doen niets") · **Cat:** BUG + UX
+
+**Login-bug (root cause):** sinds sprint 45 serveert de app de leerling-ingang op de nette route **`/student`**, waardoor `page === 'student'`. Maar `_socketPages` in `app.js` (de lijst pagina's die een echte Socket.IO-verbinding krijgen) bevatte wél `'student-start.html'` maar **niet `'student'`**. Op `/student` werd de socket dus een **no-op stub** → `socket.emit('student_join', …)` deed niets → "Deelnemen" en "Vrij oefenen" leken dood. **Fix:** `'student'` toegevoegd aan `_socketPages`. (De CSP-report-only-meldingen in de console waren onschuldig en niet de oorzaak.)
+
+**Sessie-overzicht (Req A):** `teacher-sessions.html` heeft nu drie tabs **Sessies / 🧪 Toetsen / 📝 Taken**. De Toetsen- en Taken-tabs tonen **enkel actieve** items (geen previews, geen gesloten/verlopen), gefilterd op type. De volledige bank (incl. previews, met activeren/verwijderen/filters) blijft bereikbaar via de nav-link "📚 Toetsen & taken" (`?tab=quizzes`).
+
+---
+
+### Sprint 43.7 — Toets-overzicht & taak-overzicht als aparte pagina's *(~1.5 dag)* — 📋 GEPLAND
+
+**Aangemeld:** 12/07/2026 · **Cat:** FEAT · **Prio:** 🟠 P8
+
+**Te bouwen (Req B+C):** twee volwaardige beheerpagina's **"Toets overzicht"** en **"Taak overzicht"**, opgebouwd zoals de **vragenbank** (`quiz-bank.html`): volledig overzicht per type, met aanmaken/bewerken/dupliceren/verwijderen en filters. In de nav: **"Nieuwe toets" verdwijnt**, en er komen **"Toets overzicht"** + **"Taak overzicht"** bij (aanmaken gebeurt dan vanuit die overzichten).
+
+**Nota (afhankelijkheid):** dit is gekoppeld aan **43.3** (expliciet `type`-veld toets/taak). Nu wordt het type nog afgeleid uit `no_timer`; met een echt `type`-veld wordt de splitsing robuuster. Aanrader: 43.3 eerst of samen.
+
+---
+
+### Sprint 43.3 — Type toets vs taak (expliciet) + deadline-regels *(~1 dag)* — 📋 GEPLAND
+
+**Aangemeld:** 12/07/2026 · **Cat:** FEAT · **Prio:** 🟠 P8
+
+**Te bouwen:** kolom **`type`** op `quiz_meta` ('toets'|'taak'; bestaande rijen afgeleid uit `no_timer`). Bij aanmaken kiest de leerkracht expliciet toets/taak; bank + lijst tonen/filteren op type.
+
+**❓ Te bevestigen — deadline-regel.** "*is een einddatum en uur verplicht*" lees ik als: **een taak vereist een einddatum + uur** (`access_until`), een toets houdt het bestaande (optionele) tijdsvenster. Klopt dat, of moet een einddatum voor **béide** verplicht zijn?
+
+---
+
+### Sprint 43.4 — Leerling-selectie per toets/taak *(~1.5 dag)* — 📋 GEPLAND
+
+**Aangemeld:** 12/07/2026 · **Cat:** FEAT · **Prio:** 🟠 P8
+
+**Te bouwen:** nieuwe tabel **`assignment_students`** (`session_code`, `student_id`); afwezig/leeg = ALLE klasleerlingen. UI: klas kiezen → knop **"Leerlingen"** → popup met checkboxes (standaard alles aan), **alles aan/uit**, opslaan/annuleren. Afdwingen bij `student_join`/`quiz_start`.
+
+**Aanname (te bevestigen):** we slaan de **toegelaten** leerlingen op (subset); geen rij = iedereen. Matching op `student_id` uit `class_memberships` van het actieve schooljaar.
+
+---
+
+### Sprint 43.5 — Hernoemen `quiz_bank` → `question_bank`, `quiz_meta` → `assignment_bank` *(~1-1.5 dag)* — 📋 GEPLAND
+
+**Aangemeld:** 12/07/2026 · **Cat:** REFACTOR · **Prio:** 🟡 P6 · *(bewust als laatste: risicovol + mechanisch)*
+
+**Te doen:** DB-migratie (`ALTER TABLE ... RENAME`) + alle codereferenties (`db/database.js`, `server.js`, client, DB-viewer-labels), eenmalig en data-behoudend.
+
+**❓ Te bevestigen — scope.** Enkel `quiz_bank`+`quiz_meta`, of ook `quiz_answers` → `assignment_answers` en `quiz_student_sessions` → `assignment_student_sessions` mee voor de consistentie? Ik raad aan ze mee te nemen.
+
+> **Waarom als laatste:** de rename raakt zowat elke quiz-query. Ná 43.3–43.4 bouwen we de features één keer en migreren daarna in één gecontroleerde stap. Kan ook uitgesteld worden.
+
+---
 
 ### Sprint 43 — Toetsen/taken scheiden van sessies + live-overzicht *(~2-3 dagen)* — ✅ AFGEROND (v2026.2.43.0)
 

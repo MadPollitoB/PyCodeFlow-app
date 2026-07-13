@@ -3,7 +3,7 @@
   // (niet op quiz-bank, quiz-teacher, quiz-archive, admin, monitoring)
   const _socketPages = ['teacher-app.html', 'student-app.html', 'teacher-sessions.html',
                         'free-editor.html', 'teacher-grid.html', 'quiz-student.html',
-                        'quiz-review.html', 'index.html', 'student-start.html', ''];
+                        'quiz-review.html', 'index.html', 'student-start.html', 'student', ''];
   const _currentPage = location.pathname.split('/').pop() || 'index.html';
   const socket = _socketPages.includes(_currentPage) && typeof io !== 'undefined'
     ? io()
@@ -1183,13 +1183,37 @@
 
   // Sprint 16: tab switcher voor teacher-sessions
   window.showTab = function(name, btn) {
-    document.getElementById('tab-sessions').style.display = name === 'sessions' ? '' : 'none';
-    const quizDiv = document.getElementById('tab-quizzes');
-    if (quizDiv) quizDiv.style.display = name === 'quizzes' ? '' : 'none';
+    const show = (id, on) => { const e = document.getElementById(id); if (e) e.style.display = on ? '' : 'none'; };
+    show('tab-sessions', name === 'sessions');
+    show('tab-quizzes',  name === 'quizzes');
+    show('tab-toetsen',  name === 'toetsen');
+    show('tab-taken',    name === 'taken');
     document.querySelectorAll('.active-tab').forEach(b => b.classList.remove('active-tab'));
     if (btn) btn.classList.add('active-tab');
     if (name === 'quizzes') loadQuizSessions();
+    if (name === 'toetsen') loadActiveAssignments('toets');
+    if (name === 'taken')   loadActiveAssignments('taak');
   };
+
+  // Gedeelde cache zodat verwijderen/dupliceren de naam terugvindt, ongeacht welke tab.
+  const _quizByCode = {};
+  function cacheQuizzes(items) { for (const q of items) _quizByCode[q.code] = q; }
+
+  // Sprint 43.6b: actieve toetsen/taken (zonder previews) voor het sessie-overzicht.
+  async function loadActiveAssignments(type) {
+    const el = document.getElementById(type === 'taak' ? 'taak-list' : 'toets-list');
+    if (!el) return;
+    try {
+      const r = await fetch('/api/quiz-sessions'); // zonder ?bank=1 → previews al uitgesloten
+      if (!r.ok) { el.innerHTML = '<p class="muted">Kon niet laden.</p>'; return; }
+      const all = await r.json();
+      cacheQuizzes(all);
+      const items = all.filter(q => q.quizType === type && !q.isPreview && q.availability !== 'closed' && q.availability !== 'expired');
+      el.innerHTML = items.length
+        ? items.map(renderQuizRow).join('')
+        : `<p class="muted">Geen actieve ${type === 'taak' ? 'taken' : 'toetsen'}.</p>`;
+    } catch (e) { el.innerHTML = '<p class="muted">Kon niet laden.</p>'; }
+  }
 
   // Sprint 43: toets/taak-badge, open/gesloten-status (tijdsvenster), online-teller
   // en een link naar de live-meekijkpopup (teacher-grid).
@@ -1208,49 +1232,137 @@
     }
   }
 
+  // Sprint 43.2: toetsen-/takenbank — toont álle toetsen/taken (incl. previews) met filters + verwijderen.
+  let _quizBank = [];
+  const _quizFilter = { klas: '', type: '', status: '', jaar: '' };
+
   async function loadQuizSessions() {
+    const el = document.getElementById('quiz-list');
     try {
-      const r = await fetch('/api/quiz-sessions');
-      if (!r.ok) return;
-      const quizzes = await r.json();
-      const el = document.getElementById('quiz-list');
-      if (!el) return;
-      if (!quizzes.length) {
-        el.innerHTML = '<p class="muted">Nog geen toetsen of taken aangemaakt. Klik op "+ Nieuwe toets aanmaken".</p>';
-        return;
-      }
-      el.innerHTML = quizzes.map(q => {
-        const isLive = q.availability === 'open';
-        const onlineChip = isLive
-          ? `<span class="badge" style="background:${q.onlineCount ? '#dcfce7' : '#f1f5f9'};color:${q.onlineCount ? '#166534' : '#64748b'};" title="Leerlingen nu online">👥 ${q.onlineCount} online</span>`
-          : '';
-        return `
-        <div class="student-item" style="margin-bottom:8px;">
-          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-            <div>
-              <strong>${escapeHtml(q.name || q.code)}</strong>
-              ${quizTypeBadge(q.quizType)}
-              ${quizStatusBadge(q)}
-            </div>
-            <div style="display:flex;align-items:center;gap:6px;margin-left:auto;">
-              ${onlineChip}
-              <span class="muted" style="font-size:0.82rem;">
-                Code: <strong>${q.code}</strong> ·
-                ${new Date(q.createdAt).toLocaleDateString('nl-BE',{day:'2-digit',month:'2-digit',year:'numeric'})}
-              </span>
-            </div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;">
-              <a class="btn btn-soft small" href="/teacher-grid.html?code=${q.code}" target="_blank" title="Live meekijken met de leerlingen">👁 Live</a>
-              <button class="btn btn-soft small" onclick="toggleQuizRoster('${q.code}')" title="Wie is klaar / bezig / nog niet begonnen">👥 Voortgang</button>
-              <a class="btn btn-muted small" href="/quiz-review.html?code=${q.code}">✏️ Verbeteren</a>
-              <button class="btn btn-muted small" onclick="duplicateQuiz('${q.code}')">📋 Dupliceren</button>
-            </div>
-          </div>
-          <div id="roster-${q.code}" class="quiz-roster" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);"></div>
-        </div>`;
-      }).join('');
-    } catch (e) { console.warn('[quiz-sessies] renderen mislukt:', e.message); }
+      const r = await fetch('/api/quiz-sessions?bank=1');
+      if (!r.ok) { if (el) el.innerHTML = '<p class="muted">Kon toetsen niet laden.</p>'; return; }
+      _quizBank = await r.json();
+      cacheQuizzes(_quizBank);
+      buildQuizFilters();
+      renderQuizBank();
+    } catch (e) { if (el) el.innerHTML = '<p class="muted">Kon toetsen niet laden.</p>'; console.warn('[toetsenbank] laden mislukt:', e.message); }
   }
+
+  function buildQuizFilters() {
+    const host = document.getElementById('quiz-filters');
+    if (!host) return;
+    const classes = [...new Set(_quizBank.map(q => q.className).filter(Boolean))].sort();
+    const years   = [...new Set(_quizBank.map(q => q.schoolYear).filter(Boolean))].sort().reverse();
+    const opt = (v, l, sel) => `<option value="${escapeHtml(v)}"${sel ? ' selected' : ''}>${escapeHtml(l)}</option>`;
+    host.innerHTML =
+      `<label class="muted" style="font-size:0.82rem;">Klas <select id="qf-klas" style="margin-left:4px;">${opt('', 'alle', !_quizFilter.klas)}${classes.map(c => opt(c, c, _quizFilter.klas === c)).join('')}</select></label>` +
+      `<label class="muted" style="font-size:0.82rem;">Type <select id="qf-type" style="margin-left:4px;">${opt('', 'alle', !_quizFilter.type)}${opt('toets', 'toets', _quizFilter.type === 'toets')}${opt('taak', 'taak', _quizFilter.type === 'taak')}</select></label>` +
+      `<label class="muted" style="font-size:0.82rem;">Status <select id="qf-status" style="margin-left:4px;">${opt('', 'alle', !_quizFilter.status)}${opt('open', 'open', _quizFilter.status === 'open')}${opt('closed', 'gesloten', _quizFilter.status === 'closed')}${opt('preview', 'preview/onafgewerkt', _quizFilter.status === 'preview')}</select></label>` +
+      (years.length > 1 ? `<label class="muted" style="font-size:0.82rem;">Schooljaar <select id="qf-jaar" style="margin-left:4px;">${opt('', 'alle', !_quizFilter.jaar)}${years.map(y => opt(y, y, _quizFilter.jaar === y)).join('')}</select></label>` : '') +
+      `<span class="muted" style="font-size:0.82rem;" id="qf-count"></span>`;
+    const bind = (id, key) => { const e = document.getElementById(id); if (e) e.addEventListener('change', () => { _quizFilter[key] = e.value; renderQuizBank(); }); };
+    bind('qf-klas', 'klas'); bind('qf-type', 'type'); bind('qf-status', 'status'); bind('qf-jaar', 'jaar');
+  }
+
+  function quizMatchesFilter(q) {
+    if (_quizFilter.klas && q.className !== _quizFilter.klas) return false;
+    if (_quizFilter.type && q.quizType !== _quizFilter.type) return false;
+    if (_quizFilter.jaar && q.schoolYear !== _quizFilter.jaar) return false;
+    if (_quizFilter.status === 'preview') return !!q.isPreview;
+    if (_quizFilter.status === 'open')    return q.availability === 'open' && !q.isPreview;
+    if (_quizFilter.status === 'closed')  return q.availability === 'closed';
+    return true;
+  }
+
+  function quizGroup(q) {
+    if (q.isPreview) return 'preview';
+    if (q.availability === 'closed' || q.availability === 'expired') return 'done';
+    return 'active'; // open of nog-niet-open
+  }
+
+  function renderQuizRow(q) {
+    const isLive = q.availability === 'open' && !q.isPreview;
+    const onlineChip = isLive
+      ? `<span class="badge" style="background:${q.onlineCount ? '#dcfce7' : '#f1f5f9'};color:${q.onlineCount ? '#166534' : '#64748b'};" title="Leerlingen nu online">👥 ${q.onlineCount} online</span>`
+      : '';
+    const previewBadge = q.isPreview ? '<span class="badge" style="background:#fef3c7;color:#92400e;margin-left:4px;" title="Onafgewerkte preview">👁 preview</span>' : '';
+    const classChip = q.className ? `<span class="muted" style="font-size:0.8rem;">· 👥 ${escapeHtml(q.className)}</span>` : '';
+    const activateBtn = q.isPreview ? `<button class="btn btn-primary small" onclick="activateQuiz('${q.code}')" title="Maak hier een echte toets van die je kan starten">▶ Activeren</button>` : '';
+    const liveBtns = q.isPreview ? '' :
+      `<a class="btn btn-soft small" href="/teacher-grid.html?code=${q.code}" target="_blank" title="Live meekijken">👁 Live</a>
+       <button class="btn btn-soft small" onclick="toggleQuizRoster('${q.code}')" title="Wie is klaar / bezig / nog niet begonnen">👥 Voortgang</button>`;
+    return `
+      <div class="student-item" style="margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div>
+            <strong>${escapeHtml(q.name || q.code)}</strong>
+            ${quizTypeBadge(q.quizType)}${previewBadge}${q.isPreview ? '' : quizStatusBadge(q)}
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-left:auto;">
+            ${onlineChip}
+            <span class="muted" style="font-size:0.82rem;">
+              Code: <strong>${q.code}</strong> ${classChip} ·
+              ${new Date(q.createdAt).toLocaleDateString('nl-BE',{day:'2-digit',month:'2-digit',year:'numeric'})}
+            </span>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            ${activateBtn}${liveBtns}
+            <a class="btn btn-muted small" href="/quiz-review.html?code=${q.code}">✏️ Verbeteren</a>
+            <button class="btn btn-muted small" onclick="duplicateQuiz('${q.code}')">📋 Dupliceren</button>
+            <button class="btn btn-danger small" onclick="deleteQuiz('${q.code}')">🗑 Verwijderen</button>
+          </div>
+        </div>
+        <div id="roster-${q.code}" class="quiz-roster" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);"></div>
+      </div>`;
+  }
+
+  function renderQuizBank() {
+    const el = document.getElementById('quiz-list');
+    if (!el) return;
+    const list = _quizBank.filter(quizMatchesFilter);
+    const cEl = document.getElementById('qf-count');
+    if (cEl) cEl.textContent = `${list.length} van ${_quizBank.length}`;
+    if (!list.length) {
+      el.innerHTML = _quizBank.length
+        ? '<p class="muted">Geen toetsen/taken die aan de filter voldoen.</p>'
+        : '<p class="muted">Nog geen toetsen of taken aangemaakt. Klik op "+ Nieuwe toets aanmaken".</p>';
+      return;
+    }
+    const groups = { active: [], preview: [], done: [] };
+    for (const q of list) groups[quizGroup(q)].push(q);
+    const section = (items, title, color) => items.length
+      ? `<div style="margin:16px 0 6px;font-weight:800;color:${color};font-size:0.9rem;border-bottom:1px solid var(--border);padding-bottom:4px;">${title} (${items.length})</div>` + items.map(renderQuizRow).join('')
+      : '';
+    el.innerHTML =
+      section(groups.active,  '🟢 Actief',                     '#166534') +
+      section(groups.preview, '👁 Preview / onafgewerkt',       '#92400e') +
+      section(groups.done,    '✅ Afgerond / te verbeteren',    '#334155');
+  }
+
+  window.activateQuiz = async function(code) {
+    const ok = window.pyConfirm ? await pyConfirm({ title: 'Preview activeren', body: 'Deze preview wordt een echte toets die je kan starten en die voor leerlingen zichtbaar wordt. Doorgaan?', confirmLabel: 'Activeren' }) : true;
+    if (!ok) return;
+    try {
+      const r = await fetch('/api/quiz/' + code + '/activate', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok) { if (window.pyToast) pyToast('Toets geactiveerd — staat nu onder "Actief".', 'success'); loadQuizSessions(); }
+      else if (window.pyAlert) pyAlert('Activeren mislukt: ' + (d.error || ''), 'error');
+    } catch (e) { if (window.pyAlert) pyAlert('Activeren mislukt.', 'error'); }
+  };
+
+  window.deleteQuiz = async function(code) {
+    const item = _quizByCode[code];
+    const name = item ? (item.name || code) : code;
+    const msg = `Toets/taak "${name}" definitief uit de bank verwijderen?`;
+    const ok = window.pyConfirm ? await pyConfirm({ title: 'Verwijderen', body: msg, confirmLabel: 'Verwijderen', danger: true }) : window.confirm(msg);
+    if (!ok) return;
+    try {
+      await fetch(`/api/sessions/${encodeURIComponent(code)}`, { method: 'DELETE' });
+      await loadQuizSessions();
+    } catch (e) {
+      if (window.pyAlert) pyAlert('Verwijderen mislukt: ' + e.message, 'error'); else alert('Verwijderen mislukt: ' + e.message);
+    }
+  };
 
   // Sprint 43.1: voortgang van de gekoppelde klas-leerlingen bij een toets/taak.
   const _rosterDot = { submitted:'#16a34a', started:'#f59e0b', none:'#94a3b8' };
@@ -1296,7 +1408,11 @@
   };
 
   window.duplicateQuiz = async function(code) {
-    const name = prompt('Naam voor de kopie:', '');
+    const item = _quizByCode[code];
+    const suggested = item ? ((item.name || '') + ' (kopie)') : '';
+    const name = window.pyPrompt
+      ? await pyPrompt({ title: 'Toets/taak dupliceren', body: 'Naam voor de kopie:', defaultValue: suggested, confirmLabel: 'Dupliceren' })
+      : prompt('Naam voor de kopie:', suggested);
     if (name === null) return;
     const r = await fetch('/api/quiz/' + code + '/duplicate', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -1308,6 +1424,10 @@
   };
 
   if (page === 'teacher-sessions.html') {
+    // Sprint 43.2b: rechtstreeks naar de toetsen-/takenbank via ?tab=quizzes
+    if (new URLSearchParams(location.search).get('tab') === 'quizzes') {
+      setTimeout(() => { const b = document.querySelector('[onclick*="showTab(\'quizzes\'"]'); if (window.showTab) showTab('quizzes', b); }, 0);
+    }
     // Sprint 11B: toggle gesloten sessies
     const closedToggle = document.getElementById('show-closed-toggle');
     if (closedToggle) {
@@ -2961,6 +3081,45 @@ window.pyConfirm = function(opties) {
     cancelBtn.addEventListener('click',  function() { close(false); });
     confirmBtn.addEventListener('click', function() { close(true);  });
     cancelBtn.focus();
+  });
+};
+
+// Sprint 43.2b: invoer-modal (scherm-popup i.p.v. browser prompt()). Resolve = tekst, of null bij annuleren.
+window.pyPrompt = function(opties) {
+  opties = opties || {};
+  var title = opties.title || 'Invoer', body = opties.body || '';
+  var confirmLabel = opties.confirmLabel || 'OK';
+  return new Promise(function(resolve) {
+    var existing = document.getElementById('py-modal-overlay');
+    if (existing) existing.parentNode.removeChild(existing);
+    var overlay = document.createElement('div');
+    overlay.id = 'py-modal-overlay';
+    overlay.innerHTML =
+      '<div id="py-modal-box">' +
+        '<div id="py-modal-title">' + title + '</div>' +
+        '<div id="py-modal-body">' + body +
+          '<input id="py-modal-input" type="text" style="width:100%;box-sizing:border-box;margin-top:10px;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:1rem;background:var(--surface);color:var(--text);"/>' +
+        '</div>' +
+        '<div id="py-modal-actions">' +
+          '<button id="py-modal-cancel" class="btn btn-muted small">Annuleren</button>' +
+          '<button id="py-modal-confirm" class="btn btn-primary small">' + confirmLabel + '</button>' +
+        '</div>' +
+      '</div>';
+    function close(result) {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    }
+    function submit() { var v = document.getElementById('py-modal-input'); close(v ? v.value : ''); }
+    function onKey(e) { if (e.key === 'Escape') close(null); if (e.key === 'Enter') submit(); }
+    overlay.addEventListener('click', function(e){ if (e.target === overlay) close(null); });
+    document.body.appendChild(overlay);
+    document.addEventListener('keydown', onKey);
+    var inp = document.getElementById('py-modal-input');
+    inp.value = opties.defaultValue || '';
+    document.getElementById('py-modal-cancel').addEventListener('click', function(){ close(null); });
+    document.getElementById('py-modal-confirm').addEventListener('click', submit);
+    inp.focus(); inp.select();
   });
 };
 
