@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.47.7**
+**Huidige versie: v2026.2.47.8**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -18,6 +18,7 @@
 
 | Sprint | Prio | Cat | Inhoud | Inschatting |
 |---|---|---|---|---|
+| **43.8** | 🟠 P8 | BUG | **Dupliceren toets/taak** mag enkel de *meta* kopiëren; vragen moeten dezelfde bank-id's **refereren** i.p.v. nieuwe vragenrecords aan te maken (anders dubbele records). *Te bevestigen welke tabel dubbelt — zie detail.* | ~0.5 dag |
 | **43.7** | 🟠 P8 | FEAT | **Toets-overzicht & taak-overzicht als aparte pagina's** (zoals de vragenbank): volledige beheerpagina's per type, mét aanmaken/bewerken. Nav: **"Nieuwe toets" weg**, **"Toets overzicht"** + **"Taak overzicht"** erbij. (De actieve Toetsen/Taken-tabs in het sessie-overzicht bestaan al sinds 43.6b.) | ~1.5 dag |
 | **43.3** | 🟠 P8 | FEAT | **Type toets vs taak** expliciet: kolom `type` op `quiz_meta` ('toets'/'taak', bestaande rijen afgeleid uit `no_timer`). Keuze bij aanmaken; bank/tab filteren erop. *Deadline-regel te bevestigen (zie detail).* | ~1 dag |
 | **43.4** | 🟠 P8 | FEAT | **Leerling-selectie per toets/taak**: klas kiezen → knop "Leerlingen" → popup met checkboxes (standaard alles aan), "alles aan/uit", opslaan/annuleren. Nieuwe tabel `assignment_students`; leeg = alle klasleerlingen. Beschikbaarheid afgedwongen bij join. | ~1.5 dag |
@@ -100,6 +101,7 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 46 | **43.2b** | Bank vindbaar via nav-link "📚 Toetsen & taken" + status-groepen (Actief/Preview/Afgerond) + preview activeren + dupliceer-naam via scherm-modal (pyPrompt) | v2026.2.47.6 |
 | 47 | **43.6** | Bugfix: leerlingen konden niet inloggen op de clean `/student`-route — `'student'` ontbrak in `_socketPages`, dus de socket was een no-op stub (knoppen deden niets) | v2026.2.47.7 |
 | 48 | **43.6b** | Sessie-overzicht: aparte tabs **Sessies / Toetsen / Taken**, elk enkel actieve items (geen previews); volledige bank blijft via nav bereikbaar | v2026.2.47.7 |
+| 49 | **43.6c** | Monaco-worker-warning gefixt: ontbrekende `public/monaco-env.js` (referenced door 5 pagina's) hersteld → workers via blob: i.p.v. main-thread-fallback | v2026.2.47.8 |
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
@@ -137,6 +139,18 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 
 ---
 
+### Sprint 43.8 — Dupliceren: enkel meta kopiëren, vragen refereren *(~0.5 dag)* — 📋 GEPLAND
+
+**Aangemeld:** 12/07/2026 (testronde) · **Cat:** BUG · **Prio:** 🟠 P8
+
+**Wens:** bij het dupliceren van een toets/taak mag enkel de **meta** gekopieerd worden; de vragen moeten **dezelfde id's refereren** als de originele, niet als nieuwe records opduiken.
+
+**Technische stand van zaken:** de duplicate-endpoint (`/api/quiz/:code/duplicate`) + `createQuizSession` schrijven momenteel enkel naar `quiz_meta` en `quiz_question_snapshots`, met `bank_question_id` = het originele bank-id. Er worden dus **geen nieuwe `quiz_bank`-records** aangemaakt (de vraagbank blijft gedeeld). Wél krijgt elke kopie eigen `quiz_question_snapshots`-rijen (per-sessie snapshots, by design).
+
+**❓ Te bevestigen:** in welke tabel zie je de dubbele records — `quiz_bank` (dan is er ergens tóch een insert, echte bug) of `quiz_question_snapshots` (dan is het per ontwerp één set per sessie en moeten we het datamodel herzien, bv. toetsen die rechtstreeks bank-vragen refereren zonder snapshot)? Met dat antwoord mik ik de fix juist.
+
+---
+
 ### Sprint 43.7 — Toets-overzicht & taak-overzicht als aparte pagina's *(~1.5 dag)* — 📋 GEPLAND
 
 **Aangemeld:** 12/07/2026 · **Cat:** FEAT · **Prio:** 🟠 P8
@@ -144,6 +158,8 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 **Te bouwen (Req B+C):** twee volwaardige beheerpagina's **"Toets overzicht"** en **"Taak overzicht"**, opgebouwd zoals de **vragenbank** (`quiz-bank.html`): volledig overzicht per type, met aanmaken/bewerken/dupliceren/verwijderen en filters. In de nav: **"Nieuwe toets" verdwijnt**, en er komen **"Toets overzicht"** + **"Taak overzicht"** bij (aanmaken gebeurt dan vanuit die overzichten).
 
 **Nota (afhankelijkheid):** dit is gekoppeld aan **43.3** (expliciet `type`-veld toets/taak). Nu wordt het type nog afgeleid uit `no_timer`; met een echt `type`-veld wordt de splitsing robuuster. Aanrader: 43.3 eerst of samen.
+
+**Extra (12/07):** verwijder in de sessie-tabs (Toetsen/Taken) het tussenzinnetje *"Actieve toetsen/taken (zonder previews). [Volledig overzicht & previews →]"* — dat is een tijdelijke doorverwijzing die overbodig wordt zodra deze aparte overzichtspagina's bestaan.
 
 ---
 
@@ -153,7 +169,7 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 
 **Te bouwen:** kolom **`type`** op `quiz_meta` ('toets'|'taak'; bestaande rijen afgeleid uit `no_timer`). Bij aanmaken kiest de leerkracht expliciet toets/taak; bank + lijst tonen/filteren op type.
 
-**❓ Te bevestigen — deadline-regel.** "*is een einddatum en uur verplicht*" lees ik als: **een taak vereist een einddatum + uur** (`access_until`), een toets houdt het bestaande (optionele) tijdsvenster. Klopt dat, of moet een einddatum voor **béide** verplicht zijn?
+**✅ Deadline-regel (beslist 12/07):** een **einddatum + uur (`access_until`) is verplicht voor béide** — toets én taak. De validatie wordt bij het aanmaken afgedwongen. Bestaande toetsen/taken zonder deadline blijven geldig (of krijgen bij migratie een default); nieuwe vereisen een deadline.
 
 ---
 

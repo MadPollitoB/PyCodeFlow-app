@@ -1946,4 +1946,13 @@ LEERLING — juiste instap
 ✅ Volledige bank (incl. preview + activeren) blijft bereikbaar via nav "📚 Toetsen & taken"
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.7 · 12 juli 2026*
+## 58. Sprint 43.6c — Monaco web workers
+
+```
+✅ Open een pagina met code-editor (bv. leerling-toets of vrije editor) + F12-console
+✅ Waarschuwing "Could not create web worker(s)" is WEG
+✅ Editor voelt vlot aan (geen main-thread-fallback meer)
+ℹ️ CSP report-only meldingen over inline styles zijn onschuldig (mogen blijven)
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.8 · 12 juli 2026*
