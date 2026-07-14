@@ -1424,8 +1424,10 @@
   };
 
   if (page === 'teacher-sessions.html') {
-    // Sprint 43.2b: rechtstreeks naar de toetsen-/takenbank via ?tab=quizzes
+    // Sprint 43.2b/43.7: rechtstreeks naar de toetsen-/takenbank via ?tab=quizzes(&type=toets|taak)
     if (new URLSearchParams(location.search).get('tab') === 'quizzes') {
+      const t = new URLSearchParams(location.search).get('type');
+      if (t === 'toets' || t === 'taak') _quizFilter.type = t;
       setTimeout(() => { const b = document.querySelector('[onclick*="showTab(\'quizzes\'"]'); if (window.showTab) showTab('quizzes', b); }, 0);
     }
     // Sprint 11B: toggle gesloten sessies

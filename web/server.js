@@ -600,7 +600,7 @@ app.get('/api/system-stats', requireTeacherAuth, async (req, res) => {
 const DB_VIEWER_TABLES = [
   'teachers', 'classes', 'teacher_classes', 'students',
   'sessions', 'student_sessions', 'session_history',
-  'quiz_bank', 'quiz_meta', 'quiz_answers', 'quiz_student_sessions',
+  'question_bank', 'assignment_bank', 'quiz_answers', 'quiz_student_sessions',
   'announcements', 'audit_log', 'free_audit_log',
   'db_settings', 'log_entries'
 ];
@@ -627,7 +627,7 @@ app.get('/api/admin/db/tables', requireTeacherAuth, async (req, res) => {
           rowCount,
           columns: colRes.rows.map(r => ({ name: r.column_name, type: r.data_type })),
           category: ['teachers','classes','teacher_classes','students'].includes(tbl) ? 'kern'
-                  : ['quiz_bank','quiz_meta','quiz_answers','quiz_student_sessions'].includes(tbl) ? 'quiz'
+                  : ['question_bank','assignment_bank','quiz_answers','quiz_student_sessions'].includes(tbl) ? 'quiz'
                   : 'systeem'
         };
       } catch { return { name: tbl, rowCount: 0, columns: [], category: 'systeem', error: true }; }
@@ -1259,7 +1259,7 @@ app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireCsrf, async (re
 app.post('/api/quiz/:code/activate', requireTeacherAuth, requireCsrf, async (req, res) => {
   const code = String(req.params.code || '').toUpperCase();
   try {
-    await dbModule.query('UPDATE quiz_meta SET is_teacher_preview = false WHERE session_code = $1', [code]);
+    await dbModule.query('UPDATE assignment_bank SET is_teacher_preview = false WHERE session_code = $1', [code]);
     const s = sessions.get(code);
     if (s) s.isTeacherPreview = false;
     res.json({ ok: true });
@@ -2422,8 +2422,8 @@ app.get('/api/monitoring', requireTeacherAuth, async (req, res) => {
       quizStats: await (async () => {
         try {
           const [questions, sessions2, answers, runs] = await Promise.all([
-            dbModule.query ? dbModule.query(`SELECT COUNT(*) FROM quiz_bank WHERE archived=false`) : Promise.resolve({rows:[{count:0}]}),
-            dbModule.query ? dbModule.query(`SELECT COUNT(*) FROM quiz_meta`) : Promise.resolve({rows:[{count:0}]}),
+            dbModule.query ? dbModule.query(`SELECT COUNT(*) FROM question_bank WHERE archived=false`) : Promise.resolve({rows:[{count:0}]}),
+            dbModule.query ? dbModule.query(`SELECT COUNT(*) FROM assignment_bank`) : Promise.resolve({rows:[{count:0}]}),
             dbModule.query ? dbModule.query(`SELECT COUNT(*) FROM quiz_answers`) : Promise.resolve({rows:[{count:0}]}),
             dbModule.query ? dbModule.query(`SELECT ROUND(AVG(run_count),1) as avg FROM quiz_answers`) : Promise.resolve({rows:[{avg:0}]}),
           ]);
@@ -2688,8 +2688,8 @@ app.get("/api/quiz-sessions", requireTeacherAuth, async (req, res) => {
   let metas = [];
   try {
     const where = bank ? '' : 'WHERE is_teacher_preview = false';
-    metas = (await dbModule.query(`SELECT * FROM quiz_meta ${where}`)).rows || [];
-  } catch (e) { log.warn('[quiz-sessions] quiz_meta lezen mislukt:', e.message); }
+    metas = (await dbModule.query(`SELECT * FROM assignment_bank ${where}`)).rows || [];
+  } catch (e) { log.warn('[quiz-sessions] assignment_bank lezen mislukt:', e.message); }
 
   for (const meta of metas) {
     const code = meta.session_code;

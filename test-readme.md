@@ -1955,4 +1955,16 @@ LEERLING — juiste instap
 ℹ️ CSP report-only meldingen over inline styles zijn onschuldig (mogen blijven)
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.8 · 12 juli 2026*
+## 59. Sprint 43.5 + 43.7 — Rename + Toets/Taak overzicht
+
+```
+⚠️ MAAK EERST EEN DB-BACKUP vóór deploy (tabel-rename)
+✅ Na deploy: app start normaal, geen "relation quiz_bank/quiz_meta does not exist" in de logs
+✅ Bestaande toetsen/taken + vragen zijn nog aanwezig (data behouden na rename)
+✅ Admin DB-viewer toont nu question_bank en assignment_bank (i.p.v. quiz_bank/quiz_meta)
+✅ Nav: "Nieuwe toets" is weg; "🧪 Toets overzicht" en "📝 Taak overzicht" staan er
+✅ "Toets overzicht" opent de bank met enkel toetsen; "Taak overzicht" met enkel taken
+✅ Nieuwe toets/taak aanmaken kan nog via de "+ Nieuwe"-knop in het overzicht
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.9 · 14 juli 2026*

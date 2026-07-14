@@ -209,7 +209,21 @@ async function initSchema() {
 
     -- ══ Sprint 16: Toetsmodule ════════════════════════════════════════════════
 
-    CREATE TABLE IF NOT EXISTS quiz_bank (
+    -- Sprint 43.5: hernoemen quiz_bank -> question_bank, quiz_meta -> assignment_bank (data-behoudend)
+    DO $$ BEGIN
+      IF EXISTS (SELECT FROM information_schema.tables WHERE table_name='quiz_bank')
+         AND NOT EXISTS (SELECT FROM information_schema.tables WHERE table_name='question_bank')
+      THEN ALTER TABLE quiz_bank RENAME TO question_bank; END IF;
+    END $$;
+    DO $$ BEGIN
+      IF EXISTS (SELECT FROM information_schema.tables WHERE table_name='quiz_meta')
+         AND NOT EXISTS (SELECT FROM information_schema.tables WHERE table_name='assignment_bank')
+      THEN ALTER TABLE quiz_meta RENAME TO assignment_bank; END IF;
+    END $$;
+    ALTER INDEX IF EXISTS idx_quiz_bank_subject  RENAME TO idx_question_bank_subject;
+    ALTER INDEX IF EXISTS idx_quiz_bank_archived RENAME TO idx_question_bank_archived;
+
+    CREATE TABLE IF NOT EXISTS question_bank (
       id              TEXT PRIMARY KEY,
       text            TEXT NOT NULL,
       subject         TEXT NOT NULL DEFAULT '',
@@ -231,18 +245,18 @@ async function initSchema() {
     );
     -- Migratie: kolommen toevoegen als ze nog niet bestaan
     DO $$ BEGIN
-      BEGIN ALTER TABLE quiz_bank ADD COLUMN question_type TEXT NOT NULL DEFAULT 'code'; EXCEPTION WHEN duplicate_column THEN NULL; END;
-      BEGIN ALTER TABLE quiz_bank ADD COLUMN choices_json TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
-      BEGIN ALTER TABLE quiz_bank ADD COLUMN tags TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
-      BEGIN ALTER TABLE quiz_bank ADD COLUMN model_answer TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE question_bank ADD COLUMN question_type TEXT NOT NULL DEFAULT 'code'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE question_bank ADD COLUMN choices_json TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE question_bank ADD COLUMN tags TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE question_bank ADD COLUMN model_answer TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
-    CREATE INDEX IF NOT EXISTS idx_quiz_bank_subject ON quiz_bank(subject);
-    CREATE INDEX IF NOT EXISTS idx_quiz_bank_archived ON quiz_bank(archived);
+    CREATE INDEX IF NOT EXISTS idx_question_bank_subject ON question_bank(subject);
+    CREATE INDEX IF NOT EXISTS idx_question_bank_archived ON question_bank(archived);
 
     CREATE TABLE IF NOT EXISTS quiz_question_snapshots (
       id               TEXT PRIMARY KEY,
       session_code     TEXT NOT NULL REFERENCES sessions(code) ON DELETE CASCADE,
-      bank_question_id TEXT REFERENCES quiz_bank(id) ON DELETE SET NULL,
+      bank_question_id TEXT REFERENCES question_bank(id) ON DELETE SET NULL,
       order_index      INTEGER NOT NULL,
       text_snapshot    TEXT NOT NULL,
       subject          TEXT NOT NULL DEFAULT '',
@@ -260,7 +274,7 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_quiz_snapshots_session
       ON quiz_question_snapshots(session_code);
 
-    CREATE TABLE IF NOT EXISTS quiz_meta (
+    CREATE TABLE IF NOT EXISTS assignment_bank (
       session_code           TEXT PRIMARY KEY
                              REFERENCES sessions(code) ON DELETE CASCADE,
       randomize              BOOLEAN NOT NULL DEFAULT true,
@@ -284,18 +298,18 @@ async function initSchema() {
     );
     -- Migratie: voeg kolommen toe als ze nog niet bestaan (bij update)
     DO $$ BEGIN
-      BEGIN ALTER TABLE quiz_meta ADD COLUMN no_timer BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
-      BEGIN ALTER TABLE quiz_meta ADD COLUMN timer_seconds INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END;
-      BEGIN ALTER TABLE quiz_meta ADD COLUMN school_year TEXT NOT NULL DEFAULT '2025-2026'; EXCEPTION WHEN duplicate_column THEN NULL; END;
-      BEGIN ALTER TABLE quiz_meta ADD COLUMN target_class TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
-      BEGIN ALTER TABLE quiz_meta ADD COLUMN archived BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
-      BEGIN ALTER TABLE quiz_meta ADD COLUMN archived_at BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
-      BEGIN ALTER TABLE quiz_meta ADD COLUMN access_from BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
-      BEGIN ALTER TABLE quiz_meta ADD COLUMN access_until BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
-      BEGIN ALTER TABLE quiz_meta ADD COLUMN auto_submit_late BOOLEAN NOT NULL DEFAULT true; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN no_timer BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN timer_seconds INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN school_year TEXT NOT NULL DEFAULT '2025-2026'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN target_class TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN archived BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN archived_at BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN access_from BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN access_until BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN auto_submit_late BOOLEAN NOT NULL DEFAULT true; EXCEPTION WHEN duplicate_column THEN NULL; END;
       -- 37d: nakijk-modus. Leerkracht stelt expliciet open; leerlingen kunnen dan
       -- hun eigen toets read-only inzien (los van results_released).
-      BEGIN ALTER TABLE quiz_meta ADD COLUMN review_mode BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN review_mode BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
 
     CREATE TABLE IF NOT EXISTS quiz_answers (
@@ -868,7 +882,7 @@ module.exports = {
     if (difficulty) { params.push(difficulty); where += ` AND q.difficulty = $${params.length}`; }
     const r = await query(
       `SELECT q.*, t.display_name AS created_by_name
-       FROM quiz_bank q
+       FROM question_bank q
        LEFT JOIN teachers t ON t.id = q.created_by
        ${where}
        ORDER BY q.subject, q.created_at DESC`,
@@ -879,7 +893,7 @@ module.exports = {
 
   async getQuizBankSubjects() {
     const r = await query(
-      `SELECT DISTINCT subject FROM quiz_bank WHERE archived = false AND subject != '' ORDER BY subject`
+      `SELECT DISTINCT subject FROM question_bank WHERE archived = false AND subject != '' ORDER BY subject`
     );
     return r.rows.map(r => r.subject);
   },
@@ -890,7 +904,7 @@ module.exports = {
     const id = crypto.randomUUID();
     const now = Date.now();
     await query(
-      `INSERT INTO quiz_bank (id, text, subject, difficulty, max_points,
+      `INSERT INTO question_bank (id, text, subject, difficulty, max_points,
          question_type, choices_json, tags, model_answer, created_by, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [id, text.trim(), subject.trim(), difficulty, maxPoints,
@@ -902,7 +916,7 @@ module.exports = {
   async updateQuizQuestion(id, { text, subject, difficulty, maxPoints, questionType,
                                  choicesJson, tags, modelAnswer }) {
     const r = await query(
-      `UPDATE quiz_bank SET text=$1, subject=$2, difficulty=$3, max_points=$4,
+      `UPDATE question_bank SET text=$1, subject=$2, difficulty=$3, max_points=$4,
          question_type=$5, choices_json=$6, tags=$7, model_answer=$8, updated_at=$9
        WHERE id=$10`,
       [text.trim(), subject.trim(), difficulty, maxPoints,
@@ -926,7 +940,7 @@ module.exports = {
   // keuzes én modelantwoord bij het aanmaken van een toets uit de bank).
   async getQuizBankByIds(ids) {
     if (!Array.isArray(ids) || ids.length === 0) return [];
-    const r = await query(`SELECT * FROM quiz_bank WHERE id = ANY($1::text[])`, [ids]);
+    const r = await query(`SELECT * FROM question_bank WHERE id = ANY($1::text[])`, [ids]);
     const byId = new Map(r.rows.map(row => [row.id, row]));
     return byId;
   },
@@ -935,7 +949,7 @@ module.exports = {
   // 🔴 Meerkeuze-opties krijgen NIEUWE id's, anders delen origineel en kopie
   //    dezelfde optie-id's (zelfde valkuil als de 33e-bug).
   async duplicateQuizQuestion(id, createdBy = null) {
-    const src = await query(`SELECT * FROM quiz_bank WHERE id = $1`, [id]);
+    const src = await query(`SELECT * FROM question_bank WHERE id = $1`, [id]);
     if (!src.rows.length) return null;
     const q = src.rows[0];
 
@@ -968,12 +982,12 @@ module.exports = {
   },
 
   async archiveQuizQuestion(id) {
-    await query(`UPDATE quiz_bank SET archived = true, updated_at = $1 WHERE id = $2`, [Date.now(), id]);
+    await query(`UPDATE question_bank SET archived = true, updated_at = $1 WHERE id = $2`, [Date.now(), id]);
   },
 
   // 22f: gearchiveerde vraag herstellen
   async unarchiveQuizQuestion(id) {
-    await query(`UPDATE quiz_bank SET archived = false, updated_at = $1 WHERE id = $2`, [Date.now(), id]);
+    await query(`UPDATE question_bank SET archived = false, updated_at = $1 WHERE id = $2`, [Date.now(), id]);
   },
 
   async deleteQuizQuestion(id) {
@@ -982,7 +996,7 @@ module.exports = {
       `SELECT 1 FROM quiz_question_snapshots WHERE bank_question_id = $1 LIMIT 1`, [id]
     );
     if (used.rows.length > 0) return { ok: false, reason: 'Vraag is al gebruikt in een toets.' };
-    await query(`DELETE FROM quiz_bank WHERE id = $1`, [id]);
+    await query(`DELETE FROM question_bank WHERE id = $1`, [id]);
     return { ok: true };
   },
 
@@ -993,7 +1007,7 @@ module.exports = {
         const text = String(row.vraag || '').trim();
         if (!text) { errors.push('Lege vraag overgeslagen'); continue; }
         // Duplicaat check op exacte vraagtekst
-        const exists = await query(`SELECT 1 FROM quiz_bank WHERE text = $1 LIMIT 1`, [text]);
+        const exists = await query(`SELECT 1 FROM question_bank WHERE text = $1 LIMIT 1`, [text]);
         if (exists.rows.length > 0) { skipped++; continue; }
         await this.createQuizQuestion({
           text,
@@ -1023,11 +1037,11 @@ module.exports = {
       const y = d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1;
       return `${y}-${y + 1}`;
     })();
-    // 36a: quiz_meta + alle vraag-snapshots in één transactie — anders kan een crash
+    // 36a: assignment_bank + alle vraag-snapshots in één transactie — anders kan een crash
     // een toets met meta maar zonder (of met halve) vragen achterlaten.
     await withTransaction(async (client) => {
       await client.query(
-        `INSERT INTO quiz_meta (session_code, randomize, timer_seconds, no_timer, individual_timer,
+        `INSERT INTO assignment_bank (session_code, randomize, timer_seconds, no_timer, individual_timer,
           min_runs_per_q, hide_question_on_screen, results_released, is_teacher_preview,
           school_year, target_class, access_from, access_until, auto_submit_late, created_at)
          VALUES ($1,$2,$3,$4,true,$5,$6,false,$7,$8,$9,$10,$11,$12,$13)`,
@@ -1051,7 +1065,7 @@ module.exports = {
   },
 
   async getQuizMeta(sessionCode) {
-    const r = await query(`SELECT * FROM quiz_meta WHERE session_code = $1`, [sessionCode]);
+    const r = await query(`SELECT * FROM assignment_bank WHERE session_code = $1`, [sessionCode]);
     return r.rows[0] || null;
   },
 
@@ -1064,14 +1078,14 @@ module.exports = {
   },
 
   async releaseQuizResults(sessionCode) {
-    await query(`UPDATE quiz_meta SET results_released = true WHERE session_code = $1`, [sessionCode]);
+    await query(`UPDATE assignment_bank SET results_released = true WHERE session_code = $1`, [sessionCode]);
   },
 
   // 37d: nakijk-modus aan/uit. Los van results_released — de leerkracht stelt
   // expliciet open wanneer leerlingen hun toets mogen inzien.
   async setReviewMode(sessionCode, enabled) {
     const r = await query(
-      `UPDATE quiz_meta SET review_mode = $2 WHERE session_code = $1`,
+      `UPDATE assignment_bank SET review_mode = $2 WHERE session_code = $1`,
       [sessionCode, !!enabled]
     );
     return r.rowCount > 0;
@@ -1275,26 +1289,26 @@ module.exports = {
 
   async archiveQuiz(sessionCode) {
     await query(
-      `UPDATE quiz_meta SET archived = true, archived_at = $1 WHERE session_code = $2`,
+      `UPDATE assignment_bank SET archived = true, archived_at = $1 WHERE session_code = $2`,
       [Date.now(), sessionCode]
     );
   },
 
   async unarchiveQuiz(sessionCode) {
     await query(
-      `UPDATE quiz_meta SET archived = false, archived_at = NULL WHERE session_code = $1`,
+      `UPDATE assignment_bank SET archived = false, archived_at = NULL WHERE session_code = $1`,
       [sessionCode]
     );
   },
 
   async deleteQuizFully(sessionCode) {
-    // Verwijder alle quiz-data maar behoudt de vragen in quiz_bank
+    // Verwijder alle quiz-data maar behoudt de vragen in question_bank
     await query(`DELETE FROM quiz_run_history   WHERE session_code = $1`, [sessionCode]);
     await query(`DELETE FROM quiz_general_comments WHERE session_code = $1`, [sessionCode]);
     await query(`DELETE FROM quiz_student_order  WHERE session_code = $1`, [sessionCode]);
     await query(`DELETE FROM quiz_answers        WHERE session_code = $1`, [sessionCode]);
     await query(`DELETE FROM quiz_question_snapshots WHERE session_code = $1`, [sessionCode]);
-    await query(`DELETE FROM quiz_meta           WHERE session_code = $1`, [sessionCode]);
+    await query(`DELETE FROM assignment_bank           WHERE session_code = $1`, [sessionCode]);
     // Markeer de sessie als verwijderd
     await query(`UPDATE sessions SET deleted = 1 WHERE code = $1`, [sessionCode]);
   },
@@ -1327,7 +1341,7 @@ module.exports = {
              ROUND(AVG(a.score), 1)            AS avg_score,
              SUM(qs.points)                    AS max_score_per_student
       FROM sessions s
-      JOIN quiz_meta m ON m.session_code = s.code
+      JOIN assignment_bank m ON m.session_code = s.code
       LEFT JOIN quiz_answers a ON a.session_code = s.code AND a.submitted_at IS NOT NULL
       LEFT JOIN quiz_question_snapshots qs ON qs.session_code = s.code
       ${whereClause}
@@ -1357,7 +1371,7 @@ module.exports = {
              MAX(a.submitted_at) AS submitted_at
       FROM quiz_answers a
       JOIN sessions s ON s.code = a.session_code
-      JOIN quiz_meta m ON m.session_code = s.code
+      JOIN assignment_bank m ON m.session_code = s.code
       JOIN quiz_question_snapshots qs ON qs.session_code = s.code
       WHERE LOWER(a.student_name) = $1 ${extra}
         AND a.submitted_at IS NOT NULL
@@ -1393,7 +1407,7 @@ module.exports = {
 
   async getAvailableYears() {
     const r = await query(
-      `SELECT DISTINCT school_year FROM quiz_meta WHERE school_year != '' ORDER BY school_year DESC`
+      `SELECT DISTINCT school_year FROM assignment_bank WHERE school_year != '' ORDER BY school_year DESC`
     );
     return r.rows.map(r => r.school_year);
   },
@@ -1461,7 +1475,7 @@ module.exports = {
         COUNT(CASE WHEN a.submitted_at IS NOT NULL THEN 1 END)::int AS submitted_answers,
         ROUND(AVG(a.run_count), 1)                                AS avg_runs
       FROM quiz_answers a
-      JOIN quiz_meta m ON m.session_code = a.session_code
+      JOIN assignment_bank m ON m.session_code = a.session_code
     `);
     return r.rows[0] || {};
   },

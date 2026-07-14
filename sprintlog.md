@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.47.8**
+**Huidige versie: v2026.2.47.9**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -19,10 +19,8 @@
 | Sprint | Prio | Cat | Inhoud | Inschatting |
 |---|---|---|---|---|
 | **43.8** | 🟠 P8 | BUG | **Dupliceren toets/taak** mag enkel de *meta* kopiëren; vragen moeten dezelfde bank-id's **refereren** i.p.v. nieuwe vragenrecords aan te maken (anders dubbele records). *Te bevestigen welke tabel dubbelt — zie detail.* | ~0.5 dag |
-| **43.7** | 🟠 P8 | FEAT | **Toets-overzicht & taak-overzicht als aparte pagina's** (zoals de vragenbank): volledige beheerpagina's per type, mét aanmaken/bewerken. Nav: **"Nieuwe toets" weg**, **"Toets overzicht"** + **"Taak overzicht"** erbij. (De actieve Toetsen/Taken-tabs in het sessie-overzicht bestaan al sinds 43.6b.) | ~1.5 dag |
 | **43.3** | 🟠 P8 | FEAT | **Type toets vs taak** expliciet: kolom `type` op `quiz_meta` ('toets'/'taak', bestaande rijen afgeleid uit `no_timer`). Keuze bij aanmaken; bank/tab filteren erop. *Deadline-regel te bevestigen (zie detail).* | ~1 dag |
 | **43.4** | 🟠 P8 | FEAT | **Leerling-selectie per toets/taak**: klas kiezen → knop "Leerlingen" → popup met checkboxes (standaard alles aan), "alles aan/uit", opslaan/annuleren. Nieuwe tabel `assignment_students`; leeg = alle klasleerlingen. Beschikbaarheid afgedwongen bij join. | ~1.5 dag |
-| **43.5** | 🟡 P6 | REFACTOR | **Hernoemen tabellen** `quiz_bank` → `question_bank`, `quiz_meta` → `assignment_bank` (DB-migratie + alle codereferenties). Risicovol/mechanisch → bewust als laatste. *Scope te bevestigen (zie detail).* | ~1-1.5 dag |
 | **48** | 🔵 P9 | ARCH | ⛔ School-keuze bij leerkracht-login (modal indien >1 school) + `active_school_id` in sessie — **geblokkeerd:** vereist fase 1 + fase 3 (multi-tenant) | ~3 dagen |
 
 > **Sprint 42 is gesplitst:** Deel C (branding/schoollogo) is afgerond in v2026.2.42.0 (zie afgewerkte sprints); het restant (startpagina + leerling/leerkracht-ingang) leeft nu als **sprint 45**.
@@ -102,6 +100,8 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 47 | **43.6** | Bugfix: leerlingen konden niet inloggen op de clean `/student`-route — `'student'` ontbrak in `_socketPages`, dus de socket was een no-op stub (knoppen deden niets) | v2026.2.47.7 |
 | 48 | **43.6b** | Sessie-overzicht: aparte tabs **Sessies / Toetsen / Taken**, elk enkel actieve items (geen previews); volledige bank blijft via nav bereikbaar | v2026.2.47.7 |
 | 49 | **43.6c** | Monaco-worker-warning gefixt: ontbrekende `public/monaco-env.js` (referenced door 5 pagina's) hersteld → workers via blob: i.p.v. main-thread-fallback | v2026.2.47.8 |
+| 50 | **43.5** | Tabellen hernoemd: `quiz_bank` → `question_bank`, `quiz_meta` → `assignment_bank` (data-behoudende migratie + alle queries + DB-viewer) | v2026.2.47.9 |
+| 51 | **43.7** | Nav: "Nieuwe toets" weg; **Toets overzicht** + **Taak overzicht** erbij (bank per type via `?tab=quizzes&type=`) | v2026.2.47.9 |
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
@@ -151,7 +151,10 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 
 ---
 
-### Sprint 43.7 — Toets-overzicht & taak-overzicht als aparte pagina's *(~1.5 dag)* — 📋 GEPLAND
+### Sprint 43.7 — Toets-overzicht & taak-overzicht *(~1.5 dag)* — ✅ AFGEROND (v2026.2.47.9)
+
+**Afgerond:** 14/07 — **lean uitvoering:** i.p.v. twee losse HTML-pagina's wijzen de nav-items **Toets overzicht** en **Taak overzicht** naar de bestaande bank vóór-gefilterd op type (`?tab=quizzes&type=toets|taak`); de bank is functioneel het volledige overzicht per type (filters, groepen, aanmaken/bewerken/dupliceren/verwijderen). **"Nieuwe toets" is uit de nav** (aanmaken gebeurt via de "+ Nieuwe"-knop in het overzicht). Wil je het écht als twee aparte pagina's (zoals de vragenbank), dan is dat een kleine opvolgstap.
+
 
 **Aangemeld:** 12/07/2026 · **Cat:** FEAT · **Prio:** 🟠 P8
 
@@ -183,7 +186,10 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 
 ---
 
-### Sprint 43.5 — Hernoemen `quiz_bank` → `question_bank`, `quiz_meta` → `assignment_bank` *(~1-1.5 dag)* — 📋 GEPLAND
+### Sprint 43.5 — Hernoemen `quiz_bank` → `question_bank`, `quiz_meta` → `assignment_bank` *(~1-1.5 dag)* — ✅ AFGEROND (v2026.2.47.9)
+
+**Afgerond:** 14/07. Data-behoudende migratie in `init()` (`ALTER TABLE ... RENAME`, geguard met `information_schema`, vóór de `CREATE`s) + indexen hernoemd. Alle ~53 query-referenties in `database.js`/`server.js` omgezet, incl. de hardgecodeerde DB-viewer-tabellijst. Client raakt niets (praat via API's). **Scope:** enkel `quiz_bank`+`quiz_meta` (zoals gevraagd); `quiz_answers`/`quiz_student_sessions` behouden hun naam. **⚠️ Deploy:** maak eerst een DB-backup — de rename is niet tegen jouw live-Postgres getest.
+
 
 **Aangemeld:** 12/07/2026 · **Cat:** REFACTOR · **Prio:** 🟡 P6 · *(bewust als laatste: risicovol + mechanisch)*
 
