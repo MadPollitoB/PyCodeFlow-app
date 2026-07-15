@@ -2007,4 +2007,18 @@ LEERLING — juiste instap
 ✅ Leerlingen zien de preview NIET; pas na "▶ Activeren" is hij echt en startbaar
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.11 · 14 juli 2026*
+## 62. Sprint 43.10 — Toets-pagina's (scriptvolgorde)
+
+```
+✅ Open een toets als leerling (of preview via "🧑‍🎓 Doorlopen") + F12-console
+✅ Klik "🚀 START TOETS" → de toets laadt écht (blijft NIET op "Toets laden…" hangen)
+✅ Console: GEEN "io is not defined"
+✅ Console: GEEN "Can only have one anonymous define call per script file"
+✅ Console: GEEN "Cannot access '_startTimeout' before initialization"
+✅ Console: GEEN geblokkeerde connect-src request naar cdnjs
+✅ Code-editor in de toets werkt (Monaco laadt)
+✅ Verbeterscherm (quiz-review) opent en toont vragen + codekleuring
+ℹ️ CSP report-only meldingen over inline styles/handlers mogen blijven (onschuldig)
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.12 · 14 juli 2026*

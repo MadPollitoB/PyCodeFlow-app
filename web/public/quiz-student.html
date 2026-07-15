@@ -227,13 +227,17 @@
   <p class="muted" style="margin-top:8px;">Wacht op de leerkracht. Je kan dit venster sluiten.</p>
 </div>
 
-<script src="/monaco-env.js"></script>
-<script src="/monaco/min/vs/loader.js"></script>
+<!-- Sprint 43.10: UMD-libs (socket.io, marked, purify) MOETEN vóór Monaco's AMD-loader staan.
+     loader.js zet een globale `define` met .amd; UMD-scripts die daarna laden registreren zich
+     als anonieme AMD-module i.p.v. window.io / window.marked / window.DOMPurify te zetten
+     ("Can only have one anonymous define call" + "io is not defined"). -->
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=v2026.2.43.0"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 <script src="/code-highlight.js?v=v2026.2.43.0"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+<script src="/monaco-env.js"></script>
+<script src="/monaco/min/vs/loader.js"></script>
+<script src="/app.js?v=v2026.2.43.0"></script>
 <script src="/quiz-student.js?v=v2026.2.43.0"></script>
 </body>
 </html>

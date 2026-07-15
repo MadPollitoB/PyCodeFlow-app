@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.47.11**
+**Huidige versie: v2026.2.47.12**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -104,6 +104,7 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 54 | **43.3** | Expliciet `type`-veld (toets/taak) op `assignment_bank` + **deadline verplicht** voor béide (server + client) | v2026.2.47.10 |
 | 55 | **43.4** | Leerling-selectie per toets/taak: tabel `assignment_students`, popup met checkboxes (standaard alles aan, alles aan/uit, opslaan/annuleren) + afdwingen bij start | v2026.2.47.10 |
 | 56 | **43.9** | Preview later doorlopen: knop **🧑‍🎓 Doorlopen** op preview-kaarten + bugfix: previews vrijgesteld van de leerling-selectie-check (uit 43.4) | v2026.2.47.11 |
+| 57 | **43.10** | **Toets-pagina's stuk**: UMD-libs laadden ná Monaco's AMD-loader → `io is not defined`. Scriptvolgorde hersteld op quiz-student + quiz-review | v2026.2.47.12 |
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
@@ -138,6 +139,20 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 **Login-bug (root cause):** sinds sprint 45 serveert de app de leerling-ingang op de nette route **`/student`**, waardoor `page === 'student'`. Maar `_socketPages` in `app.js` (de lijst pagina's die een echte Socket.IO-verbinding krijgen) bevatte wél `'student-start.html'` maar **niet `'student'`**. Op `/student` werd de socket dus een **no-op stub** → `socket.emit('student_join', …)` deed niets → "Deelnemen" en "Vrij oefenen" leken dood. **Fix:** `'student'` toegevoegd aan `_socketPages`. (De CSP-report-only-meldingen in de console waren onschuldig en niet de oorzaak.)
 
 **Sessie-overzicht (Req A):** `teacher-sessions.html` heeft nu drie tabs **Sessies / 🧪 Toetsen / 📝 Taken**. De Toetsen- en Taken-tabs tonen **enkel actieve** items (geen previews, geen gesloten/verlopen), gefilterd op type. De volledige bank (incl. previews, met activeren/verwijderen/filters) blijft bereikbaar via de nav-link "📚 Toetsen & taken" (`?tab=quizzes`).
+
+---
+
+### Sprint 43.10 — Toets-pagina's werkten niet (AMD/UMD-scriptvolgorde) *(~0.25 dag)* — ✅ AFGEROND (v2026.2.47.12)
+
+**Aangemeld:** 14/07 (testronde: "START TOETS" bleef op *Toets laden…* hangen) · **Cat:** BUG · **Prio:** 🔴 P10
+
+**Symptomen in de console:** `Uncaught ReferenceError: io is not defined` (quiz-student.js:5), `Can only have one anonymous define call per script file` (marked + purify), `Cannot access '_startTimeout' before initialization`, en een geblokkeerde `connect-src`-request naar cdnjs.
+
+**Root cause — één oorzaak, vier symptomen.** Monaco's `loader.js` zet een globale AMD-`define` (met `.amd`). Alle **UMD**-libraries die daarná laden (socket.io, marked, DOMPurify) detecteren die en registreren zich als **anonieme AMD-module** i.p.v. `window.io` / `window.marked` / `window.DOMPurify` te zetten. Gevolg: `io` bestond niet → `quiz-student.js` crashte op regel 5 → de rest van het bestand werd nooit uitgevoerd. Omdat functiedeclaraties wél gehoist worden maar `let _startTimeout` niet meer geïnitialiseerd raakte, gaf de knop daarna de misleidende TDZ-fout `Cannot access '_startTimeout' before initialization`. De geblokkeerde cdnjs-request was de AMD-loader die purify als module probeerde op te halen (`connect-src` staat dat terecht niet toe).
+
+**Waarom net deze twee pagina's?** `student-app`, `teacher-app` en `free-editor` laadden socket.io **vóór** `loader.js` en werkten daarom gewoon. Enkel **`quiz-student.html`** en **`quiz-review.html`** hadden de omgekeerde volgorde — precies de twee toets-pagina's.
+
+**Fix:** op beide pagina's staan de UMD-libs nu **vóór** `monaco-env.js` + `loader.js`, gelijk aan het werkende patroon. Meteen ook `code-highlight.js` op `quiz-review.html` gezet, zodat codeblokken bij het verbeteren dezelfde kleuring krijgen. Alle pagina's met `loader.js` zijn nagelopen: nu allemaal correct.
 
 ---
 
