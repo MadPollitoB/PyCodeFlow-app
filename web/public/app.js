@@ -1198,6 +1198,8 @@
   // Gedeelde cache zodat verwijderen/dupliceren de naam terugvindt, ongeacht welke tab.
   const _quizByCode = {};
   function cacheQuizzes(items) { for (const q of items) _quizByCode[q.code] = q; }
+  // Sprint 43.7: de aparte overzichtspagina's vullen dezelfde cache.
+  window.cacheAssignments = cacheQuizzes;
 
   // Sprint 43.6b: actieve toetsen/taken (zonder previews) voor het sessie-overzicht.
   async function loadActiveAssignments(type) {
@@ -1230,6 +1232,13 @@
       case 'expired': return '<span class="badge" style="background:#fee2e2;color:#991b1b;margin-left:4px;">⛔ Venster voorbij</span>';
       default:        return '<span class="badge" style="background:#dcfce7;color:#166534;margin-left:4px;">🟢 Open</span>';
     }
+  }
+
+  // Sprint 43.7: één herlaadpunt — op de aparte overzichtspagina's zet assignment-overview.js
+  // window.reloadAssignments; in het sessiescherm gebruiken we de lokale loadQuizSessions.
+  function refreshQuizViews() {
+    if (typeof window.reloadAssignments === 'function') return window.reloadAssignments();
+    return loadQuizSessions();
   }
 
   // Sprint 43.2: toetsen-/takenbank — toont álle toetsen/taken (incl. previews) met filters + verwijderen.
@@ -1345,7 +1354,7 @@
     try {
       const r = await fetch('/api/quiz/' + code + '/activate', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
       const d = await r.json().catch(() => ({}));
-      if (r.ok && d.ok) { if (window.pyToast) pyToast('Toets geactiveerd — staat nu onder "Actief".', 'success'); loadQuizSessions(); }
+      if (r.ok && d.ok) { if (window.pyToast) pyToast('Toets geactiveerd — staat nu onder "Actief".', 'success'); refreshQuizViews(); }
       else if (window.pyAlert) pyAlert('Activeren mislukt: ' + (d.error || ''), 'error');
     } catch (e) { if (window.pyAlert) pyAlert('Activeren mislukt.', 'error'); }
   };
@@ -1358,7 +1367,7 @@
     if (!ok) return;
     try {
       await fetch(`/api/sessions/${encodeURIComponent(code)}`, { method: 'DELETE' });
-      await loadQuizSessions();
+      await refreshQuizViews();
     } catch (e) {
       if (window.pyAlert) pyAlert('Verwijderen mislukt: ' + e.message, 'error'); else alert('Verwijderen mislukt: ' + e.message);
     }
@@ -1419,7 +1428,7 @@
       body: JSON.stringify({ name: name || undefined }),
     });
     const data = await r.json();
-    if (data.ok) { pyToast('Toets gekopieerd! Nieuwe code: ' + data.code, 'success'); loadQuizSessions(); }
+    if (data.ok) { pyToast('Toets gekopieerd! Nieuwe code: ' + data.code, 'success'); refreshQuizViews(); }
     else pyAlert('Fout: ' + data.error, 'error');
   };
 

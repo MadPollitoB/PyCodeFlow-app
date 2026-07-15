@@ -70,8 +70,8 @@
 
 <div class="subnav"><div class="subnav-inner">
   <a href="/quiz-bank.html">📋 Vragenbank</a>
-  <a href="/teacher-sessions.html?tab=quizzes&amp;type=toets">🧪 Toets overzicht</a>
-  <a href="/teacher-sessions.html?tab=quizzes&amp;type=taak">📝 Taak overzicht</a>
+  <a href="/toets-overzicht.html">🧪 Toets overzicht</a>
+  <a href="/taak-overzicht.html">📝 Taak overzicht</a>
   <a href="/quiz-archive.html">📦 Archief</a>
   <div class="subnav-sep"></div>
   <a href="/admin.html">👤 Beheer</a>
@@ -146,6 +146,11 @@
           <select id="quiz-target-class" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);">
             <option value="">— Alle klassen / niet gekoppeld —</option>
           </select>
+          <!-- Sprint 43.4: leerling-selectie binnen de gekozen klas -->
+          <div style="margin-top:6px;display:flex;align-items:center;gap:8px;">
+            <button type="button" class="btn btn-muted small" id="quiz-students-btn" onclick="openStudentPicker()" disabled>👥 Leerlingen</button>
+            <span class="muted" id="quiz-students-info" style="font-size:0.78rem;">Kies eerst een klas</span>
+          </div>
         </div>
       </div>
       <!-- Sprint 19j: tijdsvenster -->
@@ -161,8 +166,8 @@
               style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;"/>
           </div>
           <div>
-            <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Deadline (tot)</label>
-            <input type="datetime-local" id="quiz-access-until"
+            <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Deadline (tot) <span style="color:#dc2626;font-weight:700;">*verplicht</span></label>
+            <input type="datetime-local" id="quiz-access-until" required
               style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;"/>
           </div>
         </div>

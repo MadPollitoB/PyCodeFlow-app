@@ -310,7 +310,24 @@ async function initSchema() {
       -- 37d: nakijk-modus. Leerkracht stelt expliciet open; leerlingen kunnen dan
       -- hun eigen toets read-only inzien (los van results_released).
       BEGIN ALTER TABLE assignment_bank ADD COLUMN review_mode BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 43.3: expliciet type (toets|taak) i.p.v. afleiden uit no_timer
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN type TEXT NOT NULL DEFAULT 'toets'; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
+
+    -- Sprint 43.3: bestaande rijen krijgen hun type afgeleid uit no_timer (timerloos = taak).
+    -- Eenmalig: enkel rijen die nog op de default staan én timerloos zijn.
+    DO $$ BEGIN
+      UPDATE assignment_bank SET type = 'taak' WHERE no_timer = true AND type = 'toets';
+    EXCEPTION WHEN others THEN NULL; END $$;
+
+    -- Sprint 43.4: welke leerlingen mogen deze toets/taak maken.
+    -- GEEN rijen voor een session_code = ALLE leerlingen van de gekoppelde klas mogen.
+    CREATE TABLE IF NOT EXISTS assignment_students (
+      session_code TEXT NOT NULL REFERENCES sessions(code) ON DELETE CASCADE,
+      student_id   TEXT NOT NULL REFERENCES students(id)   ON DELETE CASCADE,
+      PRIMARY KEY (session_code, student_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_assignment_students_code ON assignment_students(session_code);
 
     CREATE TABLE IF NOT EXISTS quiz_answers (
       id               TEXT PRIMARY KEY,
@@ -1024,9 +1041,38 @@ module.exports = {
 
   // ── Quiz Sessie (Sprint 16b) ──────────────────────────────────────────────────
 
+  // ── Sprint 43.4: leerling-selectie per toets/taak ──────────────────────────
+  // Geen rijen voor een session_code = ALLE leerlingen van de gekoppelde klas mogen meedoen.
+  async listAssignmentStudents(sessionCode) {
+    const r = await query(`SELECT student_id FROM assignment_students WHERE session_code = $1`, [sessionCode]);
+    return r.rows.map(x => x.student_id);
+  },
+
+  // studentIds = volledige lijst toegelaten leerlingen. Lege array = beperking opheffen (iedereen mag).
+  async setAssignmentStudents(sessionCode, studentIds) {
+    await withTransaction(async (client) => {
+      await client.query(`DELETE FROM assignment_students WHERE session_code = $1`, [sessionCode]);
+      for (const id of (studentIds || [])) {
+        await client.query(
+          `INSERT INTO assignment_students (session_code, student_id) VALUES ($1,$2)
+           ON CONFLICT DO NOTHING`, [sessionCode, id]);
+      }
+    });
+  },
+
+  // true = deze leerling mag; ook true wanneer er geen selectie is vastgelegd.
+  async isStudentAllowed(sessionCode, studentId) {
+    const r = await query(`SELECT 1 FROM assignment_students WHERE session_code = $1 LIMIT 1`, [sessionCode]);
+    if (!r.rows.length) return true;                       // geen selectie → iedereen mag
+    const m = await query(`SELECT 1 FROM assignment_students WHERE session_code = $1 AND student_id = $2`,
+                          [sessionCode, studentId]);
+    return m.rows.length > 0;
+  },
+
   async createQuizSession({ sessionCode, questions, randomize, timerSeconds,
                              noTimer, minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
-                             schoolYear, targetClass, accessFrom, accessUntil, autoSubmitLate }) {
+                             schoolYear, targetClass, accessFrom, accessUntil, autoSubmitLate,
+                             type }) {
     const now = Date.now();
     // noTimer = true → geen tijdslimiet (taak)
     // timerSeconds = null + noTimer = false → gebruik standaard 2700s
@@ -1043,12 +1089,13 @@ module.exports = {
       await client.query(
         `INSERT INTO assignment_bank (session_code, randomize, timer_seconds, no_timer, individual_timer,
           min_runs_per_q, hide_question_on_screen, results_released, is_teacher_preview,
-          school_year, target_class, access_from, access_until, auto_submit_late, created_at)
-         VALUES ($1,$2,$3,$4,true,$5,$6,false,$7,$8,$9,$10,$11,$12,$13)`,
+          school_year, target_class, access_from, access_until, auto_submit_late, type, created_at)
+         VALUES ($1,$2,$3,$4,true,$5,$6,false,$7,$8,$9,$10,$11,$12,$13,$14)`,
         [sessionCode, randomize, effectiveTimer, noTimer || false,
          minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
          schoolYear || currentYear, targetClass || '',
          accessFrom || null, accessUntil || null, autoSubmitLate !== false,
+         (type === 'taak' ? 'taak' : (noTimer ? 'taak' : 'toets')),
          now]
       );
       for (const q of questions) {

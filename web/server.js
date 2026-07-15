@@ -1141,10 +1141,18 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
   const { name, questions, randomize, timerSeconds, minRunsPerQ,
           hideQuestionOnScreen, isTeacherPreview, templateCode,
           noTimer, accessFrom, accessUntil, autoSubmitLate,
-          schoolYear, targetClass } = req.body || {};
+          schoolYear, targetClass, type, studentIds } = req.body || {};
   if (!name?.trim()) return res.status(400).json({ error: 'Naam is verplicht.' });
   if (!questions?.length) return res.status(400).json({ error: 'Selecteer minstens 1 vraag.' });
   if (questions.length > 50) return res.status(400).json({ error: 'Max 50 vragen per toets.' });
+  // Sprint 43.3: einddatum + uur is VERPLICHT voor béide types (toets én taak).
+  // Preview-toetsen zijn vrijgesteld: die dienen enkel om zelf even te testen.
+  if (!isTeacherPreview && !accessUntil) {
+    return res.status(400).json({ error: 'Een einddatum en uur (deadline) is verplicht.' });
+  }
+  if (accessUntil && accessFrom && Number(accessUntil) <= Number(accessFrom)) {
+    return res.status(400).json({ error: 'De deadline moet ná de startdatum liggen.' });
+  }
 
   const code = makeCode();
   const session = {
@@ -1191,7 +1199,16 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
       minRunsPerQ: parseInt(minRunsPerQ) || 0,
       hideQuestionOnScreen: hideQuestionOnScreen === true,
       isTeacherPreview: isTeacherPreview === true,
+      schoolYear: schoolYear || '',
+      targetClass: targetClass || '',
+      // Sprint 43.3: expliciet type; timerloos blijft synoniem voor 'taak'
+      type: (type === 'taak' || noTimer === true) ? 'taak' : 'toets',
     });
+    // Sprint 43.4: expliciete leerling-selectie (leeg/afwezig = hele klas mag meedoen)
+    if (Array.isArray(studentIds) && studentIds.length) {
+      try { await dbModule.setAssignmentStudents(code, studentIds); }
+      catch (e) { log.warn('[quiz] leerling-selectie opslaan mislukt:', e.message); }
+    }
     res.json({ ok: true, code });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1211,14 +1228,9 @@ app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireCsrf, async (re
   const origSession = sessions.get(code) || await dbModule.loadActiveSessions().then(s => s.find(x => x.code === code));
   if (!meta || !questions.length) return res.status(404).json({ error: 'Toets niet gevonden.' });
   const newName = (req.body?.name || (origSession?.name || 'Toets') + ' (kopie)').slice(0, 100);
-  // Simuleer de /api/quiz POST maar intern
-  req.body = {
-    name: newName,
-    questions: questions.map(q => ({ id: q.bank_question_id, text: q.text_snapshot, subject: q.subject, points: q.points })),
-    randomize: meta.randomize, timerSeconds: meta.timer_seconds,
-    minRunsPerQ: meta.min_runs_per_q, hideQuestionOnScreen: meta.hide_question_on_screen,
-  };
-  // Roep dezelfde logica aan via directe call
+  // Sprint 43.8: dupliceren kopieert ENKEL de meta (assignment_bank) en KOPPELT de bestaande
+  // vragen via hun bank-id (bank_question_id). Er worden dus géén nieuwe question_bank-records
+  // aangemaakt — de vragenbank blijft gedeeld tussen origineel en kopie.
   const newCode = makeCode();
   const newSession = {
     code: newCode, id: crypto.randomUUID(), name: newName, mode: 'quiz',
@@ -1252,7 +1264,58 @@ app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireCsrf, async (re
     schoolYear: meta.school_year || '',
     targetClass: meta.target_class || '',
   });
+  // Sprint 43.8: velden die createQuizSession niet meeneemt, alsnog van het origineel overnemen
+  // (tijdsvenster + individuele timer). Deadline hoort bij de toets, dus die kopieert mee.
+  try {
+    await dbModule.query(
+      `UPDATE assignment_bank SET access_from = $1, access_until = $2, individual_timer = $3 WHERE session_code = $4`,
+      [meta.access_from ?? null, meta.access_until ?? null, meta.individual_timer ?? true, newCode]
+    );
+  } catch (e) { log.warn('[duplicate] tijdsvenster kopiëren mislukt:', e.message); }
   res.json({ ok: true, code: newCode });
+});
+
+// ── Sprint 43.4: leerling-selectie per toets/taak ────────────────────────────
+// GET → { classId, students:[{id,name,allowed}], restricted:bool }
+app.get('/api/quiz/:code/students', requireTeacherAuth, async (req, res) => {
+  const code = String(req.params.code || '').toUpperCase();
+  try {
+    const meta = await dbModule.getQuizMeta(code);
+    if (!meta) return res.status(404).json({ error: 'Niet gevonden.' });
+    const classId = meta.target_class || '';
+    if (!classId) return res.json({ classId: '', students: [], restricted: false });
+    const klas = await dbModule.listStudents(classId);
+    const allowed = await dbModule.listAssignmentStudents(code);
+    const restricted = allowed.length > 0;
+    res.json({
+      classId,
+      restricted,
+      // Geen selectie vastgelegd → iedereen staat aangevinkt (standaard alles aan).
+      students: klas.map(s => ({ id: s.id, name: s.name, allowed: restricted ? allowed.includes(s.id) : true })),
+    });
+  } catch (e) {
+    log.warn('[quiz students] ophalen mislukt:', e.message);
+    res.status(500).json({ error: 'Ophalen mislukt.' });
+  }
+});
+
+// PUT { studentIds:[...] } → sla selectie op. Alles aangevinkt = beperking opheffen.
+app.put('/api/quiz/:code/students', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const code = String(req.params.code || '').toUpperCase();
+  const ids = Array.isArray(req.body?.studentIds) ? req.body.studentIds : [];
+  try {
+    const meta = await dbModule.getQuizMeta(code);
+    if (!meta) return res.status(404).json({ error: 'Niet gevonden.' });
+    const klas = meta.target_class ? await dbModule.listStudents(meta.target_class) : [];
+    // Iedereen aangevinkt → geen rijen bewaren (dan blijft "hele klas" gelden, ook als
+    // er later een leerling bijkomt). Anders enkel de aangevinkte leerlingen bewaren.
+    const all = klas.length > 0 && ids.length >= klas.length;
+    await dbModule.setAssignmentStudents(code, all ? [] : ids);
+    res.json({ ok: true, restricted: !all && ids.length > 0 });
+  } catch (e) {
+    log.warn('[quiz students] opslaan mislukt:', e.message);
+    res.status(500).json({ error: 'Opslaan mislukt.' });
+  }
 });
 
 // ── Sprint 43.2b: preview-toets activeren (→ echte toets die gestart kan worden) ──
@@ -2654,7 +2717,8 @@ app.get("/api/sessions", requireTeacherAuth, async (req, res) => {
 function quizSummaryRow(code, name, createdAt, closed, meta, onlineCount, studentCount, now) {
   const accessFrom  = meta && meta.access_from  != null ? Number(meta.access_from)  : null;
   const accessUntil = meta && meta.access_until != null ? Number(meta.access_until) : null;
-  const quizType = (meta && meta.no_timer) ? 'taak' : 'toets';
+  // Sprint 43.3: type komt nu uit de expliciete kolom; no_timer blijft fallback voor oude rijen.
+  const quizType = (meta && meta.type) ? meta.type : ((meta && meta.no_timer) ? 'taak' : 'toets');
   // Beschikbaarheid op basis van het tijdsvenster — los van de handmatige 'closed'-vlag.
   let availability = 'open';
   if (closed)                                    availability = 'closed';
@@ -4594,6 +4658,20 @@ io.on("connection", (socket) => {
         autoSubmitLate: meta.auto_submit_late !== false,
       });
     }
+
+    // Sprint 43.4: leerling-selectie afdwingen. Is er een expliciete selectie vastgelegd,
+    // dan mag enkel wie erin staat starten. Matching op naam binnen de gekoppelde klas
+    // (toets-leerlingen krijgen een random id, dus id-matching werkt hier niet).
+    try {
+      const allowedIds = await dbModule.listAssignmentStudents(normalizedCode);
+      if (allowedIds.length && meta.target_class) {
+        const klas = await dbModule.listStudents(meta.target_class);
+        const match = klas.find(s => String(s.name).trim().toLowerCase() === studentName.toLowerCase());
+        if (!match || !allowedIds.includes(match.id)) {
+          return socket.emit('error_message', 'Je bent niet geselecteerd voor deze toets/taak. Vraag je leerkracht om toegang.');
+        }
+      }
+    } catch (e) { log.warn('[quiz_start] leerling-selectie check mislukt:', e.message); }
 
     // Herstarten: bestaande leerling
     let student = Object.values(session.students).find(

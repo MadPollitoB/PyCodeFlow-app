@@ -251,6 +251,12 @@ async function createQuiz() {
   if (accessFrom && accessUntil && accessFrom >= accessUntil) {
     await pyAlert('Deadline moet na de startdatum liggen.', "warn"); return;
   }
+  // Sprint 43.3: einddatum + uur is verplicht voor toets én taak (preview uitgezonderd).
+  if (!isTeacherPreview && !accessUntil) {
+    await pyAlert('Een einddatum en uur (deadline) is verplicht voor een toets én een taak.', 'warn');
+    accessUntilEl?.focus();
+    return;
+  }
 
   const questions = Object.values(_selected).map(q => ({
     id: q.id, text: q.text, subject: q.subject, points: q.points, max_points: q.max_points,
@@ -267,7 +273,12 @@ async function createQuiz() {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ name, questions, randomize, timerSeconds, noTimer, minRunsPerQ,
                              hideQuestionOnScreen, isTeacherPreview, schoolYear, targetClass,
-                             accessFrom, accessUntil, autoSubmitLate }),
+                             accessFrom, accessUntil, autoSubmitLate,
+                             // Sprint 43.3: expliciet type (timerloos = taak)
+                             type: noTimer ? 'taak' : 'toets',
+                             // Sprint 43.4: enkel meesturen als de leerkracht een selectie maakte
+                             studentIds: (window._selectedStudentIds && window._selectedStudentIds.length)
+                                         ? window._selectedStudentIds : undefined }),
     });
     const data = await r.json();
     if (data.ok) {
@@ -324,3 +335,92 @@ function toggleTimer(val) {
     });
   } catch (e) { console.warn('[quiz-teacher] fout:', e.message); }
 })();
+
+/* ── Sprint 43.4: leerling-selectie binnen de gekozen klas ─────────────────────
+   Standaard doen ALLE leerlingen van de klas mee. Pas als de leerkracht iemand
+   uitvinkt, houden we een expliciete lijst bij (window._selectedStudentIds).
+   Leeg = geen beperking → iedereen van de klas mag. */
+window._selectedStudentIds = [];
+let _pickerRoster = [];
+
+function _updateStudentsInfo() {
+  const info = document.getElementById('quiz-students-info');
+  const btn  = document.getElementById('quiz-students-btn');
+  const classId = document.getElementById('quiz-target-class')?.value || '';
+  if (!info || !btn) return;
+  btn.disabled = !classId;
+  if (!classId) { info.textContent = 'Kies eerst een klas'; window._selectedStudentIds = []; return; }
+  const n = window._selectedStudentIds.length;
+  info.textContent = n ? `${n} leerling${n === 1 ? '' : 'en'} geselecteerd` : 'Alle leerlingen van de klas';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const sel = document.getElementById('quiz-target-class');
+  if (sel) sel.addEventListener('change', () => { window._selectedStudentIds = []; _updateStudentsInfo(); });
+  _updateStudentsInfo();
+});
+
+window.openStudentPicker = async function () {
+  const classId = document.getElementById('quiz-target-class')?.value || '';
+  if (!classId) return;
+  try {
+    const r = await fetch('/api/admin/students?classId=' + encodeURIComponent(classId));
+    if (!r.ok) { await pyAlert('Kon de klaslijst niet laden.', 'warn'); return; }
+    _pickerRoster = await r.json();
+  } catch (e) { await pyAlert('Kon de klaslijst niet laden.', 'warn'); return; }
+
+  if (!_pickerRoster.length) { await pyAlert('Deze klas heeft nog geen leerlingen.', 'warn'); return; }
+
+  // Niets gekozen → standaard staat alles aan.
+  const chosen = window._selectedStudentIds.length
+    ? new Set(window._selectedStudentIds)
+    : new Set(_pickerRoster.map(s => s.id));
+
+  const old = document.getElementById('py-modal-overlay');
+  if (old) old.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'py-modal-overlay';
+  overlay.innerHTML =
+    '<div id="py-modal-box" style="max-width:520px;">' +
+      '<div id="py-modal-title">Leerlingen voor deze toets/taak</div>' +
+      '<div id="py-modal-body">' +
+        '<p class="muted" style="margin:0 0 8px;font-size:0.85rem;">Vink aan wie deze toets/taak mag maken. Standaard doet iedereen mee.</p>' +
+        '<div style="display:flex;gap:6px;margin-bottom:8px;">' +
+          '<button type="button" class="btn btn-muted small" id="sp-all">Alles aan</button>' +
+          '<button type="button" class="btn btn-muted small" id="sp-none">Alles uit</button>' +
+          '<span class="muted" id="sp-count" style="margin-left:auto;font-size:0.8rem;"></span>' +
+        '</div>' +
+        '<div id="sp-list" style="max-height:320px;overflow-y:auto;border:1.5px solid var(--border);border-radius:10px;padding:8px;"></div>' +
+      '</div>' +
+      '<div id="py-modal-actions">' +
+        '<button id="sp-cancel" class="btn btn-muted small">Annuleren</button>' +
+        '<button id="sp-save" class="btn btn-primary small">Opslaan</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+
+  function paint() {
+    document.getElementById('sp-list').innerHTML = _pickerRoster.map(s =>
+      '<label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;">' +
+        '<input type="checkbox" class="sp-cb" value="' + s.id + '"' + (chosen.has(s.id) ? ' checked' : '') + '/>' +
+        '<span>' + (window.escapeHtml ? escapeHtml(s.name) : s.name) + '</span>' +
+      '</label>').join('');
+    document.getElementById('sp-count').textContent = chosen.size + ' van ' + _pickerRoster.length;
+    document.querySelectorAll('.sp-cb').forEach(cb => cb.addEventListener('change', () => {
+      if (cb.checked) chosen.add(cb.value); else chosen.delete(cb.value);
+      document.getElementById('sp-count').textContent = chosen.size + ' van ' + _pickerRoster.length;
+    }));
+  }
+  paint();
+
+  document.getElementById('sp-all').addEventListener('click', () => { _pickerRoster.forEach(s => chosen.add(s.id)); paint(); });
+  document.getElementById('sp-none').addEventListener('click', () => { chosen.clear(); paint(); });
+  document.getElementById('sp-cancel').addEventListener('click', () => overlay.remove());
+  document.getElementById('sp-save').addEventListener('click', () => {
+    // Iedereen aangevinkt → geen beperking bewaren (dan telt automatisch de hele klas).
+    window._selectedStudentIds = (chosen.size === _pickerRoster.length) ? [] : Array.from(chosen);
+    overlay.remove();
+    _updateStudentsInfo();
+  });
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+};

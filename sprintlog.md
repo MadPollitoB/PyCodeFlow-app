@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.47.9**
+**Huidige versie: v2026.2.47.10**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -18,9 +18,6 @@
 
 | Sprint | Prio | Cat | Inhoud | Inschatting |
 |---|---|---|---|---|
-| **43.8** | 🟠 P8 | BUG | **Dupliceren toets/taak** mag enkel de *meta* kopiëren; vragen moeten dezelfde bank-id's **refereren** i.p.v. nieuwe vragenrecords aan te maken (anders dubbele records). *Te bevestigen welke tabel dubbelt — zie detail.* | ~0.5 dag |
-| **43.3** | 🟠 P8 | FEAT | **Type toets vs taak** expliciet: kolom `type` op `quiz_meta` ('toets'/'taak', bestaande rijen afgeleid uit `no_timer`). Keuze bij aanmaken; bank/tab filteren erop. *Deadline-regel te bevestigen (zie detail).* | ~1 dag |
-| **43.4** | 🟠 P8 | FEAT | **Leerling-selectie per toets/taak**: klas kiezen → knop "Leerlingen" → popup met checkboxes (standaard alles aan), "alles aan/uit", opslaan/annuleren. Nieuwe tabel `assignment_students`; leeg = alle klasleerlingen. Beschikbaarheid afgedwongen bij join. | ~1.5 dag |
 | **48** | 🔵 P9 | ARCH | ⛔ School-keuze bij leerkracht-login (modal indien >1 school) + `active_school_id` in sessie — **geblokkeerd:** vereist fase 1 + fase 3 (multi-tenant) | ~3 dagen |
 
 > **Sprint 42 is gesplitst:** Deel C (branding/schoollogo) is afgerond in v2026.2.42.0 (zie afgewerkte sprints); het restant (startpagina + leerling/leerkracht-ingang) leeft nu als **sprint 45**.
@@ -102,6 +99,10 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 49 | **43.6c** | Monaco-worker-warning gefixt: ontbrekende `public/monaco-env.js` (referenced door 5 pagina's) hersteld → workers via blob: i.p.v. main-thread-fallback | v2026.2.47.8 |
 | 50 | **43.5** | Tabellen hernoemd: `quiz_bank` → `question_bank`, `quiz_meta` → `assignment_bank` (data-behoudende migratie + alle queries + DB-viewer) | v2026.2.47.9 |
 | 51 | **43.7** | Nav: "Nieuwe toets" weg; **Toets overzicht** + **Taak overzicht** erbij (bank per type via `?tab=quizzes&type=`) | v2026.2.47.9 |
+| 52 | **43.7b** | Herbouw: **echte aparte pagina's** `toets-overzicht.html` + `taak-overzicht.html` (kaartenraster zoals de vragenbank) i.p.v. de sessie-tab; inline-notes uit sessiescherm weg | v2026.2.47.10 |
+| 53 | **43.8** | Dupliceren: enkel meta kopiëren + vragen koppelen via bestaande bank-id's (geen nieuwe vraagrecords); tijdsvenster/deadline kopieert nu mee | v2026.2.47.10 |
+| 54 | **43.3** | Expliciet `type`-veld (toets/taak) op `assignment_bank` + **deadline verplicht** voor béide (server + client) | v2026.2.47.10 |
+| 55 | **43.4** | Leerling-selectie per toets/taak: tabel `assignment_students`, popup met checkboxes (standaard alles aan, alles aan/uit, opslaan/annuleren) + afdwingen bij start | v2026.2.47.10 |
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
@@ -139,7 +140,9 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 
 ---
 
-### Sprint 43.8 — Dupliceren: enkel meta kopiëren, vragen refereren *(~0.5 dag)* — 📋 GEPLAND
+### Sprint 43.8 — Dupliceren: enkel meta kopiëren, vragen refereren *(~0.5 dag)* — ✅ AFGEROND (v2026.2.47.10)
+
+**Afgerond:** 14/07. Bevestigd: er worden **geen** nieuwe `question_bank`-records aangemaakt — de kopie koppelt via `bank_question_id` aan dezelfde bankvragen (klopt met jouw observatie dat er geen dubbels zijn). De duplicate-code is opgeschoond (dode `req.body`-simulatie weg) en **uitgebreid**: `access_from`/`access_until` (deadline) en `individual_timer` werden **niet** meegekopieerd en nu wél. Per-sessie `quiz_question_snapshots` blijven by design (bevriezen de vraagtekst per toets).
 
 **Aangemeld:** 12/07/2026 (testronde) · **Cat:** BUG · **Prio:** 🟠 P8
 
@@ -151,7 +154,13 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 
 ---
 
-### Sprint 43.7 — Toets-overzicht & taak-overzicht *(~1.5 dag)* — ✅ AFGEROND (v2026.2.47.9)
+### Sprint 43.7b — Toets-/taak-overzicht als échte pagina's *(~1 dag)* — ✅ AFGEROND (v2026.2.47.10)
+
+**Aangemeld:** 14/07 (terechte feedback: de tab toonde nog de titel "Lopende sessies"). **Wat is gebouwd:** twee **eigen pagina's** `toets-overzicht.html` en `taak-overzicht.html`, opgebouwd zoals de **vragenbank**: eigen titel, statistiek-chips, filterbalk (klas/status/schooljaar/zoeken) en een **kaartenraster** per item, gegroepeerd in Actief / Preview / Afgerond. Gedeelde logica in `assignment-overview.js`; de nav wijst nu naar deze pagina's (niet meer naar de sessie-tab). De inline-notes *"Volledig overzicht & previews →"* zijn uit het sessiescherm verwijderd.
+
+---
+
+### Sprint 43.7 — Toets-overzicht & taak-overzicht *(~1.5 dag)* — ✅ AFGEROND (v2026.2.47.9, herbouwd in 43.7b)
 
 **Afgerond:** 14/07 — **lean uitvoering:** i.p.v. twee losse HTML-pagina's wijzen de nav-items **Toets overzicht** en **Taak overzicht** naar de bestaande bank vóór-gefilterd op type (`?tab=quizzes&type=toets|taak`); de bank is functioneel het volledige overzicht per type (filters, groepen, aanmaken/bewerken/dupliceren/verwijderen). **"Nieuwe toets" is uit de nav** (aanmaken gebeurt via de "+ Nieuwe"-knop in het overzicht). Wil je het écht als twee aparte pagina's (zoals de vragenbank), dan is dat een kleine opvolgstap.
 
@@ -166,7 +175,9 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 
 ---
 
-### Sprint 43.3 — Type toets vs taak (expliciet) + deadline-regels *(~1 dag)* — 📋 GEPLAND
+### Sprint 43.3 — Type toets vs taak (expliciet) + deadline-regels *(~1 dag)* — ✅ AFGEROND (v2026.2.47.10)
+
+**Afgerond:** 14/07. Kolom **`type`** ('toets'|'taak') op `assignment_bank` + migratie die bestaande rijen afleidt uit `no_timer` (timerloos → taak). `createQuizSession` schrijft het type; `/api/quiz-sessions` leest het uit de kolom (met `no_timer` als fallback voor oude rijen). **Deadline verplicht voor béide**: server weigert aanmaken zonder `accessUntil` (preview uitgezonderd) én controleert dat de deadline ná de start ligt; client blokkeert met een duidelijke melding en het veld is als *verplicht* gemarkeerd.
 
 **Aangemeld:** 12/07/2026 · **Cat:** FEAT · **Prio:** 🟠 P8
 
@@ -176,7 +187,9 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 
 ---
 
-### Sprint 43.4 — Leerling-selectie per toets/taak *(~1.5 dag)* — 📋 GEPLAND
+### Sprint 43.4 — Leerling-selectie per toets/taak *(~1.5 dag)* — ✅ AFGEROND (v2026.2.47.10)
+
+**Afgerond:** 14/07. Nieuwe tabel **`assignment_students`** (`session_code`,`student_id`) — **geen rijen = alle leerlingen** van de klas mogen. UI: knop **👥 Leerlingen** naast de klaskeuze opent een popup met de klaslijst als checkboxes (**standaard alles aan**), met **Alles aan/uit**, **Opslaan/Annuleren**; is alles aangevinkt dan bewaren we géén beperking (zo mag een later toegevoegde leerling ook mee). API: `GET/PUT /api/quiz/:code/students`. **Afdwingen bij start**: `quiz_start` weigert niet-geselecteerde leerlingen (matching op naam binnen de gekoppelde klas, want toets-leerlingen krijgen een random id).
 
 **Aangemeld:** 12/07/2026 · **Cat:** FEAT · **Prio:** 🟠 P8
 

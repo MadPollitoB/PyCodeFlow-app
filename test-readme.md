@@ -1967,4 +1967,33 @@ LEERLING — juiste instap
 ✅ Nieuwe toets/taak aanmaken kan nog via de "+ Nieuwe"-knop in het overzicht
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.9 · 14 juli 2026*
+## 60. Sprint 43.7b + 43.8 + 43.3 + 43.4
+
+```
+— Overzichtspagina's (43.7b) —
+✅ Nav "🧪 Toets overzicht" opent een EIGEN pagina met titel "Toets overzicht" (niet "Lopende sessies")
+✅ Nav "📝 Taak overzicht" idem met titel "Taak overzicht"
+✅ Layout als de vragenbank: statistiek-chips, filterbalk, kaartenraster
+✅ Filters werken: klas, status (Actief/Preview/Afgerond), schooljaar, zoeken op naam/code
+✅ Sessiescherm: het zinnetje "Volledig overzicht & previews →" is weg
+
+— Dupliceren (43.8) —
+✅ Dupliceer een toets → vragenbank telt NIET meer vragen dan ervoor (geen dubbele vraagrecords)
+✅ De kopie heeft dezelfde vragen, én de deadline/tijdsvenster is meegekopieerd
+
+— Type + deadline (43.3) —
+✅ Nieuwe toets zonder deadline → foutmelding "einddatum en uur is verplicht" (aanmaken lukt niet)
+✅ Deadline vóór de startdatum → foutmelding
+✅ Toets met timer verschijnt onder Toets overzicht; taak (geen tijdslimiet) onder Taak overzicht
+
+— Leerling-selectie (43.4) —
+✅ Zonder klas: knop "👥 Leerlingen" is uitgeschakeld ("Kies eerst een klas")
+✅ Met klas: knop opent popup met alle leerlingen AANGEVINKT
+✅ "Alles uit" / "Alles aan" werkt; teller toont "x van y"
+✅ Annuleren wijzigt niets; Opslaan toont "x leerlingen geselecteerd"
+✅ Alles aangevinkt + opslaan → info toont weer "Alle leerlingen van de klas"
+✅ Leerling die NIET geselecteerd is → kan de toets niet starten (duidelijke melding)
+✅ Leerling die WEL geselecteerd is → kan gewoon starten
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.10 · 14 juli 2026*

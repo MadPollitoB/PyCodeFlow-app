@@ -1,0 +1,145 @@
+/* Sprint 43.7 — Toets-/taak-overzicht als eigen pagina (zelfde opbouw als de vragenbank).
+   Deze pagina staat los van het sessie-overzicht: eigen titel, eigen kaartenraster, eigen filters.
+   Het type (toets|taak) wordt afgeleid uit de bestandsnaam, zodat één script beide pagina's bedient. */
+(function () {
+  'use strict';
+
+  var TYPE = location.pathname.indexOf('taak-overzicht') !== -1 ? 'taak' : 'toets';
+  var LABEL = TYPE === 'taak' ? 'taak' : 'toets';
+  var LABEL_MV = TYPE === 'taak' ? 'taken' : 'toetsen';
+
+  var items = [];                                   // alles van dit type (incl. previews)
+  var filter = { klas: '', status: '', jaar: '', q: '' };
+
+  function esc(s) { return window.escapeHtml ? window.escapeHtml(String(s == null ? '' : s)) : String(s == null ? '' : s); }
+
+  function statusBadge(a) {
+    if (a.isPreview)                 return '<span class="badge" style="background:#fef3c7;color:#92400e;">👁 preview</span>';
+    if (a.availability === 'closed') return '<span class="badge" style="background:#e2e8f0;color:#475569;">Gesloten</span>';
+    if (a.availability === 'expired')return '<span class="badge" style="background:#fee2e2;color:#991b1b;">⛔ Venster voorbij</span>';
+    if (a.availability === 'pending')return '<span class="badge" style="background:#dbeafe;color:#1e40af;">⏳ Nog niet open</span>';
+    return '<span class="badge" style="background:#dcfce7;color:#166534;">🟢 Open</span>';
+  }
+
+  function group(a) {
+    if (a.isPreview) return 'preview';
+    if (a.availability === 'closed' || a.availability === 'expired') return 'done';
+    return 'active';
+  }
+
+  function matches(a) {
+    if (filter.klas && a.className !== filter.klas) return false;
+    if (filter.jaar && a.schoolYear !== filter.jaar) return false;
+    if (filter.status === 'preview' && !a.isPreview) return false;
+    if (filter.status === 'active' && group(a) !== 'active') return false;
+    if (filter.status === 'done' && group(a) !== 'done') return false;
+    if (filter.q) {
+      var hay = ((a.name || '') + ' ' + (a.code || '')).toLowerCase();
+      if (hay.indexOf(filter.q.toLowerCase()) === -1) return false;
+    }
+    return true;
+  }
+
+  function renderFilters() {
+    var host = document.getElementById('filter-bar');
+    if (!host) return;
+    var classes = [], years = [];
+    items.forEach(function (a) {
+      if (a.className && classes.indexOf(a.className) === -1) classes.push(a.className);
+      if (a.schoolYear && years.indexOf(a.schoolYear) === -1) years.push(a.schoolYear);
+    });
+    classes.sort(); years.sort().reverse();
+    function opt(v, l, sel) { return '<option value="' + esc(v) + '"' + (sel ? ' selected' : '') + '>' + esc(l) + '</option>'; }
+    host.innerHTML =
+      '<select id="f-klas"><option value="">Alle klassen</option>' + classes.map(function (c) { return opt(c, c, filter.klas === c); }).join('') + '</select>' +
+      '<select id="f-status">' + opt('', 'Alle statussen', !filter.status) + opt('active', 'Actief', filter.status === 'active') +
+        opt('preview', 'Preview', filter.status === 'preview') + opt('done', 'Afgerond', filter.status === 'done') + '</select>' +
+      (years.length > 1 ? '<select id="f-jaar"><option value="">Alle schooljaren</option>' + years.map(function (y) { return opt(y, y, filter.jaar === y); }).join('') + '</select>' : '') +
+      '<input id="f-q" placeholder="Zoek op naam of code…" value="' + esc(filter.q) + '"/>';
+    function bind(id, key, ev) {
+      var e = document.getElementById(id); if (!e) return;
+      e.addEventListener(ev || 'change', function () { filter[key] = e.value; renderList(); });
+    }
+    bind('f-klas', 'klas'); bind('f-status', 'status'); bind('f-jaar', 'jaar'); bind('f-q', 'q', 'input');
+  }
+
+  function renderStats() {
+    var host = document.getElementById('stats-bar');
+    if (!host) return;
+    var act = 0, prev = 0, done = 0;
+    items.forEach(function (a) { var g = group(a); if (g === 'active') act++; else if (g === 'preview') prev++; else done++; });
+    host.innerHTML =
+      '<span class="stat-chip">Totaal: <strong>' + items.length + '</strong></span>' +
+      '<span class="stat-chip">Actief: <strong>' + act + '</strong></span>' +
+      '<span class="stat-chip">Preview: <strong>' + prev + '</strong></span>' +
+      '<span class="stat-chip">Afgerond: <strong>' + done + '</strong></span>';
+  }
+
+  function card(a) {
+    var cls = 'a-card' + (a.isPreview ? ' preview-card' : '');
+    var activate = a.isPreview
+      ? '<button class="btn btn-primary small" onclick="activateQuiz(\'' + a.code + '\')" title="Maak hier een echte ' + LABEL + ' van">▶ Activeren</button>' : '';
+    var live = a.isPreview ? '' :
+      '<a class="btn btn-soft small" href="/teacher-grid.html?code=' + a.code + '" target="_blank">👁 Live</a>' +
+      '<button class="btn btn-soft small" onclick="toggleQuizRoster(\'' + a.code + '\')">👥 Voortgang</button>';
+    var deadline = a.accessUntil
+      ? '<span class="a-sub">⏰ Deadline: ' + new Date(a.accessUntil).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) + '</span>'
+      : '';
+    return '<div class="' + cls + '">' +
+      '<div class="a-meta"><strong>' + esc(a.name || a.code) + '</strong>' + statusBadge(a) +
+        (a.onlineCount ? '<span class="badge" style="background:#dcfce7;color:#166534;">👥 ' + a.onlineCount + ' online</span>' : '') +
+      '</div>' +
+      '<div class="a-sub">Code: <strong>' + esc(a.code) + '</strong>' +
+        (a.className ? ' · 👥 ' + esc(a.className) : '') +
+        (a.schoolYear ? ' · ' + esc(a.schoolYear) : '') +
+        ' · ' + new Date(a.createdAt).toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
+      '</div>' + deadline +
+      '<div class="a-actions">' + activate + live +
+        '<a class="btn btn-muted small" href="/quiz-review.html?code=' + a.code + '">✏️ Verbeteren</a>' +
+        '<button class="btn btn-muted small" onclick="duplicateQuiz(\'' + a.code + '\')">📋 Dupliceren</button>' +
+        '<button class="btn btn-danger small" onclick="deleteQuiz(\'' + a.code + '\')">🗑 Verwijderen</button>' +
+      '</div>' +
+      '<div id="roster-' + a.code + '" class="a-roster" style="display:none;"></div>' +
+    '</div>';
+  }
+
+  function renderList() {
+    var el = document.getElementById('assignment-list');
+    if (!el) return;
+    var list = items.filter(matches);
+    if (!list.length) {
+      el.innerHTML = items.length
+        ? '<p class="empty-state">Geen ' + LABEL_MV + ' die aan de filter voldoen.</p>'
+        : '<p class="empty-state">Nog geen ' + LABEL_MV + '. Klik op "+ Nieuwe ' + LABEL + '".</p>';
+      return;
+    }
+    var g = { active: [], preview: [], done: [] };
+    list.forEach(function (a) { g[group(a)].push(a); });
+    function section(arr, title, color) {
+      if (!arr.length) return '';
+      return '<div class="group-head" style="color:' + color + ';">' + title + ' (' + arr.length + ')</div>' +
+             '<div class="ab-grid">' + arr.map(card).join('') + '</div>';
+    }
+    el.innerHTML =
+      section(g.active, '🟢 Actief', '#166534') +
+      section(g.preview, '👁 Preview / onafgewerkt', '#92400e') +
+      section(g.done, '✅ Afgerond / te verbeteren', '#334155');
+  }
+
+  window.reloadAssignments = async function () {
+    var el = document.getElementById('assignment-list');
+    try {
+      var r = await fetch('/api/quiz-sessions?bank=1');
+      if (!r.ok) { el.innerHTML = '<p class="empty-state">Kon niet laden.</p>'; return; }
+      var all = await r.json();
+      items = all.filter(function (a) { return a.quizType === TYPE; });
+      if (window.cacheAssignments) window.cacheAssignments(all);
+      renderStats(); renderFilters(); renderList();
+    } catch (e) {
+      if (el) el.innerHTML = '<p class="empty-state">Kon niet laden.</p>';
+    }
+  };
+
+  document.addEventListener('DOMContentLoaded', window.reloadAssignments);
+  if (document.readyState !== 'loading') window.reloadAssignments();
+})();
