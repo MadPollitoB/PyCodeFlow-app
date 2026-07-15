@@ -79,6 +79,9 @@
     var cls = 'a-card' + (a.isPreview ? ' preview-card' : '');
     var activate = a.isPreview
       ? '<button class="btn btn-primary small" onclick="activateQuiz(\'' + a.code + '\')" title="Maak hier een echte ' + LABEL + ' van">▶ Activeren</button>' : '';
+    // Sprint 43.9: een preview moet je ook LATER nog kunnen doorlopen als leerkracht.
+    var walk = a.isPreview
+      ? '<button class="btn btn-soft small" onclick="openPreviewRun(\'' + a.code + '\')" title="Doorloop deze preview zelf, als leerling">🧑‍🎓 Doorlopen</button>' : '';
     var live = a.isPreview ? '' :
       '<a class="btn btn-soft small" href="/teacher-grid.html?code=' + a.code + '" target="_blank">👁 Live</a>' +
       '<button class="btn btn-soft small" onclick="toggleQuizRoster(\'' + a.code + '\')">👥 Voortgang</button>';
@@ -94,7 +97,7 @@
         (a.schoolYear ? ' · ' + esc(a.schoolYear) : '') +
         ' · ' + new Date(a.createdAt).toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
       '</div>' + deadline +
-      '<div class="a-actions">' + activate + live +
+      '<div class="a-actions">' + activate + walk + live +
         '<a class="btn btn-muted small" href="/quiz-review.html?code=' + a.code + '">✏️ Verbeteren</a>' +
         '<button class="btn btn-muted small" onclick="duplicateQuiz(\'' + a.code + '\')">📋 Dupliceren</button>' +
         '<button class="btn btn-danger small" onclick="deleteQuiz(\'' + a.code + '\')">🗑 Verwijderen</button>' +
@@ -138,6 +141,15 @@
     } catch (e) {
       if (el) el.innerHTML = '<p class="empty-state">Kon niet laden.</p>';
     }
+  };
+
+  // Sprint 43.9: preview zelf doorlopen (opent de leerling-weergave in een nieuw tabblad).
+  // Previews zijn vrijgesteld van de leerling-selectie, dus 'Leerkracht Test' mag starten.
+  window.openPreviewRun = function (code) {
+    var url = '/quiz-student.html?code=' + encodeURIComponent(code) +
+              '&name=' + encodeURIComponent('Leerkracht Test') +
+              '&class=' + encodeURIComponent('Preview');
+    window.open(url, '_blank');
   };
 
   document.addEventListener('DOMContentLoaded', window.reloadAssignments);

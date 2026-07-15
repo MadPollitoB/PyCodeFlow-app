@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.47.10**
+**Huidige versie: v2026.2.47.11**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -103,6 +103,7 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 53 | **43.8** | Dupliceren: enkel meta kopiëren + vragen koppelen via bestaande bank-id's (geen nieuwe vraagrecords); tijdsvenster/deadline kopieert nu mee | v2026.2.47.10 |
 | 54 | **43.3** | Expliciet `type`-veld (toets/taak) op `assignment_bank` + **deadline verplicht** voor béide (server + client) | v2026.2.47.10 |
 | 55 | **43.4** | Leerling-selectie per toets/taak: tabel `assignment_students`, popup met checkboxes (standaard alles aan, alles aan/uit, opslaan/annuleren) + afdwingen bij start | v2026.2.47.10 |
+| 56 | **43.9** | Preview later doorlopen: knop **🧑‍🎓 Doorlopen** op preview-kaarten + bugfix: previews vrijgesteld van de leerling-selectie-check (uit 43.4) | v2026.2.47.11 |
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
@@ -137,6 +138,18 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 **Login-bug (root cause):** sinds sprint 45 serveert de app de leerling-ingang op de nette route **`/student`**, waardoor `page === 'student'`. Maar `_socketPages` in `app.js` (de lijst pagina's die een echte Socket.IO-verbinding krijgen) bevatte wél `'student-start.html'` maar **niet `'student'`**. Op `/student` werd de socket dus een **no-op stub** → `socket.emit('student_join', …)` deed niets → "Deelnemen" en "Vrij oefenen" leken dood. **Fix:** `'student'` toegevoegd aan `_socketPages`. (De CSP-report-only-meldingen in de console waren onschuldig en niet de oorzaak.)
 
 **Sessie-overzicht (Req A):** `teacher-sessions.html` heeft nu drie tabs **Sessies / 🧪 Toetsen / 📝 Taken**. De Toetsen- en Taken-tabs tonen **enkel actieve** items (geen previews, geen gesloten/verlopen), gefilterd op type. De volledige bank (incl. previews, met activeren/verwijderen/filters) blijft bereikbaar via de nav-link "📚 Toetsen & taken" (`?tab=quizzes`).
+
+---
+
+### Sprint 43.9 — Preview later doorlopen *(~0.25 dag)* — ✅ AFGEROND (v2026.2.47.11)
+
+**Aangemeld:** 14/07 (vraag: "kan ik een preview-toets later nog doorlopen, en hoe?") · **Cat:** UX + BUG
+
+**Situatie vóór deze sprint:** technisch kón een preview doorlopen worden (`quiz_start` blokkeert previews niet), maar het enige aanknopingspunt was de popup **direct na het aanmaken** ("Wil je de preview openen als leerling?"). Wie die wegklikte, kon de preview enkel nog bereiken door zelf de URL te typen.
+
+**Bugfix (geïntroduceerd in 43.4):** de leerling-selectie-check weigerde **"Leerkracht Test"**, want die naam staat niet in de klaslijst. Zodra je dus leerlingen selecteerde, was je eigen preview onbruikbaar. Previews zijn nu **expliciet vrijgesteld** van die check — ze dienen net om zelf te testen.
+
+**Wat is gebouwd:** knop **🧑‍🎓 Doorlopen** op elke preview-kaart in het toets-/taakoverzicht. Die opent de leerling-weergave in een nieuw tabblad (`/quiz-student.html?code=…&name=Leerkracht Test&class=Preview`) — zo vaak als je wil, ook dagen later. Een preview blijft daarnaast onzichtbaar voor leerlingen tot je op **▶ Activeren** klikt.
 
 ---
 

@@ -4662,13 +4662,16 @@ io.on("connection", (socket) => {
     // Sprint 43.4: leerling-selectie afdwingen. Is er een expliciete selectie vastgelegd,
     // dan mag enkel wie erin staat starten. Matching op naam binnen de gekoppelde klas
     // (toets-leerlingen krijgen een random id, dus id-matching werkt hier niet).
+    // Preview-toetsen zijn vrijgesteld: die dienen net om als leerkracht zelf te testen.
     try {
-      const allowedIds = await dbModule.listAssignmentStudents(normalizedCode);
-      if (allowedIds.length && meta.target_class) {
-        const klas = await dbModule.listStudents(meta.target_class);
-        const match = klas.find(s => String(s.name).trim().toLowerCase() === studentName.toLowerCase());
-        if (!match || !allowedIds.includes(match.id)) {
-          return socket.emit('error_message', 'Je bent niet geselecteerd voor deze toets/taak. Vraag je leerkracht om toegang.');
+      if (!meta.is_teacher_preview) {
+        const allowedIds = await dbModule.listAssignmentStudents(normalizedCode);
+        if (allowedIds.length && meta.target_class) {
+          const klas = await dbModule.listStudents(meta.target_class);
+          const match = klas.find(s => String(s.name).trim().toLowerCase() === studentName.toLowerCase());
+          if (!match || !allowedIds.includes(match.id)) {
+            return socket.emit('error_message', 'Je bent niet geselecteerd voor deze toets/taak. Vraag je leerkracht om toegang.');
+          }
         }
       }
     } catch (e) { log.warn('[quiz_start] leerling-selectie check mislukt:', e.message); }

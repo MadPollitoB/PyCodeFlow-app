@@ -1996,4 +1996,15 @@ LEERLING — juiste instap
 ✅ Leerling die WEL geselecteerd is → kan gewoon starten
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.10 · 14 juli 2026*
+## 61. Sprint 43.9 — Preview later doorlopen
+
+```
+✅ Maak een toets met de checkbox "Test als leerkracht – PREVIEW" AAN, klik de popup weg
+✅ Ga naar "🧪 Toets overzicht" → de toets staat onder "👁 Preview / onafgewerkt"
+✅ Kaart heeft knop "🧑‍🎓 Doorlopen" → opent de toets als leerling in een nieuw tabblad
+✅ Doorlopen kan herhaald worden (ook later opnieuw)
+✅ Ook mét een leerling-selectie (43.4) werkt Doorlopen — preview is vrijgesteld
+✅ Leerlingen zien de preview NIET; pas na "▶ Activeren" is hij echt en startbaar
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.11 · 14 juli 2026*
