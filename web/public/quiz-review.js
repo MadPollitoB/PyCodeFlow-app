@@ -330,9 +330,10 @@ async function selectQuestion(idx) {
 
   // Laad code in editor (enkel bij code-vragen)
   _originalCode = code;
-  if (qType === 'code' && window.editorStore?.quiz) {
-    editorStore.quiz.setValue(code || '// Geen antwoord ingediend');
-    editorStore.quiz.updateOptions({ readOnly: true });
+  if (qType === 'code') {
+    // Sprint 43.11: via window.setEditorValue (editorStore zit binnen de IIFE van app.js).
+    if (window.setEditorValue) window.setEditorValue('quiz', code || '// Geen antwoord ingediend', true);
+    setQuizEditorReadOnly(true);
   }
   const out = document.getElementById('review-output');
   if (out) out.textContent = '';
@@ -358,17 +359,15 @@ async function saveModelAnswer(questionId) {
 
 function toggleEditMode() {
   _editMode = !_editMode;
-  if (window.editorStore?.quiz) {
-    editorStore.quiz.updateOptions({ readOnly: !_editMode });
-  }
+  setQuizEditorReadOnly(!_editMode);
   document.getElementById('edit-toggle-btn').textContent = _editMode ? '🔒 Alleen lezen' : '✏️ Aanpassen & testen';
   document.getElementById('restore-btn').style.display = _editMode ? 'block' : 'none';
 }
 
 function restoreCode() {
-  if (window.editorStore?.quiz) editorStore.quiz.setValue(_originalCode || '');
+  if (window.setEditorValue) window.setEditorValue('quiz', _originalCode || '', true);
   _editMode = false;
-  editorStore.quiz.updateOptions({ readOnly: true });
+  setQuizEditorReadOnly(true);
   document.getElementById('edit-toggle-btn').textContent = '✏️ Aanpassen & testen';
   document.getElementById('restore-btn').style.display = 'none';
 }
@@ -384,16 +383,26 @@ _socket.on('free_input_request', () => {
   if (val !== null) _socket.emit('free_runtime_input', { value: val });
 });
 
+// Sprint 43.11: app.js houdt de Monaco-instanties in een interne editorStore (niet globaal).
+// Read-only zetten gaat via de geëxporteerde updateEditorConfig. We geven assist:false mee,
+// exact zoals de review-editor is aangemaakt (ensureEditor('quiz','',false,true)), zodat we
+// de codehulp-instelling niet per ongeluk omzetten.
+function setQuizEditorReadOnly(ro) {
+  if (window.updateEditorConfig) {
+    try { window.updateEditorConfig('quiz', { assist: false, readOnly: !!ro }); } catch (e) { /* niet kritiek */ }
+  }
+}
+
 function runReviewCode() {
-  const code = window.editorStore?.quiz?.getValue() || '';
+  const code = (window.getEditorValue && window.getEditorValue('quiz')) || '';
   document.getElementById('review-output').textContent = '';
   _socket.emit('free_run_request', { codeText: code });
 }
 
 function loadHistoryRun(code) {
-  if (window.editorStore?.quiz) editorStore.quiz.setValue(code);
+  if (window.setEditorValue) window.setEditorValue('quiz', code, true);
   _editMode = true;
-  editorStore.quiz.updateOptions({ readOnly: false });
+  setQuizEditorReadOnly(false);
   document.getElementById('edit-toggle-btn').textContent = '🔒 Alleen lezen';
   document.getElementById('restore-btn').style.display = 'block';
 }

@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.47.12**
+**Huidige versie: v2026.2.47.13**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -18,6 +18,7 @@
 
 | Sprint | Prio | Cat | Inhoud | Inschatting |
 |---|---|---|---|---|
+| **43.13** | 🟡 P5 | BUG | **Monaco-worker-warning** *"Could not create web worker(s)"* blijft, ondanks `monaco-env.js` (43.6c). Diagnose was fout. Niet fataal: de editor werkt, maar valt terug op de main-thread (mogelijke UI-freezes bij grote bestanden). Vereist onderzoek in de browser (Network-tab: laadt `/monaco/min/vs/base/worker/workerMain.js`?). Ook de geblokkeerde `purify.min.js.map` (sourcemap) hoort hierbij — onschuldig. | ~0.5 dag |
 | **48** | 🔵 P9 | ARCH | ⛔ School-keuze bij leerkracht-login (modal indien >1 school) + `active_school_id` in sessie — **geblokkeerd:** vereist fase 1 + fase 3 (multi-tenant) | ~3 dagen |
 
 > **Sprint 42 is gesplitst:** Deel C (branding/schoollogo) is afgerond in v2026.2.42.0 (zie afgewerkte sprints); het restant (startpagina + leerling/leerkracht-ingang) leeft nu als **sprint 45**.
@@ -96,7 +97,7 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 46 | **43.2b** | Bank vindbaar via nav-link "📚 Toetsen & taken" + status-groepen (Actief/Preview/Afgerond) + preview activeren + dupliceer-naam via scherm-modal (pyPrompt) | v2026.2.47.6 |
 | 47 | **43.6** | Bugfix: leerlingen konden niet inloggen op de clean `/student`-route — `'student'` ontbrak in `_socketPages`, dus de socket was een no-op stub (knoppen deden niets) | v2026.2.47.7 |
 | 48 | **43.6b** | Sessie-overzicht: aparte tabs **Sessies / Toetsen / Taken**, elk enkel actieve items (geen previews); volledige bank blijft via nav bereikbaar | v2026.2.47.7 |
-| 49 | **43.6c** | Monaco-worker-warning gefixt: ontbrekende `public/monaco-env.js` (referenced door 5 pagina's) hersteld → workers via blob: i.p.v. main-thread-fallback | v2026.2.47.8 |
+| 49 | **43.6c** | `public/monaco-env.js` hersteld (werd door 5 pagina's ingeladen maar ontbrak). ⚠️ **Loste de worker-warning NIET op** — zie openstaand punt 43.13 | v2026.2.47.8 |
 | 50 | **43.5** | Tabellen hernoemd: `quiz_bank` → `question_bank`, `quiz_meta` → `assignment_bank` (data-behoudende migratie + alle queries + DB-viewer) | v2026.2.47.9 |
 | 51 | **43.7** | Nav: "Nieuwe toets" weg; **Toets overzicht** + **Taak overzicht** erbij (bank per type via `?tab=quizzes&type=`) | v2026.2.47.9 |
 | 52 | **43.7b** | Herbouw: **echte aparte pagina's** `toets-overzicht.html` + `taak-overzicht.html` (kaartenraster zoals de vragenbank) i.p.v. de sessie-tab; inline-notes uit sessiescherm weg | v2026.2.47.10 |
@@ -105,6 +106,8 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 55 | **43.4** | Leerling-selectie per toets/taak: tabel `assignment_students`, popup met checkboxes (standaard alles aan, alles aan/uit, opslaan/annuleren) + afdwingen bij start | v2026.2.47.10 |
 | 56 | **43.9** | Preview later doorlopen: knop **🧑‍🎓 Doorlopen** op preview-kaarten + bugfix: previews vrijgesteld van de leerling-selectie-check (uit 43.4) | v2026.2.47.11 |
 | 57 | **43.10** | **Toets-pagina's stuk**: UMD-libs laadden ná Monaco's AMD-loader → `io is not defined`. Scriptvolgorde hersteld op quiz-student + quiz-review | v2026.2.47.12 |
+| 58 | **43.11** | Knoppen in de toets deden niets: `editorStore is not defined` (interne const van app.js). Nu via `window.getEditorValue`/`setEditorValue`. Zelfde bug in het nakijkscherm mee gefixt | v2026.2.47.13 |
+| 59 | **43.12** | Toets-layout: code en output nu **naast elkaar** (zoals het sessiescherm), responsive onder elkaar op smalle schermen (Chromebook) | v2026.2.47.13 |
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
@@ -139,6 +142,28 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 **Login-bug (root cause):** sinds sprint 45 serveert de app de leerling-ingang op de nette route **`/student`**, waardoor `page === 'student'`. Maar `_socketPages` in `app.js` (de lijst pagina's die een echte Socket.IO-verbinding krijgen) bevatte wél `'student-start.html'` maar **niet `'student'`**. Op `/student` werd de socket dus een **no-op stub** → `socket.emit('student_join', …)` deed niets → "Deelnemen" en "Vrij oefenen" leken dood. **Fix:** `'student'` toegevoegd aan `_socketPages`. (De CSP-report-only-meldingen in de console waren onschuldig en niet de oorzaak.)
 
 **Sessie-overzicht (Req A):** `teacher-sessions.html` heeft nu drie tabs **Sessies / 🧪 Toetsen / 📝 Taken**. De Toetsen- en Taken-tabs tonen **enkel actieve** items (geen previews, geen gesloten/verlopen), gefilterd op type. De volledige bank (incl. previews, met activeren/verwijderen/filters) blijft bereikbaar via de nav-link "📚 Toetsen & taken" (`?tab=quizzes`).
+
+---
+
+### Sprint 43.11 — Knoppen in de toets deden niets (editorStore) *(~0.25 dag)* — ✅ AFGEROND (v2026.2.47.13)
+
+**Aangemeld:** 14/07 (testronde: Run, kopieer en Volgende werkten niet) · **Cat:** BUG · **Prio:** 🔴 P10
+
+**Root cause:** `quiz-student.js` gebruikte `editorStore.quiz` rechtstreeks, maar `editorStore` is een **`const` binnen de IIFE van `app.js`** en staat dus niet op `window`. Elke aanroep gaf `Uncaught ReferenceError: editorStore is not defined` in `getCurrentCode()` en `setEditorCode()` — en die worden gebruikt door Run, kopiëren, Vorige/Volgende en het laden van een vraag. Daardoor deed vrijwel elke knop niets.
+
+**Fix:** `app.js` exporteert wél `window.getEditorValue(owner)` en `window.setEditorValue(owner, value, resetView)`. `quiz-student.js` gebruikt nu die helpers.
+
+**Zelfde bug gevonden in `quiz-review.js`** (nakijkscherm): daar stond `window.editorStore?.quiz` — dat is `undefined`, dus de `if` sloeg **stil** over en de code van de leerling werd **nooit in de editor geladen**; de regels *buiten* die `if` (`editorStore.quiz.updateOptions(...)`) gaven een harde ReferenceError. Ook omgezet naar de geëxporteerde helpers, met een kleine helper `setQuizEditorReadOnly()` die `updateEditorConfig('quiz', { assist:false, readOnly })` gebruikt — `assist:false` expliciet, exact zoals de review-editor wordt aangemaakt.
+
+---
+
+### Sprint 43.12 — Toets-layout: code en output naast elkaar *(~0.25 dag)* — ✅ AFGEROND (v2026.2.47.13)
+
+**Aangemeld:** 14/07 (testronde) · **Cat:** UX
+
+**Probleem:** in de toets stond de output **onder** het codeblok, terwijl het sessiescherm ze naast elkaar zet (`.workspace { grid-template-columns:1.7fr .95fr }`). Op een klein scherm (Chromebook) moest je daardoor voortdurend scrollen tussen code en uitvoer.
+
+**Fix:** nieuwe `.quiz-split`-grid in `quiz-student.html` met dezelfde verhouding als het sessiescherm: **code links, output rechts**. De output-kaart is `sticky` en vult de hoogte, zodat je uitvoer blijft zien tijdens het scrollen. Onder **1100px** (Chromebook/tablet) klapt de grid netjes naar één kolom met een compacte output. `min-width:0` op de kolommen voorkomt dat de editor de grid uitrekt. Monaco past zich aan: `app.js` hangt al een resize-handler aan de editor en `setEditorValue` roept `layoutEditor` aan.
 
 ---
 

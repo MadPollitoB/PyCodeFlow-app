@@ -386,13 +386,15 @@ async function initQuizEditor(config) {
 }
 
 function getCurrentCode() {
-  return editorStore?.quiz?.getValue() || '';
+  // Sprint 43.11: editorStore is een const BINNEN de IIFE van app.js en dus niet globaal.
+  // app.js exporteert wel window.getEditorValue / window.setEditorValue — die gebruiken we.
+  return (window.getEditorValue && window.getEditorValue('quiz')) || '';
 }
 
 function setEditorCode(code) {
-  if (editorStore?.quiz) {
-    const model = editorStore.quiz.getModel();
-    model.setValue(code || '');
+  if (window.setEditorValue) {
+    // resetView = true: cursor en scroll naar het begin bij het wisselen van vraag.
+    window.setEditorValue('quiz', code || '', true);
   }
 }
 

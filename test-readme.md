@@ -2021,4 +2021,31 @@ LEERLING — juiste instap
 ℹ️ CSP report-only meldingen over inline styles/handlers mogen blijven (onschuldig)
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.12 · 14 juli 2026*
+## 63. Sprint 43.11 + 43.12 — Toets: knoppen en layout
+
+```
+— Knoppen (43.11) —
+✅ Open een toets (of preview via "Doorlopen") en start ze
+✅ Knop "Run" voert de code uit en toont output
+✅ Knop kopieer-code werkt
+✅ Knoppen "Vorige" en "Volgende" werken
+✅ Wisselen van vraag laadt de juiste code in de editor
+✅ Eerder ingevulde code staat er nog bij terugkeren naar een vraag
+✅ Console: GEEN "editorStore is not defined"
+
+— Nakijkscherm (zelfde bug) —
+✅ Verbeteren: de code van de leerling verschijnt WEL in de editor
+✅ "Aanpassen & testen" maakt de editor bewerkbaar
+✅ "Alleen lezen" zet hem terug op read-only
+✅ "Herstel" zet de originele code terug
+✅ Een run uit de geschiedenis laden werkt
+
+— Layout (43.12) —
+✅ Op een gewoon scherm: code LINKS, output RECHTS (zoals het sessiescherm)
+✅ Output blijft zichtbaar tijdens scrollen (sticky)
+✅ Op een Chromebook/smal scherm (< 1100px): code boven, output eronder, zonder horizontaal scrollen
+✅ Editor houdt de juiste breedte na het wisselen van vraag en na venster-resize
+✅ Bij een meerkeuzevraag verschijnt geen leeg codeblok
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.13 · 14 juli 2026*
