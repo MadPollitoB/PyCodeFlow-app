@@ -2040,12 +2040,15 @@ LEERLING — juiste instap
 ✅ "Herstel" zet de originele code terug
 ✅ Een run uit de geschiedenis laden werkt
 
-— Layout (43.12) —
-✅ Op een gewoon scherm: code LINKS, output RECHTS (zoals het sessiescherm)
-✅ Output blijft zichtbaar tijdens scrollen (sticky)
-✅ Op een Chromebook/smal scherm (< 1100px): code boven, output eronder, zonder horizontaal scrollen
-✅ Editor houdt de juiste breedte na het wisselen van vraag en na venster-resize
-✅ Bij een meerkeuzevraag verschijnt geen leeg codeblok
+— Layout: tabs (43.12) —
+✅ De toets toont een tabbalk "Code | Output", net als een klassessie en vrij oefenen
+✅ Tabs zien er identiek uit als in de sessie (zelfde stijl en plaats)
+✅ Tab "Code" toont de editor; tab "Output" toont de uitvoer
+✅ Klikken op "Run" springt automatisch naar de Output-tab
+✅ Een nieuwe vraag start altijd op de Code-tab (niet op de output van de vorige vraag)
+✅ De editor heeft de juiste breedte na het wisselen van tab of vraag (niet ingezakt)
+✅ Op een Chromebook/smal scherm: geen horizontaal scrollen, geen gestapelde output
+✅ Bij een meerkeuzevraag of open vraag verschijnt geen codeblok/tabbalk
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.13 · 14 juli 2026*
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.14 · 14 juli 2026*

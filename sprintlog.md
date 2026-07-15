@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.47.13**
+**Huidige versie: v2026.2.47.14**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -107,7 +107,7 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 56 | **43.9** | Preview later doorlopen: knop **🧑‍🎓 Doorlopen** op preview-kaarten + bugfix: previews vrijgesteld van de leerling-selectie-check (uit 43.4) | v2026.2.47.11 |
 | 57 | **43.10** | **Toets-pagina's stuk**: UMD-libs laadden ná Monaco's AMD-loader → `io is not defined`. Scriptvolgorde hersteld op quiz-student + quiz-review | v2026.2.47.12 |
 | 58 | **43.11** | Knoppen in de toets deden niets: `editorStore is not defined` (interne const van app.js). Nu via `window.getEditorValue`/`setEditorValue`. Zelfde bug in het nakijkscherm mee gefixt | v2026.2.47.13 |
-| 59 | **43.12** | Toets-layout: code en output nu **naast elkaar** (zoals het sessiescherm), responsive onder elkaar op smalle schermen (Chromebook) | v2026.2.47.13 |
+| 59 | **43.12** | Toets-layout: code en output in **tabs** (Code | Output), exact zoals de klassessie en vrij oefenen | v2026.2.47.14 |
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
@@ -157,13 +157,15 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 
 ---
 
-### Sprint 43.12 — Toets-layout: code en output naast elkaar *(~0.25 dag)* — ✅ AFGEROND (v2026.2.47.13)
+### Sprint 43.12 — Toets-layout: code en output in tabs *(~0.25 dag)* — ✅ AFGEROND (v2026.2.47.14)
 
 **Aangemeld:** 14/07 (testronde) · **Cat:** UX
 
-**Probleem:** in de toets stond de output **onder** het codeblok, terwijl het sessiescherm ze naast elkaar zet (`.workspace { grid-template-columns:1.7fr .95fr }`). Op een klein scherm (Chromebook) moest je daardoor voortdurend scrollen tussen code en uitvoer.
+**Probleem:** in de toets stond de output **onder** het codeblok. De leerling kent dat niet zo: in een **klassessie** (`student-app`) en bij **vrij oefenen** (`free-editor`) zitten code en uitvoer in **tabs**. Op een Chromebook betekende de gestapelde indeling bovendien voortdurend scrollen.
 
-**Fix:** nieuwe `.quiz-split`-grid in `quiz-student.html` met dezelfde verhouding als het sessiescherm: **code links, output rechts**. De output-kaart is `sticky` en vult de hoogte, zodat je uitvoer blijft zien tijdens het scrollen. Onder **1100px** (Chromebook/tablet) klapt de grid netjes naar één kolom met een compacte output. `min-width:0` op de kolommen voorkomt dat de editor de grid uitrekt. Monaco past zich aan: `app.js` hangt al een resize-handler aan de editor en `setEditorValue` roept `layoutEditor` aan.
+**Eerste poging (fout, v47.13):** ik zette code en output naast elkaar in een grid, omdat ik `.workspace { grid-template-columns:1.7fr .95fr }` als "de sessie-indeling" las. Dat is echter de **leerkracht**-indeling; de leerling ziet tabs. Teruggedraaid.
+
+**Fix (v47.14):** `quiz-student.html` heeft nu een tabbalk **Code | Output** met exact hetzelfde patroon als `free-editor.html` (`<div class="tabs">` + `tab-btn` met `data-tab`/`data-owner="quiz"`). Het output-paneel staat nu **binnen** de editor-shell met de klasse `hidden`, zodat de bestaande `setTab('quiz', tab)` uit `app.js` het toont/verbergt — die zet ook de juiste knop actief en roept `layoutEditor('quiz')` aan (nodig omdat de editor verborgen kan zijn geweest). `quiz-student.js` koppelt de knoppen, springt bij **Run** automatisch naar **Output** (zoals vrij oefenen) en start elke nieuwe vraag weer op **Code**. Geen nieuwe CSS nodig: `.tabs`, `.tab-btn` en `.hidden` bestonden al, dus de toets ziet er identiek uit als de sessie.
 
 ---
 

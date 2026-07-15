@@ -398,6 +398,21 @@ function setEditorCode(code) {
   }
 }
 
+// ── Sprint 43.12: Code/Output-tabs (zelfde gedrag als klassessie en vrij oefenen) ──
+// app.js exporteert setTab(owner, tab); die toont/verbergt #quiz-code-panel en
+// #quiz-output-panel en zet de juiste tab-knop actief. Bij 'code' herberekent hij
+// ook de Monaco-layout, wat nodig is omdat het paneel verborgen kan zijn geweest.
+function showQuizTab(tab) {
+  if (window.setTab) window.setTab('quiz', tab);
+}
+
+function bindQuizTabs() {
+  document.querySelectorAll('[data-owner="quiz"][data-tab]').forEach(btn => {
+    btn.addEventListener('click', () => showQuizTab(btn.dataset.tab));
+  });
+}
+document.addEventListener('DOMContentLoaded', bindQuizTabs);
+
 // ── Vraagtype helpers ────────────────────────────────────────────────────────
 let _currentChoices = [];       // choices van huidige vraag
 let _selectedChoices = [];      // geselecteerde choice IDs
@@ -562,6 +577,8 @@ const qTextEl = document.getElementById('q-text');
     setEditorCode(savedAns?.code || '');
     const out = document.getElementById('quiz-output-panel');
     if (out) out.textContent = '';
+    // 43.12: nieuwe vraag start altijd op de Code-tab (niet op de output van de vorige vraag).
+    showQuizTab('code');
   } else if (qType === 'open') {
     const ta = document.getElementById('quiz-open-answer');
     if (ta) { ta.value = savedAns?.code || ''; updateOpenCount(); }
@@ -610,6 +627,7 @@ function runCode() {
   const code = getCurrentCode();
   if (!code.trim()) return;
   document.getElementById('quiz-output-panel').textContent = '';
+  showQuizTab('output');   // 43.12: toon meteen de uitvoer, zoals bij vrij oefenen
 
   // Track first run
   if (!_answers[_currentQuestionId]) _answers[_currentQuestionId] = {};
