@@ -75,6 +75,24 @@ async function withTransaction(fn) {
 // ── Schema initialisatie ───────────────────────────────────────────────────────
 async function initSchema() {
   await query(`
+    -- ── Sprint 48a1: scholen ─────────────────────────────────────────────────
+    -- Eerste steen van het multi-tenant fundament (model B). Volledig ADDITIEF:
+    -- niets verwijst hier voorlopig naar, dus bestaande installaties merken niets.
+    -- 48a2 koppelt leerkrachten eraan, 48a3 hangt er e-maildomeinen onder, en
+    -- 48c1 zet school_id op de rest.
+    CREATE TABLE IF NOT EXISTS schools (
+      id         TEXT PRIMARY KEY,
+      name       TEXT NOT NULL,
+      logo_path  TEXT NOT NULL DEFAULT '',
+      license    TEXT NOT NULL DEFAULT '',
+      contact    TEXT NOT NULL DEFAULT '',
+      active     BOOLEAN NOT NULL DEFAULT true,
+      created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT * 1000
+    );
+    -- Twee scholen met dezelfde naam is altijd een vergissing, en bij een schoolkeuze
+    -- met twee identieke namen kan een leerkracht onmogelijk kiezen.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_schools_name ON schools (LOWER(name));
+
     CREATE TABLE IF NOT EXISTS teachers (
       id           TEXT PRIMARY KEY,
       username     TEXT NOT NULL,
@@ -104,6 +122,18 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_teacher_sessions_teacher ON teacher_sessions(teacher_id);
     CREATE INDEX IF NOT EXISTS idx_teacher_sessions_expires ON teacher_sessions(expires_at);
+
+    -- Sprint 48b1: welke school is actief in deze sessie?
+    -- Staat BEWUST server-side in de sessie en niet in een cookie: de browser mag nooit
+    -- kunnen kiezen namens welke school hij werkt.
+    -- ON DELETE SET NULL: verdwijnt de school, dan valt de sessie terug op "geen school"
+    -- i.p.v. te breken op een verwijzing naar iets dat niet meer bestaat.
+    DO $$ BEGIN
+      BEGIN
+        ALTER TABLE teacher_sessions
+          ADD COLUMN active_school_id TEXT REFERENCES schools(id) ON DELETE SET NULL;
+      EXCEPTION WHEN duplicate_column THEN NULL; END;
+    END $$;
 
     CREATE TABLE IF NOT EXISTS sessions (
       code            TEXT PRIMARY KEY,
@@ -148,6 +178,34 @@ async function initSchema() {
     );
 
     -- Sprint 12b: koppeling leerkracht ↔ klas
+    -- ── Sprint 48a2: welke leerkracht hoort bij welke school ─────────────────
+    -- Veel-op-veel: een leerkracht kan op meerdere scholen werken, een school heeft
+    -- meerdere leerkrachten. Precies dit maakt de schoolkeuze bij het inloggen (48b2)
+    -- mogelijk — en het sluit meteen model A uit: met een installatie per school zou
+    -- die leerkracht twee losse omgevingen en twee logins hebben.
+    -- Beide kanten CASCADE: verdwijnt de school of de leerkracht, dan verdwijnt de
+    -- koppeling mee. Een koppeling zonder één van beide heeft geen betekenis.
+    -- ── Sprint 48a3: e-maildomeinen per school ───────────────────────────────
+    -- Domein is ALTIJD schoolniveau, nooit klasniveau: een klas heeft geen eigen
+    -- mailomgeving. Dient nu om de klaslijst te valideren (52b) en straks als grendel
+    -- bij zelfregistratie (52c).
+    -- Twee vormen, met een bewust verschil:
+    --   'athkiel.be'   → exact dat domein
+    --   '*.athkiel.be' → enkel subdomeinen, NIET athkiel.be zelf
+    CREATE TABLE IF NOT EXISTS school_domains (
+      school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+      domain    TEXT NOT NULL,
+      PRIMARY KEY (school_id, domain)
+    );
+    CREATE INDEX IF NOT EXISTS idx_school_domains_domain ON school_domains(domain);
+
+    CREATE TABLE IF NOT EXISTS teacher_schools (
+      teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+      school_id  TEXT NOT NULL REFERENCES schools(id)  ON DELETE CASCADE,
+      PRIMARY KEY (teacher_id, school_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_teacher_schools_school ON teacher_schools(school_id);
+
     CREATE TABLE IF NOT EXISTS teacher_classes (
       teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
       class_id   TEXT NOT NULL REFERENCES classes(id)  ON DELETE CASCADE,
@@ -458,30 +516,55 @@ module.exports = {
   // token bestaat alleen in de cookie van de browser en even in het geheugen van
   // server.js. Lekt de databank, dan zijn de sessies daarmee niet bruikbaar.
 
-  async createTeacherSession({ tokenHash, teacherId, expiresAt, userAgent = '', ip = '' }) {
+  async createTeacherSession({ tokenHash, teacherId, expiresAt, userAgent = '', ip = '', activeSchoolId = null }) {
     const now = Date.now();
     await query(
-      `INSERT INTO teacher_sessions (token_hash, teacher_id, created_at, expires_at, last_seen, user_agent, ip)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [tokenHash, teacherId, now, expiresAt, now, String(userAgent).slice(0, 200), String(ip).slice(0, 64)]
+      `INSERT INTO teacher_sessions (token_hash, teacher_id, created_at, expires_at, last_seen, user_agent, ip, active_school_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [tokenHash, teacherId, now, expiresAt, now, String(userAgent).slice(0, 200),
+       String(ip).slice(0, 64), activeSchoolId]
     );
     return tokenHash;
+  },
+
+  // Sprint 48b1/48b2: de actieve school van een lopende sessie zetten.
+  // Server-side, dus de browser kan dit nooit zelf bepalen.
+  async setSessionActiveSchool(tokenHash, schoolId) {
+    const r = await query(
+      `UPDATE teacher_sessions SET active_school_id = $1 WHERE token_hash = $2`,
+      [schoolId, tokenHash]
+    );
+    return r.rowCount > 0;
   },
 
   // Geeft de sessie mét de leerkracht erbij, of null als ze niet bestaat of verlopen is.
   // Verlopen sessies geven bewust null i.p.v. een rij: zo kan een aanroeper niet per
   // ongeluk een verlopen sessie als geldig behandelen.
   async getTeacherSession(tokenHash) {
+    // LEFT JOIN op scholen: een sessie zonder actieve school is normaal (nog geen school
+    // gekoppeld, of nog niet gekozen) en mag zeker niet wegvallen uit het resultaat.
     const r = await query(
       `SELECT s.token_hash, s.teacher_id, s.created_at, s.expires_at, s.last_seen,
+              s.active_school_id, sc.name AS active_school_name,
               t.username, t.display_name, t.role
          FROM teacher_sessions s
          JOIN teachers t ON t.id = s.teacher_id
+         LEFT JOIN schools sc ON sc.id = s.active_school_id
         WHERE s.token_hash = $1 AND s.expires_at > $2
         LIMIT 1`,
       [tokenHash, Date.now()]
     );
     return r.rows[0] || null;
+  },
+
+  // Sprint 50d: verlengt de sessie en registreert activiteit.
+  // Enkel aangeroepen wanneer de rekenregel zegt dat het nodig is (halfweg de looptijd),
+  // dus dit is géén schrijfactie per verzoek.
+  async touchTeacherSession(tokenHash, expiresAt) {
+    await query(
+      `UPDATE teacher_sessions SET expires_at = $1, last_seen = $2 WHERE token_hash = $3`,
+      [expiresAt, Date.now(), tokenHash]
+    );
   },
 
   async deleteTeacherSession(tokenHash) {
@@ -734,6 +817,55 @@ module.exports = {
     return r.rows[0].archived === true;
   },
 
+  // ── Sprint 48a1: scholen ───────────────────────────────────────────────────
+
+  async listSchools(includeInactive = false) {
+    const r = await query(
+      `SELECT id, name, logo_path, license, contact, active, created_at
+         FROM schools ${includeInactive ? '' : 'WHERE active = true'}
+        ORDER BY LOWER(name)`
+    );
+    return r.rows;
+  },
+
+  async getSchool(id) {
+    const r = await query(`SELECT * FROM schools WHERE id = $1`, [id]);
+    return r.rows[0] || null;
+  },
+
+  async createSchool({ name, logoPath = '', license = '', contact = '' }) {
+    const id = crypto.randomUUID();
+    await query(
+      `INSERT INTO schools (id, name, logo_path, license, contact, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [id, name, logoPath, license, contact, Date.now()]
+    );
+    return id;
+  },
+
+  // Enkel meegegeven velden wijzigen — zo kan een scherm één veld aanpassen zonder
+  // de rest per ongeluk leeg te maken.
+  async updateSchool(id, velden = {}) {
+    const kolommen = { name: 'name', logoPath: 'logo_path', license: 'license',
+                       contact: 'contact', active: 'active' };
+    const sets = [], waarden = [];
+    for (const [sleutel, kolom] of Object.entries(kolommen)) {
+      if (velden[sleutel] !== undefined) {
+        waarden.push(velden[sleutel]);
+        sets.push(`${kolom} = $${waarden.length}`);
+      }
+    }
+    if (!sets.length) return false;
+    waarden.push(id);
+    const r = await query(`UPDATE schools SET ${sets.join(', ')} WHERE id = $${waarden.length}`, waarden);
+    return r.rowCount > 0;
+  },
+
+  async deleteSchool(id) {
+    const r = await query(`DELETE FROM schools WHERE id = $1`, [id]);
+    return r.rowCount > 0;
+  },
+
   async createClass(name, schoolYear = '2025-2026') {
     const id = crypto.randomUUID();
     await query(
@@ -750,6 +882,85 @@ module.exports = {
   async deleteClass(id) {
     const r = await query(`DELETE FROM classes WHERE id = $1`, [id]);
     return r.rowCount > 0;
+  },
+
+  // ── Sprint 48a2: leerkracht ↔ school ───────────────────────────────────────
+
+  // ── Sprint 48a3: e-maildomeinen per school ─────────────────────────────────
+
+  async listSchoolDomains(schoolId) {
+    const r = await query(
+      `SELECT domain FROM school_domains WHERE school_id = $1 ORDER BY domain`, [schoolId]
+    );
+    return r.rows.map(x => x.domain);
+  },
+
+  async addSchoolDomain(schoolId, domain) {
+    await query(
+      `INSERT INTO school_domains (school_id, domain) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+      [schoolId, domain]
+    );
+  },
+
+  async removeSchoolDomain(schoolId, domain) {
+    const r = await query(
+      `DELETE FROM school_domains WHERE school_id = $1 AND domain = $2`, [schoolId, domain]
+    );
+    return r.rowCount > 0;
+  },
+
+  // Bij welke school hoort dit adres? Geeft null als geen enkel domein past.
+  // Straks de kern van de zelfregistratie (52c): het domein zegt WELKE school,
+  // de klascode zegt welke klas. Komen ze niet overeen → weigeren.
+  // De vergelijking gebeurt in JS en niet in SQL, want de wildcard-regel
+  // ('*.athkiel.be' dekt niet 'athkiel.be') is met LIKE niet correct uit te drukken.
+  async findSchoolByEmailDomain(email, matcher) {
+    const r = await query(
+      `SELECT sd.school_id, sd.domain, s.name, s.active
+         FROM school_domains sd JOIN schools s ON s.id = sd.school_id`
+    );
+    const treffer = r.rows.find(rij => matcher(email, rij.domain));
+    return treffer || null;
+  },
+
+  async linkTeacherSchool(teacherId, schoolId) {
+    await query(
+      `INSERT INTO teacher_schools (teacher_id, school_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [teacherId, schoolId]
+    );
+  },
+
+  async unlinkTeacherSchool(teacherId, schoolId) {
+    await query(
+      `DELETE FROM teacher_schools WHERE teacher_id = $1 AND school_id = $2`,
+      [teacherId, schoolId]
+    );
+  },
+
+  // De scholen van één leerkracht. Dit is straks de bron voor het keuzescherm (48b2),
+  // dus enkel ACTIEVE scholen: je kan niet inloggen op een school die niet meer draait.
+  async getSchoolsForTeacher(teacherId, includeInactive = false) {
+    const r = await query(
+      `SELECT s.id, s.name, s.logo_path, s.active
+         FROM teacher_schools ts
+         JOIN schools s ON s.id = ts.school_id
+        WHERE ts.teacher_id = $1 ${includeInactive ? '' : 'AND s.active = true'}
+        ORDER BY LOWER(s.name)`,
+      [teacherId]
+    );
+    return r.rows;
+  },
+
+  async getTeachersForSchool(schoolId) {
+    const r = await query(
+      `SELECT t.id, t.username, t.display_name, t.role
+         FROM teacher_schools ts
+         JOIN teachers t ON t.id = ts.teacher_id
+        WHERE ts.school_id = $1
+        ORDER BY LOWER(t.username)`,
+      [schoolId]
+    );
+    return r.rows;
   },
 
   async linkTeacherClass(teacherId, classId) {

@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.48.1**
+**Huidige versie: v2026.2.48.8**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -32,14 +32,6 @@
 | Sprint | Prio | Cat | Inhoud | Inschatting |
 |---|---|---|---|---|
 | **43.13** | 🟡 P5 | BUG | **Monaco-worker-warning** *"Could not create web worker(s)"* blijft, ondanks `monaco-env.js` (43.6c). Diagnose was fout. Niet fataal: de editor werkt, maar valt terug op de main-thread (mogelijke UI-freezes bij grote bestanden). Vereist onderzoek in de browser (Network-tab: laadt `/monaco/min/vs/base/worker/workerMain.js`?). Ook de geblokkeerde `purify.min.js.map` (sourcemap) hoort hierbij — onschuldig. | ~0.5 dag |
-| **50c** | 🔴 P10 | AUTH | **Fase 1** — Afmelden = sessie invalideren (nu onmogelijk). *Test: na afmelden geeft hetzelfde token 401.* | ~0.5 dag |
-| **50d** | 🔴 P10 | AUTH | **Fase 1** — Sessie-verval + verlengen bij activiteit. *Test: verlopen sessie → 401 + terug naar login.* | ~0.5 dag |
-| **50e** | 🔴 P10 | AUTH | **Fase 1** — `getActorFromReq()` gebruikt `req.teacher` → audit-log klopt eindelijk. *Test: actie van leerkracht A staat op naam van A, niet op de gedeelde gebruiker.* | ~0.5 dag |
-| **50f** | 🔴 P10 | AUTH | **Fase 1 afronden** — oud gedeeld cookie + `POC_BASIC_*`-fallback verwijderen; `checkAuthConfig` herzien. *Test: enkel echte accounts werken; oude cookie geeft 401.* | ~1 dag |
-| **48a1** | 🟠 P8 | ARCH | Tabel **`schools`** (id, naam, logo_path, actief, licentie, contact, created_at) + admin-CRUD. Additief. *Test: school aanmaken/bewerken/deactiveren.* | ~1 dag |
-| **48a2** | 🟠 P8 | ARCH | Tabel **`teacher_schools`** (veel-op-veel) + admin-UI "leerkracht ↔ scholen". *Test: leerkracht aan 2 scholen koppelen; koppeling verwijderen.* | ~1 dag |
-| **48a3** | 🟠 P8 | ARCH | Tabel **`school_domains`** + adminveld met uitleg, validatie en **testveldje**. Regels: `athkiel.be` = exact, `*.athkiel.be` = enkel subdomeinen. Weiger te brede wildcards (`*.be`). Minstens 1 domein per school. **Dient nu om de klaslijst te valideren** (52b) — typfouten en verkeerd geplakte klassen — en straks als grendel bij zelfregistratie (52-x2). *Test: zie testboek §64 — 8 gevallen.* | ~1 dag |
-| **48b1** | 🟠 P8 | AUTH | `active_school_id` in de serversessie; bij **1 school** automatisch gekozen. *Test: leerkracht met 1 school logt normaal in.* | ~0.5 dag |
 | **48b2** | 🟠 P8 | UX | **Schoolkeuze-grid** bij >1 school: dropdown met eigen scholen, logingegevens grijs, knoppen **Annuleren** / **Kiezen**. Annuleren vernietigt de half-ingelogde toestand. *Test: lijst verschijnt pas ná geslaagde login; annuleren → schoon loginscherm.* | ~1 dag |
 | **48b3** | 🟡 P6 | UX | **Schoollogo** naast het PyCodeFlow-icoon op alle schermen ná schoolkeuze. Niet op start-/loginscherm (geen school bekend); bij leerlingen pas ná login. *Test: logo volgt de gekozen school; wisselen van school wisselt het logo.* | ~0.5 dag |
 | **51a** | 🟠 P8 | AUTH | **Fase 2** — `teacher_id` (eigenaar) op `sessions` + backfill bestaande rijen. *Test: nieuwe sessie krijgt de juiste eigenaar.* | ~0.5 dag |
@@ -167,6 +159,14 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 59 | **43.12** | Toets-layout: code en output in **tabs** (Code | Output), exact zoals de klassessie en vrij oefenen | v2026.2.47.14 |
 | 60 | **50a** | **Fase 1 start** — tabel `teacher_sessions` + echte sessie per leerkracht bij login (naast het oude cookie, breekt niets). Token enkel als SHA-256 in de databank | v2026.2.48.0 |
 | 61 | **50b** | **Fase 1** — `requireTeacherAuth` vult `req.teacher` uit de sessie (101 endpoints in één keer). Beslisregel als pure functie + `/api/me` om te zien wie je bent | v2026.2.48.1 |
+| 62 | **50c** | **Fase 1** — Afmelden trekt de sessie nu écht in (was onmogelijk: het oude cookie is een vaste waarde). Ook: wachtwoord wijzigen beëindigt lopende sessies | v2026.2.48.2 |
+| 63 | **50d** | **Fase 1** — Sessie schuift mee zolang je werkt (nooit buitenvliegen in een les) + harde grens van 24u zodat een sessie niet eeuwig leeft | v2026.2.48.3 |
+| 64 | **50e** | **Fase 1** — Audit-log noteert eindelijk wie het déed (zei altijd 'onbekend': het las een header die bij cookie-login nooit meekomt) | v2026.2.48.4 |
+| 65 | **50f** | **🎉 FASE 1 AF** — het gedeelde cookie is weg. Sockets krijgen identiteit via `io.use`; `.env`-login vervalt (bootstrap blijft); `checkAuthConfig` eist een echte leerkracht | v2026.2.48.4 |
+| 66 | **48a1** | **Scholen** — tabel `schools` + beheer (aanmaken/bewerken/deactiveren/verwijderen). Puur additief: eerste steen van het multi-tenant fundament | v2026.2.48.5 |
+| 67 | **48a2** | **Leerkracht ↔ school** — koppeltabel `teacher_schools` (veel-op-veel) + vinkjes-popup in het leerkrachtenbeheer. Voedt straks het schoolkeuze-scherm | v2026.2.48.6 |
+| 68 | **48a3** | **E-maildomeinen** — `school_domains` + de regels (`athkiel.be` exact vs `*.athkiel.be` subdomeinen), uitleg en **testveldje** in het beheer. 21 unittests | v2026.2.48.7 |
+| 69 | **48b1** | **Actieve school** — `active_school_id` server-side in de sessie; bij precies 1 school automatisch gekozen. Zichtbaar via `/api/me` | v2026.2.48.8 |
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
@@ -300,6 +300,196 @@ Startscherm → "Ik ben leerkracht" → login. **Na een geslaagde login:**
 **Login-bug (root cause):** sinds sprint 45 serveert de app de leerling-ingang op de nette route **`/student`**, waardoor `page === 'student'`. Maar `_socketPages` in `app.js` (de lijst pagina's die een echte Socket.IO-verbinding krijgen) bevatte wél `'student-start.html'` maar **niet `'student'`**. Op `/student` werd de socket dus een **no-op stub** → `socket.emit('student_join', …)` deed niets → "Deelnemen" en "Vrij oefenen" leken dood. **Fix:** `'student'` toegevoegd aan `_socketPages`. (De CSP-report-only-meldingen in de console waren onschuldig en niet de oorzaak.)
 
 **Sessie-overzicht (Req A):** `teacher-sessions.html` heeft nu drie tabs **Sessies / 🧪 Toetsen / 📝 Taken**. De Toetsen- en Taken-tabs tonen **enkel actieve** items (geen previews, geen gesloten/verlopen), gefilterd op type. De volledige bank (incl. previews, met activeren/verwijderen/filters) blijft bereikbaar via de nav-link "📚 Toetsen & taken" (`?tab=quizzes`).
+
+---
+
+### Sprint 48b1 — De actieve school in de sessie *(~0.5 dag)* — ✅ AFGEROND (v2026.2.48.8)
+
+**Cat:** AUTH · **Prio:** 🟠 P8
+
+**Wat is gebouwd:**
+- **Kolom `active_school_id`** op `teacher_sessions` — **server-side**, precies zoals afgesproken: de browser mag nooit kunnen kiezen namens welke school hij werkt. Er is dus geen cookie of veld dat je kan omzetten.
+- **De keuzeregel** `kiesActieveSchool()` als pure functie in `lib/validation.js`.
+- **Bij het inloggen** wordt de school bepaald; `req.teacher` en `socket.data.teacher` dragen hem mee; `/api/me` toont hem.
+
+**De regel:**
+
+| Scholen | Gevolg |
+|---|---|
+| **0** | `null` — **dit is vandaag de normale toestand**, dus 48b1 breekt niets |
+| **1** | meteen die school; geen keuzescherm voor een keuze die er niet is |
+| **meerdere** | `null` — de leerkracht kiest zelf (48b2) |
+
+**Een inactieve school telt niet mee**, ook niet als het je enige is: op een uitgeschakelde school hoor je niet te belanden. Er is een test die dat vastlegt.
+
+**Drie keuzes die stille fouten voorkomen:**
+- **`ON DELETE SET NULL`** op de verwijzing: verdwijnt de school, dan valt de sessie terug op "geen school" i.p.v. te breken op iets dat niet meer bestaat.
+- **`LEFT JOIN` op scholen** bij het ophalen van de sessie: een sessie zonder actieve school is normaal en mag zeker niet uit het resultaat wegvallen — een `JOIN` zou je stilletjes uitloggen.
+- **Scholen ophalen mag het inloggen niet tegenhouden.** Faalt dat, dan log je gewoon in zonder actieve school.
+
+**De socket krijgt hem gratis mee**, want `io.use` (50f) gebruikt dezelfde `bepaalTeacherIdentiteit`. Dat heeft sprint 51 nodig.
+
+**Tests:** 9 nieuwe (6 op de keuzeregel, 3 op de identiteit), waaronder *"een inactieve school telt niet mee"* en *"de actieve school komt uit de sessie, niet uit de browser"*. Suite: **218/218 groen** (was 209).
+
+---
+
+### Sprint 48a3 — E-maildomeinen per school *(~1 dag)* — ✅ AFGEROND (v2026.2.48.7)
+
+**Cat:** ARCH · **Prio:** 🟠 P8 · *(eerste sprint van dit blok met echte pure logica — dus met echte tests)*
+
+**Wat is gebouwd:**
+- **Tabel `school_domains`** (`school_id`, `domain`). Domein is **altijd schoolniveau**, nooit klasniveau — een klas heeft geen eigen mailomgeving.
+- **De regels als pure functies** in `lib/validation.js`: `domainMatches`, `valideerDomein`, `normaliseerDomein`, `domeinUitEmail`, `emailPastBijDomeinen`.
+- **API** voor toevoegen/verwijderen/opvragen + het **testveldje**.
+- **Knop 📧 Domeinen** per school: lijst, toevoegen, uitleg met ✓/✗-voorbeelden, en een **testveld** waar je een adres plakt en meteen ziet of het mag — én via welke regel.
+
+**De kern: ankeren op het einde, nooit "bevat".** Een naïeve check op *"bevat athkiel.be"* laat `marie@athkiel.be.aanvaller.com` binnen. `*.athkiel.be` wordt daarom het achtervoegsel `.athkiel.be` **mét punt**, waardoor ook `nepathkiel.be` afvalt.
+
+**Twee vormen, bewust verschillend:** `athkiel.be` = exact · `*.athkiel.be` = enkel subdomeinen, **niet** het kale domein. Wie beide wil, zet beide regels. Dat is strenger dan "de wildcard dekt ook het hoofddomein", maar **voorspelbaar**: je krijgt precies wat er staat.
+
+**Bug gevonden door de eigen test.** Mijn eerste versie gaf bij `*.be` de melding *"Dat is geen geldig domein"* i.p.v. *"te breed"* — de volgorde van de controles klopte niet. `*.be` heeft namelijk een **geldige vorm**; het probleem is dat iedereen met een `.be`-adres zich dan bij die school kan registreren. Die verdient zijn eigen melding, anders zoekt de beheerder in de verkeerde richting. Volgorde omgedraaid; de test bewaakt het nu.
+
+**Randgeval dat een leerling zou raken:** `marie@athkiel.be.` (met afsluitende punt) is technisch een geldig adres. Zonder normalisatie zou dat **niet** matchen en de leerling onterecht geweigerd worden. Wordt nu weggestript, net als hoofdletters en een `@` vooraan.
+
+**Minstens één domein per school** wordt afgedwongen bij het verwijderen: zonder domein kan straks geen enkele leerling zich registreren (52c). Beter nu tegenhouden dan het later niet begrijpen.
+
+**Waarom de match in JS gebeurt en niet in SQL:** de wildcard-regel (`*.athkiel.be` dekt niet `athkiel.be`) is met `LIKE` niet correct uit te drukken. `findSchoolByEmailDomain` haalt de regels op en vergelijkt in code — met dezelfde functie die getest is.
+
+**Tests: 21 nieuwe** in `tests/validation.test.js`, waaronder de 8 gevallen uit testboek §64 en de kerntests *"athkiel.be.aanvaller.com wordt altijd geweigerd"*, *"nepathkiel.be wordt geweigerd (de punt telt)"* en *"`*.be` is te breed"*. Suite: **209/209 groen** (was 188).
+
+---
+
+### Sprint 48a2 — Leerkracht ↔ school koppelen *(~1 dag)* — ✅ AFGEROND (v2026.2.48.6)
+
+**Cat:** ARCH · **Prio:** 🟠 P8
+
+**Wat is gebouwd:**
+- **Tabel `teacher_schools`** (veel-op-veel), gemodelleerd op het bestaande `teacher_classes`. Beide kanten **CASCADE**: verdwijnt de school óf de leerkracht, dan verdwijnt de koppeling mee — een koppeling zonder één van beide heeft geen betekenis.
+- **DB-helpers** `linkTeacherSchool`, `unlinkTeacherSchool`, `getSchoolsForTeacher`, `getTeachersForSchool`.
+- **API**: `POST/DELETE /api/admin/teachers/:id/schools[/:schoolId]` en `GET /api/admin/schools/:id/teachers`, met audit-log op koppelen en ontkoppelen.
+- **Kolom "Scholen"** in het leerkrachtenbeheer + knop **🏛 Scholen** die een popup opent met **vinkjes** — zelfde patroon als je ontwerp voor de leerling-selectie.
+
+**Dit is wat model B mogelijk maakt.** Een leerkracht op twee scholen krijgt straks een keuzescherm na het inloggen (48b2). Meteen ook de reden dat model A wegvalt: met een installatie per school zou diezelfde leerkracht twee losse omgevingen en twee logins hebben.
+
+**Drie bewuste keuzes:**
+- **`getSchoolsForTeacher` toont standaard enkel actieve scholen** — dit wordt de bron voor het keuzescherm, en je kan niet inloggen op een school die niet meer draait. Het beheerscherm vraagt expliciet óók de inactieve op, want een beheerder moet zien dát er een koppeling naar een uitgeschakelde school bestaat. Die staan **doorstreept** in de lijst.
+- **Enkel de verschillen wegschrijven.** De popup vergelijkt met de begintoestand en stuurt alleen wat wijzigt, in plaats van alles te verwijderen en opnieuw aan te maken. Dat scheelt verzoeken en houdt het audit-log leesbaar. Nagetrokken op zes gevallen — inclusief "niets gewijzigd" (nul verzoeken).
+- **Scholen zijn bijzaak in de lijst.** Faalt het ophalen ervan, dan blijft de leerkrachtenlijst gewoon werken — dat scherm mag niet stuklopen op een nevenfunctie.
+
+**Nog steeds additief.** Er hangt nog niets aan een koppeling; 48b1/48b2 gaan ze pas gebruiken bij het inloggen.
+
+**Tests:** geen nieuwe unittests (koppeltabel + UI, geen pure logica). Wel de diff-logica van de popup apart nagetrokken op zes gevallen. Suite blijft **188/188 groen**. Checklist in `test-readme.md` §78.
+
+---
+
+### Sprint 48a1 — Scholen: de tabel + het beheer *(~1 dag)* — ✅ AFGEROND (v2026.2.48.5)
+
+**Cat:** ARCH · **Prio:** 🟠 P8 · *(eerste steen van het multi-tenant fundament — model B)*
+
+**Volledig additief.** Er verwijst nog niets naar deze tabel, dus je bestaande installatie merkt hier niets van. 48a2 koppelt er leerkrachten aan, 48a3 hangt er e-maildomeinen onder, 48c1 zet `school_id` op de rest.
+
+**Wat is gebouwd:**
+- **Tabel `schools`** (`id`, `name`, `logo_path`, `license`, `contact`, `active`, `created_at`) met een **unieke index op de naam** (kleine letters). Twee scholen met dezelfde naam is altijd een vergissing — en bij de schoolkeuze (48b2) zou een leerkracht met twee identieke namen onmogelijk kunnen kiezen.
+- **DB-helpers** `listSchools`, `getSchool`, `createSchool`, `updateSchool`, `deleteSchool`.
+- **Admin-API** `GET/POST/PUT/DELETE /api/admin/schools`, met audit-log op aanmaken, wijzigen en verwijderen — dat werkt nu ook echt, dankzij 50e.
+- **Nieuwe tab "🏛 Scholen"** in het beheerscherm: toevoegen, bewerken, **deactiveren/heractiveren**, verwijderen, en een schakelaar om inactieve te tonen.
+- `schools` toegevoegd aan de **DB-viewer**.
+
+**Deactiveren staat naast verwijderen.** Een school met geschiedenis wil je bewaren maar niet meer aanbieden bij de schoolkeuze. De verwijder-bevestiging zegt dat er ook bij, zodat niemand per ongeluk een jaar aan data weggooit.
+
+**`updateSchool` wijzigt enkel de meegegeven velden**, zodat een scherm één veld kan aanpassen zonder de rest per ongeluk leeg te maken. De kolomnamen komen daarbij uit een **vaste lijst** — nooit uit de invoer — en waarden blijven parameters. Nagetrokken met kwaadaardige invoer: die belandt als parameter, en onbekende velden worden genegeerd.
+
+**Eigen valkuil opgemerkt en meteen gefixt:** ik zette de schoolnaam eerst rechtstreeks in een `onclick`. Een school als *"Sint-Jan's College"* zou de attribuut-quotes breken — exact dezelfde fout die ik in 43.2 al eens maakte. Nu gaat enkel het `id` mee en komt de naam uit een cache.
+
+**Leesbare fouten:** de unieke index geeft anders een ruwe databankfout; die wordt vertaald naar *"Er bestaat al een school met die naam."*
+
+**Tests:** geen nieuwe unittests — dit is CRUD op de databank, geen pure logica. Wel de dynamische `UPDATE` apart nagetrokken op SQL-injectie (zie hierboven). Suite blijft **188/188 groen**. Handmatige checklist in `test-readme.md` §77.
+
+---
+
+### Sprint 50f — 🎉 Fase 1 af: het gedeelde cookie is weg *(~1 dag)* — ✅ AFGEROND (v2026.2.48.4)
+
+**Cat:** AUTH · **Prio:** 🔴 P10 · *(het afscheidsmoment — vanaf nu weet de app altijd wie er werkt)*
+
+**Verwijderd:** `teacherCookieValue()`, `hasValidTeacherCookie()`, `setTeacherCookie()`, de `.env`-login in `authenticateTeacher()`, en de `legacy`-tak in `bepaalTeacherIdentiteit()`. Toegang loopt nu **uitsluitend** via `teacher_sessions`.
+
+**De socket-kant — de grootste hap.** `socketIsTeacherAuthorized()` gebruikte het gedeelde cookie en wordt door **30 handlers** synchroon aangeroepen. Die allemaal async maken zou een enorme, riskante wijziging zijn. In plaats daarvan bepaalt een **`io.use`-middleware** de identiteit **één keer per verbinding** en zet ze op `socket.data.teacher`. `socketIsTeacherAuthorized()` blijft synchroon en **geen enkele van de 30 handlers wijzigt**. Bonus: de socket weet nu **wie** de leerkracht is — dat heeft sprint 51 (eigenaarschap) nodig.
+> *Nuance:* de identiteit wordt bepaald bij het openen van de verbinding. Verloopt de sessie terwijl de socket openstaat, dan blijft die socket geldig tot hij sluit. Aanvaardbaar — een socket ís een lopende sessie — en bij elke paginaverversing wordt opnieuw gecontroleerd.
+
+**Waarom de `.env`-login veilig weg kon.** Er blijkt al een **bootstrap** te bestaan (sprint 27m): bij een lege `teachers`-tabel maakt de app automatisch een leerkracht aan uit `POC_BASIC_USER`/`POC_BASIC_PASS`. Die `.env`-waarden waren dus geen noodzaak maar een **dubbele weg**. Ze zaaien nu enkel nog de eerste leerkracht; je logt daarna in met dezelfde naam en hetzelfde wachtwoord — maar tegen de databank, met een echte, intrekbare sessie.
+
+**Gat gedicht tijdens het bouwen:** die bootstrap keek enkel naar het **platte** `POC_BASIC_PASS`. Wie `POC_BASIC_PASS_HASH` gebruikte, kreeg geen bootstrap-leerkracht — en zou na 50f **volledig buitengesloten** zijn, want de `.env`-login bestond dan niet meer. De bootstrap accepteert nu ook een vooraf gehasht wachtwoord.
+
+**Bijna-fout die ik onderweg opving:** `PASSWORD_HASH` leek dood na het schrappen van de `.env`-login — maar `reviewTokenSecret()` gebruikt hem als geheim voor de leerling-nakijk-tokens. Weggooien had die tokens stilletjes ongeldig gemaakt. Blijft dus staan, nu enkel als geheim, niet als inloggegeven.
+
+**`checkAuthConfig` herzien.** Eist nu een echte leerkracht: geen leerkracht = niemand kan binnen = niet starten. De foutmelding is **bruikbaar** gemaakt en geeft meteen het reddingscommando uit 47.3 (`docker compose run --rm web …`), dat óók werkt als de container stilligt. Bij een **onbereikbare databank** sluit de app niet meer af — dat is een tijdelijke storing, geen configuratiefout.
+
+**Misleidende melding uit 47.2 rechtgezet.** De log zei *"Fallback login actief via POC_BASIC_USER/POC_BASIC_PASS"* terwijl de app zich meteen daarna afsloot — die regel keek enkel naar het wachtwoord, terwijl de opstartcontrole óók een gebruikersnaam eiste. Nu zegt ze wat er écht gebeurt.
+
+**Gedragswijziging bij het aanmaken van de sessie.** In 50a mocht dat stil falen (het oude cookie ving je op). Dat vangnet is weg, dus stil falen zou betekenen: *"ingelogd"* te zien krijgen en meteen weer op het loginscherm belanden. De login **faalt nu eerlijk** met een 500 en een leesbare melding.
+
+**⚠️ Bij deze deploy word je uitgelogd.** Het `teacher_auth`-cookie betekent niets meer; iedereen logt één keer opnieuw in. Dat is het hele punt van deze sprint.
+
+**Tests:** de legacy-tests zijn vervangen door 50f-tests, waaronder de kerntest *"het oude gedeelde cookie geeft geen toegang meer"*. Suite: **188/188 groen**.
+
+---
+
+### Sprint 50e — Fase 1: het audit-log noteert wie het déed *(~0.5 dag)* — ✅ AFGEROND (v2026.2.48.4)
+
+**Cat:** AUTH · **Prio:** 🔴 P10
+
+**Het probleem.** `getActorFromReq()` las de **`Authorization`-header**. Maar de app logt in via een cookie, en dan stuurt de browser die header **nooit** mee. Gevolg: élke regel in het audit-log zei **`onbekend`**. Niet stuk — waardeloos. Je kon niet nagaan wie een score wijzigde, resultaten vrijgaf of een toets verwijderde.
+
+**De fix.** Sinds 50b draagt elk beschermd verzoek een echte identiteit, dus de functie leest nu `req.teacher.username`. Alle 4 de aanroepers (`score_changed`, `results_released`, `review_mode_opened/closed`, `quiz_deleted`) zitten achter `requireTeacherAuth`, dus de identiteit is er gegarandeerd.
+
+**Vanaf nu klopt het audit-log** — en dat is meteen de waarde van fase 1 die je kan zién: *"anja wijzigde de score van vraag 3"* in plaats van *"onbekend deed iets"*.
+
+---
+
+### Sprint 50d — Fase 1: verval + verlengen bij activiteit *(~0.5 dag)* — ✅ AFGEROND (v2026.2.48.3)
+
+**Cat:** AUTH · **Prio:** 🔴 P10
+
+**Verval werkte al.** `getTeacherSession()` filtert sinds 50a op `expires_at > now`, dus een verlopen sessie geeft `null` → je belandt op de login. Deze sprint gaat dus over het **verlengen**.
+
+**Het probleem dat het oplost.** Met een vaste looptijd van 8u vlieg je eruit terwijl je bezig bent — midden in een toets meekijken, en plots terug naar de login. Maar onbeperkt verlengen is even fout: op een klaslokaal-pc zou een sessie dan **maandenlang** blijven leven door dagelijks gebruik.
+
+**De oplossing: meeschuiven met een plafond.**
+- De looptijd (standaard **8u**) schuift mee zolang je werkt.
+- Een **harde grens** (standaard **24u**, instelbaar via `POC_SESSION_ABSOLUTE_MAX_HOURS`) kapt dat af. Je logt dus hooguit **één keer per dag** opnieuw in.
+- Ten opzichte van vandaag is dit **strikt gunstiger**: nu vlieg je er sowieso na 8u uit.
+
+**Drie valkuilen, elk apart afgedekt en getest:**
+1. **Niet bij élk verzoek schrijven.** De middleware hangt aan 101 endpoints — verlengen per klik zou een databankschrijfactie per klik betekenen. We verlengen pas **halfweg** de looptijd.
+2. **Nooit inkorten.** Vlak vóór de harde grens valt `now + 8u` *later* dan de grens, dus kappen we af — maar dan zou het nieuwe einde **vroeger** kunnen liggen dan wat er al staat. Dat zou de leerkracht tijd afpakken. Er is een test die dit bewaakt.
+3. **Het cookie moet mee opschuiven.** Anders gooit de browser het weg terwijl de sessie in de databank nog leeft — en vlieg je alsnog buiten. `Max-Age` wordt mee verlengd.
+
+**Opbouw:** de rekenregel `berekenSessieVerlenging()` staat in `lib/auth.js` — pure functie, geen databank, geen klok van buitenaf. `server.js` doet enkel het schrijfwerk. **Fail-safe:** mislukt het verlengen, dan slaagt het verzoek gewoon; je verliest hooguit wat looptijd, geen toegang.
+
+**Tests:** 8 nieuwe, waaronder *"net ingelogd → niet verlengen"*, *"voorbij de helft → wel"*, *"verlengen gaat nooit voorbij de harde grens"*, *"verlengen mag nooit inkorten"* en een simulatie van een werkdag (klikken om 5u, 10u en 15u → sessie blijft leven, maar nooit voorbij 24u). Suite: **190/190 groen** (was 182).
+
+**Ook bijgewerkt:** `.env.example` met de nieuwe instelling en uitleg waarom ze bestaat.
+
+---
+
+### Sprint 50c — Fase 1: afmelden dat écht afmeldt *(~0.5 dag)* — ✅ AFGEROND (v2026.2.48.2)
+
+**Cat:** AUTH · **Prio:** 🔴 P10
+
+**Waarom afmelden tot nu niet kón.** `teacher_auth` is een **vaste waarde** — een HMAC van `BASIC_AUTH_USER|BASIC_AUTH_REALM`. Afmelden wiste dat cookie enkel in **jouw** browser. Wie de waarde ooit kopieerde, bleef binnen: je kan een constante niet intrekken. Dat is geen slordige implementatie, het is een gevolg van het ontwerp — en precies waarom fase 1 nodig is.
+
+**Wat is gebouwd:**
+- **Afmelden verwijdert de sessierij.** Daarmee is dat token **overal** dood: ook in een andere browser, op een ander toestel, en voor wie het gekopieerd zou hebben. Dát is echt afmelden.
+- **Beide cookies worden gewist.** Enkel `teacher_sid` wissen zou niet volstaan: de terugval op het oude `teacher_auth` (uit 50b) zou je meteen weer binnenlaten.
+- **Fail-safe:** lukt het intrekken niet (databank even weg), dan worden de cookies tóch gewist — beter afgemeld in de browser dan een half scherm met een foutmelding.
+
+**Meegenomen: hetzelfde gat bij wachtwoord wijzigen.** `PUT /api/admin/teachers/:username/password` liet lopende sessies gewoon leven. Dat is dezelfde bug in een ander jasje: je wijzigt je wachtwoord juist **omdat** je vermoedt dat iemand meekijkt — en die bleef dan binnen. Nu worden alle sessies van die leerkracht ingetrokken. *Gevolg:* wie zijn eigen wachtwoord wijzigt, moet opnieuw inloggen. Dat hoort zo.
+
+**Al geregeld door het schema:** `deleteTeacher()` doet een echte `DELETE`, en de foreign key staat op `ON DELETE CASCADE` — sessies van een verwijderde leerkracht verdwijnen dus vanzelf. Geen extra code nodig.
+
+**Waarom de GET-logout geen CSRF-probleem is.** Een aanvaller kan `<img src=".../api/teacher-logout">` op een andere site zetten, maar door **`SameSite=Strict`** stuurt de browser de cookies niet mee. Zonder cookie is er geen sessie te vinden en valt er dus niets in te trekken. Het ergste gevolg zou sowieso "iemand meldt je af" zijn, geen toegang.
+
+**Tests — eerlijk:** hier zitten **geen nieuwe unittests** bij. De logica is databank + HTTP, geen pure functie; een unittest zou hier alleen maar dekking veinzen. Wel nagespeeld dat **beide** cookies leeg én met `Max-Age=0` teruggaan — een vergeten cookie zou betekenen dat afmelden niet werkt. Suite blijft **182/182 groen**. De echte test staat in `test-readme.md` §73: na afmelden moet het oude `teacher_sid` een 302 naar de login geven.
 
 ---
 

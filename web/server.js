@@ -15,13 +15,19 @@ dbModule.init().then(async () => {
   _dbReady = true;
   log.info('[db] PostgreSQL schema OK');
   // 27m: bootstrap admin — als teachers-tabel leeg is én .env credentials beschikbaar zijn,
-  // maak automatisch een admin-account aan zodat inloggen altijd mogelijk is
+  // maak automatisch een admin-account aan zodat inloggen altijd mogelijk is.
+  // Sprint 50f: dit is nu de ENIGE rol van POC_BASIC_* — het zaaien van de eerste
+  // leerkracht. Inloggen gaat daarna altijd via de databank. Daarom accepteren we hier
+  // óók een vooraf gehasht wachtwoord: wie POC_BASIC_PASS_HASH gebruikt zou anders na
+  // 50f buitengesloten zijn (de oude .env-login bestaat dan niet meer).
   try {
     const teachers = await dbModule.listTeachers();
-    if (teachers.length === 0 && BASIC_AUTH_USER && BASIC_AUTH_LEGACY_PASS
+    const bootstrapHash = BASIC_AUTH_PASS_HASH && BASIC_AUTH_PASS_HASH !== 'CHANGE_ME_HASH'
+      ? BASIC_AUTH_PASS_HASH
+      : (BASIC_AUTH_LEGACY_PASS ? createPasswordHash(BASIC_AUTH_LEGACY_PASS) : '');
+    if (teachers.length === 0 && BASIC_AUTH_USER && bootstrapHash
         && BASIC_AUTH_USER !== 'CHANGE_ME') {
-      const hash = createPasswordHash(BASIC_AUTH_LEGACY_PASS);
-      await dbModule.createTeacher(BASIC_AUTH_USER, hash, BASIC_AUTH_USER, 'admin');
+      await dbModule.createTeacher(BASIC_AUTH_USER, bootstrapHash, BASIC_AUTH_USER, 'admin');
       console.log('╔════════════════════════════════════════════════════════════╗');
       console.log('║  [bootstrap] Admin-account automatisch aangemaakt          ║');
       console.log(`║  Inlognaam (username): ${BASIC_AUTH_USER.padEnd(36)}║`);
@@ -54,6 +60,15 @@ const COOKIE_SECRET = process.env.POC_BASIC_COOKIE_SECRET || "";
 // 0 of leeg → sessiecookie (verdwijnt bij sluiten browser, oud gedrag).
 const SESSION_MAX_AGE_HOURS = Math.max(0, Number(process.env.POC_SESSION_MAX_AGE_HOURS ?? 8));
 const SESSION_MAX_AGE_SECONDS = Math.round(SESSION_MAX_AGE_HOURS * 3600);
+// Sprint 50d: harde bovengrens op een sessie. De gewone looptijd (8u) schuift mee zolang
+// je werkt — zo vlieg je nooit midden in een les buiten. Maar zonder plafond zou een
+// sessie op een klaslokaal-pc maandenlang blijven leven door dagelijks gebruik.
+// Standaard 24u: je logt dus hooguit één keer per dag opnieuw in.
+const SESSION_ABSOLUTE_MAX_HOURS = Math.max(
+  SESSION_MAX_AGE_HOURS,
+  Number(process.env.POC_SESSION_ABSOLUTE_MAX_HOURS ?? 24)
+);
+const SESSION_ABSOLUTE_MAX_MS = Math.round(SESSION_ABSOLUTE_MAX_HOURS * 3600 * 1000);
 
 // ── CSRF-bescherming ──────────────────────────────────────────────────────────
 // Genereer een server-side CSRF token per process-start.
@@ -166,6 +181,8 @@ const createSessionToken = authLib.createSessionToken;
 const hashSessionToken = authLib.hashSessionToken;
 // Sprint 50b: pure beslisregel voor 'wie is er ingelogd?'
 const bepaalTeacherIdentiteit = authLib.bepaalTeacherIdentiteit;
+// Sprint 50d: rekenregel voor sessieverlenging
+const berekenSessieVerlenging = authLib.berekenSessieVerlenging;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -245,12 +262,11 @@ async function authenticateTeacher(authHeader) {
     log.error('[auth] DB fout:', e.message);
   }
 
-  // Fallback: .env credentials — geen databankrij, dus geen sessie (50f verwijdert dit pad).
-  if (BASIC_AUTH_USER && PASSWORD_HASH) {
-    if (safeEqual(creds.username, BASIC_AUTH_USER) && verifyPasswordWithHash(creds.password, PASSWORD_HASH)) {
-      return { id: null, username: BASIC_AUTH_USER, role: 'admin', source: 'env' };
-    }
-  }
+  // Sprint 50f: de .env-login is weg. POC_BASIC_* zaait enkel nog de eerste leerkracht
+  // (zie bootstrap bovenaan); daarna verloopt inloggen altijd via de databank — met een
+  // echte identiteit en een intrekbare sessie. Wie .env-gegevens gebruikte, logt gewoon
+  // in met dezelfde naam en hetzelfde wachtwoord: de bootstrap heeft daar een echte
+  // leerkracht van gemaakt.
   return null;
 }
 
@@ -289,30 +305,40 @@ async function requireBasicAuth(req, res, next) {
 // Wordt uitgevoerd na dbModule.init()
 async function checkAuthConfig() {
   if (!BASIC_AUTH_ENABLED) return;
-  // Controleer of er minstens één leerkracht in de DB staat OF dat .env credentials aanwezig zijn.
-  // Na DB-migratie mogen POC_BASIC_USER/PASS_HASH verwijderd zijn uit .env.
-  // Sprint 12a: async check - wordt later opgelost in startup sequentie
-  // Tijdelijk: vertrouw op .env credentials als DB nog niet klaar is
+  // Sprint 50f: inloggen kan enkel nog via de databank. POC_BASIC_* zaait hooguit de
+  // eerste leerkracht (zie bootstrap bovenaan) — er is geen .env-login meer als vangnet.
+  // Dus: geen leerkracht = niemand kan binnen = niet starten.
   let dbHasTeacher = false;
-  try { dbHasTeacher = (await dbModule.listTeachers()).length > 0; } catch (e) { log.warn('[auth] teacher-check mislukt:', e.message); }
-  const envHasCredentials = !!(BASIC_AUTH_USER && PASSWORD_HASH
-    && BASIC_AUTH_USER !== "CHANGE_ME" && BASIC_AUTH_PASS_HASH !== "CHANGE_ME_HASH");
+  try {
+    dbHasTeacher = (await dbModule.listTeachers()).length > 0;
+  } catch (e) {
+    // Databank onbereikbaar? Dan is dit niet het moment om af te sluiten — de app
+    // stopt hier niet op een tijdelijke storing.
+    log.warn('[auth] teacher-check mislukt:', e.message);
+    return;
+  }
 
-  if (!dbHasTeacher && !envHasCredentials) {
-    log.error("POC Basic Auth is actief maar er zijn geen leerkrachtenaccounts gevonden.");
-    log.error("[auth] Voeg een leerkracht toe via pycodeflow.sh → optie 10, of via admin.html");
+  if (!dbHasTeacher) {
+    log.error('[auth] Er is geen enkele leerkracht in de databank — niemand kan inloggen.');
+    log.error('[auth] Maak er een aan (werkt ook als deze container stilligt):');
+    log.error("[auth]   docker compose run --rm web node scripts/manage-teacher.js add <naam> '<wachtwoord>' admin");
+    log.error('[auth] Of via pycodeflow.sh → optie 10. Daarna: docker compose up -d --force-recreate web');
+    log.error('[auth] Alternatief: zet POC_BASIC_USER + POC_BASIC_PASS in .env — bij de volgende start');
+    log.error('[auth] maakt de bootstrap daar automatisch een leerkracht van.');
     process.exit(1);
   }
-  if (dbHasTeacher) {
-    dbModule.listTeachers().then(ts => log.info(`[auth] ${ts.length} leerkracht(en) geladen vanuit database.`)).catch(()=>{});
-  }
+  dbModule.listTeachers()
+    .then(ts => log.info(`[auth] ${ts.length} leerkracht(en) geladen vanuit database.`))
+    .catch(() => {});
 }
 
 if (passwordConfigUsesLegacyPlaintext) {
-  // POC_BASIC_PASS (plain text) wordt ondersteund als fallback.
-  // De server hasht het intern — dit is veilig genoeg voor gebruik.
-  // Optioneel: vervang door POC_BASIC_PASS_HASH voor nog betere beveiliging.
-  log.info('[auth] Fallback login actief via POC_BASIC_USER/POC_BASIC_PASS uit .env');
+  // Sprint 50f: dit is GEEN login-fallback meer. Deze melding zei vroeger "Fallback login
+  // actief via POC_BASIC_USER/POC_BASIC_PASS" — misleidend, want ze keek enkel naar het
+  // wachtwoord terwijl de opstartcontrole óók een gebruikersnaam eiste (zie sprint 47.2:
+  // de app zei "fallback actief" en sloot zich meteen daarna af).
+  // POC_BASIC_PASS dient nu enkel nog om bij een lege databank de eerste leerkracht te zaaien.
+  log.info('[auth] POC_BASIC_PASS staat in .env — enkel gebruikt om de eerste leerkracht aan te maken bij een lege databank.');
 }
 
 const app = express();
@@ -327,29 +353,15 @@ const io = new Server(server, {
 
 // parseCookieHeader nu in lib/auth.js (sprint 34a)
 
-function teacherCookieValue() {
-  const secret = COOKIE_SECRET || PASSWORD_HASH || "fallback_teacher_cookie_secret";
-  return crypto.createHmac("sha256", secret)
-    .update(`${BASIC_AUTH_USER}|${BASIC_AUTH_REALM}`)
-    .digest("hex");
-}
-
-function hasValidTeacherCookie(cookieHeader) {
-  if (!BASIC_AUTH_ENABLED) return true;
-  const cookies = parseCookieHeader(cookieHeader);
-  return safeEqual(cookies.teacher_auth || "", teacherCookieValue());
-}
-
-function setTeacherCookie(res) {
-  if (!BASIC_AUTH_ENABLED) return;
-  // 30a: expliciete Max-Age voor een bewuste sessieduur (standaard 8u = schooldag).
-  const maxAgePart = SESSION_MAX_AGE_SECONDS > 0 ? `; Max-Age=${SESSION_MAX_AGE_SECONDS}` : "";
-  res.setHeader("Set-Cookie", `teacher_auth=${encodeURIComponent(teacherCookieValue())}; Path=/; HttpOnly; SameSite=Strict; Secure${maxAgePart}`);
-}
+// ── Sprint 50f: het gedeelde cookie is weg ───────────────────────────────────
+// teacherCookieValue(), hasValidTeacherCookie() en setTeacherCookie() zijn verwijderd.
+// Ze bouwden één VASTE waarde (HMAC van POC_BASIC_USER|realm) die iedereen deelde —
+// de reden dat de app niet wist wie er werkte, dat afmelden niet kon en dat het
+// audit-log 'onbekend' zei. Toegang loopt nu uitsluitend via teacher_sessions (50a-50d).
 
 // ── Sprint 50a: echte sessie per leerkracht ──────────────────────────────────
 // Voegt een cookie toe zonder bestaande Set-Cookie-headers te overschrijven —
-// setTeacherCookie en setCsrfCookie zetten er ook, en die mogen niet sneuvelen.
+// setCsrfCookie zet er ook een, en die mag niet sneuvelen.
 function voegCookieToe(res, cookie) {
   const bestaand = res.getHeader('Set-Cookie');
   const lijst = Array.isArray(bestaand) ? bestaand : (bestaand ? [bestaand] : []);
@@ -357,34 +369,40 @@ function voegCookieToe(res, cookie) {
 }
 
 // Maakt de sessierij aan en geeft de browser het token mee.
-// Bewust fail-safe: gaat dit mis, dan blijft de login gewoon slagen via het oude
-// cookie. Zo kan 50a uitgerold worden zonder risico dat niemand meer binnen raakt.
+// Sprint 50f — GEDRAGSWIJZIGING: dit mag niet meer stil falen. In 50a mocht dat nog,
+// want het oude gedeelde cookie ving je dan op. Dat vangnet is weg: zonder sessie is er
+// geen toegang. Stil falen zou betekenen dat je "ingelogd" te zien krijgt en meteen weer
+// op het loginscherm belandt — de ergste soort bug om te moeten uitleggen.
+// Daarom gooit deze functie nu door, en beantwoordt de login-endpoint dat eerlijk.
 async function maakLeerkrachtSessie(req, res, teacher) {
+  // Open modus (POC_BASIC_AUTH_ENABLED=false): geen accounts, dus geen sessie. Prima.
+  if (!teacher || !teacher.id) return null;
+
+  const token = createSessionToken();
+  const maxAge = SESSION_MAX_AGE_SECONDS > 0 ? SESSION_MAX_AGE_SECONDS : 8 * 3600;
+
+  // Sprint 48b1: bij precies één school meteen kiezen — geen keuzescherm voor een
+  // keuze die er niet is. Bij nul (de huidige toestand) of meerdere blijft dit null;
+  // 48b2 voegt het keuzescherm toe.
+  let actieveSchool = null;
   try {
-    if (!teacher || !teacher.id) {
-      // Login via de .env-fallback of open modus: er is geen leerkracht-rij, dus geen
-      // sessie mogelijk (de tabel heeft een foreign key). 50f verwijdert dat pad.
-      if (teacher && teacher.source === 'env') {
-        log.warn('[auth] login via .env-fallback — geen sessie aangemaakt. Maak een echte leerkracht aan (pycodeflow.sh optie 10).');
-      }
-      return null;
-    }
-    const token = createSessionToken();
-    const maxAge = SESSION_MAX_AGE_SECONDS > 0 ? SESSION_MAX_AGE_SECONDS : 8 * 3600;
-    await dbModule.createTeacherSession({
-      tokenHash: hashSessionToken(token),
-      teacherId: teacher.id,
-      expiresAt: Date.now() + maxAge * 1000,
-      userAgent: req.headers['user-agent'] || '',
-      ip: getClientIp(req) || '',
-    });
-    voegCookieToe(res, `teacher_sid=${token}; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=${maxAge}`);
-    log.info(`[auth] sessie aangemaakt voor ${teacher.username}`);
-    return token;
+    actieveSchool = validationLib.kiesActieveSchool(await dbModule.getSchoolsForTeacher(teacher.id));
   } catch (e) {
-    log.error('[auth] sessie aanmaken mislukt:', e.message);
-    return null;   // login slaagt alsnog via het oude cookie
+    // Scholen zijn (nog) bijzaak: een fout hier mag het inloggen niet tegenhouden.
+    log.warn('[auth] scholen ophalen bij login mislukt:', e.message);
   }
+
+  await dbModule.createTeacherSession({
+    tokenHash: hashSessionToken(token),
+    teacherId: teacher.id,
+    expiresAt: Date.now() + maxAge * 1000,
+    userAgent: req.headers['user-agent'] || '',
+    ip: getClientIp(req) || '',
+    activeSchoolId: actieveSchool,
+  });
+  voegCookieToe(res, `teacher_sid=${token}; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=${maxAge}`);
+  log.info(`[auth] sessie aangemaakt voor ${teacher.username}`);
+  return token;
 }
 
 // Leest de sessie uit het teacher_sid-cookie. Geeft null als er geen (geldige) is.
@@ -411,13 +429,13 @@ async function requireTeacherAuth(req, res, next) {
   const sessie = BASIC_AUTH_ENABLED ? await leesLeerkrachtSessie(req) : null;
   const identiteit = bepaalTeacherIdentiteit({
     sessie,
-    heeftLegacyCookie: BASIC_AUTH_ENABLED && hasValidTeacherCookie(req.headers.cookie),
-    envUser: BASIC_AUTH_USER,
     authUit: !BASIC_AUTH_ENABLED,
   });
 
   if (identiteit) {
     req.teacher = identiteit;
+    // Sprint 50d: schuif de sessie mee zolang je werkt (maar nooit voorbij de harde grens).
+    if (sessie) await verlengSessieIndienNodig(req, res, sessie);
     return next();
   }
 
@@ -428,10 +446,45 @@ async function requireTeacherAuth(req, res, next) {
   return res.redirect(`/teacher-login.html?next=${dest}`);
 }
 
+// ── Sprint 50d: sessie verlengen bij activiteit ──────────────────────────────
+// De rekenregel (wanneer wel/niet) staat in lib/auth.js en is apart getest.
+// Hier doen we enkel het schrijfwerk. Bewust fail-safe: mislukt het verlengen, dan
+// blijft het verzoek gewoon slagen — je verliest hooguit wat looptijd, geen toegang.
+async function verlengSessieIndienNodig(req, res, sessie) {
+  try {
+    const cookies = parseCookieHeader(req.headers.cookie);
+    const token = cookies.teacher_sid;
+    if (!token) return;
 
+    const maxAgeMs = (SESSION_MAX_AGE_SECONDS > 0 ? SESSION_MAX_AGE_SECONDS : 8 * 3600) * 1000;
+    const { verlengen, nieuwEind } = berekenSessieVerlenging({
+      now: Date.now(),
+      createdAt: sessie.created_at,
+      expiresAt: sessie.expires_at,
+      maxAgeMs,
+      absoluutMaxMs: SESSION_ABSOLUTE_MAX_MS,
+    });
+    if (!verlengen) return;
+
+    await dbModule.touchTeacherSession(hashSessionToken(token), nieuwEind);
+    // Het cookie moet mee opschuiven, anders gooit de browser hem weg terwijl de
+    // sessie in de databank nog leeft — dan zou je alsnog buitenvliegen.
+    const restSeconden = Math.max(1, Math.round((nieuwEind - Date.now()) / 1000));
+    voegCookieToe(res, `teacher_sid=${token}; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=${restSeconden}`);
+  } catch (e) {
+    log.warn('[auth] sessie verlengen mislukt:', e.message);
+  }
+}
+
+
+// Sprint 50f: leest de identiteit die io.use bij het verbinden heeft vastgesteld.
+// Blijft synchroon, dus de 30 handlers die hem aanroepen wijzigen niet.
+// Nuance: de identiteit wordt bepaald bij het openen van de verbinding. Verloopt de
+// sessie terwijl de socket openstaat, dan blijft die socket geldig tot hij sluit.
+// Aanvaardbaar — een socket is per definitie een lopende sessie — en bij elke
+// paginaverversing wordt opnieuw gecontroleerd.
 function socketIsTeacherAuthorized(socket) {
-  if (!BASIC_AUTH_ENABLED) return true;
-  return hasValidTeacherCookie(socket.request.headers.cookie || "");
+  return !!socket.data?.teacher;
 }
 
 // Fix SEC-3: HTTP security headers
@@ -518,9 +571,31 @@ app.get('/teacher-login.html', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'teacher-login.html'));
 });
 
-// Logout: wis de teacher_auth cookie en stuur door naar de loginpagina
-app.get('/api/teacher-logout', (req, res) => {
-  res.setHeader('Set-Cookie', 'teacher_auth=; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=0');
+// Logout: trek de sessie in en wis beide cookies
+// ── Sprint 50c: afmelden dat écht afmeldt ────────────────────────────────────
+// Tot nu wiste dit enkel het cookie in jóuw browser. Maar `teacher_auth` is een
+// VASTE waarde (een HMAC van .env), dus wie hem ooit kopieerde bleef binnen — het
+// cookie wissen deed daar niets aan. Je kon een vaste waarde nu eenmaal niet intrekken.
+// Een sessie kunnen we wél intrekken: we gooien de rij weg en dan is dat token overal
+// dood, ook in een andere browser of op een ander toestel.
+app.get('/api/teacher-logout', async (req, res) => {
+  try {
+    const cookies = parseCookieHeader(req.headers.cookie);
+    if (cookies.teacher_sid) {
+      await dbModule.deleteTeacherSession(hashSessionToken(cookies.teacher_sid));
+      log.info('[auth] sessie ingetrokken (afmelden)');
+    }
+  } catch (e) {
+    // Fail-safe: lukt het intrekken niet, dan wissen we de cookies toch. Beter
+    // afgemeld in de browser dan een half scherm met een foutmelding.
+    log.warn('[auth] sessie intrekken mislukt:', e.message);
+  }
+  // Beide cookies wissen. Enkel teacher_sid zou niet volstaan: de terugval op het
+  // oude teacher_auth-cookie (50b) zou je meteen weer binnenlaten.
+  res.setHeader('Set-Cookie', [
+    'teacher_auth=; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=0',
+    'teacher_sid=; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=0',
+  ]);
   res.redirect('/teacher-login.html');
 });
 
@@ -530,7 +605,8 @@ app.get('/free-editor.html', (req, res) => {
 });
 
 // JSON login-endpoint voor de custom login-overlay
-// Valideert credentials, zet de teacher_auth-cookie en retourneert 200 bij succes.
+// Sprint 50f: valideert de gegevens tegen de databank, maakt een sessie aan (teacher_sid)
+// en retourneert 200 bij succes. Het oude gedeelde teacher_auth-cookie bestaat niet meer.
 // Hergebruikt dezelfde rate limiting en timing-safe vergelijking als requireBasicAuth.
 app.post('/api/teacher-login', async (req, res) => {
   if (!BASIC_AUTH_ENABLED) return res.json({ ok: true });
@@ -553,12 +629,15 @@ app.post('/api/teacher-login', async (req, res) => {
 
   if (teacher) {
     clearAuthFailures(ip);
-    setTeacherCookie(res);
-    // Sprint 50a: maak daarnaast een ECHTE sessie aan, gekoppeld aan deze leerkracht.
-    // Additief: het oude teacher_auth-cookie blijft voorlopig bepalen of je binnen mag
-    // (50b gaat dit cookie lezen, 50f haalt het oude weg). Faalt dit, dan mag de login
-    // niet mislukken — daarom vangen we alles op en loggen we enkel.
-    await maakLeerkrachtSessie(req, res, teacher);
+    // Sprint 50a/50f: de sessie ís nu de login. Er is geen gedeeld cookie meer dat
+    // je alsnog binnenlaat, dus mislukt dit, dan is er ook geen toegang — vandaar dat
+    // maakLeerkrachtSessie hieronder eerlijk faalt i.p.v. stil door te gaan.
+    try {
+      await maakLeerkrachtSessie(req, res, teacher);
+    } catch (e) {
+      log.error('[auth] sessie aanmaken mislukt:', e.message);
+      return res.status(500).json({ error: 'Aanmelden lukte niet door een serverfout. Probeer het opnieuw.' });
+    }
     setCsrfCookie(res);
     return res.json({ ok: true });
   }
@@ -621,6 +700,10 @@ app.get('/api/me', requireTeacherAuth, (req, res) => {
     displayName: req.teacher.displayName,
     role: req.teacher.role,
     source: req.teacher.source,
+    // Sprint 48b1: welke school is actief in deze sessie? null = geen school gekoppeld
+    // (de normale toestand vandaag) of nog niet gekozen bij meerdere scholen.
+    activeSchoolId: req.teacher.activeSchoolId || null,
+    activeSchoolName: req.teacher.activeSchoolName || null,
     // Toont of de identiteit betrouwbaar is. Bij 'legacy' weet de app enkel dát
     // je mag, niet wie je bent — dat is precies wat fase 1 oplost.
     identiteitBekend: req.teacher.source === 'session',
@@ -706,6 +789,7 @@ app.get('/api/system-stats', requireTeacherAuth, async (req, res) => {
 
 // Whitelist van toegestane tabelnamen — geen vrije SQL input mogelijk
 const DB_VIEWER_TABLES = [
+  'schools', 'school_domains', 'teacher_schools',
   'teachers', 'teacher_sessions', 'classes', 'teacher_classes', 'students',
   'sessions', 'student_sessions', 'session_history',
   'question_bank', 'assignment_bank', 'quiz_answers', 'quiz_student_sessions',
@@ -857,7 +941,97 @@ window.MonacoEnvironment = {
 app.get('/api/admin/teachers', requireTeacherAuth, requireCsrf, async (req, res) => {
   try {
     const teachers = await dbModule.listTeachers();
+    // Sprint 48a2: scholen erbij, zodat het beheerscherm ze meteen kan tonen zonder
+    // per leerkracht een apart verzoek te doen. Inactieve scholen tonen we hier wél —
+    // een beheerder moet zien dat een koppeling naar een uitgeschakelde school bestaat.
+    await Promise.all(teachers.map(async t => {
+      try { t.schools = await dbModule.getSchoolsForTeacher(t.id, true); }
+      catch { t.schools = []; }   // scholen zijn bijzaak; de lijst mag hier niet op stuklopen
+    }));
     res.json(teachers);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Sprint 48a2: leerkracht ↔ school koppelen ────────────────────────────────
+// ── Sprint 48a3: e-maildomeinen per school ───────────────────────────────────
+app.get('/api/admin/schools/:id/domains', requireTeacherAuth, async (req, res) => {
+  try {
+    res.json(await dbModule.listSchoolDomains(req.params.id));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/schools/:id/domains', requireTeacherAuth, requireCsrf, async (req, res) => {
+  // De validatie zit in lib/validation.js en is apart getest — hier enkel toepassen.
+  const check = validationLib.valideerDomein(req.body?.domain);
+  if (!check.ok) return res.status(400).json({ error: check.fout });
+  try {
+    const bestaand = await dbModule.listSchoolDomains(req.params.id);
+    if (bestaand.includes(check.waarde)) {
+      return res.status(400).json({ error: 'Dit domein staat er al.' });
+    }
+    await dbModule.addSchoolDomain(req.params.id, check.waarde);
+    dbModule.auditLog(getActorFromReq(req), 'school_domain_added', req.params.id,
+                      { domain: check.waarde }, req.ip).catch(() => {});
+    res.json({ ok: true, domain: check.waarde });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/admin/schools/:id/domains/:domain', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const domein = decodeURIComponent(req.params.domain);
+  try {
+    // Elke school heeft minstens één domein nodig: zonder domein kan straks geen enkele
+    // leerling zich registreren (52c). Beter hier tegenhouden dan het later niet snappen.
+    const bestaand = await dbModule.listSchoolDomains(req.params.id);
+    if (bestaand.length <= 1) {
+      return res.status(400).json({ error: 'Elke school heeft minstens 1 domein nodig.' });
+    }
+    const ok = await dbModule.removeSchoolDomain(req.params.id, domein);
+    if (ok) dbModule.auditLog(getActorFromReq(req), 'school_domain_removed', req.params.id,
+                              { domain: domein }, req.ip).catch(() => {});
+    res.json({ ok });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Het testveldje: plak een adres en zie of het mag — en via welke regel.
+// Zonder dit ontdekt een leerling de fout op de dag van de toets.
+app.post('/api/admin/schools/:id/domains/test', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const email = String(req.body?.email || '').trim();
+  if (!email.includes('@')) return res.status(400).json({ error: 'Geef een volledig e-mailadres in.' });
+  try {
+    const domeinen = await dbModule.listSchoolDomains(req.params.id);
+    const regel = domeinen.find(d => validationLib.domainMatches(email, d)) || null;
+    res.json({
+      toegelaten: !!regel,
+      viaRegel: regel,
+      domein: validationLib.domeinUitEmail(email),
+      aantalRegels: domeinen.length,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/teachers/:id/schools', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { schoolId } = req.body || {};
+  if (!schoolId) return res.status(400).json({ error: 'schoolId vereist' });
+  try {
+    await dbModule.linkTeacherSchool(req.params.id, schoolId);
+    dbModule.auditLog(getActorFromReq(req), 'teacher_school_linked', req.params.id, { schoolId }, req.ip).catch(() => {});
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/admin/teachers/:id/schools/:schoolId', requireTeacherAuth, requireCsrf, async (req, res) => {
+  try {
+    await dbModule.unlinkTeacherSchool(req.params.id, req.params.schoolId);
+    dbModule.auditLog(getActorFromReq(req), 'teacher_school_unlinked', req.params.id,
+                      { schoolId: req.params.schoolId }, req.ip).catch(() => {});
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Wie werkt er op deze school? Handig vanuit het scholen-overzicht.
+app.get('/api/admin/schools/:id/teachers', requireTeacherAuth, async (req, res) => {
+  try {
+    res.json(await dbModule.getTeachersForSchool(req.params.id));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -884,6 +1058,22 @@ app.put('/api/admin/teachers/:username/password', requireTeacherAuth, requireCsr
   // Sprint 36: createPasswordHash geeft één string (scrypt$...) — geen destructuring.
   const passHash = createPasswordHash(password);
   const ok = await dbModule.updatePassHash(req.params.username, passHash);
+  // Sprint 50c: trek de lopende sessies van deze leerkracht in.
+  // Je wijzigt je wachtwoord juist omdát je vermoedt dat iemand meekijkt — dan mag
+  // die niet gewoon binnen blijven op een sessie van vóór de wijziging.
+  // Gevolg: wie zijn eigen wachtwoord wijzigt, moet opnieuw inloggen. Dat hoort zo.
+  if (ok) {
+    try {
+      const teacher = await dbModule.getTeacherByUsername(req.params.username);
+      if (teacher) {
+        await dbModule.deleteTeacherSessionsFor(teacher.id);
+        log.info(`[auth] sessies ingetrokken na wachtwoordwijziging van ${teacher.username}`);
+      }
+    } catch (e) {
+      // Het wachtwoord is al gewijzigd; dat mag niet terugdraaien op een opruimfout.
+      log.warn('[auth] sessies intrekken na wachtwoordwijziging mislukt:', e.message);
+    }
+  }
   res.json({ ok });
 });
 
@@ -923,6 +1113,68 @@ app.get('/api/classes', async (req, res) => {
   try {
     const classes = await dbModule.listClasses(false);
     res.json(classes.map(c => ({ id: c.id, name: c.name, school_year: c.school_year })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Sprint 48a1: scholen beheren ─────────────────────────────────────────────
+// Additief: zolang niets aan een school hangt, verandert dit niets aan de werking.
+// 48a2 koppelt hier leerkrachten aan, 48a3 e-maildomeinen.
+app.get('/api/admin/schools', requireTeacherAuth, async (req, res) => {
+  try {
+    res.json(await dbModule.listSchools(req.query.includeInactive === 'true'));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/schools', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { name, logoPath, license, contact } = req.body || {};
+  if (!name?.trim()) return res.status(400).json({ error: 'Naam vereist' });
+  try {
+    const id = await dbModule.createSchool({
+      name: name.trim().slice(0, 120),
+      logoPath: String(logoPath || '').slice(0, 255),
+      license: String(license || '').slice(0, 64),
+      contact: String(contact || '').slice(0, 200),
+    });
+    dbModule.auditLog(getActorFromReq(req), 'school_created', id, { name: name.trim() }, req.ip).catch(() => {});
+    res.json({ ok: true, id });
+  } catch (e) {
+    // De unieke index op de naam vangt dubbels op; geef daar een leesbare melding voor
+    // i.p.v. een ruwe databankfout.
+    if (String(e.message).includes('idx_schools_name')) {
+      return res.status(400).json({ error: 'Er bestaat al een school met die naam.' });
+    }
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/admin/schools/:id', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { name, logoPath, license, contact, active } = req.body || {};
+  if (name !== undefined && !String(name).trim()) {
+    return res.status(400).json({ error: 'Naam mag niet leeg zijn' });
+  }
+  try {
+    const ok = await dbModule.updateSchool(req.params.id, {
+      ...(name !== undefined && { name: String(name).trim().slice(0, 120) }),
+      ...(logoPath !== undefined && { logoPath: String(logoPath).slice(0, 255) }),
+      ...(license !== undefined && { license: String(license).slice(0, 64) }),
+      ...(contact !== undefined && { contact: String(contact).slice(0, 200) }),
+      ...(active !== undefined && { active: active === true || active === 'true' }),
+    });
+    if (ok) dbModule.auditLog(getActorFromReq(req), 'school_updated', req.params.id, {}, req.ip).catch(() => {});
+    res.json({ ok });
+  } catch (e) {
+    if (String(e.message).includes('idx_schools_name')) {
+      return res.status(400).json({ error: 'Er bestaat al een school met die naam.' });
+    }
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/admin/schools/:id', requireTeacherAuth, requireCsrf, async (req, res) => {
+  try {
+    const ok = await dbModule.deleteSchool(req.params.id);
+    if (ok) dbModule.auditLog(getActorFromReq(req), 'school_deleted', req.params.id, {}, req.ip).catch(() => {});
+    res.json({ ok });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -2367,10 +2619,18 @@ app.get('/teacher-grid.html', requireTeacherAuth, (req, res) => {
 
 // ── Sprint 20a: Audit log API ────────────────────────────────────────────────
 
+// ── Sprint 50e: het audit-log noteert eindelijk wie het déed ─────────────────
+// Tot nu las deze functie de Authorization-header. Maar de app logt in via een cookie,
+// en dan stuurt de browser die header NOOIT mee. Gevolg: élke regel in het audit-log
+// zei 'onbekend'. Niet stuk, wel waardeloos: je kon niet nagaan wie een score wijzigde
+// of resultaten vrijgaf.
+// Sinds 50b draagt elk beschermd verzoek een echte identiteit (req.teacher).
 function getActorFromReq(req) {
+  const t = req.teacher;
+  if (t?.username) return t.username;
+  // Terugval voor het geval deze functie ooit buiten requireTeacherAuth gebruikt wordt.
   try {
-    const auth = req.headers.authorization || '';
-    const creds = parseBasicAuthHeader(auth);
+    const creds = parseBasicAuthHeader(req.headers.authorization || '');
     return creds?.username || 'onbekend';
   } catch { return 'onbekend'; }
 }
@@ -3512,8 +3772,32 @@ function persistNow(session) {
   });
 }
 
-io.on("connection", (socket) => {
-  // Fix SEC-5: genereer unieke CSRF nonce per socket
+// ── Sprint 50f: leerkracht-identiteit op de socket ───────────────────────────
+// Draait één keer per verbinding, vóór alle handlers. Zo blijft socketIsTeacherAuthorized()
+// synchroon en hoeven de 30 handlers die hem gebruiken niet aangepast te worden.
+// Bijkomend voordeel: de socket weet nu WIE de leerkracht is (socket.data.teacher) —
+// dat heeft sprint 51 (eigenaarschap) nodig.
+//
+// Belangrijk: we laten ALTIJD door. Leerlingen verbinden via dezelfde socketserver en
+// hebben geen leerkracht-sessie; die krijgen simpelweg geen socket.data.teacher.
+io.use(async (socket, next) => {
+  try {
+    if (!BASIC_AUTH_ENABLED) {
+      socket.data.teacher = { id: null, username: 'anoniem', displayName: '', role: 'admin', source: 'open' };
+      return next();
+    }
+    const cookies = parseCookieHeader(socket.request.headers.cookie || '');
+    if (cookies.teacher_sid) {
+      const sessie = await dbModule.getTeacherSession(hashSessionToken(cookies.teacher_sid));
+      if (sessie) socket.data.teacher = bepaalTeacherIdentiteit({ sessie });
+    }
+  } catch (e) {
+    log.warn('[auth] socket-identiteit bepalen mislukt:', e.message);
+  }
+  next();
+});
+
+io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per socket
   const socketNonce = crypto.randomBytes(16).toString('hex');
   socketCsrfNonces.set(socket.id, socketNonce);
   socket.emit('csrf_nonce', { nonce: socketNonce });

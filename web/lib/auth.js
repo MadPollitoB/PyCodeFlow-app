@@ -83,15 +83,15 @@ function parseCookieHeader(headerValue) {
 
 // ── Sprint 50b: wie is er ingelogd? ──────────────────────────────────────────
 // Pure beslisregel, los van Express en de databank — zo is ze rechtstreeks testbaar.
-// Volgorde is de kern: een echte sessie wint altijd van het oude gedeelde cookie.
 // Geeft null wanneer niemand mag (de aanroeper stuurt dan naar de login).
 //
-//   'session' = betrouwbaar, we weten wie
-//   'legacy'  = oud gedeeld cookie: we weten enkel DÁT iemand mag, niet wie (id = null)
-//   'open'    = authenticatie staat uit
-function bepaalTeacherIdentiteit({ sessie = null, heeftLegacyCookie = false, envUser = '', authUit = false } = {}) {
+// Sprint 50f: de tak voor het oude gedeelde cookie is weg. Er zijn nog twee bronnen:
+//   'session' = een echte sessie: we weten wie
+//   'open'    = authenticatie staat uit (POC_BASIC_AUTH_ENABLED=false)
+function bepaalTeacherIdentiteit({ sessie = null, authUit = false } = {}) {
   if (authUit) {
-    return { id: null, username: 'anoniem', displayName: '', role: 'admin', source: 'open' };
+    return { id: null, username: 'anoniem', displayName: '', role: 'admin', source: 'open',
+             activeSchoolId: null, activeSchoolName: null };
   }
   if (sessie) {
     return {
@@ -100,14 +100,35 @@ function bepaalTeacherIdentiteit({ sessie = null, heeftLegacyCookie = false, env
       displayName: sessie.display_name || '',
       role: sessie.role || 'teacher',
       source: 'session',
+      // Sprint 48b1: komt uit de sessie in de databank, niet uit de browser.
+      activeSchoolId: sessie.active_school_id || null,
+      activeSchoolName: sessie.active_school_name || null,
     };
   }
-  if (heeftLegacyCookie) {
-    // Bewust géén rol 'admin' verzinnen die meer mag dan verdiend: het oude cookie
-    // zegt niets over wie je bent, dus krijg je de laagste rol.
-    return { id: null, username: envUser || 'onbekend', displayName: '', role: 'teacher', source: 'legacy' };
-  }
   return null;
+}
+
+// ── Sprint 50d: moet deze sessie verlengd worden? ────────────────────────────
+// Pure rekenregel — geen databank, geen klok van buitenaf, dus rechtstreeks testbaar.
+//
+// Drie regels, elk om een concreet probleem te vermijden:
+//  1. HARDE GRENS. Een sessie mag nooit eeuwig blijven leven door dagelijks gebruik.
+//     Op een klaslokaal-pc is dat het verschil tussen "vergeten af te melden" en
+//     "iedereen kan er maanden bij".
+//  2. PAS HALFWEG verlengen. Anders schrijf je bij élk verzoek naar de databank —
+//     101 endpoints × elke klik. Halfweg is vaak genoeg en kost bijna niets.
+//  3. NOOIT INKORTEN. Vlak vóór de harde grens zou het nieuwe einde vroeger kunnen
+//     vallen dan wat er al staat; dan doen we niets.
+function berekenSessieVerlenging({ now, createdAt, expiresAt, maxAgeMs, absoluutMaxMs }) {
+  const geen = { verlengen: false, nieuwEind: null };
+  const absoluutEind = Number(createdAt) + Number(absoluutMaxMs);
+
+  if (now >= absoluutEind) return geen;                       // 1
+  if (now < Number(expiresAt) - Number(maxAgeMs) / 2) return geen;  // 2
+
+  const nieuwEind = Math.min(now + Number(maxAgeMs), absoluutEind);
+  if (nieuwEind <= Number(expiresAt)) return geen;            // 3
+  return { verlengen: true, nieuwEind };
 }
 
 function createSessionToken() {
@@ -128,4 +149,5 @@ module.exports = {
   createSessionToken,
   hashSessionToken,
   bepaalTeacherIdentiteit,
+  berekenSessieVerlenging,
 };

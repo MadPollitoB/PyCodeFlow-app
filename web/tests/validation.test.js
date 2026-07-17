@@ -132,3 +132,156 @@ test('apply-config: lege config → niets toegepast', () => {
   const { applied } = filterConfig({});
   assert.strictEqual(applied, 0);
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Sprint 48a3 — E-maildomeinen per school
+// De 8 gevallen uit het testboek (§64), plus de randgevallen.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Exact domein ──
+test('48a3: "athkiel.be" laat het exacte domein toe', () => {
+  assert.strictEqual(v.domainMatches('marie@athkiel.be', 'athkiel.be'), true);
+});
+
+test('48a3: "athkiel.be" weigert een subdomein (exact betekent exact)', () => {
+  assert.strictEqual(v.domainMatches('marie@leerling.athkiel.be', 'athkiel.be'), false);
+});
+
+// ── Wildcard ──
+test('48a3: "*.athkiel.be" laat een subdomein toe', () => {
+  assert.strictEqual(v.domainMatches('marie@leerling.athkiel.be', '*.athkiel.be'), true);
+});
+
+test('48a3: "*.athkiel.be" laat alles eronder toe', () => {
+  assert.strictEqual(v.domainMatches('marie@a.b.athkiel.be', '*.athkiel.be'), true);
+});
+
+test('48a3: "*.athkiel.be" weigert het KALE domein (bewust verschil)', () => {
+  assert.strictEqual(v.domainMatches('marie@athkiel.be', '*.athkiel.be'), false);
+});
+
+// ── De aanvallen ──
+test('48a3 KERNTEST: athkiel.be.aanvaller.com wordt ALTIJD geweigerd', () => {
+  // Een naïeve check op "bevat athkiel.be" zou dit binnenlaten.
+  assert.strictEqual(v.domainMatches('marie@athkiel.be.aanvaller.com', 'athkiel.be'), false);
+  assert.strictEqual(v.domainMatches('marie@athkiel.be.aanvaller.com', '*.athkiel.be'), false);
+});
+
+test('48a3 KERNTEST: nepathkiel.be wordt geweigerd (de punt telt)', () => {
+  assert.strictEqual(v.domainMatches('marie@nepathkiel.be', '*.athkiel.be'), false);
+  assert.strictEqual(v.domainMatches('marie@nepathkiel.be', 'athkiel.be'), false);
+});
+
+// ── Normalisatie ──
+test('48a3: hoofdletters worden genormaliseerd', () => {
+  assert.strictEqual(v.domainMatches('MARIE@ATHKIEL.BE', 'athkiel.be'), true);
+  assert.strictEqual(v.domainMatches('marie@athkiel.be', 'ATHKIEL.BE'), true);
+});
+
+test('48a3: een afsluitende punt glipt er niet langs', () => {
+  // 'marie@athkiel.be.' is technisch een geldig FQDN — zonder normalisatie zou dit
+  // NIET matchen en de leerling onterecht weigeren.
+  assert.strictEqual(v.domainMatches('marie@athkiel.be.', 'athkiel.be'), true);
+});
+
+test('48a3: adres met meerdere @ → het LAATSTE deel telt', () => {
+  assert.strictEqual(v.domeinUitEmail('rare"@"naam@athkiel.be'), 'athkiel.be');
+});
+
+test('48a3: geen @ of lege invoer → geen match', () => {
+  assert.strictEqual(v.domainMatches('geen-adres', 'athkiel.be'), false);
+  assert.strictEqual(v.domainMatches('', 'athkiel.be'), false);
+  assert.strictEqual(v.domainMatches('marie@athkiel.be', ''), false);
+});
+
+// ── Meerdere domeinen ──
+test('48a3: emailPastBijDomeinen — één match volstaat', () => {
+  const lijst = ['athkiel.be', '*.athkiel.be'];
+  assert.strictEqual(v.emailPastBijDomeinen('marie@athkiel.be', lijst), true);
+  assert.strictEqual(v.emailPastBijDomeinen('marie@leerling.athkiel.be', lijst), true);
+  assert.strictEqual(v.emailPastBijDomeinen('marie@gmail.com', lijst), false);
+  assert.strictEqual(v.emailPastBijDomeinen('marie@athkiel.be', []), false);
+});
+
+// ── Validatie bij het invoeren ──
+test('48a3: "@athkiel.be" wordt vergevingsgezind opgeschoond', () => {
+  const r = v.valideerDomein('  @Athkiel.BE ');
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.waarde, 'athkiel.be');
+});
+
+test('48a3: "*athkiel.be" (zonder punt) → melding over de juiste vorm', () => {
+  const r = v.valideerDomein('*athkiel.be');
+  assert.strictEqual(r.ok, false);
+  assert.match(r.fout, /wildcard begint met/i);
+});
+
+test('48a3 KERNTEST: "*.be" is te breed en wordt geweigerd', () => {
+  const r = v.valideerDomein('*.be');
+  assert.strictEqual(r.ok, false);
+  assert.match(r.fout, /te breed/i);
+});
+
+test('48a3: "*.com" idem', () => {
+  assert.strictEqual(v.valideerDomein('*.com').ok, false);
+});
+
+test('48a3: "*.athkiel.be" is wél geldig', () => {
+  const r = v.valideerDomein('*.athkiel.be');
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.waarde, '*.athkiel.be');
+});
+
+test('48a3: spatie of @ middenin → melding "geef enkel het domein"', () => {
+  assert.match(v.valideerDomein('athkiel be').fout, /enkel het domein/i);
+  assert.match(v.valideerDomein('marie@athkiel.be').fout, /enkel het domein/i);
+});
+
+test('48a3: zonder punt is het geen domein', () => {
+  assert.strictEqual(v.valideerDomein('athkiel').ok, false);
+  assert.strictEqual(v.valideerDomein('').ok, false);
+});
+
+test('48a3: rare tekens worden geweigerd', () => {
+  assert.strictEqual(v.valideerDomein('athkiel!.be').ok, false);
+  assert.strictEqual(v.valideerDomein('athkiel .be').ok, false);
+});
+
+test('48a3: koppeltekens en cijfers mogen', () => {
+  assert.strictEqual(v.valideerDomein('sint-jan2.athkiel.be').ok, true);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Sprint 48b1 — Automatische schoolkeuze bij het inloggen
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test('48b1: geen scholen → null (dit is vandaag de normale toestand)', () => {
+  assert.strictEqual(v.kiesActieveSchool([]), null);
+  assert.strictEqual(v.kiesActieveSchool(), null);
+  assert.strictEqual(v.kiesActieveSchool(null), null);
+});
+
+test('48b1: precies 1 school → die wordt meteen actief', () => {
+  assert.strictEqual(v.kiesActieveSchool([{ id: 's1', name: 'Atheneum', active: true }]), 's1');
+});
+
+test('48b1: meerdere scholen → null, de leerkracht kiest zelf (48b2)', () => {
+  assert.strictEqual(v.kiesActieveSchool([
+    { id: 's1', active: true }, { id: 's2', active: true },
+  ]), null);
+});
+
+test('48b1: een INACTIEVE school telt niet mee', () => {
+  // Ook al is het je enige: op een uitgeschakelde school hoor je niet te belanden.
+  assert.strictEqual(v.kiesActieveSchool([{ id: 's1', active: false }]), null);
+});
+
+test('48b1: 2 scholen waarvan 1 inactief → de actieve wordt gekozen', () => {
+  assert.strictEqual(v.kiesActieveSchool([
+    { id: 's1', active: false }, { id: 's2', active: true },
+  ]), 's2');
+});
+
+test('48b1: active ontbreekt → als actief beschouwd', () => {
+  assert.strictEqual(v.kiesActieveSchool([{ id: 's1' }]), 's1');
+});

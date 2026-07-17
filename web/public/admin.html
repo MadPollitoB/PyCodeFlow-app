@@ -57,8 +57,29 @@
 
   <div class="admin-tabs">
     <button class="admin-tab active" data-tab="teachers">👨‍🏫 Leerkrachten</button>
+    <button class="admin-tab" data-tab="schools">🏛 Scholen</button>
     <button class="admin-tab" data-tab="classes">🏫 Klassen</button>
     <button class="admin-tab" data-tab="students">👩‍🎓 Leerlingen</button>
+  </div>
+
+  <!-- SCHOLEN (sprint 48a1) -->
+  <div class="admin-panel" id="panel-schools">
+    <div class="inline-note">
+      Eerste stap van het multi-tenant fundament. Zolang er niets aan een school hangt,
+      verandert er niets aan de werking — leerkrachten koppelen gebeurt in een volgende stap.
+    </div>
+    <div class="inline-form">
+      <div><label>Naam</label><input id="new-school-name" placeholder="Atheneum Hoboken" style="width:200px;"/></div>
+      <div><label>Logo (pad)</label><input id="new-school-logo" placeholder="/school-logo" style="width:150px;"/></div>
+      <div><label>Licentie</label><input id="new-school-license" placeholder="bv. 2026-2027" style="width:120px;"/></div>
+      <div><label>Contact</label><input id="new-school-contact" placeholder="naam of e-mail" style="width:170px;"/></div>
+      <button class="btn btn-soft small" onclick="addSchool()">+ Toevoegen</button>
+    </div>
+    <label class="checkbox-row" style="margin:8px 0;cursor:pointer;font-size:0.85rem;">
+      <input type="checkbox" id="show-inactive-schools" onchange="loadSchools()"/>
+      Toon ook inactieve scholen
+    </label>
+    <div id="schools-list"><p class="muted">Laden…</p></div>
   </div>
 
   <!-- LEERKRACHTEN -->
@@ -71,7 +92,7 @@
       <button class="btn btn-soft small" onclick="addTeacher()">+ Toevoegen</button>
     </div>
     <table class="admin-table" id="teachers-table">
-      <thead><tr><th>Gebruikersnaam</th><th>Weergavenaam</th><th>Rol</th><th>Laatste login</th><th>Acties</th></tr></thead>
+      <thead><tr><th>Gebruikersnaam</th><th>Weergavenaam</th><th>Rol</th><th>Scholen</th><th>Laatste login</th><th>Acties</th></tr></thead>
       <tbody id="teachers-tbody"></tbody>
     </table>
   </div>

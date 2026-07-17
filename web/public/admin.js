@@ -24,6 +24,7 @@ document.querySelectorAll('.admin-tab').forEach(btn => {
     btn.classList.add('active');
     document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'teachers') loadTeachers();
+    if (btn.dataset.tab === 'schools')  loadSchools();
     if (btn.dataset.tab === 'classes')  { loadSchoolYears().then(loadClasses); }
     if (btn.dataset.tab === 'students') { loadClassFilter(); loadStudents(); }
   });
@@ -40,18 +41,27 @@ async function loadTeachers() {
   const r = await fetch('/api/admin/teachers');
   _teachers = await r.json();
   const tbody = document.getElementById('teachers-tbody');
-  tbody.innerHTML = _teachers.map(t => `
+  tbody.innerHTML = _teachers.map(t => {
+    // Sprint 48a2: een inactieve school tonen we doorstreept — de koppeling bestaat,
+    // maar je kan er niet op inloggen. Dat moet een beheerder kunnen zien.
+    const scholen = (t.schools || []).length
+      ? t.schools.map(s => `<span class="badge" style="${s.active ? '' : 'text-decoration:line-through;opacity:0.6;'}" title="${s.active ? '' : 'inactieve school'}">${escHtml(s.name)}</span>`).join(' ')
+      : '<span class="muted" style="font-size:0.8rem;">—</span>';
+    return `
     <tr>
       <td><strong>${escHtml(t.username)}</strong></td>
       <td>${escHtml(t.display_name || '—')}</td>
       <td><span class="${t.role === 'admin' ? 'badge-admin' : 'badge-teacher'}">${t.role === 'admin' ? 'Admin' : 'Leerkracht'}</span></td>
+      <td style="max-width:220px;">${scholen}</td>
       <td>${fmtDate(t.last_login)}</td>
       <td style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn btn-muted small" onclick="manageSchools('${t.id}')">🏛 Scholen</button>
         <button class="btn btn-muted small" onclick="resetPwd('${escHtml(t.username)}')">🔑 Wachtwoord</button>
         <button class="btn btn-muted small" onclick="toggleRole('${escHtml(t.username)}','${t.role}')">${t.role === 'admin' ? '↓ Leerkracht' : '↑ Admin'}</button>
         <button class="btn btn-danger small" onclick="deleteTeacher('${escHtml(t.username)}')">Verwijderen</button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 
 async function addTeacher() {
@@ -296,3 +306,319 @@ function escHtml(s) {
 
 // Init
 loadTeachers();
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Sprint 48a1 — Scholen
+// Eerste steen van het multi-tenant fundament. Additief: zolang er niets aan een
+// school hangt, verandert dit niets aan de werking van de app.
+// ══════════════════════════════════════════════════════════════════════════════
+
+let _scholenCache = [];
+
+async function loadSchools() {
+  const el = document.getElementById('schools-list');
+  if (!el) return;
+  const ookInactief = document.getElementById('show-inactive-schools')?.checked;
+  try {
+    const r = await fetch('/api/admin/schools' + (ookInactief ? '?includeInactive=true' : ''));
+    if (!r.ok) { el.innerHTML = '<p class="muted">Kon scholen niet laden.</p>'; return; }
+    const scholen = await r.json();
+    _scholenCache = scholen;
+    if (!scholen.length) {
+      el.innerHTML = ookInactief
+        ? '<p class="muted">Nog geen scholen aangemaakt.</p>'
+        : '<p class="muted">Geen actieve scholen. Vink hierboven aan om ook inactieve te tonen.</p>';
+      return;
+    }
+    el.innerHTML = `
+      <table class="admin-table">
+        <thead><tr><th>Naam</th><th>Licentie</th><th>Contact</th><th>Status</th><th>Aangemaakt</th><th></th></tr></thead>
+        <tbody>${scholen.map(s => `
+          <tr style="${s.active ? '' : 'opacity:0.5;'}">
+            <td><strong>${escHtml(s.name)}</strong>${s.logo_path ? `<br/><span class="muted" style="font-size:0.75rem;">${escHtml(s.logo_path)}</span>` : ''}</td>
+            <td>${escHtml(s.license || '—')}</td>
+            <td>${escHtml(s.contact || '—')}</td>
+            <td>${s.active ? '<span class="status-active">Actief</span>' : '<span class="badge">Inactief</span>'}</td>
+            <td>${fmtDate(s.created_at)}</td>
+            <td style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button class="btn btn-muted small" onclick="manageDomains('${s.id}')">📧 Domeinen</button>
+              <button class="btn btn-muted small" onclick="editSchool('${s.id}')">Bewerken</button>
+              <button class="btn btn-muted small" onclick="toggleSchool('${s.id}', ${!s.active})">${s.active ? 'Deactiveren' : 'Heractiveren'}</button>
+              <button class="btn btn-danger small" onclick="deleteSchool('${s.id}')">Verwijderen</button>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    el.innerHTML = '<p class="muted">Kon scholen niet laden.</p>';
+  }
+}
+
+async function addSchool() {
+  const naam = document.getElementById('new-school-name').value.trim();
+  if (!naam) return await pyAlert('Naam is verplicht.', 'warn');
+  const res = await apiFetch('/api/admin/schools', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: naam,
+      logoPath: document.getElementById('new-school-logo').value.trim(),
+      license: document.getElementById('new-school-license').value.trim(),
+      contact: document.getElementById('new-school-contact').value.trim(),
+    }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    ['new-school-name', 'new-school-logo', 'new-school-license', 'new-school-contact']
+      .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+    loadSchools();
+  } else {
+    await pyAlert('Fout: ' + data.error, 'error');
+  }
+}
+
+async function editSchool(id) {
+  const school = _scholenCache.find(s => s.id === id);
+  if (!school) return await pyAlert('School niet gevonden.', 'warn');
+
+  const naam = await pyPrompt({ title: 'School bewerken', body: 'Naam:', defaultValue: school.name, confirmLabel: 'Volgende' });
+  if (naam === null) return;
+  if (!naam.trim()) return await pyAlert('Naam mag niet leeg zijn.', 'warn');
+  const licentie = await pyPrompt({ title: 'School bewerken', body: 'Licentie:', defaultValue: school.license || '', confirmLabel: 'Volgende' });
+  if (licentie === null) return;
+  const contact = await pyPrompt({ title: 'School bewerken', body: 'Contact:', defaultValue: school.contact || '', confirmLabel: 'Opslaan' });
+  if (contact === null) return;
+
+  const res = await apiFetch(`/api/admin/schools/${id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: naam.trim(), license: licentie.trim(), contact: contact.trim() }),
+  });
+  const data = await res.json();
+  if (data.ok) loadSchools();
+  else await pyAlert('Fout: ' + (data.error || 'opslaan mislukt'), 'error');
+}
+
+// Deactiveren i.p.v. verwijderen: een school met geschiedenis wil je bewaren,
+// maar niet meer aanbieden bij de schoolkeuze (48b).
+async function toggleSchool(id, actief) {
+  const res = await apiFetch(`/api/admin/schools/${id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ active: actief }),
+  });
+  const data = await res.json();
+  if (data.ok) loadSchools();
+  else await pyAlert('Fout: ' + (data.error || 'wijzigen mislukt'), 'error');
+}
+
+async function deleteSchool(id) {
+  // Naam uit de cache i.p.v. uit de onclick: een school als "Sint-Jan's College"
+  // zou de attribuut-quotes breken.
+  const naam = _scholenCache.find(s => s.id === id)?.name || 'deze school';
+  const ok = await pyConfirm({
+    title: 'School verwijderen',
+    body: `"${naam}" definitief verwijderen? Deactiveren is meestal de betere keuze — dan blijft de geschiedenis bestaan.`,
+    confirmLabel: 'Verwijderen', danger: true,
+  });
+  if (!ok) return;
+  const res = await apiFetch(`/api/admin/schools/${id}`, { method: 'DELETE' });
+  const data = await res.json();
+  if (data.ok) loadSchools();
+  else await pyAlert('Verwijderen mislukt.', 'error');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Sprint 48a2 — Leerkracht ↔ scholen koppelen
+// Veel-op-veel: een leerkracht kan op meerdere scholen werken. Dit is wat straks
+// het schoolkeuze-scherm bij het inloggen voedt (48b2).
+// ══════════════════════════════════════════════════════════════════════════════
+
+window.manageSchools = async function (teacherId) {
+  const leerkracht = _teachers.find(t => t.id === teacherId);
+  if (!leerkracht) return await pyAlert('Leerkracht niet gevonden.', 'warn');
+
+  let alle = [];
+  try {
+    const r = await fetch('/api/admin/schools?includeInactive=true');
+    alle = await r.json();
+  } catch { return await pyAlert('Kon de scholen niet laden.', 'error'); }
+
+  if (!alle.length) {
+    return await pyAlert('Er zijn nog geen scholen. Maak er eerst een aan in de tab "Scholen".', 'warn');
+  }
+
+  const gekoppeld = new Set((leerkracht.schools || []).map(s => s.id));
+  const origineel = new Set(gekoppeld);
+
+  const oud = document.getElementById('py-modal-overlay');
+  if (oud) oud.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'py-modal-overlay';
+  overlay.innerHTML = `
+    <div id="py-modal-box" style="max-width:460px;">
+      <div id="py-modal-title">Scholen van ${escHtml(leerkracht.display_name || leerkracht.username)}</div>
+      <div id="py-modal-body">
+        <p class="muted" style="margin:0 0 8px;font-size:0.85rem;">
+          Vink aan op welke scholen deze leerkracht werkt. Bij meerdere scholen krijgt
+          hij straks een keuzescherm na het inloggen.
+        </p>
+        <div id="ts-list" style="max-height:300px;overflow-y:auto;border:1.5px solid var(--border);border-radius:10px;padding:8px;"></div>
+      </div>
+      <div id="py-modal-actions">
+        <button id="ts-cancel" class="btn btn-muted small">Annuleren</button>
+        <button id="ts-save" class="btn btn-primary small">Opslaan</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  document.getElementById('ts-list').innerHTML = alle.map(s => `
+    <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;">
+      <input type="checkbox" class="ts-cb" value="${s.id}"${gekoppeld.has(s.id) ? ' checked' : ''}/>
+      <span style="${s.active ? '' : 'opacity:0.6;'}">${escHtml(s.name)}${s.active ? '' : ' <span class="badge">inactief</span>'}</span>
+    </label>`).join('');
+
+  document.querySelectorAll('.ts-cb').forEach(cb => cb.addEventListener('change', () => {
+    if (cb.checked) gekoppeld.add(cb.value); else gekoppeld.delete(cb.value);
+  }));
+
+  const sluit = () => overlay.remove();
+  document.getElementById('ts-cancel').addEventListener('click', sluit);
+  overlay.addEventListener('click', e => { if (e.target === overlay) sluit(); });
+
+  document.getElementById('ts-save').addEventListener('click', async () => {
+    // Enkel de verschillen wegschrijven — niet alles verwijderen en opnieuw aanmaken.
+    // Dat scheelt verzoeken en houdt het audit-log leesbaar.
+    const toevoegen = [...gekoppeld].filter(id => !origineel.has(id));
+    const weghalen  = [...origineel].filter(id => !gekoppeld.has(id));
+    try {
+      for (const id of toevoegen) {
+        await apiFetch(`/api/admin/teachers/${teacherId}/schools`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ schoolId: id }),
+        });
+      }
+      for (const id of weghalen) {
+        await apiFetch(`/api/admin/teachers/${teacherId}/schools/${id}`, { method: 'DELETE' });
+      }
+      sluit();
+      loadTeachers();
+    } catch (e) {
+      await pyAlert('Opslaan mislukt: ' + e.message, 'error');
+    }
+  });
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Sprint 48a3 — E-maildomeinen per school
+// De regels zitten in lib/validation.js (server) en zijn daar apart getest.
+// Dit scherm legt ze uit en laat je ze meteen uitproberen.
+// ══════════════════════════════════════════════════════════════════════════════
+
+window.manageDomains = async function (schoolId) {
+  const school = _scholenCache.find(s => s.id === schoolId);
+  if (!school) return await pyAlert('School niet gevonden.', 'warn');
+
+  const oud = document.getElementById('py-modal-overlay');
+  if (oud) oud.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'py-modal-overlay';
+  overlay.innerHTML = `
+    <div id="py-modal-box" style="max-width:560px;">
+      <div id="py-modal-title">E-maildomeinen — ${escHtml(school.name)}</div>
+      <div id="py-modal-body">
+        <div id="dom-list" style="margin-bottom:10px;"></div>
+
+        <div style="display:flex;gap:6px;margin-bottom:12px;">
+          <input id="dom-new" placeholder="athkiel.be of *.athkiel.be"
+            style="flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;"/>
+          <button class="btn btn-soft small" id="dom-add">+ Toevoegen</button>
+        </div>
+
+        <details style="margin-bottom:12px;">
+          <summary style="cursor:pointer;font-size:0.85rem;font-weight:600;">Hoe vul je dit in?</summary>
+          <table style="width:100%;font-size:0.8rem;margin-top:8px;border-collapse:collapse;">
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:6px;font-family:Consolas,monospace;"><strong>athkiel.be</strong></td>
+              <td style="padding:6px;">enkel adressen die <strong>exact</strong> op @athkiel.be eindigen<br/>
+                <span style="color:#166534;">✓ marie@athkiel.be</span><br/>
+                <span style="color:#991b1b;">✗ marie@leerling.athkiel.be</span></td>
+            </tr>
+            <tr>
+              <td style="padding:6px;font-family:Consolas,monospace;"><strong>*.athkiel.be</strong></td>
+              <td style="padding:6px;">alle subdomeinen — maar <strong>niet</strong> athkiel.be zelf<br/>
+                <span style="color:#166534;">✓ marie@leerling.athkiel.be</span><br/>
+                <span style="color:#166534;">✓ marie@a.b.athkiel.be</span><br/>
+                <span style="color:#991b1b;">✗ marie@athkiel.be</span></td>
+            </tr>
+          </table>
+          <p class="muted" style="font-size:0.8rem;margin:8px 6px 0;">Wil je allebei? Voeg dan beide regels toe.</p>
+        </details>
+
+        <div style="background:var(--surface-soft);border:1px solid var(--border);border-radius:10px;padding:10px;">
+          <div style="font-size:0.82rem;font-weight:600;margin-bottom:6px;">Test een adres</div>
+          <div style="display:flex;gap:6px;">
+            <input id="dom-test" placeholder="marie@leerling.athkiel.be"
+              style="flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;"/>
+            <button class="btn btn-muted small" id="dom-test-btn">Testen</button>
+          </div>
+          <div id="dom-test-uitslag" style="margin-top:8px;font-size:0.85rem;"></div>
+        </div>
+      </div>
+      <div id="py-modal-actions">
+        <button id="dom-close" class="btn btn-primary small">Sluiten</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  async function toonDomeinen() {
+    const el = document.getElementById('dom-list');
+    const r = await fetch(`/api/admin/schools/${schoolId}/domains`);
+    const domeinen = await r.json();
+    el.innerHTML = domeinen.length
+      ? domeinen.map(d => `
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;margin-bottom:4px;">
+            <span style="font-family:Consolas,monospace;flex:1;">${escHtml(d)}</span>
+            <span class="muted" style="font-size:0.75rem;">${d.startsWith('*.') ? 'subdomeinen' : 'exact'}</span>
+            <button class="btn btn-danger small" onclick="removeDomain('${schoolId}','${encodeURIComponent(d)}')">✕</button>
+          </div>`).join('')
+      : '<p class="muted" style="font-size:0.85rem;margin:0;">Nog geen domeinen. Zonder domein kan geen enkele leerling zich registreren.</p>';
+  }
+  window._herlaadDomeinen = toonDomeinen;
+  await toonDomeinen();
+
+  document.getElementById('dom-add').addEventListener('click', async () => {
+    const invoer = document.getElementById('dom-new').value.trim();
+    if (!invoer) return;
+    const res = await apiFetch(`/api/admin/schools/${schoolId}/domains`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain: invoer }),
+    });
+    const data = await res.json();
+    if (data.ok) { document.getElementById('dom-new').value = ''; toonDomeinen(); }
+    else await pyAlert(data.error, 'warn');
+  });
+
+  document.getElementById('dom-test-btn').addEventListener('click', async () => {
+    const email = document.getElementById('dom-test').value.trim();
+    const uit = document.getElementById('dom-test-uitslag');
+    if (!email.includes('@')) { uit.innerHTML = '<span class="muted">Geef een volledig e-mailadres in.</span>'; return; }
+    const res = await apiFetch(`/api/admin/schools/${schoolId}/domains/test`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const d = await res.json();
+    if (d.error) { uit.innerHTML = `<span style="color:#991b1b;">${escHtml(d.error)}</span>`; return; }
+    uit.innerHTML = d.toegelaten
+      ? `<span style="color:#166534;font-weight:700;">✓ toegelaten</span> <span class="muted">via de regel <code>${escHtml(d.viaRegel)}</code></span>`
+      : `<span style="color:#991b1b;font-weight:700;">✗ geweigerd</span> <span class="muted">— domein <code>${escHtml(d.domein)}</code> past bij geen enkele van de ${d.aantalRegels} regel(s)</span>`;
+  });
+
+  const sluit = () => { overlay.remove(); delete window._herlaadDomeinen; };
+  document.getElementById('dom-close').addEventListener('click', sluit);
+  overlay.addEventListener('click', e => { if (e.target === overlay) sluit(); });
+};
+
+window.removeDomain = async function (schoolId, domeinEnc) {
+  const res = await apiFetch(`/api/admin/schools/${schoolId}/domains/${domeinEnc}`, { method: 'DELETE' });
+  const data = await res.json();
+  if (data.ok) { if (window._herlaadDomeinen) window._herlaadDomeinen(); }
+  else await pyAlert(data.error || 'Verwijderen mislukt.', 'warn');
+};

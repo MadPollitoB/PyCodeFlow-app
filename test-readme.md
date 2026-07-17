@@ -2279,4 +2279,320 @@ Adminveld
               "identiteitBekend":true}
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.48.1 · 16 juli 2026*
+## 73. Sprint 50c — Afmelden dat écht afmeldt
+
+```
+— Gewoon afmelden —
+✅ Klik "Afmelden" → je belandt op het loginscherm
+✅ Daarna een leerkracht-pagina openen → terug naar login
+✅ F12 → Application → Cookies: teacher_auth EN teacher_sid zijn allebei weg
+✅ Beheer → Database viewer → teacher_sessions: JOUW rij is verdwenen
+✅ Weblog toont "[auth] sessie ingetrokken (afmelden)"
+
+— KERNTEST: het token is overal dood (dit kon vroeger niet) —
+✅ Log in, kopieer de waarde van teacher_sid (F12 → Cookies)
+✅ Meld af
+✅ Plak dat teacher_sid terug in de browser (of gebruik hem elders)
+✅ Open /api/me → je wordt naar de LOGIN gestuurd (302), geen toegang
+   → Vroeger bleef een gekopieerd teacher_auth eeuwig geldig
+
+— Twee toestellen —
+✅ Log in op browser 1 én browser 2 (zelfde leerkracht) → twee rijen
+✅ Meld af op browser 1 → enkel DIE rij verdwijnt
+✅ Browser 2 blijft gewoon ingelogd (dat hoort zo)
+
+— Wachtwoord wijzigen beëindigt sessies —
+✅ Log in als "anja" in browser 1
+✅ Wijzig in Beheer het wachtwoord van "anja"
+✅ Browser 1: volgende klik → terug naar login (sessie ingetrokken)
+✅ teacher_sessions: de rijen van anja zijn weg
+✅ Weblog: "[auth] sessies ingetrokken na wachtwoordwijziging van anja"
+ℹ️ Wie zijn EIGEN wachtwoord wijzigt moet dus opnieuw inloggen — dat hoort zo
+
+— Leerkracht verwijderen —
+✅ Verwijder een leerkracht → zijn rijen in teacher_sessions verdwijnen mee
+   (regelt de databank zelf via ON DELETE CASCADE)
+
+— Niets mag stuk zijn —
+✅ Inloggen werkt normaal
+✅ Alle leerkracht-schermen werken
+✅ Weblogs tonen geen ERROR
+```
+
+## 74. Sprint 50d — Sessie schuift mee, maar niet eeuwig
+
+```
+— Niets mag stuk zijn —
+✅ Inloggen, werken en afmelden werkt zoals gewoonlijk
+✅ Weblogs tonen geen ERROR
+✅ Alle leerkracht-schermen werken
+
+— Verlengen bij activiteit —
+✅ Log in en werk gewoon verder → je vliegt er NIET uit na 8u
+✅ Database viewer → teacher_sessions: expires_at schuift op naarmate je werkt
+✅ Dat gebeurt pas HALFWEG (±4u), niet bij elke klik — anders zou de databank
+   bij elke klik beschreven worden
+✅ last_seen schuift mee op met expires_at
+
+— Verlopen sessie (de kerntest) —
+Snelle manier zonder 8u wachten: zet in .env tijdelijk
+    POC_SESSION_MAX_AGE_HOURS=0.05      (= 3 minuten)
+    POC_SESSION_ABSOLUTE_MAX_HOURS=0.05
+en herstart. Daarna:
+✅ Log in → er staat een rij in teacher_sessions
+✅ Wacht 3+ minuten zonder te klikken
+✅ Klik dan een leerkracht-pagina → je belandt op het LOGINSCHERM
+✅ Het oude teacher_sid geeft geen toegang meer
+✅ De rij wordt om 03:00 automatisch opgeruimd (of blijft tot dan staan — normaal)
+→ Zet de waarden daarna terug op 8 en 24!
+
+— De harde grens —
+✅ Met de standaardwaarden: een sessie leeft nooit langer dan 24u,
+   ook al werk je elke dag door
+✅ Je logt dus hooguit één keer per dag opnieuw in
+
+— Instelling —
+✅ .env.example bevat POC_SESSION_ABSOLUTE_MAX_HOURS met uitleg
+✅ Waarde aanpassen + herstarten → gedrag volgt
+```
+
+## 75. Sprint 50e — Het audit-log noteert wie het déed
+
+```
+✅ Log in als "anja"
+✅ Wijzig een score bij het nakijken van een toets
+✅ Beheer → Database viewer → audit_log: de nieuwste regel toont actor = "anja"
+   (vroeger stond daar ALTIJD "onbekend")
+✅ Geef resultaten vrij → audit_log toont "anja" bij results_released
+✅ Open/sluit de nakijk-modus → audit_log toont "anja"
+✅ Verwijder een toets → audit_log toont "anja" bij quiz_deleted
+✅ Doe hetzelfde als "bram" → audit_log toont "bram", niet "anja"
+```
+
+## 76. Sprint 50f — 🎉 Fase 1 af: het gedeelde cookie is weg
+
+```
+⚠️ VOORAF: bij deze deploy word je UITGELOGD. Dat is bedoeld — het oude cookie
+   betekent niets meer. Log gewoon opnieuw in.
+⚠️ Zorg dat er een leerkracht in de databank staat (of POC_BASIC_USER/PASS in .env,
+   dan maakt de bootstrap er bij de start automatisch een aan).
+
+— Opstarten —
+✅ App start normaal op
+✅ Weblog: "[auth] X leerkracht(en) geladen vanuit database."
+✅ Weblog zegt NIET meer "Fallback login actief via POC_BASIC_USER/POC_BASIC_PASS"
+✅ Staat POC_BASIC_PASS in .env? Dan zegt de log dat die enkel dient om de eerste
+   leerkracht aan te maken
+
+— Inloggen en werken —
+✅ Inloggen werkt met je leerkracht-account
+✅ F12 → Cookies: er is GEEN teacher_auth meer, wel teacher_sid
+✅ /api/me toont je naam met "source": "session"
+✅ Alle leerkracht-schermen werken: sessies, vragenbank, toetsen, beheer, systeem
+✅ Afmelden werkt
+
+— KERNTEST: sockets werken nog (30 handlers hangen hieraan) —
+✅ Maak een sessie aan en open het live-scherm
+✅ Laat een leerling deelnemen → hij verschijnt bij de leerkracht
+✅ Code van de leerling live meevolgen werkt
+✅ Aankondiging sturen komt aan
+✅ "Run all uit" / "Code all uit" werkt
+✅ Sessie afsluiten werkt
+✅ Leerlingenraster (teacher-grid) werkt
+✅ Toets live opvolgen + voortgang werkt
+
+— Het oude cookie is echt dood —
+✅ Zet met de hand een teacher_auth-cookie (of gebruik een oude browsersessie)
+✅ Open een leerkracht-pagina → je wordt naar de LOGIN gestuurd
+   → Vroeger liet dat cookie je binnen zonder dat de app wist wie je was
+
+— De .env-login is weg, maar je raakt niet buitengesloten —
+✅ Log in met de naam/wachtwoord uit POC_BASIC_USER/POC_BASIC_PASS
+   → werkt nog steeds: de bootstrap heeft daar een echte leerkracht van gemaakt
+   → maar nu MET een sessie (zie teacher_sessions) en met /api/me = "session"
+✅ Gebruik je POC_BASIC_PASS_HASH i.p.v. het platte wachtwoord? Dan maakt de
+   bootstrap daar óók een leerkracht van (nieuw in 50f)
+
+— Geen leerkracht = niet starten (bedoeld) —
+✅ Lege databank + geen POC_BASIC_* → app stopt met een DUIDELIJKE melding
+✅ Die melding geeft het reddingscommando:
+     docker compose run --rm web node scripts/manage-teacher.js add <naam> '<pw>' admin
+✅ Databank tijdelijk onbereikbaar → app stopt NIET (dat is een storing, geen fout)
+
+— Nakijk-tokens (bijna-fout: PASSWORD_HASH is hier nog voor nodig) —
+✅ Leerling kan zijn eigen nakijk-resultaat nog openen na vrijgave
+```
+
+## 77. Sprint 48a1 — Scholen
+
+```
+— Niets mag stuk zijn (additieve sprint) —
+✅ App start normaal; weblogs tonen geen ERROR
+✅ Alle bestaande schermen werken (sessies, vragenbank, toetsen, klassen, leerlingen)
+✅ Inloggen en afmelden werkt
+
+— De nieuwe tab —
+✅ Beheer toont een tab "🏛 Scholen"
+✅ Tab openen toont de lijst (of "nog geen scholen aangemaakt")
+✅ Uitleg bovenaan zegt dat dit nog niets verandert aan de werking
+
+— Aanmaken —
+✅ School toevoegen met enkel een naam werkt
+✅ School toevoegen met naam + logo + licentie + contact werkt
+✅ Lege naam → melding "Naam is verplicht"
+✅ Zelfde naam twee keer → "Er bestaat al een school met die naam."
+✅ Ook met andere hoofdletters ("atheneum" vs "Atheneum") → geweigerd
+✅ Een naam met een apostrof ("Sint-Jan's College") werkt en breekt de knoppen niet
+
+— Bewerken —
+✅ "Bewerken" vraagt achtereenvolgens naam, licentie en contact via scherm-popups
+✅ Annuleren onderweg → er wijzigt niets
+✅ Opslaan → de lijst toont de nieuwe waarden
+✅ Naam leegmaken → geweigerd
+
+— Deactiveren —
+✅ "Deactiveren" → school wordt grijs en toont "Inactief"
+✅ Standaard verdwijnt een inactieve school uit de lijst
+✅ Vinkje "Toon ook inactieve scholen" → hij verschijnt weer
+✅ "Heractiveren" → weer actief
+
+— Verwijderen —
+✅ "Verwijderen" vraagt bevestiging en raadt deactiveren aan
+✅ Annuleren → school blijft
+✅ Bevestigen → school is weg
+
+— Audit-log (werkt sinds 50e) —
+✅ Database viewer → audit_log: school_created / school_updated / school_deleted
+✅ actor toont JOUW gebruikersnaam, niet "onbekend"
+
+— Database viewer —
+✅ De tabel "schools" staat in de lijst en toont je rijen
+```
+
+## 78. Sprint 48a2 — Leerkracht ↔ scholen
+
+```
+⚠️ VOORAF: maak eerst 2 scholen aan (tab Scholen) en 2 leerkrachten.
+
+— Niets mag stuk zijn (additieve sprint) —
+✅ App start normaal; weblogs zonder ERROR
+✅ Leerkrachtenlijst laadt zoals vroeger
+✅ Wachtwoord, rol en verwijderen werken nog
+
+— De nieuwe kolom —
+✅ Leerkrachtentabel heeft een kolom "Scholen"
+✅ Zonder koppeling staat er "—"
+
+— Koppelen —
+✅ Knop "🏛 Scholen" opent een popup met alle scholen als vinkjes
+✅ Vink 1 school aan → Opslaan → de kolom toont die school
+✅ Vink een TWEEDE school aan → Opslaan → beide staan er
+   (dit is wat straks het keuzescherm bij het inloggen voedt)
+✅ Annuleren wijzigt niets
+✅ Popup sluiten door naast het venster te klikken → geen wijziging
+
+— Ontkoppelen —
+✅ Vink een school UIT → Opslaan → hij verdwijnt uit de kolom
+✅ Alles uitvinken → kolom toont weer "—"
+
+— Inactieve scholen —
+✅ Deactiveer een gekoppelde school (tab Scholen)
+✅ Leerkrachtenlijst toont die school DOORSTREEPT (koppeling bestaat, school ligt stil)
+✅ In de popup staat hij met de badge "inactief"
+
+— Opruimen gebeurt vanzelf —
+✅ Verwijder een school die aan een leerkracht hing → de koppeling verdwijnt mee
+✅ Verwijder een leerkracht met scholen → zijn koppelingen verdwijnen mee
+   (regelt de databank via ON DELETE CASCADE)
+
+— Audit-log —
+✅ audit_log toont teacher_school_linked / teacher_school_unlinked
+✅ actor is JOUW gebruikersnaam
+
+— Geen scholen? —
+✅ Popup openen zonder scholen → melding "maak er eerst een aan in de tab Scholen"
+```
+
+## 79. Sprint 48a3 — E-maildomeinen per school
+
+```
+ℹ️ De 8 domeingevallen staan al in §64. Die zijn nu ALLEMAAL automatisch getest
+   (21 unittests). Hieronder enkel wat je met de hand moet nakijken.
+
+— Het scherm —
+✅ Tab Scholen → knop "📧 Domeinen" per school
+✅ Zonder domeinen: melding dat geen enkele leerling zich kan registreren
+✅ "Hoe vul je dit in?" toont de ✓/✗-voorbeelden per vorm
+✅ Elke regel toont of hij "exact" of "subdomeinen" is
+
+— Toevoegen —
+✅ "athkiel.be" toevoegen werkt
+✅ "*.athkiel.be" toevoegen werkt
+✅ "@Athkiel.BE" wordt opgeschoond tot "athkiel.be"
+✅ "*athkiel.be" (zonder punt) → melding over de juiste vorm
+✅ "*.be" → melding "te breed: dan kan iedereen met een .be-adres zich registreren"
+✅ "athkiel be" (spatie) → "Geef enkel het domein"
+✅ Zelfde domein twee keer → "Dit domein staat er al."
+
+— HET TESTVELDJE (het nuttigste onderdeel) —
+✅ Plak "marie@athkiel.be" met enkel regel "athkiel.be" → ✓ toegelaten via athkiel.be
+✅ Plak "marie@leerling.athkiel.be" met enkel "athkiel.be" → ✗ geweigerd
+✅ Voeg "*.athkiel.be" toe → zelfde adres → ✓ toegelaten via *.athkiel.be
+✅ Plak "marie@athkiel.be.aanvaller.com" → ✗ ALTIJD geweigerd
+✅ Plak "marie@nepathkiel.be" → ✗ geweigerd
+✅ Bij weigering zie je het herkende domein en het aantal regels
+
+— Verwijderen —
+✅ Een domein verwijderen werkt (als er meer dan 1 is)
+✅ Het LAATSTE domein verwijderen → "Elke school heeft minstens 1 domein nodig."
+
+— Opruimen —
+✅ School verwijderen → haar domeinen verdwijnen mee (ON DELETE CASCADE)
+
+— Audit-log —
+✅ school_domain_added / school_domain_removed met JOUW naam als actor
+
+— Database viewer —
+✅ school_domains en teacher_schools staan in de lijst
+```
+
+## 80. Sprint 48b1 — De actieve school in de sessie
+
+```
+— Niets mag stuk zijn (dit is de belangrijkste test) —
+✅ Een leerkracht ZONDER gekoppelde school logt gewoon in en kan alles
+   → dit is vandaag de normale toestand; 48b1 mag daar niets aan wijzigen
+✅ Alle schermen werken; weblogs zonder ERROR
+
+— Eén school → automatisch —
+✅ Koppel leerkracht "anja" aan PRECIES 1 school
+✅ Anja logt in → geen keuzescherm, ze werkt gewoon door
+✅ /api/me toont "activeSchoolId" en "activeSchoolName" van die school
+✅ Database viewer → teacher_sessions: active_school_id is ingevuld
+
+— Meerdere scholen → nog geen keuze (dat wordt 48b2) —
+✅ Koppel anja aan 2 scholen → opnieuw inloggen
+✅ /api/me toont "activeSchoolId": null
+✅ Ze kan gewoon werken (het keuzescherm komt in 48b2)
+
+— Geen school —
+✅ Leerkracht zonder scholen → /api/me toont "activeSchoolId": null
+✅ Alles blijft werken
+
+— Inactieve school telt niet —
+✅ Koppel anja aan 1 school en DEACTIVEER die school
+✅ Anja logt in → activeSchoolId blijft null
+   (op een uitgeschakelde school hoor je niet te belanden)
+
+— School verwijderen breekt geen sessie —
+✅ Anja is ingelogd met een actieve school
+✅ Verwijder die school in het beheer
+✅ Anja klikt verder → GEEN foutmelding, ze werkt door zonder school
+   (active_school_id wordt automatisch null — ON DELETE SET NULL)
+
+— De browser kan niet kiezen —
+✅ F12 → Cookies: er is GEEN cookie met een school-id
+   (de actieve school staat server-side in teacher_sessions)
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.48.8 · 16 juli 2026*

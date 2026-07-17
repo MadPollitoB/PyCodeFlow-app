@@ -196,27 +196,20 @@ test('50b: rol komt uit de sessie, niet uit een aanname', () => {
   assert.strictEqual(auth.bepaalTeacherIdentiteit({ sessie: sessieB }).role, 'admin');
 });
 
-test('50b: een echte sessie WINT van het oude gedeelde cookie', () => {
-  const r = auth.bepaalTeacherIdentiteit({ sessie: sessieA, heeftLegacyCookie: true, envUser: 'gedeeld' });
-  assert.strictEqual(r.source, 'session');
-  assert.strictEqual(r.username, 'anja', 'het gedeelde cookie mag de echte identiteit niet overschrijven');
-});
-
-test('50b: enkel het oude cookie → we weten DÁT iemand mag, niet wie', () => {
-  const r = auth.bepaalTeacherIdentiteit({ heeftLegacyCookie: true, envUser: 'leerkracht' });
-  assert.strictEqual(r.source, 'legacy');
-  assert.strictEqual(r.id, null, 'zonder sessie is er geen id — dat is de hele reden voor fase 1');
-  assert.strictEqual(r.username, 'leerkracht');
-});
-
-test('50b: oud cookie krijgt NOOIT stilzwijgend adminrechten', () => {
-  const r = auth.bepaalTeacherIdentiteit({ heeftLegacyCookie: true, envUser: 'x' });
-  assert.strictEqual(r.role, 'teacher');
-});
-
-test('50b: geen sessie en geen cookie → null (naar de login)', () => {
+test('50b/50f: geen sessie → null (naar de login)', () => {
   assert.strictEqual(auth.bepaalTeacherIdentiteit({}), null);
   assert.strictEqual(auth.bepaalTeacherIdentiteit(), null);
+});
+
+test('50f KERNTEST: het oude gedeelde cookie geeft GEEN toegang meer', () => {
+  // Vroeger liet heeftLegacyCookie:true je binnen zonder dat de app wist wie je was.
+  // Die tak bestaat niet meer: onbekende velden worden genegeerd, geen sessie → null.
+  assert.strictEqual(auth.bepaalTeacherIdentiteit({ heeftLegacyCookie: true, envUser: 'gedeeld' }), null);
+});
+
+test('50f: er zijn nog maar twee bronnen — session of open', () => {
+  assert.strictEqual(auth.bepaalTeacherIdentiteit({ sessie: sessieA }).source, 'session');
+  assert.strictEqual(auth.bepaalTeacherIdentiteit({ authUit: true }).source, 'open');
 });
 
 test('50b: authenticatie uit → open toegang, herkenbaar aan source', () => {
@@ -226,7 +219,7 @@ test('50b: authenticatie uit → open toegang, herkenbaar aan source', () => {
 });
 
 test('50b: authUit wint van alles (geen halve toestand)', () => {
-  const r = auth.bepaalTeacherIdentiteit({ authUit: true, sessie: sessieA, heeftLegacyCookie: true });
+  const r = auth.bepaalTeacherIdentiteit({ authUit: true, sessie: sessieA });
   assert.strictEqual(r.source, 'open');
 });
 
@@ -236,6 +229,118 @@ test('50b: sessie zonder display_name of role → veilige standaarden', () => {
   assert.strictEqual(r.role, 'teacher');
 });
 
-test('50b: legacy zonder envUser → onbekend, niet leeg', () => {
-  assert.strictEqual(auth.bepaalTeacherIdentiteit({ heeftLegacyCookie: true }).username, 'onbekend');
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Sprint 50d — Sessie verlengen bij activiteit (berekenSessieVerlenging)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const UUR = 3600 * 1000;
+const MAX = 8 * UUR;        // gewone looptijd
+const ABS = 24 * UUR;       // harde grens
+
+test('50d: net ingelogd → NIET verlengen (geen schrijfactie per verzoek)', () => {
+  const now = 1_000_000;
+  const r = auth.berekenSessieVerlenging({
+    now, createdAt: now, expiresAt: now + MAX, maxAgeMs: MAX, absoluutMaxMs: ABS,
+  });
+  assert.strictEqual(r.verlengen, false);
+});
+
+test('50d: net vóór de helft → nog niet verlengen', () => {
+  const start = 1_000_000;
+  const now = start + (MAX / 2) - UUR;   // 3u bezig van de 8u
+  const r = auth.berekenSessieVerlenging({
+    now, createdAt: start, expiresAt: start + MAX, maxAgeMs: MAX, absoluutMaxMs: ABS,
+  });
+  assert.strictEqual(r.verlengen, false);
+});
+
+test('50d: voorbij de helft → WEL verlengen', () => {
+  const start = 1_000_000;
+  const now = start + (MAX / 2) + UUR;   // 5u bezig van de 8u
+  const r = auth.berekenSessieVerlenging({
+    now, createdAt: start, expiresAt: start + MAX, maxAgeMs: MAX, absoluutMaxMs: ABS,
+  });
+  assert.strictEqual(r.verlengen, true);
+  assert.strictEqual(r.nieuwEind, now + MAX);
+});
+
+test('50d: verlengen gaat NOOIT voorbij de harde grens', () => {
+  const start = 1_000_000;
+  const now = start + 20 * UUR;          // 20u bezig, grens ligt op 24u
+  const r = auth.berekenSessieVerlenging({
+    now, createdAt: start, expiresAt: now + UUR, maxAgeMs: MAX, absoluutMaxMs: ABS,
+  });
+  assert.strictEqual(r.verlengen, true);
+  assert.strictEqual(r.nieuwEind, start + ABS, 'moet afgekapt worden op de harde grens');
+  assert.ok(r.nieuwEind < now + MAX, 'dus korter dan een volle looptijd');
+});
+
+test('50d: harde grens bereikt → niet meer verlengen, sessie dooft uit', () => {
+  const start = 1_000_000;
+  const now = start + ABS;               // exact op de grens
+  const r = auth.berekenSessieVerlenging({
+    now, createdAt: start, expiresAt: now + UUR, maxAgeMs: MAX, absoluutMaxMs: ABS,
+  });
+  assert.strictEqual(r.verlengen, false);
+});
+
+test('50d: voorbij de harde grens → niet verlengen', () => {
+  const start = 1_000_000;
+  const now = start + ABS + UUR;
+  const r = auth.berekenSessieVerlenging({
+    now, createdAt: start, expiresAt: now + UUR, maxAgeMs: MAX, absoluutMaxMs: ABS,
+  });
+  assert.strictEqual(r.verlengen, false);
+});
+
+test('50d: verlengen mag een sessie nooit INKORTEN', () => {
+  // Vlak vóór de harde grens zou het nieuwe einde vroeger kunnen vallen dan wat
+  // er al staat. Dan moeten we niets doen i.p.v. de leerkracht tijd afpakken.
+  const start = 1_000_000;
+  const now = start + 23 * UUR;
+  const huidigEind = start + ABS;        // staat al op de grens
+  const r = auth.berekenSessieVerlenging({
+    now, createdAt: start, expiresAt: huidigEind, maxAgeMs: MAX, absoluutMaxMs: ABS,
+  });
+  assert.strictEqual(r.verlengen, false, 'nieuw einde zou niet later zijn → niets doen');
+});
+
+test('50d: een verlengde sessie schuift echt op (werkdag valt niet stil)', () => {
+  const start = 1_000_000;
+  let eind = start + MAX;
+  // Leerkracht klikt om 5u, 10u en 15u — de sessie moet blijven leven
+  for (const uren of [5, 10, 15]) {
+    const now = start + uren * UUR;
+    const r = auth.berekenSessieVerlenging({
+      now, createdAt: start, expiresAt: eind, maxAgeMs: MAX, absoluutMaxMs: ABS,
+    });
+    if (r.verlengen) eind = r.nieuwEind;
+    assert.ok(eind > now, `na ${uren}u moet de sessie nog leven`);
+  }
+  assert.ok(eind <= start + ABS, 'maar nooit voorbij de harde grens');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Sprint 48b1 — De actieve school hangt aan de sessie
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test('48b1: de actieve school komt uit de SESSIE, niet uit de browser', () => {
+  const r = auth.bepaalTeacherIdentiteit({
+    sessie: { teacher_id: 'id-a', username: 'anja', role: 'teacher',
+              active_school_id: 's1', active_school_name: 'Atheneum Hoboken' },
+  });
+  assert.strictEqual(r.activeSchoolId, 's1');
+  assert.strictEqual(r.activeSchoolName, 'Atheneum Hoboken');
+});
+
+test('48b1: geen school in de sessie → null (breekt niets)', () => {
+  const r = auth.bepaalTeacherIdentiteit({ sessie: sessieA });
+  assert.strictEqual(r.activeSchoolId, null);
+  assert.strictEqual(r.activeSchoolName, null);
+});
+
+test('48b1: bij authenticatie uit is er ook geen school', () => {
+  const r = auth.bepaalTeacherIdentiteit({ authUit: true });
+  assert.strictEqual(r.activeSchoolId, null);
 });
