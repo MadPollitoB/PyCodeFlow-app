@@ -2051,4 +2051,232 @@ LEERLING — juiste instap
 ✅ Bij een meerkeuzevraag of open vraag verschijnt geen codeblok/tabbalk
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.47.14 · 14 juli 2026*
+## 64. Domeinregels per school (sprint 48a3) — 8 gevallen
+
+```
+Instelling: school heeft ALLEEN "athkiel.be"
+✅ marie@athkiel.be              → toegelaten
+✅ marie@leerling.athkiel.be     → GEWEIGERD (exact betekent exact)
+
+Instelling: school heeft ALLEEN "*.athkiel.be"
+✅ marie@leerling.athkiel.be     → toegelaten
+✅ marie@a.b.athkiel.be          → toegelaten (alles eronder)
+✅ marie@athkiel.be              → GEWEIGERD (kale domein zit niet in de wildcard)
+
+Altijd geweigerd, ongeacht instelling
+✅ marie@athkiel.be.aanvaller.com → GEWEIGERD (eindigt niet op .athkiel.be)
+✅ marie@nepathkiel.be            → GEWEIGERD (punt vooraan telt)
+✅ marie@ATHKIEL.BE               → toegelaten (hoofdletters genormaliseerd)
+
+Adminveld
+✅ Uitleg met ✓/✗-voorbeelden staat bij het veld
+✅ Testveldje: plak een adres → toont toegelaten/geweigerd + via welke regel
+✅ "*athkiel.be" (zonder punt) → melding over de juiste vorm
+✅ "*.be" → geweigerd als te breed
+✅ Laatste domein verwijderen → "Elke school heeft minstens 1 domein nodig"
+✅ Dubbel domein → "Dit domein staat er al"
+```
+
+## 65. Leerling-instap zonder e-mail (sprints 52a-52i)
+
+```
+— Klascode (52b) —
+✅ Klasscherm toont één startcode, groot leesbaar (voor op het bord)
+✅ Knop "nieuwe code" geeft een andere code
+✅ Vlag "startcode actief" UIT → registratie geweigerd
+✅ Vlag terug AAN → registratie lukt weer
+
+— Zelfregistratie (52c) —
+✅ Leerling registreert met klascode + VOORNAAM + ACHTERNAAM + school-e-mail + wachtwoord (2×)
+✅ Lege voornaam of achternaam → geweigerd
+✅ Account hangt automatisch aan de JUISTE klas (die van de code)
+✅ Nieuwe leerling krijgt status "pending"
+✅ Adres buiten het schooldomein → geweigerd met duidelijke melding
+✅ Dubbel adres → geweigerd
+✅ Foute/onbekende klascode → geweigerd
+✅ Wachtwoorden verschillen → melding
+
+— Login (52d) —
+✅ E-mail + wachtwoord werkt
+✅ Fout wachtwoord → duidelijke melding
+✅ Herhaald falen → tijdelijk geblokkeerd (rate-limiting)
+
+— TOEGANGSREGEL (52e) — de kern —
+✅ PENDING leerling kan deelnemen aan een KLASSESSIE
+✅ PENDING leerling kan VRIJ OEFENEN
+✅ PENDING leerling wordt GEWEIGERD bij een toets, met duidelijke melding
+✅ PENDING leerling wordt GEWEIGERD bij een taak
+✅ Na aanvaarden door de leerkracht → toets en taak werken WEL
+✅ GEBLOKKEERDE leerling kan niets (ook geen klassessie)
+✅ De les valt nooit stil door een nog niet aanvaarde leerling
+
+— Namen op toetsen/taken (52a + 52h) —
+✅ Toets, taak, voortgang, nakijken en export tonen "Voornaam Achternaam"
+✅ NERGENS op een toets/taak/export staat een e-mailadres
+✅ Bestaande leerlingen behouden hun naam na de migratie
+✅ Leerkracht corrigeert een verkeerd getypte voornaam → toets toont meteen de nieuwe naam
+✅ Leerkracht corrigeert een e-mailadres → leerling logt in met het nieuwe adres, resultaten blijven
+
+— Aanvaarden en beheer (52h) —
+✅ Pending leerling verschijnt met badge in het sessiescherm (bestond al)
+✅ Leerkracht kan aanvaarden vanuit het sessiescherm (bestond al)
+✅ Leerkracht kan aanvaarden vanuit het leerlingenscherm (NIEUW — ook zonder live sessie)
+✅ E-mailadres is zichtbaar in de BEHEERlijst (NIEUW) — enkel daar, niet op toetsen
+✅ Voornaam, achternaam en e-mail zijn bewerkbaar door de leerkracht (NIEUW)
+✅ Leerling van klas veranderen werkt
+✅ Leerling verwijderen werkt
+✅ Leerling blokkeren werkt
+
+— Koppeling op id (52i) —
+✅ Voortgang (43.1) klopt ook bij twee leerlingen met dezelfde naam
+✅ Leerling-selectie (43.4) klopt ook bij naamsverschillen
+
+— Herstel (52f) —
+✅ Knop "herstel" → leerling kan opnieuw met de KLAS-startcode in
+✅ Leerling MOET daarbij een nieuw wachtwoord kiezen
+✅ Het oude wachtwoord werkt niet meer
+
+— Na login (52g) —
+✅ Sessiecode → juiste sessie/toets/taak
+✅ "Vrij oefenen" werkt
+
+ℹ️ Er wordt GEEN e-mail verstuurd. Verifieer dat nergens een mailscherm of
+   "controleer je inbox"-melding opduikt.
+⚠️ BEWUST RISICO: zolang er geen e-mailverificatie is, kan een klasgenoot zich
+   registreren met andermans schooladres. De echte eigenaar krijgt dan "adres al
+   in gebruik" en meldt dat — leerkracht verwijdert het valse account.
+```
+
+## 66. Leerkracht-login + schoolkeuze (sprints 48b1-48b2)
+
+```
+✅ Leerkracht met 1 school → logt meteen in, geen keuzescherm
+✅ Leerkracht met 2+ scholen → keuzegrid met dropdown van ZIJN scholen
+✅ Logingegevens worden grijs; knoppen zijn "Annuleren" en "Kiezen"
+✅ De schoollijst verschijnt PAS na een geslaagde login (niet ervoor)
+✅ "Annuleren" → schoon loginscherm, niet half-ingelogd
+✅ "Kiezen" → juiste school actief
+✅ Schoollogo verschijnt naast het PyCodeFlow-icoon
+✅ Start- en loginscherm tonen GEEN schoollogo (nog geen school bekend)
+✅ Wisselen van school wisselt het logo mee
+```
+
+## 67. Fase 1 — login per leerkracht (sprints 50a-50f)
+
+```
+✅ Twee leerkrachten krijgen VERSCHILLENDE tokens
+✅ Token van A geeft nooit toegang tot de identiteit van B
+✅ Afmelden → hetzelfde token geeft 401
+✅ Verlopen sessie → 401 + terug naar login
+✅ Audit-log toont de ECHTE leerkracht (niet de gedeelde gebruiker)
+✅ Na 50f: oude gedeelde cookie geeft 401
+```
+
+## 68. Fase 2 — eigenaarschap (sprints 51a-51d)
+
+```
+✅ Nieuwe sessie krijgt de juiste eigenaar
+✅ Leerkracht A kan sessie van B niet openen/sluiten/verwijderen (403)
+✅ Admin kan alles binnen de eigen school
+✅ Vragenbank: A ziet privé-vraag van B NIET
+✅ Gedeelde vraag ("delen met collega's") is wel zichtbaar
+✅ A kan een vraag van B niet bewerken
+✅ Leerkracht ziet enkel zijn eigen klassen
+```
+
+## 69. Templates (sprints 53a-53d)
+
+```
+✅ Template aanmaken ZONDER deadline lukt
+✅ Gewone toets zonder deadline lukt NIET (43.3 blijft gelden)
+✅ Template heeft geen klas/school
+✅ Zichtbaarheid "eigenaar" → enkel zichtbaar bij eigen scholen
+✅ Zichtbaarheid "school" → zichtbaar voor collega's van die school
+✅ Zichtbaarheid "openbaar" → zichtbaar voor andere scholen
+✅ Dupliceren naar een klas werkt; kopie staat los van het origineel
+✅ Niet-eigenaar kan het origineel NIET bewerken
+✅ Admin-knop "verbergen" → template verdwijnt meteen bij andere scholen
+```
+
+## 70. Fase 3 — isolatie (sprints 48c1-48c4)
+
+```
+⚠️ DIT IS DE ZWAARSTE TEST VAN HET PROJECT — neem er tijd voor
+✅ Alle bestaande data hangt na migratie aan school 1
+✅ Per tabel: school A ziet NUL rijen van school B
+   ✅ classes  ✅ students  ✅ question_bank  ✅ assignment_bank
+   ✅ sessions ✅ quiz_answers ✅ audit_log
+✅ ENIGE uitzondering: publieke templates (is_template + visibility=public)
+✅ Een niet-publieke template van school B is onzichtbaar voor school A
+✅ Super-admin ziet alles; gewone admin enkel de eigen school
+✅ URL-manipulatie (code/id van een andere school) → 403/404, geen data
+```
+
+## 71. Sprint 50a — Sessietabel + sessie bij login
+
+```
+⚠️ VOORAF: log in met een ECHTE leerkracht (uit de databank), niet met de
+   .env-fallback (POC_BASIC_USER). Die laatste heeft geen leerkracht-rij en
+   krijgt dus bewust géén sessie. Aanmaken kan met pycodeflow.sh → optie 10.
+
+— Niets mag stuk zijn (dit is een additieve sprint) —
+✅ Inloggen werkt precies zoals vroeger
+✅ Alle leerkracht-schermen blijven werken (sessies, vragenbank, beheer)
+✅ Weblogs tonen geen ERROR bij het opstarten
+✅ Inloggen met een FOUT wachtwoord → nog steeds geweigerd
+✅ Te veel pogingen → nog steeds tijdelijk geblokkeerd
+
+— De nieuwe sessie —
+✅ Beheer → Database viewer: de tabel "teacher_sessions" bestaat
+✅ Na inloggen staat er een NIEUWE rij in teacher_sessions
+✅ De rij toont teacher_id, created_at, expires_at, user_agent en ip
+✅ token_hash is GEMASKEERD in de viewer (geen leesbare waarde)
+✅ Tweede keer inloggen (ander toestel/browser) → een TWEEDE rij, geen overschrijving
+✅ Weblog toont "[auth] sessie aangemaakt voor <naam>"
+
+— De cookies (F12 → Application → Cookies) —
+✅ Er staan er DRIE: teacher_auth, teacher_sid en csrf_token
+✅ teacher_sid is een lange willekeurige waarde
+✅ teacher_sid verschilt per login (niet telkens dezelfde)
+✅ teacher_sid is HttpOnly
+
+— Fail-safe —
+ℹ️ Log je in via de .env-fallback: login werkt, maar er komt GEEN rij bij.
+   De weblog zegt dan: "login via .env-fallback — geen sessie aangemaakt".
+   Dat is bedoeld gedrag tot sprint 50f.
+```
+
+## 72. Sprint 50b — De app weet wie je bent
+
+```
+⚠️ Maak eerst TWEE echte leerkrachten aan (pycodeflow.sh → optie 10).
+   Bv. "anja" en "bram". De .env-fallback heeft geen identiteit.
+
+— Niets mag stuk zijn (additieve sprint) —
+✅ Inloggen werkt zoals vroeger
+✅ Alle leerkracht-schermen werken (sessies, vragenbank, toetsen, beheer, systeem)
+✅ Uitloggen en opnieuw inloggen werkt
+✅ Zonder login → nog steeds doorgestuurd naar het loginscherm
+✅ Weblogs tonen geen ERROR
+
+— KERNTEST: twee leerkrachten, twee identiteiten —
+✅ Browser 1: log in als "anja" → open /api/me → toont username "anja"
+✅ Browser 2 (of incognito): log in als "bram" → /api/me → toont username "bram"
+✅ De twee tonen VERSCHILLENDE namen (dit kon vroeger niet)
+✅ Beide tonen "source": "session" en "identiteitBekend": true
+✅ De rol klopt per leerkracht (teacher of admin)
+
+— De oude weg blijft werken (tot 50f) —
+✅ Heb je nog een oude browsersessie (enkel teacher_auth, geen teacher_sid)?
+   Dan werkt alles nog, maar /api/me toont "source": "legacy"
+   en "identiteitBekend": false
+✅ Bij "legacy" is de rol "teacher" — GEEN stilzwijgende adminrechten
+✅ Log opnieuw in → source wordt weer "session"
+
+— Snelle controle —
+✅ Open in je browser: /api/me
+   Verwacht: {"username":"anja","role":"teacher","source":"session",
+              "identiteitBekend":true}
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.48.1 · 16 juli 2026*

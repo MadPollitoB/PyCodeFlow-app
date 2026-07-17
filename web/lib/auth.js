@@ -74,6 +74,50 @@ function parseCookieHeader(headerValue) {
   return out;
 }
 
+// ── Sprint 50a: sessietokens voor leerkracht-logins ──────────────────────────
+// Het token dat de browser krijgt is willekeurig; in de databank bewaren we enkel
+// de SHA-256 ervan. Zo geeft een gelekte databank geen bruikbare sessies: uit een
+// hash valt het token niet te herleiden. Vergelijken doen we op de hash, dus een
+// gewone (snelle) hash volstaat hier — dit is geen wachtwoord dat mensen kiezen,
+// maar 256 bit puur toeval.
+
+// ── Sprint 50b: wie is er ingelogd? ──────────────────────────────────────────
+// Pure beslisregel, los van Express en de databank — zo is ze rechtstreeks testbaar.
+// Volgorde is de kern: een echte sessie wint altijd van het oude gedeelde cookie.
+// Geeft null wanneer niemand mag (de aanroeper stuurt dan naar de login).
+//
+//   'session' = betrouwbaar, we weten wie
+//   'legacy'  = oud gedeeld cookie: we weten enkel DÁT iemand mag, niet wie (id = null)
+//   'open'    = authenticatie staat uit
+function bepaalTeacherIdentiteit({ sessie = null, heeftLegacyCookie = false, envUser = '', authUit = false } = {}) {
+  if (authUit) {
+    return { id: null, username: 'anoniem', displayName: '', role: 'admin', source: 'open' };
+  }
+  if (sessie) {
+    return {
+      id: sessie.teacher_id,
+      username: sessie.username,
+      displayName: sessie.display_name || '',
+      role: sessie.role || 'teacher',
+      source: 'session',
+    };
+  }
+  if (heeftLegacyCookie) {
+    // Bewust géén rol 'admin' verzinnen die meer mag dan verdiend: het oude cookie
+    // zegt niets over wie je bent, dus krijg je de laagste rol.
+    return { id: null, username: envUser || 'onbekend', displayName: '', role: 'teacher', source: 'legacy' };
+  }
+  return null;
+}
+
+function createSessionToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+function hashSessionToken(token) {
+  return crypto.createHash('sha256').update(String(token || '')).digest('hex');
+}
+
 module.exports = {
   SCRYPT_PARAMS,
   safeEqual,
@@ -81,4 +125,7 @@ module.exports = {
   verifyPasswordWithHash,
   parseBasicAuthHeader,
   parseCookieHeader,
+  createSessionToken,
+  hashSessionToken,
+  bepaalTeacherIdentiteit,
 };

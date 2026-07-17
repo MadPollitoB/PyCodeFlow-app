@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.47.14**
+**Huidige versie: v2026.2.48.1**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -16,10 +16,53 @@
 
 ## 1. Openstaande sprints (op dalende prioriteit)
 
+> ### 🔒 Vastgelegde beslissingen (15/07/2026)
+>
+> | Beslissing | Gevolg |
+> |---|---|
+> | **Model B — echte multi-tenant** | Eén leerkracht kan meerdere scholen hebben en kiest bij login. Model A (installatie per school) **vervalt definitief**: dat kan niet met één login over twee scholen. Fase 3 (isolatie + RLS) is daarmee **verplicht**, niet optioneel. |
+> | **Leerling-login = school-e-mail + wachtwoord** | Sprints **14 (Google)** en **15 (Smartschool)** vervallen. Het **e-mailadres is de inlognaam**: stabiel en uniek, dus geen gedoe met "eerst voornaam of eerst achternaam". `students.id` blijft de sleutel — een adres mag wijzigen zonder resultaatverlies. |
+> | **📧 GEEN e-mail versturen** (16/07) | Geen mailserver, geen relay, geen SMTP. De **leerkracht maakt de klaslijst** en is het **herstelmechanisme**. Het e-mailpakket (49a-c, 52-x1/x2/x3) staat bij *Uitgesteld* — later toevoegen is puur additief. |
+> | **Eén startcode per klas** (beslist 16/07) | De leerkracht zet de code op het bord; in de **eerste les** stelt elke leerling **verplicht** een eigen wachtwoord in. Het venster valt daarna **per leerling automatisch dicht** (de code werkt enkel zolang `must_change_password = true`), en de leerkracht kan de code voor de hele klas uitschakelen. *Aanvaard restrisico:* tijdens die eerste les, vóór Marie haar wachtwoord kiest, zou een klasgenoot met haar adres + de klascode kunnen inloggen. Beperkt doordat het onder toezicht in de klas gebeurt en het venster kort is. |
+> | **E-maildomein op schoolniveau** | Nooit per klas. Minstens 1 domein per school. Dient nu als **validatie** van de klaslijst (typfouten, verkeerde school) en straks als grendel bij zelfregistratie. |
+> | **Templates** | Geen deadline, geen klas/school; enkel de eigenaar past het origineel aan; zichtbaarheid `owner` / `school` / `public`. |
+>
+> **Zo werkt de leerling-instap zonder e-mail:** leerkracht zet **één klascode** op het bord → elke leerling registreert **zichzelf** met die code + zijn **school-e-mail** (domeincheck) + een eigen wachtwoord → hij mag meteen meedoen aan een **klassessie en vrij oefenen** (de les valt nooit stil), maar **pas na aanvaarding** aan **toetsen en taken** → vergeten? de leerkracht klikt *herstel*. Geen enkele mail nodig, en de leerkracht hoeft geen e-mailadressen te kennen.
+
 | Sprint | Prio | Cat | Inhoud | Inschatting |
 |---|---|---|---|---|
 | **43.13** | 🟡 P5 | BUG | **Monaco-worker-warning** *"Could not create web worker(s)"* blijft, ondanks `monaco-env.js` (43.6c). Diagnose was fout. Niet fataal: de editor werkt, maar valt terug op de main-thread (mogelijke UI-freezes bij grote bestanden). Vereist onderzoek in de browser (Network-tab: laadt `/monaco/min/vs/base/worker/workerMain.js`?). Ook de geblokkeerde `purify.min.js.map` (sourcemap) hoort hierbij — onschuldig. | ~0.5 dag |
-| **48** | 🔵 P9 | ARCH | ⛔ School-keuze bij leerkracht-login (modal indien >1 school) + `active_school_id` in sessie — **geblokkeerd:** vereist fase 1 + fase 3 (multi-tenant) | ~3 dagen |
+| **50c** | 🔴 P10 | AUTH | **Fase 1** — Afmelden = sessie invalideren (nu onmogelijk). *Test: na afmelden geeft hetzelfde token 401.* | ~0.5 dag |
+| **50d** | 🔴 P10 | AUTH | **Fase 1** — Sessie-verval + verlengen bij activiteit. *Test: verlopen sessie → 401 + terug naar login.* | ~0.5 dag |
+| **50e** | 🔴 P10 | AUTH | **Fase 1** — `getActorFromReq()` gebruikt `req.teacher` → audit-log klopt eindelijk. *Test: actie van leerkracht A staat op naam van A, niet op de gedeelde gebruiker.* | ~0.5 dag |
+| **50f** | 🔴 P10 | AUTH | **Fase 1 afronden** — oud gedeeld cookie + `POC_BASIC_*`-fallback verwijderen; `checkAuthConfig` herzien. *Test: enkel echte accounts werken; oude cookie geeft 401.* | ~1 dag |
+| **48a1** | 🟠 P8 | ARCH | Tabel **`schools`** (id, naam, logo_path, actief, licentie, contact, created_at) + admin-CRUD. Additief. *Test: school aanmaken/bewerken/deactiveren.* | ~1 dag |
+| **48a2** | 🟠 P8 | ARCH | Tabel **`teacher_schools`** (veel-op-veel) + admin-UI "leerkracht ↔ scholen". *Test: leerkracht aan 2 scholen koppelen; koppeling verwijderen.* | ~1 dag |
+| **48a3** | 🟠 P8 | ARCH | Tabel **`school_domains`** + adminveld met uitleg, validatie en **testveldje**. Regels: `athkiel.be` = exact, `*.athkiel.be` = enkel subdomeinen. Weiger te brede wildcards (`*.be`). Minstens 1 domein per school. **Dient nu om de klaslijst te valideren** (52b) — typfouten en verkeerd geplakte klassen — en straks als grendel bij zelfregistratie (52-x2). *Test: zie testboek §64 — 8 gevallen.* | ~1 dag |
+| **48b1** | 🟠 P8 | AUTH | `active_school_id` in de serversessie; bij **1 school** automatisch gekozen. *Test: leerkracht met 1 school logt normaal in.* | ~0.5 dag |
+| **48b2** | 🟠 P8 | UX | **Schoolkeuze-grid** bij >1 school: dropdown met eigen scholen, logingegevens grijs, knoppen **Annuleren** / **Kiezen**. Annuleren vernietigt de half-ingelogde toestand. *Test: lijst verschijnt pas ná geslaagde login; annuleren → schoon loginscherm.* | ~1 dag |
+| **48b3** | 🟡 P6 | UX | **Schoollogo** naast het PyCodeFlow-icoon op alle schermen ná schoolkeuze. Niet op start-/loginscherm (geen school bekend); bij leerlingen pas ná login. *Test: logo volgt de gekozen school; wisselen van school wisselt het logo.* | ~0.5 dag |
+| **51a** | 🟠 P8 | AUTH | **Fase 2** — `teacher_id` (eigenaar) op `sessions` + backfill bestaande rijen. *Test: nieuwe sessie krijgt de juiste eigenaar.* | ~0.5 dag |
+| **51b** | 🟠 P8 | AUTH | **Fase 2** — Autorisatie: leerkracht beheert enkel **eigen** sessies; admin alles **binnen de school**. *Test: A kan B's sessie niet openen/sluiten/verwijderen (403).* | ~1.5 dag |
+| **51c** | 🟠 P8 | FEAT | **Fase 2** — Vragenbank standaard **privé** + `shared`-vlag per vraag ("delen met collega's"). *Test: A ziet B's privé-vraag niet; gedeelde vraag wel; A kan B's vraag niet bewerken.* | ~1.5 dag |
+| **51d** | 🟠 P8 | AUTH | **Fase 2** — `teacher_classes` echt gebruiken (`listClassesForTeacher` bestaat maar wordt genegeerd). *Test: leerkracht ziet enkel eigen klassen.* | ~1 dag |
+| **52a** | 🟠 P8 | AUTH | **Leerling** — `students`: `google_email` → **`email`** (UNIEK, wijzigbaar) + `pass_hash` + `must_change_password` + **`first_name`** + **`last_name`** (apart → geen "Janssens Marie"-verwarring meer). `name` **blijft** de weergavenaam en wordt gevuld als `first_name + ' ' + last_name` — zo breekt niets: `name` zit in álle schermen én in de bevroren `quiz_answers.student_name`. `id` blijft de sleutel. *Test: bestaande leerlingen blijven bestaan met hun naam; nieuwe krijgen voor+achternaam.* | ~0.5 dag |
+| **52b** | 🟠 P8 | FEAT | **Leerling** — **Klas-startcode** (`classes.start_code`) + vlag `start_code_active` zodat de leerkracht het venster sluit/heropent. Code groot leesbaar in het klasscherm (voor op het bord) + knop "nieuwe code". *Test: uitschakelen → registratie geweigerd; heropenen → werkt weer.* | ~0.5 dag |
+| **52c** | 🟠 P8 | FEAT | **Leerling** — **Zelfregistratie**: klascode + **voornaam** + **achternaam** + **school-e-mail** (domeincheck via 48a3) + eigen wachtwoord (2×) → account met **`status = 'pending'`**, gekoppeld aan de klas van de code. De leerkracht kent de adressen niet, dus de leerling maakt zijn account volledig zelf aan. *Test: adres buiten het schooldomein → geweigerd; dubbel adres → geweigerd; foute klascode → geweigerd; lege voor-/achternaam → geweigerd.* | ~1.5 dag |
+| **52d** | 🟠 P8 | AUTH | **Leerling** — **Login**: e-mail + wachtwoord + sessie + rate-limiting. *Test: fout wachtwoord → melding; herhaald falen → tijdelijk geblokkeerd.* | ~1 dag |
+| **52e** | 🔴 P10 | SEC | **Leerling** — **Toegangsregel** (de kern van je ontwerp): `pending` mag **wél** een klassessie en vrij oefenen (les nooit onderbreken), maar **géén toets/taak**. `blocked` mag niets. Nu kijkt `quiz_start` **niet** naar de status — die controle komt erbij. *Test: pending → klassessie OK, vrij oefenen OK, toets geweigerd met duidelijke melding; na aanvaarden → toets OK.* | ~0.5 dag |
+| **52f** | 🟠 P8 | UX | **Leerling** — **Herstel door de leerkracht**: zet `must_change_password` terug → leerling kan opnieuw met de klas-startcode in en **moet** een nieuw wachtwoord kiezen. *Test: oud wachtwoord werkt niet meer.* | ~0.5 dag |
+| **52g** | 🟠 P8 | UX | **Leerling** — Na login: sessiecode → juiste sessie/toets/taak, óf **Vrij oefenen**. *Test: beide paden.* | ~0.5 dag |
+| **52h** | 🟠 P8 | UX | **Leerling-beheer aanvullen.** Aanvaarden/blokkeren/klas wijzigen/verwijderen **bestaan al** (sessiescherm + admin). Aanvullen: **voornaam, achternaam en e-mail bewerkbaar** door de leerkracht (typfouten van leerlingen rechtzetten), e-mail **tonen** in de beheerlijsten, en **aanvaarden ook buiten een live sessie**. *Test: naam corrigeren → toets toont meteen de nieuwe naam; e-mail corrigeren → leerling logt in met het nieuwe adres, resultaten blijven.* | ~1 dag |
+| **52i** | 🟠 P8 | ARCH | **Toets-deelname op leerling-`id` i.p.v. naam.** Nu krijgen toets-leerlingen een willekeurig id en matchen 43.1 (voortgang) en 43.4 (leerling-selectie) **op naam** — fragiel. Met een echte login koppel je aan het `id`. *Test: voortgang en leerling-selectie kloppen ook bij naamsverschillen/dubbele namen.* | ~1 dag |
+| **53a** | 🟡 P6 | FEAT | **Templates** — `is_template` op `assignment_bank`; **deadline verplicht tenzij preview of template**; template heeft geen klas/school. *Test: template zonder deadline kan; gewone toets zonder deadline niet.* | ~0.5 dag |
+| **53b** | 🟡 P6 | FEAT | **Templates** — `visibility`: `owner` (alle scholen van de eigenaar) / `school` / `public`. *Test: elk niveau zichtbaar voor de juiste groep, onzichtbaar voor de rest.* | ~1 dag |
+| **53c** | 🟡 P6 | FEAT | **Templates** — Dupliceren vanuit template naar een klas (origineel enkel door de eigenaar aanpasbaar). *Test: kopie is los van het origineel; niet-eigenaar kan origineel niet bewerken.* | ~1 dag |
+| **53d** | 🟡 P6 | SEC | **Templates** — Admin-knop **"openbaar → verbergen"** (takedown). *Test: verborgen template verdwijnt meteen bij andere scholen.* | ~0.5 dag |
+| **48c1** | 🔵 P9 | ARCH | **Fase 3** — `school_id` op `teachers`, `classes`, `students`, `question_bank`, `sessions`, `audit_log` + migratie (bestaande data → school 1). *Test: alle bestaande data hangt aan school 1.* | ~2 dagen |
+| **48c2** | 🔵 P9 | SEC | **Fase 3** — Filtering **centraal** afdwingen: PostgreSQL **Row-Level Security** (aanrader) of één `scopedQuery(schoolId, …)`. **Uitzondering, exact hier en nergens anders:** cross-school lezen enkel als `is_template = true AND visibility = 'public'`. | ~1 week |
+| **48c3** | 🔵 P9 | SEC | **Fase 3** — **Isolatie-testsuite**: school A ziet **nul** rijen van school B, per tabel. *Verdient de zwaarste testinspanning van het project.* | ~3 dagen |
+| **48c4** | 🔵 P9 | ARCH | **Fase 3** — Super-admin (beheerder over scholen heen) voor jou als leverancier. *Test: super-admin ziet alles; gewone admin enkel eigen school.* | ~1 dag |
 
 > **Sprint 42 is gesplitst:** Deel C (branding/schoollogo) is afgerond in v2026.2.42.0 (zie afgewerkte sprints); het restant (startpagina + leerling/leerkracht-ingang) leeft nu als **sprint 45**.
 
@@ -27,10 +70,24 @@
 
 ## 2. Uitgestelde sprints (bewust geparkeerd, op dalende prioriteit)
 
+> ### 📧 E-mailpakket — geparkeerd (beslist 16/07/2026)
+>
+> **Beslissing:** PyCodeFlow verstuurt **geen e-mail**. Geen mailserver, geen relay, geen SMTP.
+>
+> **Waarom dit kan:** het e-mailadres is de **inlognaam** (stabiel en uniek — geen gedoe met voornaam/achternaam-volgorde), maar er hoeft niets *naartoe* gestuurd te worden. De leerkracht maakt de klaslijst, deelt startcodes uit en is zelf het herstelmechanisme. Dat is hoe schoolsystemen sowieso werken, en het is sneller dan een mailtje afwachten.
+>
+> **Wat dit bespaart:** mailserver of VPS (~€60/jaar), DNS/SPF/DKIM/DMARC, deliverability-gevecht met schoolfilters, spamlijsten, en ~1-2 uur onderhoud per maand. Plus de kalendertijd voor IP-reputatie die anders sprint 52 zou blokkeren.
+>
+> **Waarom je tóch voorbereid bent:** door nu al met e-mailadres + domeincheck te werken, is de stap naar zelfregistratie en herstel-per-mail later **puur additief** — geen migratie van inlognamen, geen herbouw. De app blijft **SMTP-agnostisch**: enkel host/poort/gebruiker/wachtwoord uit `.env`, nergens iets provider-specifieks in de code.
+
 | Sprint | Cat | Inhoud | Reden van uitstel | Inschatting |
 |---|---|---|---|---|
-| **14** | AUTH | Google OAuth leerlingen | Leerling-login-methode nog niet gekozen | ~3 dagen |
-| **15** | AUTH | Smartschool SSO | Leerling-login-methode nog niet gekozen | ~1 week |
+| **49a** | INFRA | Mail versturen: nodemailer + SMTP-config in `.env` + `sendMail()`-helper + admin-knop "stuur testmail" | E-mailpakket geparkeerd — de leerkracht is het herstelmechanisme | ~0.5 dag |
+| **49b** | OPS | Deliverability: afzenderdomein + SPF/DKIM/DMARC. **Vereist eerst een keuze:** relay (Brevo/Mailjet, EU) óf eigen mailserver op een **VPS** (~€60/jaar). Op de NAS kan het niet: Tailscale/Cloudflare Tunnel dragen geen SMTP, en een thuis-IP staat op de Spamhaus PBL zonder instelbare PTR | Idem | ~0.5 dag + kalendertijd |
+| **49c** | INFRA | Mail-wachtrij met retry + logging | Idem | ~1 dag |
+| **52-x1** | SEC | **E-mailverificatie** bij registratie (link/code). **Voorwaarde** om zelfregistratie veilig te maken | Vereist 49a | ~1 dag |
+| **52-x2** | FEAT | **Zelfregistratie via klascode** (naam + e-mail + klascode + eigen wachtwoord) + vlag "open voor registratie" per klas | ⛔ Onveilig zonder 52-x1: een klasgenoot kent de klascode en schooladressen zijn voorspelbaar — zonder verificatie registreert hij zich als iemand anders | ~1.5 dag |
+| **52-x3** | SEC | **Wachtwoordherstel per e-mail**: code ±20 min geldig, eenmalig, altijd dezelfde melding (tegen account-enumeratie) | Vereist 49a; herstel gebeurt nu door de leerkracht (52f) | ~1 dag |
 | **35b** | A11Y | Statusinformatie niet enkel via kleur (klaar/hand/tab-weg) — voor kleurenblinden | Toegankelijkheid pas wettelijk vereist bij verkoop aan overheidsscholen — bewust geparkeerd | ~1 dag |
 | **35a** | A11Y | Aria-labels/roles toevoegen (vrijwel geen nu) — screenreaders bruikbaar maken | Idem — toegankelijkheidspakket samen geparkeerd | ~2 dagen |
 | **35c** | A11Y | Toetsenbordnavigatie: focus-volgorde, focus-trap, skip-links | Idem — toegankelijkheidspakket samen geparkeerd | ~1.5 dag |
@@ -39,7 +96,7 @@
 
 > **Toegankelijkheid (P6) wordt een wettelijke vereiste** (EN 301 549 / WCAG 2.1 AA) zodra je aan overheidsscholen verkoopt. Nu geparkeerd, maar niet vrijblijvend op termijn — 35a-d horen samen als één toegankelijkheidspakket weer geactiveerd te worden.
 
-> **Leerling-authenticatie — nog te beslissen.** Leerlingen identificeren zich nu via naam + klas + sessiecode. Er komt op termijn een echte login, maar de methode is nog niet gekozen: **Smartschool SSO** (15), **Google OAuth** (14), of een eigen login op **e-mail/gebruikersnaam**. Deze keuze raakt sprint 37 (nakijk-modus): zolang er geen echte login is, steunt de nakijk-toegang op naam+klas+code — een bewust aanvaarde beperking, afgeschermd door rate-limiting en doordat de leerkracht de nakijk-modus expliciet moet openstellen.
+> **Leerling-authenticatie — BESLIST (15/07/2026).** Het wordt een **eigen login op e-mail + wachtwoord** (sprint 52). Daarmee **vervallen sprint 14 (Google OAuth) en 15 (Smartschool SSO)** — ze zijn uit de uitgestelde lijst gehaald. Google kan later nog als *extra* inlogmethode op hetzelfde account, maar is geen voorwaarde meer. Deze keuze raakt sprint 37 (nakijk-modus): zolang er geen echte login is, steunt de nakijk-toegang op naam+klas+code — een bewust aanvaarde beperking, afgeschermd door rate-limiting en doordat de leerkracht de nakijk-modus expliciet moet openstellen.
 
 ---
 
@@ -108,12 +165,113 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 57 | **43.10** | **Toets-pagina's stuk**: UMD-libs laadden ná Monaco's AMD-loader → `io is not defined`. Scriptvolgorde hersteld op quiz-student + quiz-review | v2026.2.47.12 |
 | 58 | **43.11** | Knoppen in de toets deden niets: `editorStore is not defined` (interne const van app.js). Nu via `window.getEditorValue`/`setEditorValue`. Zelfde bug in het nakijkscherm mee gefixt | v2026.2.47.13 |
 | 59 | **43.12** | Toets-layout: code en output in **tabs** (Code | Output), exact zoals de klassessie en vrij oefenen | v2026.2.47.14 |
+| 60 | **50a** | **Fase 1 start** — tabel `teacher_sessions` + echte sessie per leerkracht bij login (naast het oude cookie, breekt niets). Token enkel als SHA-256 in de databank | v2026.2.48.0 |
+| 61 | **50b** | **Fase 1** — `requireTeacherAuth` vult `req.teacher` uit de sessie (101 endpoints in één keer). Beslisregel als pure functie + `/api/me` om te zien wie je bent | v2026.2.48.1 |
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### 📐 Specificatie — E-maildomeinen per school (sprint 48a3)
+
+**Regel — `*.` maakt het verschil. Dit zijn TWEE aparte regels:**
+
+| Invoer | Betekent | ✓ toegelaten | ✗ geweigerd |
+|---|---|---|---|
+| `athkiel.be` | **exact** dit domein | `marie@athkiel.be` | `marie@leerling.athkiel.be` |
+| `*.athkiel.be` | alles wat **eindigt** op `.athkiel.be` — **niet** `athkiel.be` zelf | `marie@leerling.athkiel.be`<br>`marie@a.b.athkiel.be` | `marie@athkiel.be` |
+
+Wie "alles" wil, voegt **beide** regels toe. Nooit toegelaten, ongeacht de instelling: `marie@athkiel.be.aanvaller.com`, `marie@nepathkiel.be`.
+
+**Matching (achtervoegsel-anker, geen "bevat"):**
+
+```js
+function domainMatches(email, pattern) {
+  const d = email.split('@').pop().toLowerCase().replace(/\.$/, '');  // laatste @, punt weg
+  const p = pattern.toLowerCase();
+  if (p.startsWith('*.')) return d.endsWith(p.slice(1));  // '*.athkiel.be' -> '.athkiel.be'
+  return d === p;                                          // exact
+}
+```
+
+`p.slice(1)` maakt van `*.athkiel.be` het achtervoegsel `.athkiel.be` **met punt** — daardoor vallen `nepathkiel.be`, `athkiel.be.aanvaller.com` én het kale `athkiel.be` af.
+
+**Validatie bij invoeren.** Vergevingsgezind: `@athkiel.be` → `athkiel.be`; hoofdletters → kleine letters; spaties en afsluitende punt weg. Weigeren met duidelijke melding:
+- spatie of `@` middenin → *"Geef enkel het domein, bv. `athkiel.be`."*
+- `*athkiel.be` (zonder punt) → *"Een wildcard begint met `*.` — bv. `*.athkiel.be`."*
+- dubbel → *"Dit domein staat er al."*
+- laatste verwijderen → *"Elke school heeft minstens 1 domein nodig."*
+- **te breed** (`*.be`, `*.com` — wildcard met één label) → *"`*.be` is te breed: dan kan iedereen met een `.be`-adres zich registreren."*
+
+**Adminveld bevat verplicht:** de uitleg met ✓/✗-voorbeelden per vorm, én een **testveldje** ("plak een adres → toegelaten/geweigerd + via welke regel"). Zonder dat testveldje ontdekt een leerling de fout op de dag van de toets.
+
+---
+
+### 📐 Specificatie — Leerling-instap zonder e-mail (sprints 52a-52i)
+
+**Waarom e-mail als inlognaam, ook zonder mailserver.** Een naam is dubbelzinnig ("Janssens Marie" of "Marie Janssens"?) en niet uniek. Een schooladres is beide wél. Bovendien ben je zo **voorbereid**: komt er later verificatie bij (52-x1), dan is dat puur additief.
+
+**Belangrijk:** `students.id` blijft de primaire sleutel; `email` is enkel de **inlognaam** (uniek, maar wijzigbaar). Wijzigt een schooladres, dan blijven alle resultaten hangen aan het id.
+
+**De flow:**
+1. **Leerkracht zet de klascode op het bord** (`start_code_active` aan).
+2. **Leerling registreert zichzelf**: klascode + zijn **school-e-mail** (domeincheck) + eigen wachtwoord. De leerkracht kent die adressen niet — de leerling maakt zijn account dus zelf aan.
+3. Account krijgt **`status = 'pending'`** en hangt aan de klas van de code.
+4. **De leerling kan meteen meedoen** met een klassessie en vrij oefenen — de les mag nooit stilvallen. In het sessiescherm verschijnt hij met een **pending-badge** *(bestaat al)*.
+5. **De leerkracht aanvaardt** hem *(bestaat al: `teacher_update_student_badge`, action `accept` → `pending` → `active`)*. **Pas dan** kan hij toetsen en taken maken.
+6. **Vergeten wachtwoord?** De leerkracht zet `must_change_password` terug; de leerling gebruikt opnieuw de klascode.
+
+**De toegangsregel (52e) — dit is de kern:**
+
+| Status | Klassessie | Vrij oefenen | Toets / taak |
+|---|---|---|---|
+| `pending` | ✅ | ✅ | ⛔ **geweigerd** |
+| `active` | ✅ | ✅ | ✅ |
+| `blocked` | ⛔ | ⛔ | ⛔ |
+
+Vandaag kijkt **`quiz_start` niet naar de status** — een pending leerling kan dus gewoon een toets maken. Dat is precies wat 52e toevoegt.
+
+**Namen — waar wat komt te staan.** De leerling geeft **voornaam en achternaam apart** in. `name` (= "Voornaam Achternaam") blijft de weergavenaam en verschijnt op **toetsen, taken, voortgang, nakijken en exports**. Het **e-mailadres is enkel de inlognaam** en hoort **nergens** op toets- of taakweergaven — dat is een expliciete eis, geen detail: het staat in exports die de klas rondgaan.
+
+**Waarom apart en niet één naamveld.** Zo bestaat "Janssens Marie of Marie Janssens?" structureel niet meer — geen afspraak die iemand ooit vergeet. De leerkracht kan beide velden **corrigeren** (52h) als een leerling zich vertypt.
+
+**Wat al bestaat** (en dus niet herbouwd hoeft): aanvaarden, blokkeren, van klas veranderen, verwijderen, en de pending-badge in het sessiescherm. 52h vult aan: naam/e-mail bewerkbaar, e-mail tonen in de beheerlijsten, en aanvaarden ook buiten een live sessie.
+
+> **⚠️ Aanvaard restrisico (16/07).** Zolang er geen e-mailverificatie is (52-x1, uitgesteld), kan een klasgenoot zich registreren met andermans schooladres — die zijn voorspelbaar en hij kent de klascode. Het **aanvaarden lost dat niet op**: de leerkracht ziet enkel het adres, niet wie het typte. **Wél zelfcorrigerend:** de echte Marie krijgt "adres al in gebruik" en meldt dat meteen; de leerkracht verwijdert het valse account en zij registreert opnieuw. Beperkt doordat het onder toezicht in de eerste les gebeurt. Wil je dit sluiten, dan is 52-x1 (verificatie) de enige echte oplossing.
+
+
+---
+
+### 📐 Specificatie — Templates (sprints 53a-53d)
+
+- `is_template BOOLEAN` op `assignment_bank`. Staat **los van `type`**: een template kan een toets óf een taak zijn.
+- Template = **geen deadline** (uitzondering op 43.3), **geen klas/school**.
+- Gebruiken = **dupliceren**; het origineel is enkel door de **eigenaar** aanpasbaar.
+- `visibility`: **`owner`** (alle scholen van de eigenaar) · **`school`** (deze school) · **`public`** (iedereen).
+- Scholen tekenen vooraf een toestemmingsformulier; delen is **nooit verplicht** — alles kan binnen de eigen school blijven.
+- **53d — takedown-knop.** Een contract haalt niets offline: een admin moet een publieke template meteen kunnen verbergen.
+
+> **⚠️ Architecturaal — dit is de enige uitzondering op de isolatie-regel.** Fase 3 zegt *"elke query filtert op `school_id`"*. `visibility = 'public'` doorbreekt dat bewust. Die uitzondering hoort op **één plek** (48c2), en enkel in deze vorm: `is_template = true AND visibility = 'public'`. Elders is cross-school lezen nooit toegestaan. Wordt dit per query geregeld, dan is dit het gaatje waardoor ooit echte toetsdata lekt.
+
+---
+
+### 📐 Specificatie — Leerkracht-login + schoolkeuze (sprints 48b1-48b2)
+
+Startscherm → "Ik ben leerkracht" → login. **Na een geslaagde login:**
+- **1 school** → automatisch ingelogd met die school.
+- **>1 school** → extra grid met dropdown van **zijn** scholen; logingegevens **grijs**; knoppen **Annuleren** / **Kiezen**.
+
+**Twee dingen die goed moeten:**
+- De schoollijst verschijnt **pas ná authenticatie** — zo verklap je aan niemand welke scholen bestaan. (Dit zat al goed in het ontwerp.)
+- **Annuleren** vernietigt de half-ingelogde toestand (terug naar een schoon loginscherm), niet enkel het grid verbergen.
+- `active_school_id` staat **server-side** in de sessie — nooit iets dat de browser meestuurt.
+
+**Branding (48b3):** schoollogo naast het PyCodeFlow-icoon, **pas ná de schoolkeuze**. Op start- en loginscherm is er nog geen school bekend → enkel het PyCodeFlow-logo. Bij leerlingen pas ná login.
+
+---
+
 
 ### Sprint 43.2 — Toetsen-/takenbank (overzichtspagina) *(~1.5 dag)* — ✅ AFGEROND (v2026.2.47.5)
 
@@ -142,6 +300,62 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 **Login-bug (root cause):** sinds sprint 45 serveert de app de leerling-ingang op de nette route **`/student`**, waardoor `page === 'student'`. Maar `_socketPages` in `app.js` (de lijst pagina's die een echte Socket.IO-verbinding krijgen) bevatte wél `'student-start.html'` maar **niet `'student'`**. Op `/student` werd de socket dus een **no-op stub** → `socket.emit('student_join', …)` deed niets → "Deelnemen" en "Vrij oefenen" leken dood. **Fix:** `'student'` toegevoegd aan `_socketPages`. (De CSP-report-only-meldingen in de console waren onschuldig en niet de oorzaak.)
 
 **Sessie-overzicht (Req A):** `teacher-sessions.html` heeft nu drie tabs **Sessies / 🧪 Toetsen / 📝 Taken**. De Toetsen- en Taken-tabs tonen **enkel actieve** items (geen previews, geen gesloten/verlopen), gefilterd op type. De volledige bank (incl. previews, met activeren/verwijderen/filters) blijft bereikbaar via de nav-link "📚 Toetsen & taken" (`?tab=quizzes`).
+
+---
+
+### Sprint 50b — Fase 1: req.teacher — de app weet wie je bent *(~1 dag)* — ✅ AFGEROND (v2026.2.48.1)
+
+**Cat:** AUTH · **Prio:** 🔴 P10
+
+**Wat is gebouwd:**
+- **`requireTeacherAuth` vult nu `req.teacher`** met `{id, username, displayName, role, source}`. Die middleware hangt aan **101 endpoints**, dus heel het leerkrachtdeel draagt in één klap een identiteit.
+- **De beslisregel staat in `lib/auth.js`** als `bepaalTeacherIdentiteit()` — pure logica, los van Express en de databank, en dus **rechtstreeks testbaar**. `requireTeacherAuth` haalt enkel de bouwstenen op.
+- **`GET /api/me`** toont wie de app dénkt dat je bent. Dat is meteen de test van deze sprint: log in als A en als B in twee browsers → twee verschillende namen.
+
+**De volgorde is de kern.** Een echte sessie **wint altijd** van het oude gedeelde cookie. Wie met 50a inlogde krijgt dus meteen zijn echte identiteit, terwijl een oude browsersessie gewoon blijft werken.
+
+**`source` maakt zichtbaar wat de app écht weet:**
+
+| source | Betekenis | id |
+|---|---|---|
+| `session` | betrouwbaar — we weten wie | ✅ |
+| `legacy` | oud gedeeld cookie: we weten enkel **dát** je mag | `null` |
+| `open` | authenticatie staat uit | `null` |
+
+Dat `id: null` bij `legacy` is geen slordigheid maar de **hele reden voor fase 1**: zolang je op het oude cookie zit, kán de app niet weten wie je bent. `/api/me` toont dat als `identiteitBekend: false`.
+
+**Twee bewuste keuzes:**
+- **Geen stilzwijgende adminrechten.** Bij `legacy` krijg je rol `teacher`, niet `admin` — het oude cookie zegt niets over wie je bent, dus krijg je de laagste rol. Er is een test die dit bewaakt.
+- **Geen extra databanklast.** Zonder `teacher_sid`-cookie doet `leesLeerkrachtSessie` **geen** query (hij stopt bij het ontbrekende cookie). Wie nog op het oude cookie zit, merkt dus niets.
+
+**Plaatsing gecorrigeerd tijdens het bouwen:** `/api/me` stond eerst vlak na de definitie van `requireTeacherAuth` (regel ~454) — dus **vóór** de CSP-middleware (472) en `express.json` (527). Express draait middleware in registratievolgorde, waardoor die route buiten de beveiligingsheaders zou vallen. Verplaatst naar de andere API-endpoints.
+
+**Niet in deze sprint:** de socket-kant. `socketIsTeacherAuthorized()` gebruikt nog het gedeelde cookie en kent dus geen identiteit. Dat is nodig voor het audit-log (**50e**) en eigenaarschap (**51**), en gebeurt daar.
+
+**Tests:** 10 nieuwe, waaronder de kerntest *"sessie van A geeft A, sessie van B geeft B"*, *"een echte sessie wint van het oude cookie"* en *"oud cookie krijgt nooit stilzwijgend adminrechten"*. Suite: **182/182 groen** (was 172).
+
+---
+
+### Sprint 50a — Fase 1: sessietabel + sessie bij login *(~0.5 dag)* — ✅ AFGEROND (v2026.2.48.0)
+
+**Cat:** AUTH · **Prio:** 🔴 P10 · *(eerste steen van fase 1 — de poort waar alles aan hangt)*
+
+**Het probleem, bevestigd in de code.** `teacherCookieValue()` maakt een HMAC van `BASIC_AUTH_USER|BASIC_AUTH_REALM` — een **vaste waarde**. Iedereen die inlogt krijgt letterlijk hetzelfde cookie. Vandaar dat de app niet weet wie er werkt, afmelden niet kan (je kan een vaste waarde niet intrekken) en het audit-log niet klopt.
+
+**Wat is gebouwd:**
+- **Tabel `teacher_sessions`** (`token_hash` PK, `teacher_id` → FK op `teachers` met CASCADE, `created_at`, `expires_at`, `last_seen`, `user_agent`, `ip`) + indexen op `teacher_id` en `expires_at`.
+- **Token-helpers in `lib/auth.js`**: `createSessionToken()` (32 willekeurige bytes) en `hashSessionToken()`. **De databank bewaart enkel de SHA-256** — het echte token bestaat alleen in de cookie van de browser. Lekt de databank, dan zijn de sessies daarmee niet bruikbaar. Dat is nu bijna gratis; achteraf inbouwen is pijnlijk.
+- **`authenticateTeacher(authHeader)`** geeft nu de **leerkracht** terug i.p.v. `true`/`false` — je kan geen sessie koppelen aan een booleaan. `credentialsAreValid()` blijft bestaan als dunne wrapper, dus alle bestaande aanroepers werken ongewijzigd.
+- **Bij login** wordt een sessie aangemaakt en komt er een **`teacher_sid`**-cookie bij, **naast** het oude `teacher_auth`. Dat oude cookie bepaalt voorlopig nog of je binnen mag.
+- **DB-laag ziet nooit een token** — enkel de hash. `server.js` genereert en hasht.
+- **Opruiming** van verlopen sessies hangt aan de bestaande nachtelijke cleanup (03:00).
+- **Zichtbaar in de DB-viewer**: `teacher_sessions` toegevoegd aan de tabellijst, `token_hash` aan de maskeerlijst.
+
+**Bewust fail-safe.** Gaat het aanmaken van de sessie mis, dan **slaagt de login alsnog** via het oude cookie — er wordt enkel gelogd. Zo kan 50a uitgerold worden zonder enig risico dat niemand meer binnen raakt.
+
+**Bekende beperking (verdwijnt in 50f).** Log je in via de **`.env`-fallback** (`POC_BASIC_USER`), dan is er geen rij in `teachers` en dus **geen sessie** — de tabel heeft een foreign key. De log zegt dat dan expliciet. Maak een echte leerkracht aan (`pycodeflow.sh` → optie 10) om sessies te zien.
+
+**Tests:** 7 nieuwe in `tests/auth.test.js` (tokenlengte, 200× uniek, hash stabiel, hash bevat het token niet, lege invoer). Suite: **172/172 groen** (was 165). Daarnaast de cookie-samenstelling nagespeeld: `teacher_auth` + `teacher_sid` + `csrf_token` overleven alle drie in één antwoord — een overschreven header zou de login breken.
 
 ---
 
@@ -238,7 +452,7 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 
 **Te bouwen:** kolom **`type`** op `quiz_meta` ('toets'|'taak'; bestaande rijen afgeleid uit `no_timer`). Bij aanmaken kiest de leerkracht expliciet toets/taak; bank + lijst tonen/filteren op type.
 
-**✅ Deadline-regel (beslist 12/07):** een **einddatum + uur (`access_until`) is verplicht voor béide** — toets én taak. De validatie wordt bij het aanmaken afgedwongen. Bestaande toetsen/taken zonder deadline blijven geldig (of krijgen bij migratie een default); nieuwe vereisen een deadline.
+**✅ Deadline-regel (beslist 12/07, verfijnd 15/07):** een **einddatum + uur (`access_until`) is verplicht voor béide** — toets én taak. **Uitzonderingen: preview** (dient om zelf te testen) **en template** (sprint 53a — heeft geen klas/school en dus geen deadline). Bestaande toetsen/taken zonder deadline blijven geldig; nieuwe vereisen een deadline.
 
 ---
 
@@ -370,7 +584,7 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 - Nette, sprekende routes `/student` en `/teacher` (i.p.v. `.html`-bestandsnamen), met redirects zodat oude links blijven werken.
 - De **vrije oefensessie blijft werken zonder account** — bewuste sterkte, niet weg-ontwerpen.
 - `/teacher` is meteen de haak waar **sprint 48** later de school-keuze-modal aan hangt.
-- **Niet in scope:** echte leerling-login (14/15, methode nog niet gekozen) en school-keuze (48, vereist multi-tenant fundament).
+- **Niet in scope:** echte leerling-login (14/15, methode nog niet gekozen) en school-keuze (48, vereist multi-tenant fundament). *(Update 15/07: beslist — e-mail + wachtwoord, sprint 52; 14/15 vervallen. School-keuze = 48b.)*
 
 #### Deel C — Schoollogo per school (personalisatie) + branding-opschoning — ✅ AFGEROND (v2026.2.42.0)
 
@@ -590,7 +804,9 @@ De app is gebouwd als **single-tenant**: één installatie = één school. Dat w
 | **Kosten/school** | Hoog (eigen container + DB) | Laag (gedeeld) |
 | **Schaalt tot** | ~10-20 scholen handmatig | Honderden |
 
-**Aanbeveling:** begin met **model A** als je 1-5 scholen wil bedienen (snel geld verdienen, weinig risico), maar bouw **stap 1 en 2 hieronder nu al** zodat de overstap naar B later geen herschrijving vraagt. Voor een echt "verkoopbaar" SaaS-product (>10 scholen) is **B** nodig.
+> **✅ BESLIST (15/07/2026) — het wordt model B.** Het ontwerp van de leerkracht-login (één leerkracht, meerdere scholen, keuze bij het inloggen) sluit model A definitief uit: met een installatie per school zou die leerkracht twee losse omgevingen en twee logins hebben. Gevolg: **fase 3 (isolatie + RLS) is verplicht**, niet optioneel. De onderstaande fase-indeling blijft gelden; de concrete uitvoering staat als sprints **49-53 + 48a/b/c** in sectie 1.
+
+*(Historisch — de oorspronkelijke afweging:)* begin met **model A** als je 1-5 scholen wil bedienen (snel geld verdienen, weinig risico), maar bouw **stap 1 en 2 hieronder nu al** zodat de overstap naar B later geen herschrijving vraagt. Voor een echt "verkoopbaar" SaaS-product (>10 scholen) is **B** nodig.
 
 ### Plan van aanpak — gefaseerd
 
@@ -742,7 +958,7 @@ school
 
 ---
 
-> **Leerling-authenticatie — nog te beslissen.** Leerlingen identificeren zich nu via naam + klas + sessiecode. Er komt op termijn een echte login, maar de methode is nog niet gekozen: **Smartschool SSO** (sprint 15), **Google OAuth** (sprint 14), of een eigen login op **e-mail/gebruikersnaam**. Deze keuze raakt sprint 37 (nakijk-modus): zolang er geen echte login is, steunt de nakijk-toegang op naam+klas+code — een bewust aanvaarde beperking, afgeschermd door rate-limiting en doordat de leerkracht de nakijk-modus expliciet moet openstellen. Zodra de login er is, wordt de nakijk-toegang daarop gebaseerd.
+> **Leerling-authenticatie — ✅ BESLIST (15/07/2026):** eigen login op **e-mail + wachtwoord** (sprint 52; registratie via klascode + domeincheck + e-mailverificatie). **Sprints 14 en 15 vervallen.** Dit raakt sprint 37 (nakijk-modus): zolang 52 niet af is, steunt de nakijk-toegang op naam+klas+code — een bewust aanvaarde beperking, afgeschermd door rate-limiting en doordat de leerkracht de nakijk-modus expliciet moet openstellen. **Zodra 52e (leerling-login) live is, wordt de nakijk-toegang daarop gebaseerd.**
 
 ---
 
@@ -1067,7 +1283,7 @@ Monaco wordt geserveerd vanuit `node_modules/monaco-editor`; de versie is sinds 
 
 **Volgorde van uitvoering:** 37d eerst (fundament + beveiliging), dan 37a (scherm), dan 37b (antwoorden + modelcode), dan 37c (commentaar). Test na elke stap.
 
-**Opmerking over leerling-authenticatie:** de herlogin steunt op naam + klas + sessiecode, wat overeenkomt met hoe leerlingen nu al deelnemen. Dit is dus geen nieuwe zwakte, maar wel een bewust aanvaarde beperking: iemand die naam, klas én sessiecode kent, kan andermans nakijk-scherm openen. Een echte leerling-login (Smartschool SSO / Google OAuth / e-mail of gebruikersnaam) is voorzien maar nog niet gekozen — zie sprints 14/15 (uitgesteld). Zodra die er is, wordt de nakijk-toegang daarop gebaseerd i.p.v. op naam+klas. **Tot dan:** rate-limiting op de herlogin en enkel toegang wanneer de leerkracht de nakijk-modus expliciet openstelt.
+**Opmerking over leerling-authenticatie:** de herlogin steunt op naam + klas + sessiecode, wat overeenkomt met hoe leerlingen nu al deelnemen. Dit is dus geen nieuwe zwakte, maar wel een bewust aanvaarde beperking: iemand die naam, klas én sessiecode kent, kan andermans nakijk-scherm openen. Een echte leerling-login is voorzien maar nog niet gekozen — zie sprints 14/15 (uitgesteld). *(Update 15/07: **beslist** — eigen login op e-mail + wachtwoord, **sprint 52**; sprints 14/15 vervallen.)* Zodra die er is, wordt de nakijk-toegang daarop gebaseerd i.p.v. op naam+klas. **Tot dan:** rate-limiting op de herlogin en enkel toegang wanneer de leerkracht de nakijk-modus expliciet openstelt.
 
 **Tests (verwacht):** toegangscontrole (nakijk aan/uit, eigen/andermans), correct-answer-marking, modelcode-opslag + weergave, modelcode overleeft toets-duplicatie, commentaar leeg vs. gevuld. ~12-15 nieuwe tests.
 

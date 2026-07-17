@@ -87,6 +87,24 @@ async function initSchema() {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_teachers_username
       ON teachers (LOWER(username));
 
+    -- ── Sprint 50a: echte login-sessies per leerkracht ────────────────────────
+    -- Tot nu kreeg iedereen hetzelfde cookie (een HMAC van de gebruikersnaam uit
+    -- .env), waardoor de app niet wist wíé er inlogde. Deze tabel geeft elke login
+    -- een eigen sessie. We bewaren enkel de SHA-256 van het token: uit de databank
+    -- valt dus geen bruikbare sessie te stelen.
+    -- Additief: het oude cookie blijft voorlopig naast dit systeem bestaan (50f ruimt op).
+    CREATE TABLE IF NOT EXISTS teacher_sessions (
+      token_hash TEXT PRIMARY KEY,
+      teacher_id TEXT NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+      created_at BIGINT NOT NULL,
+      expires_at BIGINT NOT NULL,
+      last_seen  BIGINT,
+      user_agent TEXT NOT NULL DEFAULT '',
+      ip         TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_teacher_sessions_teacher ON teacher_sessions(teacher_id);
+    CREATE INDEX IF NOT EXISTS idx_teacher_sessions_expires ON teacher_sessions(expires_at);
+
     CREATE TABLE IF NOT EXISTS sessions (
       code            TEXT PRIMARY KEY,
       id              TEXT NOT NULL UNIQUE,
@@ -433,6 +451,61 @@ module.exports = {
 
   async updateLastLogin(id) {
     await query(`UPDATE teachers SET last_login = $1 WHERE id = $2`, [Date.now(), id]);
+  },
+
+  // ── Sprint 50a: login-sessies per leerkracht ───────────────────────────────
+  // Deze laag ziet enkel de HASH van het token, nooit het token zelf. Het echte
+  // token bestaat alleen in de cookie van de browser en even in het geheugen van
+  // server.js. Lekt de databank, dan zijn de sessies daarmee niet bruikbaar.
+
+  async createTeacherSession({ tokenHash, teacherId, expiresAt, userAgent = '', ip = '' }) {
+    const now = Date.now();
+    await query(
+      `INSERT INTO teacher_sessions (token_hash, teacher_id, created_at, expires_at, last_seen, user_agent, ip)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [tokenHash, teacherId, now, expiresAt, now, String(userAgent).slice(0, 200), String(ip).slice(0, 64)]
+    );
+    return tokenHash;
+  },
+
+  // Geeft de sessie mét de leerkracht erbij, of null als ze niet bestaat of verlopen is.
+  // Verlopen sessies geven bewust null i.p.v. een rij: zo kan een aanroeper niet per
+  // ongeluk een verlopen sessie als geldig behandelen.
+  async getTeacherSession(tokenHash) {
+    const r = await query(
+      `SELECT s.token_hash, s.teacher_id, s.created_at, s.expires_at, s.last_seen,
+              t.username, t.display_name, t.role
+         FROM teacher_sessions s
+         JOIN teachers t ON t.id = s.teacher_id
+        WHERE s.token_hash = $1 AND s.expires_at > $2
+        LIMIT 1`,
+      [tokenHash, Date.now()]
+    );
+    return r.rows[0] || null;
+  },
+
+  async deleteTeacherSession(tokenHash) {
+    await query(`DELETE FROM teacher_sessions WHERE token_hash = $1`, [tokenHash]);
+  },
+
+  // Bij wachtwoordwijziging of verwijdering: alle sessies van die leerkracht weg.
+  async deleteTeacherSessionsFor(teacherId) {
+    await query(`DELETE FROM teacher_sessions WHERE teacher_id = $1`, [teacherId]);
+  },
+
+  // Opruimen — anders groeit de tabel eeuwig aan met dode sessies.
+  async deleteExpiredTeacherSessions() {
+    const r = await query(`DELETE FROM teacher_sessions WHERE expires_at <= $1`, [Date.now()]);
+    return r.rowCount || 0;
+  },
+
+  async listTeacherSessions(teacherId) {
+    const r = await query(
+      `SELECT token_hash, created_at, expires_at, last_seen, user_agent, ip
+         FROM teacher_sessions WHERE teacher_id = $1 ORDER BY created_at DESC`,
+      [teacherId]
+    );
+    return r.rows;
   },
 
   async listTeachers() {

@@ -161,6 +161,11 @@ const createPasswordHash = authLib.createPasswordHash;
 const verifyPasswordWithHash = authLib.verifyPasswordWithHash;
 const parseBasicAuthHeader = authLib.parseBasicAuthHeader;
 const parseCookieHeader = authLib.parseCookieHeader;
+// Sprint 50a: sessietokens per leerkracht
+const createSessionToken = authLib.createSessionToken;
+const hashSessionToken = authLib.hashSessionToken;
+// Sprint 50b: pure beslisregel voor 'wie is er ingelogd?'
+const bepaalTeacherIdentiteit = authLib.bepaalTeacherIdentiteit;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -218,30 +223,41 @@ function getAuthBlockRemainingMs(ip) {
 
 // parseBasicAuthHeader nu in lib/auth.js (sprint 34a)
 
-async function credentialsAreValid(authHeader) {
-  // Sprint 12a: async omdat PostgreSQL queries async zijn
-  if (!BASIC_AUTH_ENABLED) return true;
+// Sprint 50a: geeft de LEERKRACHT terug i.p.v. enkel true/false.
+// Nodig omdat we vanaf nu een sessie per gebruiker aanmaken en dus moeten weten wie inlogt.
+// Geeft null bij ongeldige gegevens, of een pseudo-leerkracht {id:null, source:'env'}
+// wanneer de login via de .env-fallback gaat — daar hoort geen databankrij bij.
+async function authenticateTeacher(authHeader) {
+  if (!BASIC_AUTH_ENABLED) return { id: null, username: 'anoniem', role: 'teacher', source: 'open' };
   const creds = parseBasicAuthHeader(authHeader);
-  if (!creds) return false;
+  if (!creds) return null;
 
   // PostgreSQL database (primair)
   try {
     const teacher = await dbModule.getTeacherByUsername(creds.username);
     if (teacher) {
-      const valid = verifyPasswordWithHash(creds.password, teacher.pass_hash);
-      if (valid) dbModule.updateLastLogin(teacher.id).catch(()=>{});
-      return valid;
+      if (!verifyPasswordWithHash(creds.password, teacher.pass_hash)) return null;
+      dbModule.updateLastLogin(teacher.id).catch(() => {});
+      return { id: teacher.id, username: teacher.username, displayName: teacher.display_name,
+               role: teacher.role, source: 'db' };
     }
   } catch (e) {
     log.error('[auth] DB fout:', e.message);
   }
 
-  // Fallback: .env credentials
+  // Fallback: .env credentials — geen databankrij, dus geen sessie (50f verwijdert dit pad).
   if (BASIC_AUTH_USER && PASSWORD_HASH) {
-    return safeEqual(creds.username, BASIC_AUTH_USER) && verifyPasswordWithHash(creds.password, PASSWORD_HASH);
+    if (safeEqual(creds.username, BASIC_AUTH_USER) && verifyPasswordWithHash(creds.password, PASSWORD_HASH)) {
+      return { id: null, username: BASIC_AUTH_USER, role: 'admin', source: 'env' };
+    }
   }
+  return null;
+}
 
-  return false;
+async function credentialsAreValid(authHeader) {
+  // Sprint 12a: async omdat PostgreSQL queries async zijn
+  // Sprint 50a: leunt nu op authenticateTeacher; gedrag blijft identiek (true/false).
+  return (await authenticateTeacher(authHeader)) !== null;
 }
 
 async function requireBasicAuth(req, res, next) {
@@ -331,15 +347,87 @@ function setTeacherCookie(res) {
   res.setHeader("Set-Cookie", `teacher_auth=${encodeURIComponent(teacherCookieValue())}; Path=/; HttpOnly; SameSite=Strict; Secure${maxAgePart}`);
 }
 
+// ── Sprint 50a: echte sessie per leerkracht ──────────────────────────────────
+// Voegt een cookie toe zonder bestaande Set-Cookie-headers te overschrijven —
+// setTeacherCookie en setCsrfCookie zetten er ook, en die mogen niet sneuvelen.
+function voegCookieToe(res, cookie) {
+  const bestaand = res.getHeader('Set-Cookie');
+  const lijst = Array.isArray(bestaand) ? bestaand : (bestaand ? [bestaand] : []);
+  res.setHeader('Set-Cookie', [...lijst, cookie]);
+}
+
+// Maakt de sessierij aan en geeft de browser het token mee.
+// Bewust fail-safe: gaat dit mis, dan blijft de login gewoon slagen via het oude
+// cookie. Zo kan 50a uitgerold worden zonder risico dat niemand meer binnen raakt.
+async function maakLeerkrachtSessie(req, res, teacher) {
+  try {
+    if (!teacher || !teacher.id) {
+      // Login via de .env-fallback of open modus: er is geen leerkracht-rij, dus geen
+      // sessie mogelijk (de tabel heeft een foreign key). 50f verwijdert dat pad.
+      if (teacher && teacher.source === 'env') {
+        log.warn('[auth] login via .env-fallback — geen sessie aangemaakt. Maak een echte leerkracht aan (pycodeflow.sh optie 10).');
+      }
+      return null;
+    }
+    const token = createSessionToken();
+    const maxAge = SESSION_MAX_AGE_SECONDS > 0 ? SESSION_MAX_AGE_SECONDS : 8 * 3600;
+    await dbModule.createTeacherSession({
+      tokenHash: hashSessionToken(token),
+      teacherId: teacher.id,
+      expiresAt: Date.now() + maxAge * 1000,
+      userAgent: req.headers['user-agent'] || '',
+      ip: getClientIp(req) || '',
+    });
+    voegCookieToe(res, `teacher_sid=${token}; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=${maxAge}`);
+    log.info(`[auth] sessie aangemaakt voor ${teacher.username}`);
+    return token;
+  } catch (e) {
+    log.error('[auth] sessie aanmaken mislukt:', e.message);
+    return null;   // login slaagt alsnog via het oude cookie
+  }
+}
+
+// Leest de sessie uit het teacher_sid-cookie. Geeft null als er geen (geldige) is.
+// 50b gaat dit gebruiken om req.teacher te vullen; nu al aanwezig zodat we kunnen testen.
+async function leesLeerkrachtSessie(req) {
+  try {
+    const cookies = parseCookieHeader(req.headers.cookie);
+    const token = cookies.teacher_sid;
+    if (!token) return null;
+    return await dbModule.getTeacherSession(hashSessionToken(token));
+  } catch (e) {
+    log.warn('[auth] sessie lezen mislukt:', e.message);
+    return null;
+  }
+}
+
+// ── Sprint 50b: wie is er ingelogd? ──────────────────────────────────────────
+// Vanaf nu draagt elk beschermd verzoek een identiteit: req.teacher.
+// De beslisregel zelf staat in lib/auth.js (bepaalTeacherIdentiteit) — pure logica,
+// dus getest zonder databank. Hier halen we enkel de bouwstenen op.
+// Wie al met 50a inlogde krijgt zijn echte identiteit; een oude browsersessie blijft
+// werken via het gedeelde cookie. 50f haalt die terugval weg.
 async function requireTeacherAuth(req, res, next) {
-  if (!BASIC_AUTH_ENABLED) return next();
-  if (hasValidTeacherCookie(req.headers.cookie)) return next();
+  const sessie = BASIC_AUTH_ENABLED ? await leesLeerkrachtSessie(req) : null;
+  const identiteit = bepaalTeacherIdentiteit({
+    sessie,
+    heeftLegacyCookie: BASIC_AUTH_ENABLED && hasValidTeacherCookie(req.headers.cookie),
+    envUser: BASIC_AUTH_USER,
+    authUit: !BASIC_AUTH_ENABLED,
+  });
+
+  if (identiteit) {
+    req.teacher = identiteit;
+    return next();
+  }
+
   // Stuur de browser door naar de custom login-pagina i.p.v. de native browser-popup
   // te tonen via WWW-Authenticate. De ?next= parameter zorgt voor de juiste redirect
   // na succesvolle authenticatie.
   const dest = encodeURIComponent(req.path);
   return res.redirect(`/teacher-login.html?next=${dest}`);
 }
+
 
 function socketIsTeacherAuthorized(socket) {
   if (!BASIC_AUTH_ENABLED) return true;
@@ -459,13 +547,18 @@ app.post('/api/teacher-login', async (req, res) => {
     return res.status(400).json({ error: 'Veld ontbreekt' });
   }
 
-  // Bouw een nep Authorization-header zodat we credentialsAreValid kunnen hergebruiken
+  // Bouw een nep Authorization-header zodat we authenticateTeacher kunnen hergebruiken
   const fakeAuthHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
-  const valid = await credentialsAreValid(fakeAuthHeader); // await! anders wordt DB niet gecheckt
+  const teacher = await authenticateTeacher(fakeAuthHeader); // await! anders wordt DB niet gecheckt
 
-  if (valid) {
+  if (teacher) {
     clearAuthFailures(ip);
     setTeacherCookie(res);
+    // Sprint 50a: maak daarnaast een ECHTE sessie aan, gekoppeld aan deze leerkracht.
+    // Additief: het oude teacher_auth-cookie blijft voorlopig bepalen of je binnen mag
+    // (50b gaat dit cookie lezen, 50f haalt het oude weg). Faalt dit, dan mag de login
+    // niet mislukken — daarom vangen we alles op en loggen we enkel.
+    await maakLeerkrachtSessie(req, res, teacher);
     setCsrfCookie(res);
     return res.json({ ok: true });
   }
@@ -517,6 +610,21 @@ app.get('/student', (req, res) => {
 app.get('/teacher', (req, res) => {
   // Leidt naar het leerkrachtenplatform; requireTeacherAuth stuurt zo nodig door naar login.
   res.redirect('/teacher-sessions.html');
+});
+
+// Sprint 50b: laat de ingelogde leerkracht zien wie de app dénkt dat hij is.
+// Dit is meteen de test voor deze sprint: log in als A en als B in twee browsers,
+// en dit moet twee verschillende namen geven.
+app.get('/api/me', requireTeacherAuth, (req, res) => {
+  res.json({
+    username: req.teacher.username,
+    displayName: req.teacher.displayName,
+    role: req.teacher.role,
+    source: req.teacher.source,
+    // Toont of de identiteit betrouwbaar is. Bij 'legacy' weet de app enkel dát
+    // je mag, niet wie je bent — dat is precies wat fase 1 oplost.
+    identiteitBekend: req.teacher.source === 'session',
+  });
 });
 
 app.get('/api/version', (req, res) => {
@@ -598,7 +706,7 @@ app.get('/api/system-stats', requireTeacherAuth, async (req, res) => {
 
 // Whitelist van toegestane tabelnamen — geen vrije SQL input mogelijk
 const DB_VIEWER_TABLES = [
-  'teachers', 'classes', 'teacher_classes', 'students',
+  'teachers', 'teacher_sessions', 'classes', 'teacher_classes', 'students',
   'sessions', 'student_sessions', 'session_history',
   'question_bank', 'assignment_bank', 'quiz_answers', 'quiz_student_sessions',
   'announcements', 'audit_log', 'free_audit_log',
@@ -606,7 +714,9 @@ const DB_VIEWER_TABLES = [
 ];
 
 // Gevoelige kolommen die gemaskeerd worden
-const DB_VIEWER_MASKED = ['password_hash', 'cookie_secret', 'google_sub', 'token'];
+// 50a: token_hash erbij — uit een hash valt geen sessie te herleiden, maar hij hoort
+// evenmin in een overzichtsscherm te staan.
+const DB_VIEWER_MASKED = ['password_hash', 'cookie_secret', 'google_sub', 'token', 'token_hash'];
 
 app.get('/api/admin/db/tables', requireTeacherAuth, async (req, res) => {
   try {
@@ -5048,9 +5158,18 @@ cleanOldLogs();
   const now = new Date();
   const next3am = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 3, 0, 0);
   const msUntil3am = next3am - now;
-  setTimeout(() => {
+  // Sprint 50a: verlopen leerkracht-sessies mee opruimen — anders groeit die tabel
+  // eeuwig aan met dode rijen. Fail-safe: een fout hier mag de log-cleanup niet stoppen.
+  const opruimen = async () => {
     cleanOldLogs();
-    setInterval(cleanOldLogs, 24 * 60 * 60 * 1000);
+    try {
+      const weg = await dbModule.deleteExpiredTeacherSessions();
+      if (weg > 0) log.info(`[auth] ${weg} verlopen leerkracht-sessie(s) opgeruimd`);
+    } catch (e) { log.warn('[auth] opruimen sessies mislukt:', e.message); }
+  };
+  setTimeout(() => {
+    opruimen();
+    setInterval(opruimen, 24 * 60 * 60 * 1000);
   }, msUntil3am);
   log.info(`[logs] Automatische cleanup gepland om 03:00 (over ${Math.round(msUntil3am/3600000)}u)`);
 })();

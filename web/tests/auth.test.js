@@ -128,3 +128,114 @@ test('parseCookieHeader: lege header → leeg object', () => {
   assert.deepStrictEqual(auth.parseCookieHeader(''), {});
   assert.deepStrictEqual(auth.parseCookieHeader(null), {});
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Sprint 50a — Sessietokens voor leerkracht-logins
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test('createSessionToken: 64 hex-tekens (256 bit)', () => {
+  const t = auth.createSessionToken();
+  assert.match(t, /^[0-9a-f]{64}$/);
+});
+
+test('createSessionToken: elke aanroep geeft een ANDER token', () => {
+  const tokens = new Set();
+  for (let i = 0; i < 200; i++) tokens.add(auth.createSessionToken());
+  assert.strictEqual(tokens.size, 200, 'geen enkel token mag herhalen');
+});
+
+test('hashSessionToken: zelfde token → zelfde hash', () => {
+  const t = auth.createSessionToken();
+  assert.strictEqual(auth.hashSessionToken(t), auth.hashSessionToken(t));
+});
+
+test('hashSessionToken: ander token → andere hash', () => {
+  assert.notStrictEqual(
+    auth.hashSessionToken(auth.createSessionToken()),
+    auth.hashSessionToken(auth.createSessionToken())
+  );
+});
+
+test('hashSessionToken: 64 hex-tekens (sha256)', () => {
+  assert.match(auth.hashSessionToken('wat dan ook'), /^[0-9a-f]{64}$/);
+});
+
+test('hashSessionToken: de hash bevat het token NIET', () => {
+  // Kern van de opzet: uit de databank valt geen bruikbaar token te halen.
+  const t = auth.createSessionToken();
+  const h = auth.hashSessionToken(t);
+  assert.ok(!h.includes(t), 'hash mag het token niet bevatten');
+  assert.notStrictEqual(h, t);
+});
+
+test('hashSessionToken: lege/ontbrekende invoer crasht niet', () => {
+  assert.match(auth.hashSessionToken(''), /^[0-9a-f]{64}$/);
+  assert.match(auth.hashSessionToken(null), /^[0-9a-f]{64}$/);
+  assert.match(auth.hashSessionToken(undefined), /^[0-9a-f]{64}$/);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Sprint 50b — Wie is er ingelogd? (bepaalTeacherIdentiteit)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const sessieA = { teacher_id: 'id-a', username: 'anja',  display_name: 'Anja V.', role: 'teacher' };
+const sessieB = { teacher_id: 'id-b', username: 'bram',  display_name: 'Bram K.', role: 'admin'   };
+
+test('50b KERNTEST: sessie van A geeft A, sessie van B geeft B', () => {
+  const a = auth.bepaalTeacherIdentiteit({ sessie: sessieA });
+  const b = auth.bepaalTeacherIdentiteit({ sessie: sessieB });
+  assert.strictEqual(a.id, 'id-a');
+  assert.strictEqual(a.username, 'anja');
+  assert.strictEqual(b.id, 'id-b');
+  assert.strictEqual(b.username, 'bram');
+  assert.notStrictEqual(a.id, b.id, 'twee leerkrachten mogen nooit dezelfde identiteit krijgen');
+});
+
+test('50b: rol komt uit de sessie, niet uit een aanname', () => {
+  assert.strictEqual(auth.bepaalTeacherIdentiteit({ sessie: sessieA }).role, 'teacher');
+  assert.strictEqual(auth.bepaalTeacherIdentiteit({ sessie: sessieB }).role, 'admin');
+});
+
+test('50b: een echte sessie WINT van het oude gedeelde cookie', () => {
+  const r = auth.bepaalTeacherIdentiteit({ sessie: sessieA, heeftLegacyCookie: true, envUser: 'gedeeld' });
+  assert.strictEqual(r.source, 'session');
+  assert.strictEqual(r.username, 'anja', 'het gedeelde cookie mag de echte identiteit niet overschrijven');
+});
+
+test('50b: enkel het oude cookie → we weten DÁT iemand mag, niet wie', () => {
+  const r = auth.bepaalTeacherIdentiteit({ heeftLegacyCookie: true, envUser: 'leerkracht' });
+  assert.strictEqual(r.source, 'legacy');
+  assert.strictEqual(r.id, null, 'zonder sessie is er geen id — dat is de hele reden voor fase 1');
+  assert.strictEqual(r.username, 'leerkracht');
+});
+
+test('50b: oud cookie krijgt NOOIT stilzwijgend adminrechten', () => {
+  const r = auth.bepaalTeacherIdentiteit({ heeftLegacyCookie: true, envUser: 'x' });
+  assert.strictEqual(r.role, 'teacher');
+});
+
+test('50b: geen sessie en geen cookie → null (naar de login)', () => {
+  assert.strictEqual(auth.bepaalTeacherIdentiteit({}), null);
+  assert.strictEqual(auth.bepaalTeacherIdentiteit(), null);
+});
+
+test('50b: authenticatie uit → open toegang, herkenbaar aan source', () => {
+  const r = auth.bepaalTeacherIdentiteit({ authUit: true });
+  assert.strictEqual(r.source, 'open');
+  assert.strictEqual(r.id, null);
+});
+
+test('50b: authUit wint van alles (geen halve toestand)', () => {
+  const r = auth.bepaalTeacherIdentiteit({ authUit: true, sessie: sessieA, heeftLegacyCookie: true });
+  assert.strictEqual(r.source, 'open');
+});
+
+test('50b: sessie zonder display_name of role → veilige standaarden', () => {
+  const r = auth.bepaalTeacherIdentiteit({ sessie: { teacher_id: 'i', username: 'u' } });
+  assert.strictEqual(r.displayName, '');
+  assert.strictEqual(r.role, 'teacher');
+});
+
+test('50b: legacy zonder envUser → onbekend, niet leeg', () => {
+  assert.strictEqual(auth.bepaalTeacherIdentiteit({ heeftLegacyCookie: true }).username, 'onbekend');
+});
