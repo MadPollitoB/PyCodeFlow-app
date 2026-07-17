@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.48.8**
+**Huidige versie: v2026.2.48.9**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -32,7 +32,6 @@
 | Sprint | Prio | Cat | Inhoud | Inschatting |
 |---|---|---|---|---|
 | **43.13** | 🟡 P5 | BUG | **Monaco-worker-warning** *"Could not create web worker(s)"* blijft, ondanks `monaco-env.js` (43.6c). Diagnose was fout. Niet fataal: de editor werkt, maar valt terug op de main-thread (mogelijke UI-freezes bij grote bestanden). Vereist onderzoek in de browser (Network-tab: laadt `/monaco/min/vs/base/worker/workerMain.js`?). Ook de geblokkeerde `purify.min.js.map` (sourcemap) hoort hierbij — onschuldig. | ~0.5 dag |
-| **48b2** | 🟠 P8 | UX | **Schoolkeuze-grid** bij >1 school: dropdown met eigen scholen, logingegevens grijs, knoppen **Annuleren** / **Kiezen**. Annuleren vernietigt de half-ingelogde toestand. *Test: lijst verschijnt pas ná geslaagde login; annuleren → schoon loginscherm.* | ~1 dag |
 | **48b3** | 🟡 P6 | UX | **Schoollogo** naast het PyCodeFlow-icoon op alle schermen ná schoolkeuze. Niet op start-/loginscherm (geen school bekend); bij leerlingen pas ná login. *Test: logo volgt de gekozen school; wisselen van school wisselt het logo.* | ~0.5 dag |
 | **51a** | 🟠 P8 | AUTH | **Fase 2** — `teacher_id` (eigenaar) op `sessions` + backfill bestaande rijen. *Test: nieuwe sessie krijgt de juiste eigenaar.* | ~0.5 dag |
 | **51b** | 🟠 P8 | AUTH | **Fase 2** — Autorisatie: leerkracht beheert enkel **eigen** sessies; admin alles **binnen de school**. *Test: A kan B's sessie niet openen/sluiten/verwijderen (403).* | ~1.5 dag |
@@ -167,6 +166,7 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 67 | **48a2** | **Leerkracht ↔ school** — koppeltabel `teacher_schools` (veel-op-veel) + vinkjes-popup in het leerkrachtenbeheer. Voedt straks het schoolkeuze-scherm | v2026.2.48.6 |
 | 68 | **48a3** | **E-maildomeinen** — `school_domains` + de regels (`athkiel.be` exact vs `*.athkiel.be` subdomeinen), uitleg en **testveldje** in het beheer. 21 unittests | v2026.2.48.7 |
 | 69 | **48b1** | **Actieve school** — `active_school_id` server-side in de sessie; bij precies 1 school automatisch gekozen. Zichtbaar via `/api/me` | v2026.2.48.8 |
+| 70 | **48b2** | **Schoolkeuze-scherm** — grid met dropdown bij >1 school, logingegevens grijs, knoppen Annuleren/Kiezen. Lijst verschijnt pas ná een geslaagde login | v2026.2.48.9 |
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
@@ -300,6 +300,30 @@ Startscherm → "Ik ben leerkracht" → login. **Na een geslaagde login:**
 **Login-bug (root cause):** sinds sprint 45 serveert de app de leerling-ingang op de nette route **`/student`**, waardoor `page === 'student'`. Maar `_socketPages` in `app.js` (de lijst pagina's die een echte Socket.IO-verbinding krijgen) bevatte wél `'student-start.html'` maar **niet `'student'`**. Op `/student` werd de socket dus een **no-op stub** → `socket.emit('student_join', …)` deed niets → "Deelnemen" en "Vrij oefenen" leken dood. **Fix:** `'student'` toegevoegd aan `_socketPages`. (De CSP-report-only-meldingen in de console waren onschuldig en niet de oorzaak.)
 
 **Sessie-overzicht (Req A):** `teacher-sessions.html` heeft nu drie tabs **Sessies / 🧪 Toetsen / 📝 Taken**. De Toetsen- en Taken-tabs tonen **enkel actieve** items (geen previews, geen gesloten/verlopen), gefilterd op type. De volledige bank (incl. previews, met activeren/verwijderen/filters) blijft bereikbaar via de nav-link "📚 Toetsen & taken" (`?tab=quizzes`).
+
+---
+
+### Sprint 48b2 — Het schoolkeuze-scherm *(~1 dag)* — ✅ AFGEROND (v2026.2.48.9)
+
+**Cat:** UX · **Prio:** 🟠 P8 · *(jouw ontwerp, precies zoals beschreven)*
+
+**Wat is gebouwd, exact volgens je ontwerp:**
+- Werkt de leerkracht op **meerdere scholen**, dan verschijnt na het aanmelden een **extra grid met een dropdown** van *zijn* scholen.
+- De **logingegevens worden grijs** — uitgeschakeld, niet verborgen, zodat je ziet met welk account je binnen bent.
+- De knop "Aanmelden" verdwijnt en wordt **Annuleren** / **Kiezen**.
+- Bij **1 school** verschijnt er niets: je gaat meteen door (48b1).
+
+**De lijst komt pas ná een geslaagde login.** Dat zat al goed in je ontwerp en is bewust zo gebouwd: zolang je niet aangemeld bent, verklapt de app aan niemand welke scholen er bestaan.
+
+**Annuleren meldt écht af.** Je *bent* aangemeld — enkel zonder school. Alleen het scherm verbergen zou een half-aangemelde toestand laten staan. Daarom gaat "Annuleren" naar `/api/teacher-logout`: de server trekt de sessie in, wist de cookies, en je komt terug op een schoon loginscherm.
+
+**Het beveiligingspunt: de browser stuurt enkel een wens.** `POST /api/teacher-login/school` controleert **server-side** of die school wel aan deze leerkracht gekoppeld is — enkel actieve scholen tellen. Zonder die controle zou iedereen zich op eender welke school kunnen zetten, en dat is precies het lek dat fase 3 moet voorkomen. Een poging wordt gelogd met naam en al (dankzij 50e) en geeft **403**.
+
+**De regel wanneer het scherm verschijnt** is nagespeeld op vijf gevallen: geen scholen → doorgaan · 1 school → doorgaan · 2 scholen zonder keuze → **tonen** · 2 scholen met er al één actief → doorgaan · geen sessie → doorgaan.
+
+**Detail:** de `select` had nog geen styling (die bestond enkel voor `input`) en zou uit de loginkaart vallen. Meegenomen.
+
+**Tests:** geen nieuwe unittests — dit is een scherm plus een endpoint met een databankcontrole. De keuzeregel zelf (`kiesActieveSchool`) is al getest in 48b1. Suite blijft **218/218 groen**. Checklist in `test-readme.md` §81.
 
 ---
 

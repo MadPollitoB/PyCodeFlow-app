@@ -384,9 +384,11 @@ async function maakLeerkrachtSessie(req, res, teacher) {
   // Sprint 48b1: bij precies één school meteen kiezen — geen keuzescherm voor een
   // keuze die er niet is. Bij nul (de huidige toestand) of meerdere blijft dit null;
   // 48b2 voegt het keuzescherm toe.
+  let scholen = [];
   let actieveSchool = null;
   try {
-    actieveSchool = validationLib.kiesActieveSchool(await dbModule.getSchoolsForTeacher(teacher.id));
+    scholen = await dbModule.getSchoolsForTeacher(teacher.id);
+    actieveSchool = validationLib.kiesActieveSchool(scholen);
   } catch (e) {
     // Scholen zijn (nog) bijzaak: een fout hier mag het inloggen niet tegenhouden.
     log.warn('[auth] scholen ophalen bij login mislukt:', e.message);
@@ -402,7 +404,10 @@ async function maakLeerkrachtSessie(req, res, teacher) {
   });
   voegCookieToe(res, `teacher_sid=${token}; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=${maxAge}`);
   log.info(`[auth] sessie aangemaakt voor ${teacher.username}`);
-  return token;
+  // Sprint 48b2: bij meerdere scholen moet de leerkracht nog kiezen. We geven de lijst
+  // pas hier terug — dus ná een geslaagde login. Zo verklap je aan niemand welke
+  // scholen er bestaan.
+  return { token, scholen, actieveSchool };
 }
 
 // Leest de sessie uit het teacher_sid-cookie. Geeft null als er geen (geldige) is.
@@ -632,14 +637,21 @@ app.post('/api/teacher-login', async (req, res) => {
     // Sprint 50a/50f: de sessie ís nu de login. Er is geen gedeeld cookie meer dat
     // je alsnog binnenlaat, dus mislukt dit, dan is er ook geen toegang — vandaar dat
     // maakLeerkrachtSessie hieronder eerlijk faalt i.p.v. stil door te gaan.
+    let sessie;
     try {
-      await maakLeerkrachtSessie(req, res, teacher);
+      sessie = await maakLeerkrachtSessie(req, res, teacher);
     } catch (e) {
       log.error('[auth] sessie aanmaken mislukt:', e.message);
       return res.status(500).json({ error: 'Aanmelden lukte niet door een serverfout. Probeer het opnieuw.' });
     }
     setCsrfCookie(res);
-    return res.json({ ok: true });
+    // Sprint 48b2: meerdere scholen en nog niets gekozen → de browser toont het
+    // keuzescherm. Bij 0 of 1 school is er niets te kiezen en ga je meteen door.
+    const moetKiezen = sessie && !sessie.actieveSchool && (sessie.scholen || []).length > 1;
+    return res.json({
+      ok: true,
+      ...(moetKiezen && { kiesSchool: sessie.scholen.map(s => ({ id: s.id, name: s.name })) }),
+    });
   }
 
   const state = registerAuthFailure(ip);
@@ -694,6 +706,37 @@ app.get('/teacher', (req, res) => {
 // Sprint 50b: laat de ingelogde leerkracht zien wie de app dénkt dat hij is.
 // Dit is meteen de test voor deze sprint: log in als A en als B in twee browsers,
 // en dit moet twee verschillende namen geven.
+// ── Sprint 48b2: school kiezen na het inloggen ───────────────────────────────
+// Wordt enkel gebruikt als een leerkracht op meerdere scholen werkt.
+// De keuze wordt SERVER-SIDE op de sessie gezet — de browser stuurt enkel welk id hij
+// wil, en dat wordt hier gecontroleerd. Zonder die controle zou iemand met twee scholen
+// (of één) zich op eender welke school kunnen zetten, en dat is precies het lek dat
+// fase 3 moet voorkomen.
+app.post('/api/teacher-login/school', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { schoolId } = req.body || {};
+  if (!schoolId) return res.status(400).json({ error: 'schoolId vereist' });
+  if (!req.teacher?.id) return res.status(400).json({ error: 'Geen leerkracht-sessie.' });
+
+  try {
+    // Mag deze leerkracht wel op deze school? Enkel actieve scholen tellen.
+    const eigen = await dbModule.getSchoolsForTeacher(req.teacher.id);
+    const school = eigen.find(s => s.id === schoolId);
+    if (!school) {
+      log.warn(`[auth] ${req.teacher.username} probeerde school ${schoolId} te kiezen zonder koppeling`);
+      return res.status(403).json({ error: 'Je hebt geen toegang tot die school.' });
+    }
+
+    const cookies = parseCookieHeader(req.headers.cookie);
+    if (!cookies.teacher_sid) return res.status(400).json({ error: 'Geen sessie gevonden.' });
+    await dbModule.setSessionActiveSchool(hashSessionToken(cookies.teacher_sid), schoolId);
+    dbModule.auditLog(getActorFromReq(req), 'school_selected', schoolId, { name: school.name }, req.ip).catch(() => {});
+    res.json({ ok: true, name: school.name });
+  } catch (e) {
+    log.error('[auth] school kiezen mislukt:', e.message);
+    res.status(500).json({ error: 'Kiezen lukte niet. Probeer opnieuw.' });
+  }
+});
+
 app.get('/api/me', requireTeacherAuth, (req, res) => {
   res.json({
     username: req.teacher.username,

@@ -81,7 +81,8 @@
     text-transform: uppercase;
   }
 
-  .login-fields input {
+  .login-fields input,
+  .login-fields select {
     width: 100%;
     padding: 12px 16px;
     border: 1.5px solid var(--border);
@@ -93,7 +94,8 @@
     transition: border-color 0.15s;
   }
 
-  .login-fields input:focus {
+  .login-fields input:focus,
+  .login-fields select:focus {
     border-color: var(--primary);
     background: #fff;
   }
@@ -206,6 +208,21 @@
     </div>
 
     <button class="login-btn" id="login-btn" type="button">Aanmelden</button>
+
+    <!-- Sprint 48b2: verschijnt ENKEL bij meerdere scholen, en pas ná een geslaagde
+         login. Zo verklap je aan niemand welke scholen er bestaan. -->
+    <div class="login-fields" id="school-grid" style="display:none;margin-top:14px;">
+      <div>
+        <label for="school-select">School</label>
+        <select id="school-select"></select>
+      </div>
+    </div>
+    <div id="school-actions" style="display:none;gap:8px;margin-top:10px;">
+      <!-- flex wordt in JS gezet; de knoppen delen de breedte -->
+      <button class="login-btn" id="school-cancel" type="button"
+        style="background:var(--surface-soft);color:var(--text);border:1.5px solid var(--border);">Annuleren</button>
+      <button class="login-btn" id="school-pick" type="button">Kiezen</button>
+    </div>
 
     <div class="login-error" id="login-error">Gebruikersnaam of wachtwoord onjuist.</div>
     <div class="login-blocked" id="login-blocked">Te veel mislukte pogingen. Probeer later opnieuw.</div>

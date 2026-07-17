@@ -2595,4 +2595,52 @@ en herstart. Daarna:
    (de actieve school staat server-side in teacher_sessions)
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.48.8 · 16 juli 2026*
+## 81. Sprint 48b2 — Het schoolkeuze-scherm
+
+```
+⚠️ VOORAF: 2 scholen aanmaken en leerkracht "anja" aan BEIDE koppelen.
+   Leerkracht "bram" aan precies 1 school. Leerkracht "kris" aan geen enkele.
+
+— Geen school (huidige toestand) —
+✅ Kris logt in → GEEN keuzescherm, gaat meteen door
+✅ Alles werkt zoals altijd
+
+— Eén school → automatisch —
+✅ Bram logt in → GEEN keuzescherm, gaat meteen door
+✅ /api/me toont zijn school
+
+— Meerdere scholen → het keuzescherm —
+✅ Anja logt in → er verschijnt een grid met een dropdown
+✅ De dropdown toont ENKEL haar 2 scholen (niet alle scholen van het systeem)
+✅ Gebruikersnaam en wachtwoord zijn GRIJS (zichtbaar, maar niet meer aanpasbaar)
+✅ De knop "Aanmelden" is weg; er staan "Annuleren" en "Kiezen"
+✅ "Kiezen" → ze belandt op het sessiescherm
+✅ /api/me toont de gekozen school
+✅ Database viewer → teacher_sessions: active_school_id is ingevuld
+
+— De lijst lekt niet —
+✅ Vóór het aanmelden is er GEEN schoolkeuze zichtbaar
+✅ Met een FOUT wachtwoord verschijnt de lijst NIET
+   (zo kan niemand zien welke scholen er bestaan)
+
+— Annuleren meldt echt af —
+✅ Anja logt in → keuzescherm → "Annuleren"
+✅ Ze komt op een SCHOON loginscherm (velden weer bruikbaar)
+✅ F12 → Cookies: teacher_sid is weg
+✅ Database viewer → teacher_sessions: haar rij is verdwenen
+✅ Een leerkracht-pagina openen → terug naar login (geen half-aangemelde toestand)
+
+— KERNTEST: je kan geen school kiezen die niet van jou is —
+✅ Anja logt in en krijgt het keuzescherm
+✅ Wijzig in F12 de waarde van de dropdown naar het id van een school
+   waar ze NIET aan gekoppeld is (uit de tab Scholen)
+✅ Klik "Kiezen" → melding "Je hebt geen toegang tot die school." (403)
+✅ Weblog toont de poging MET haar naam
+✅ active_school_id blijft ongewijzigd
+
+— Andere wegen —
+✅ Enter in de dropdown werkt als "Kiezen"
+✅ Een gedeactiveerde school staat NIET in de dropdown
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.48.9 · 16 juli 2026*
