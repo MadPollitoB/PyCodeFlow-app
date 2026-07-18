@@ -127,6 +127,15 @@ function isValidRole(role) {
   return role === 'teacher' || role === 'admin';
 }
 
+// ── Sprint 43.14: toets/taak-type is voortaan EXPLICIET, niet afgeleid uit de
+// timerkeuze (dat was de bug: "+ Nieuwe taak" maakte via een hardgecodeerd scherm
+// gewoon een toets). Het type komt uit de link waarmee het aanmaakscherm geopend
+// werd en staat al vast op het moment van openen — de server vertrouwt het client-
+// veld dus niet blind, maar valideert het net zoals elk ander verplicht veld.
+function isValidAssignmentType(type) {
+  return type === 'toets' || type === 'taak';
+}
+
 module.exports = {
   isValidSessionCode,
   ALLOWED_CONFIG_KEYS,
@@ -143,4 +152,6 @@ module.exports = {
   valideerDomein,
   // Sprint 48b1: automatische schoolkeuze
   kiesActieveSchool,
+  // Sprint 43.14: expliciet toets/taak-type
+  isValidAssignmentType,
 };

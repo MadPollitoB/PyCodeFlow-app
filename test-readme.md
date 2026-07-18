@@ -2643,4 +2643,39 @@ en herstart. Daarna:
 ✅ Een gedeactiveerde school staat NIET in de dropdown
 ```
 
-*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.48.9 · 16 juli 2026*
+## 82. Sprint 48b3 — Het schoollogo
+
+```
+⚠️ VOORAF: zet bij een school een logo-pad dat op de NAS bestaat,
+   bv. /app/public/assets/pycodeflow-logo.png (absoluut pad!)
+
+— Waar het logo NIET hoort —
+✅ Startscherm (/) → enkel het PyCodeFlow-logo, geen schoollogo
+✅ Loginscherm → geen schoollogo
+✅ Leerling deelnemen-scherm → geen schoollogo
+✅ Leerling in een sessie → geen schoollogo (komt pas met 52 + 48c1)
+
+— Waar het wel hoort —
+✅ Log in als leerkracht met een actieve school (met logo-pad)
+✅ Topbalk toont: PyCodeFlow-logo | PyCodeFlow | schoollogo | schoolnaam
+✅ Op ALLE leerkrachtpagina's: sessies, vragenbank, toets/taak overzicht,
+   archief, beheer, én systeem (14 pagina's)
+✅ Wissel van school (afmelden → opnieuw → andere kiezen) → logo volgt mee
+
+— Geen logo ingesteld —
+✅ School zonder logo-pad → enkel de schoolnaam verschijnt, geen kapot icoon
+✅ Logo-pad naar een onbestaand bestand → geen gebroken-afbeelding-icoon,
+   enkel de naam blijft staan
+
+— KERNTEST: padcontrole —
+✅ Zet als logo-pad "../../etc/passwd" → /school-logo geeft 400, niets uitgeserveerd
+✅ Zet "/etc/passwd" → 400 (geen afbeeldingsextensie)
+✅ Zet "logo.png" (relatief) → 400
+✅ Weblog toont "[school-logo] geweigerd pad"
+
+— Terugval voor één school —
+✅ Leerkracht zonder gekoppelde school + SCHOOL_LOGO_PATH in .env
+   → dat logo verschijnt nog steeds (bestaande installaties blijven werken)
+```
+
+*PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.48.10 · 16 juli 2026*

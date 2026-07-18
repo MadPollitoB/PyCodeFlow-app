@@ -148,8 +148,14 @@ async function initSchema() {
       shared_code     TEXT NOT NULL DEFAULT '',
       announcement    TEXT NOT NULL DEFAULT '',
       workspace_mode  TEXT NOT NULL DEFAULT 'shared',
-      students_json   TEXT NOT NULL DEFAULT '{}'
+      students_json   TEXT NOT NULL DEFAULT '{}',
+      -- Sprint 51a (Fase 2 — eigenaarschap): welke leerkracht maakte deze sessie aan.
+      -- ON DELETE SET NULL: verdwijnt de leerkracht (account verwijderd), dan verweest
+      -- de sessie i.p.v. mee te verdwijnen — de sessiedata van een klas hoort niet zomaar
+      -- weg te vallen omdat een account weg is.
+      teacher_id      TEXT REFERENCES teachers(id) ON DELETE SET NULL
     );
+    CREATE INDEX IF NOT EXISTS idx_sessions_teacher ON sessions(teacher_id);
 
     CREATE TABLE IF NOT EXISTS session_annotations (
       session_code     TEXT PRIMARY KEY,
@@ -246,6 +252,24 @@ async function initSchema() {
     DO $$ BEGIN
       ALTER TABLE sessions ADD COLUMN config_json TEXT NOT NULL DEFAULT '{}';
     EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+
+    -- Sprint 51a (Fase 2 — eigenaarschap): bestaande installaties krijgen de kolom
+    -- via migratie (nieuwe installaties hebben ze al via de CREATE TABLE hierboven).
+    DO $$ BEGIN
+      ALTER TABLE sessions ADD COLUMN teacher_id TEXT REFERENCES teachers(id) ON DELETE SET NULL;
+    EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+    CREATE INDEX IF NOT EXISTS idx_sessions_teacher ON sessions(teacher_id);
+
+    -- Backfill bestaande rijen (eenmalig zinvol, verder altijd idempotent: raakt enkel
+    -- rijen die nog géén eigenaar hebben). We kunnen de WERKELIJKE aanmaker van sessies
+    -- van vóór deze sprint niet meer achterhalen — er werd nergens geregistreerd wie een
+    -- sessie aanmaakte. Bij precies één leerkrachtaccount is er maar één mogelijke
+    -- eigenaar; die kennen we dus wél zeker. Bij meerdere accounts blijft teacher_id
+    -- bewust NULL ("onbekend/legacy") in plaats van te gokken.
+    DO $$ BEGIN
+      UPDATE sessions SET teacher_id = (SELECT id FROM teachers LIMIT 1)
+        WHERE teacher_id IS NULL AND (SELECT COUNT(*) FROM teachers) = 1;
+    EXCEPTION WHEN others THEN NULL; END $$;
 
     -- Sprint 20a: audit-log leerkrachtenacties
     CREATE TABLE IF NOT EXISTS audit_log (
@@ -639,8 +663,8 @@ module.exports = {
     await query(`
       INSERT INTO sessions
         (code, id, name, mode, editor_assist, created_at, closed, blocked, deleted,
-         shared_code, announcement, workspace_mode, students_json, config_json)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         shared_code, announcement, workspace_mode, students_json, config_json, teacher_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
       ON CONFLICT (code) DO UPDATE SET
         name           = EXCLUDED.name,
         closed         = EXCLUDED.closed,
@@ -651,6 +675,8 @@ module.exports = {
         workspace_mode = EXCLUDED.workspace_mode,
         students_json  = EXCLUDED.students_json,
         config_json    = EXCLUDED.config_json
+        -- Sprint 51a: teacher_id BEWUST niet in de UPDATE SET — de eigenaar staat vast
+        -- bij aanmaken en verandert niet meer bij latere persist-calls (autosave, sluiten, …).
     `, [
       session.code,
       session.id,
@@ -666,6 +692,7 @@ module.exports = {
       session.classWorkspaceMode || 'shared',
       JSON.stringify(students),
       JSON.stringify(session.config || {}),
+      session.teacherId || null,
     ]);
   },
 
@@ -688,6 +715,7 @@ module.exports = {
       config:             (() => { try { return JSON.parse(row.config_json || '{}'); } catch { return {}; } })(),
       classWorkspaceMode: row.workspace_mode,
       students:           JSON.parse(row.students_json || '{}'),
+      teacherId:          row.teacher_id || null, // Sprint 51a: eigenaar
       teacherSocketId: null, selectedStudentId: null,
       sharedOutput: '', teacherRunId: null, teacherPreviewOutput: '',
       statusText: 'Hersteld na herstart', statusType: 'info',
@@ -1379,7 +1407,10 @@ module.exports = {
          minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
          schoolYear || currentYear, targetClass || '',
          accessFrom || null, accessUntil || null, autoSubmitLate !== false,
-         (type === 'taak' ? 'taak' : (noTimer ? 'taak' : 'toets')),
+         // Sprint 43.14: vertrouw een expliciet type ('toets'/'taak') — dat staat al
+         // vast bij het openen van het aanmaakscherm. De noTimer-afleiding is enkel
+         // nog een vangnet voor een aanroeper die (nog) geen type meegeeft.
+         (type === 'taak' || type === 'toets') ? type : (noTimer ? 'taak' : 'toets'),
          now]
       );
       for (const q of questions) {

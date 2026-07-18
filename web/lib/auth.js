@@ -139,6 +139,17 @@ function hashSessionToken(token) {
   return crypto.createHash('sha256').update(String(token || '')).digest('hex');
 }
 
+// ── Sprint 51a (Fase 2 — eigenaarschap): wie wordt de eigenaar van een NIEUWE
+// sessie? Pure regel, los van Express/sockets — zo blijft ze rechtstreeks
+// testbaar zonder databank, net als bepaalTeacherIdentiteit hierboven.
+//
+// De eigenaar is gewoon de leerkracht die de sessie aanmaakt. Bij authUit
+// (POC_BASIC_AUTH_ENABLED=false, geen echte accounts) is er niemand om als
+// eigenaar te noteren — dat is de bewuste "open" modus, geen bug.
+function bepaalSessieEigenaar(teacher) {
+  return teacher?.id || null;
+}
+
 module.exports = {
   SCRYPT_PARAMS,
   safeEqual,
@@ -150,4 +161,5 @@ module.exports = {
   hashSessionToken,
   bepaalTeacherIdentiteit,
   berekenSessieVerlenging,
+  bepaalSessieEigenaar,
 };

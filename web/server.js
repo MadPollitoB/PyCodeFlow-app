@@ -183,6 +183,8 @@ const hashSessionToken = authLib.hashSessionToken;
 const bepaalTeacherIdentiteit = authLib.bepaalTeacherIdentiteit;
 // Sprint 50d: rekenregel voor sessieverlenging
 const berekenSessieVerlenging = authLib.berekenSessieVerlenging;
+// Sprint 51a: wie wordt eigenaar van een nieuwe sessie
+const bepaalSessieEigenaar = authLib.bepaalSessieEigenaar;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -763,17 +765,72 @@ app.get('/api/version', (req, res) => {
 });
 
 // Sprint 19b: schoollogo en schoolinfo
-app.get('/api/school-info', (req, res) => {
+// Sprint 48b3: volgt de ACTIEVE school uit de sessie.
+//
+// De SERVER beslist of er een schoollogo hoort, niet de client. Dat scheelt een lijst
+// van "op welke pagina's wel" die je gegarandeerd ooit vergeet bij te werken:
+//   geen leerkracht-sessie  → startscherm, loginscherm, leerlingpagina's → géén logo
+//   sessie mét actieve school → het logo van díe school
+//   sessie zónder school      → terugval op .env (installatie met één school)
+app.get('/api/school-info', async (req, res) => {
+  const geen = { name: 'PyCodeFlow', logoUrl: null, schoolId: null };
+  try {
+    const cookies = parseCookieHeader(req.headers.cookie);
+    if (!cookies.teacher_sid) return res.json(geen);   // geen login = geen school
+
+    const sessie = await dbModule.getTeacherSession(hashSessionToken(cookies.teacher_sid));
+    if (!sessie) return res.json(geen);
+
+    if (sessie.active_school_id) {
+      const school = await dbModule.getSchool(sessie.active_school_id);
+      if (school) {
+        return res.json({
+          name: school.name,
+          logoUrl: school.logo_path ? `/school-logo?id=${encodeURIComponent(school.id)}` : null,
+          schoolId: school.id,
+        });
+      }
+    }
+  } catch (e) {
+    log.warn('[school-info] ophalen mislukt:', e.message);
+    return res.json(geen);
+  }
+  // Ingelogd, maar (nog) geen school gekoppeld — de huidige toestand.
+  // Dan geldt de .env-branding, zodat installaties met één school gewoon werken.
   res.json({
     name: process.env.SCHOOL_NAME || 'PyCodeFlow',
     logoUrl: process.env.SCHOOL_LOGO_PATH ? '/school-logo' : null,
+    schoolId: null,
   });
 });
 
-app.get('/school-logo', (req, res) => {
-  const logoPath = process.env.SCHOOL_LOGO_PATH;
-  if (!logoPath) return res.status(404).end();
+// Sprint 48b3: serveert het logo van een specifieke school (?id=...), of dat uit .env.
+//
+// ⚠️ Het pad komt uit de databank en wordt door een beheerder ingetypt. Een pad als
+// "../../etc/passwd" zou anders zomaar uitgeserveerd worden. Daarom:
+//   - enkel absolute paden, geen ".." erin
+//   - enkel afbeeldingsextensies
+// Beter hier tegenhouden dan erop vertrouwen dat niemand zich vergist.
+app.get('/school-logo', async (req, res) => {
   const fsSync = require('fs');
+  let logoPath = process.env.SCHOOL_LOGO_PATH || '';
+
+  if (req.query.id) {
+    try {
+      const school = await dbModule.getSchool(String(req.query.id));
+      logoPath = school?.logo_path || '';
+    } catch { return res.status(404).end(); }
+  }
+
+  if (!logoPath) return res.status(404).end();
+  if (logoPath.includes('..') || !path.isAbsolute(logoPath)) {
+    log.warn('[school-logo] geweigerd pad:', logoPath);
+    return res.status(400).end();
+  }
+  if (!/\.(png|jpe?g|svg|webp|gif)$/i.test(logoPath)) {
+    log.warn('[school-logo] geen afbeelding:', logoPath);
+    return res.status(400).end();
+  }
   if (!fsSync.existsSync(logoPath)) return res.status(404).end();
   res.sendFile(logoPath);
 });
@@ -1548,8 +1605,14 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
           noTimer, accessFrom, accessUntil, autoSubmitLate,
           schoolYear, targetClass, type, studentIds } = req.body || {};
   if (!name?.trim()) return res.status(400).json({ error: 'Naam is verplicht.' });
+  // Sprint 43.14: type is voortaan EXPLICIET (komt uit de link waarmee het
+  // aanmaakscherm geopend werd) — niet langer afgeleid uit noTimer. De server
+  // vertrouwt dat net zo min als elk ander verplicht veld en valideert het hier.
+  if (!validationLib.isValidAssignmentType(type)) {
+    return res.status(400).json({ error: "Type is verplicht ('toets' of 'taak')." });
+  }
   if (!questions?.length) return res.status(400).json({ error: 'Selecteer minstens 1 vraag.' });
-  if (questions.length > 50) return res.status(400).json({ error: 'Max 50 vragen per toets.' });
+  if (questions.length > 50) return res.status(400).json({ error: `Max 50 vragen per ${type}.` });
   // Sprint 43.3: einddatum + uur is VERPLICHT voor béide types (toets én taak).
   // Preview-toetsen zijn vrijgesteld: die dienen enkel om zelf even te testen.
   if (!isTeacherPreview && !accessUntil) {
@@ -1563,6 +1626,8 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
   const session = {
     code, id: crypto.randomUUID(), name: name.trim(), mode: 'quiz',
     editorAssist: false, createdAt: Date.now(),
+    // Sprint 51a: eigenaar = de leerkracht die deze toets/taak aanmaakt.
+    teacherId: bepaalSessieEigenaar(req.teacher),
     teacherSocketId: null, selectedStudentId: null,
     classWorkspaceMode: 'personal', sharedCode: '', sharedOutput: '',
     announcement: '', students: {},
@@ -1606,8 +1671,10 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
       isTeacherPreview: isTeacherPreview === true,
       schoolYear: schoolYear || '',
       targetClass: targetClass || '',
-      // Sprint 43.3: expliciet type; timerloos blijft synoniem voor 'taak'
-      type: (type === 'taak' || noTimer === true) ? 'taak' : 'toets',
+      // Sprint 43.14: type staat vast vanaf het openen van het aanmaakscherm en is
+      // hierboven al gevalideerd — geen afleiding meer uit noTimer (een taak MAG
+      // een tijdslimiet hebben; dat is enkel niet meer verplicht).
+      type,
     });
     // Sprint 43.4: expliciete leerling-selectie (leeg/afwezig = hele klas mag meedoen)
     if (Array.isArray(studentIds) && studentIds.length) {
@@ -1640,6 +1707,9 @@ app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireCsrf, async (re
   const newSession = {
     code: newCode, id: crypto.randomUUID(), name: newName, mode: 'quiz',
     editorAssist: false, createdAt: Date.now(),
+    // Sprint 51a: wie dupliceert wordt eigenaar van de kopie (niet per se dezelfde
+    // leerkracht als het origineel — bv. een collega die een gedeelde toets kopieert).
+    teacherId: bepaalSessieEigenaar(req.teacher),
     teacherSocketId: null, selectedStudentId: null,
     classWorkspaceMode: 'personal', sharedCode: '', sharedOutput: '',
     announcement: '', students: {},
@@ -1668,6 +1738,9 @@ app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireCsrf, async (re
     isTeacherPreview: false,
     schoolYear: meta.school_year || '',
     targetClass: meta.target_class || '',
+    // Sprint 43.14: type expliciet meekopiëren van het origineel — anders viel dit terug
+    // op de (foutieve) noTimer-afleiding en kon een taak per ongeluk een toets worden.
+    type: (meta.type === 'taak' || meta.type === 'toets') ? meta.type : (meta.no_timer ? 'taak' : 'toets'),
   });
   // Sprint 43.8: velden die createQuizSession niet meeneemt, alsnog van het origineel overnemen
   // (tijdsvenster + individuele timer). Deadline hoort bij de toets, dus die kopieert mee.
@@ -3872,6 +3945,9 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       mode: mode === "exam" ? "exam" : "class",
       editorAssist: editorAssist !== false,
       createdAt: Date.now(),
+      // Sprint 51a: eigenaar = de leerkracht achter deze socket (Sprint 50f: de
+      // io.use-middleware zet socket.data.teacher bij elke verbinding).
+      teacherId: bepaalSessieEigenaar(socket.data.teacher),
       teacherSocketId: socket.id,
       selectedStudentId: null,
       classWorkspaceMode: "shared",

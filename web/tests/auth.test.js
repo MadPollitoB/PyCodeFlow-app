@@ -344,3 +344,75 @@ test('48b1: bij authenticatie uit is er ook geen school', () => {
   const r = auth.bepaalTeacherIdentiteit({ authUit: true });
   assert.strictEqual(r.activeSchoolId, null);
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Sprint 51a (Fase 2 — eigenaarschap) — bepaalSessieEigenaar
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test('51a KERNTEST: nieuwe sessie krijgt de juiste eigenaar', () => {
+  const identiteitA = auth.bepaalTeacherIdentiteit({ sessie: sessieA });
+  const identiteitB = auth.bepaalTeacherIdentiteit({ sessie: sessieB });
+  assert.strictEqual(auth.bepaalSessieEigenaar(identiteitA), 'id-a');
+  assert.strictEqual(auth.bepaalSessieEigenaar(identiteitB), 'id-b');
+  assert.notStrictEqual(
+    auth.bepaalSessieEigenaar(identiteitA), auth.bepaalSessieEigenaar(identiteitB),
+    'twee verschillende leerkrachten mogen nooit dezelfde eigenaar opleveren'
+  );
+});
+
+test('51a: geen leerkracht (undefined/null) → geen eigenaar, geen crash', () => {
+  assert.strictEqual(auth.bepaalSessieEigenaar(undefined), null);
+  assert.strictEqual(auth.bepaalSessieEigenaar(null), null);
+});
+
+test('51a: authUit (open modus) heeft geen eigenaar — bewust, geen bug', () => {
+  const open = auth.bepaalTeacherIdentiteit({ authUit: true });
+  assert.strictEqual(auth.bepaalSessieEigenaar(open), null);
+});
+
+test('51a: eigenaar volgt de socket-identiteit net zo goed als de REST-identiteit', () => {
+  // De socket-kant (io.use-middleware, sprint 50f) en de REST-kant (requireTeacherAuth,
+  // sprint 50b) leveren allebei hetzelfde identiteit-object via bepaalTeacherIdentiteit —
+  // bepaalSessieEigenaar hoeft dus niet te weten via welk kanaal iemand binnenkwam.
+  const viaSocket = auth.bepaalTeacherIdentiteit({ sessie: sessieA });
+  const viaRest    = auth.bepaalTeacherIdentiteit({ sessie: sessieA });
+  assert.strictEqual(auth.bepaalSessieEigenaar(viaSocket), auth.bepaalSessieEigenaar(viaRest));
+});
+
+// ── Backfill bestaande rijen (database.js migratie) ─────────────────────────────
+// De DB-migratie vereist een live PostgreSQL; hier testen we de LOGICA die ze
+// borgt (zelfde patroon als membership.test.js): bij precies één leerkrachtaccount
+// is er maar één mogelijke eigenaar voor oude sessies, bij meerdere blijft het
+// bewust onbekend i.p.v. te gokken.
+function backfillSessionOwners(sessions, teacherIds) {
+  return sessions.map(s => {
+    if (s.teacherId != null) return s; // al een eigenaar → nooit overschrijven
+    if (teacherIds.length === 1) return { ...s, teacherId: teacherIds[0] };
+    return s; // 0 of >1 leerkrachten → blijft onbekend (null)
+  });
+}
+
+test('51a backfill: precies 1 leerkracht → alle wees-sessies krijgen die eigenaar', () => {
+  const sessies = [{ code: 'AAA', teacherId: null }, { code: 'BBB', teacherId: null }];
+  const result = backfillSessionOwners(sessies, ['solo-teacher']);
+  assert.strictEqual(result[0].teacherId, 'solo-teacher');
+  assert.strictEqual(result[1].teacherId, 'solo-teacher');
+});
+
+test('51a backfill: meerdere leerkrachten → blijft NULL (niet gokken)', () => {
+  const sessies = [{ code: 'AAA', teacherId: null }];
+  const result = backfillSessionOwners(sessies, ['id-a', 'id-b']);
+  assert.strictEqual(result[0].teacherId, null);
+});
+
+test('51a backfill: geen leerkrachten → blijft NULL', () => {
+  const sessies = [{ code: 'AAA', teacherId: null }];
+  const result = backfillSessionOwners(sessies, []);
+  assert.strictEqual(result[0].teacherId, null);
+});
+
+test('51a backfill: raakt nooit een sessie die al een eigenaar heeft', () => {
+  const sessies = [{ code: 'AAA', teacherId: 'al-gezet' }];
+  const result = backfillSessionOwners(sessies, ['solo-teacher']);
+  assert.strictEqual(result[0].teacherId, 'al-gezet', 'idempotent: bestaande eigenaar blijft staan');
+});

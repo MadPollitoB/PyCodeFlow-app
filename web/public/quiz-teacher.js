@@ -1,6 +1,65 @@
 // PyCodeFlow — geextraheerd uit quiz-teacher.html (sprint 32a)
 // Inline scripts naar apart bestand voor onderhoudbaarheid + CSP (30b).
 
+// ── Sprint 43.14: type (toets/taak) staat al vast bij het OPENEN van dit scherm ──
+// Komt uit de link (?type=toets|taak) vanuit taak-overzicht/toets-overzicht/
+// teacher-sessions — NIET meer afgeleid uit de timerkeuze (dat was de bug: "+
+// Nieuwe taak" opende een scherm dat overal "toets" zei en er ook echt één maakte).
+// Ontbreekt of is het type ongeldig (rechtstreekse link, oude bookmark), dan tonen
+// we een korte keuze i.p.v. te gokken. Eenmaal gekozen staat het vast: er is geen
+// UI om het tijdens het aanmaken nog te wijzigen (bevestigd 16/07/2026).
+const QUIZ_TYPE_META = {
+  toets: {
+    badge: 'Nieuwe toets', title: 'Nieuwe toets aanmaken',
+    sub: 'Stel een toets in met vragen uit de vragenbank.',
+    noun: 'toets', nameLabel: 'Naam van de toets', namePlaceholder: 'Bv. Toets Functies H2',
+    createLabel: 'Toets aanmaken', confirmTitle: 'Bevestig toets',
+    createdLabel: 'Toets aangemaakt', previewNoun: 'de toets',
+    defaultTimer: 'timed',
+  },
+  taak: {
+    badge: 'Nieuwe taak', title: 'Nieuwe taak aanmaken',
+    sub: 'Stel een taak in met vragen uit de vragenbank.',
+    noun: 'taak', nameLabel: 'Naam van de taak', namePlaceholder: 'Bv. Taak Functies H2',
+    createLabel: 'Taak aanmaken', confirmTitle: 'Bevestig taak',
+    createdLabel: 'Taak aangemaakt', previewNoun: 'de taak',
+    // Standaard geen tijdslimiet, maar — anders dan vroeger — instelbaar: een taak
+    // MAG een tijdslimiet hebben, dat is enkel niet verplicht.
+    defaultTimer: 'notimer',
+  },
+};
+
+const QUIZ_TYPE = (function resolveQuizType() {
+  const param = new URLSearchParams(location.search).get('type');
+  if (param === 'toets' || param === 'taak') return param;
+  const chooser = document.getElementById('type-chooser');
+  if (chooser) chooser.style.display = 'block';
+  return null;
+})();
+
+if (QUIZ_TYPE) {
+  const meta = QUIZ_TYPE_META[QUIZ_TYPE];
+  document.title = 'PyCodeFlow — ' + meta.title;
+  const setText = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+  setText('type-badge', meta.badge);
+  setText('page-h1', meta.title);
+  setText('page-sub', meta.sub);
+  setText('name-label', meta.nameLabel);
+  setText('preview-noun', meta.previewNoun);
+  const nameInput = document.getElementById('quiz-name');
+  if (nameInput) nameInput.placeholder = meta.namePlaceholder;
+  const createBtn = document.getElementById('create-btn');
+  if (createBtn) createBtn.textContent = '✅ ' + meta.createLabel;
+  const timerRadio = document.querySelector('[name=quiz-timer-type][value="' + meta.defaultTimer + '"]');
+  if (timerRadio) {
+    timerRadio.checked = true;
+    const timerInput = document.getElementById('quiz-timer-min');
+    if (timerInput) timerInput.disabled = meta.defaultTimer === 'notimer';
+  }
+  const root = document.getElementById('wizard-root');
+  if (root) root.style.display = 'block';
+}
+
 let _bank = [];
 let _selected = {}; // { id: { ...question, points: override } }
 
@@ -73,7 +132,7 @@ function renderSelectedList() {
 
 async function goStep(n) {
   if (n >= 2 && !document.getElementById('quiz-name').value.trim()) {
-    await pyAlert('Voer een naam in voor de toets.', 'warn'); return;
+    await pyAlert('Voer een naam in voor de ' + (QUIZ_TYPE_META[QUIZ_TYPE]?.noun || 'toets') + '.', 'warn'); return;
   }
   if (n >= 3 && !Object.keys(_selected).length) {
     await pyAlert('Selecteer minstens 1 vraag.', 'warn'); return;
@@ -200,12 +259,13 @@ function renderConfirm() {
   const schoolYear = document.getElementById('quiz-school-year').value.trim();
   const targetClassEl = document.getElementById('quiz-target-class');
   const targetClassName = targetClassEl.options[targetClassEl.selectedIndex]?.text || '—';
+  const meta = QUIZ_TYPE_META[QUIZ_TYPE] || QUIZ_TYPE_META.toets;
   document.getElementById('confirm-panel').innerHTML = `
-    <h3 style="margin:0 0 16px;">Bevestig toets</h3>
+    <h3 style="margin:0 0 16px;">${meta.confirmTitle}</h3>
     ${isPreview ? '<div style="background:#fef3c7;color:#92400e;padding:10px;border-radius:8px;margin-bottom:14px;font-weight:700;">⚠️ PREVIEW MODE — antwoorden worden niet opgeslagen</div>' : ''}
     <table style="width:100%;font-size:0.9rem;border-collapse:collapse;">
       <tr><td style="padding:6px 0;color:var(--muted);width:140px;">Naam</td><td><strong>${esc(document.getElementById('quiz-name').value)}</strong></td></tr>
-      <tr><td style="padding:6px 0;color:var(--muted);">Timer</td><td><strong>${noTimer ? '∞ Geen tijdslimiet (taak)' : mins + ' minuten'}</strong></td></tr>
+      <tr><td style="padding:6px 0;color:var(--muted);">Timer</td><td><strong>${noTimer ? '∞ Geen tijdslimiet' : mins + ' minuten'}</strong></td></tr>
       <tr><td style="padding:6px 0;color:var(--muted);">Volgorde</td><td><strong>${random ? '🔀 Random per leerling' : '📋 Vast voor iedereen'}</strong></td></tr>
       <tr><td style="padding:6px 0;color:var(--muted);">Vragen</td><td><strong>${ids.length} vragen · ${total} punten</strong></td></tr>
       ${schoolYear ? `<tr><td style="padding:6px 0;color:var(--muted);">Schooljaar</td><td><strong>${esc(schoolYear)}</strong></td></tr>` : ''}
@@ -225,12 +285,17 @@ async function createQuiz() {
   const createBtn  = document.getElementById('create-btn');
   const backBtn    = document.getElementById('back-btn');
   const statusEl   = document.getElementById('create-status');
+  const meta       = QUIZ_TYPE_META[QUIZ_TYPE] || QUIZ_TYPE_META.toets;
 
   // 22h: guard: al bezig?
   if (createBtn.disabled) return;
 
+  // Sprint 43.14: zonder (geldig) type niet aanmaken — de type-chooser vangt dit
+  // normaal af vóór de wizard zelfs zichtbaar wordt, dit is de laatste veiligheidsgordel.
+  if (!QUIZ_TYPE) { await pyAlert('Geen type gekozen (toets/taak). Herlaad de pagina.', 'error'); return; }
+
   const name = document.getElementById('quiz-name').value.trim();
-  if (!name) { await pyAlert('Voer een naam in voor de toets.', "warn"); return; }
+  if (!name) { await pyAlert('Voer een naam in voor de ' + meta.noun + '.', "warn"); return; }
   if (!Object.keys(_selected).length) { await pyAlert('Selecteer minstens 1 vraag.', "warn"); return; }
 
   const timerType    = document.querySelector('[name=quiz-timer-type]:checked')?.value;
@@ -274,8 +339,9 @@ async function createQuiz() {
       body: JSON.stringify({ name, questions, randomize, timerSeconds, noTimer, minRunsPerQ,
                              hideQuestionOnScreen, isTeacherPreview, schoolYear, targetClass,
                              accessFrom, accessUntil, autoSubmitLate,
-                             // Sprint 43.3: expliciet type (timerloos = taak)
-                             type: noTimer ? 'taak' : 'toets',
+                             // Sprint 43.14: type komt van de link (?type=), staat al vast bij
+                             // het openen van dit scherm — niet meer afgeleid uit de timerkeuze.
+                             type: QUIZ_TYPE,
                              // Sprint 43.4: enkel meesturen als de leerkracht een selectie maakte
                              studentIds: (window._selectedStudentIds && window._selectedStudentIds.length)
                                          ? window._selectedStudentIds : undefined }),
@@ -285,13 +351,13 @@ async function createQuiz() {
       const previewUrl = `/quiz-student.html?code=${data.code}&name=${encodeURIComponent('Leerkracht Test')}&class=${encodeURIComponent('Preview')}`;
       if (isTeacherPreview) {
         const gaNaar = await pyConfirm({
-          title: 'Toets aangemaakt (PREVIEW)',
+          title: `${meta.createdLabel} (PREVIEW)`,
           body: `Code: ${data.code}\n\nWil je de preview openen als leerling?`,
           confirmLabel: 'Open preview'
         });
         if (gaNaar) window.open(previewUrl, '_blank');
       } else {
-        pyToast(`Toets aangemaakt! Sessiecode: ${data.code}`, 'success', 6000);
+        pyToast(`${meta.createdLabel}! Sessiecode: ${data.code}`, 'success', 6000);
         setTimeout(() => { location.href = '/teacher-sessions.html'; }, 1200);
       }
     } else {
@@ -302,7 +368,7 @@ async function createQuiz() {
   } finally {
     createBtn.disabled    = false;
     backBtn.disabled      = false;
-    createBtn.textContent = '✅ Toets aanmaken';
+    createBtn.textContent = '✅ ' + meta.createLabel;
     statusEl.style.display = 'none';
   }
 }

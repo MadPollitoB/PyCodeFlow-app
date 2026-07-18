@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.48.9**
+**Huidige versie: v2026.2.48.11**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -32,8 +32,6 @@
 | Sprint | Prio | Cat | Inhoud | Inschatting |
 |---|---|---|---|---|
 | **43.13** | 🟡 P5 | BUG | **Monaco-worker-warning** *"Could not create web worker(s)"* blijft, ondanks `monaco-env.js` (43.6c). Diagnose was fout. Niet fataal: de editor werkt, maar valt terug op de main-thread (mogelijke UI-freezes bij grote bestanden). Vereist onderzoek in de browser (Network-tab: laadt `/monaco/min/vs/base/worker/workerMain.js`?). Ook de geblokkeerde `purify.min.js.map` (sourcemap) hoort hierbij — onschuldig. | ~0.5 dag |
-| **48b3** | 🟡 P6 | UX | **Schoollogo** naast het PyCodeFlow-icoon op alle schermen ná schoolkeuze. Niet op start-/loginscherm (geen school bekend); bij leerlingen pas ná login. *Test: logo volgt de gekozen school; wisselen van school wisselt het logo.* | ~0.5 dag |
-| **51a** | 🟠 P8 | AUTH | **Fase 2** — `teacher_id` (eigenaar) op `sessions` + backfill bestaande rijen. *Test: nieuwe sessie krijgt de juiste eigenaar.* | ~0.5 dag |
 | **51b** | 🟠 P8 | AUTH | **Fase 2** — Autorisatie: leerkracht beheert enkel **eigen** sessies; admin alles **binnen de school**. *Test: A kan B's sessie niet openen/sluiten/verwijderen (403).* | ~1.5 dag |
 | **51c** | 🟠 P8 | FEAT | **Fase 2** — Vragenbank standaard **privé** + `shared`-vlag per vraag ("delen met collega's"). *Test: A ziet B's privé-vraag niet; gedeelde vraag wel; A kan B's vraag niet bewerken.* | ~1.5 dag |
 | **51d** | 🟠 P8 | AUTH | **Fase 2** — `teacher_classes` echt gebruiken (`listClassesForTeacher` bestaat maar wordt genegeerd). *Test: leerkracht ziet enkel eigen klassen.* | ~1 dag |
@@ -167,6 +165,9 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 68 | **48a3** | **E-maildomeinen** — `school_domains` + de regels (`athkiel.be` exact vs `*.athkiel.be` subdomeinen), uitleg en **testveldje** in het beheer. 21 unittests | v2026.2.48.7 |
 | 69 | **48b1** | **Actieve school** — `active_school_id` server-side in de sessie; bij precies 1 school automatisch gekozen. Zichtbaar via `/api/me` | v2026.2.48.8 |
 | 70 | **48b2** | **Schoolkeuze-scherm** — grid met dropdown bij >1 school, logingegevens grijs, knoppen Annuleren/Kiezen. Lijst verschijnt pas ná een geslaagde login | v2026.2.48.9 |
+| 71 | **48b3** | **🎉 BLOK 2 AF** — schoollogo naast het PyCodeFlow-merk, volgt de actieve school. Niet op start-/loginscherm. Padcontrole op het logo-bestand | v2026.2.48.10 |
+| 72 | **43.14** | **"+ Nieuwe taak" maakte een toets**: type komt nu uit de link (`?type=`), staat al vast bij het openen en is niet meer af te leiden uit de timerkeuze. Titel/kop/veldnamen/knoppen/meldingen bewegen mee met het type; ontbreekt het (rechtstreekse link) dan vraagt een kort keuzescherm het éénmalig op. Bevestigd: een taak MAG een tijdslimiet hebben (niet verplicht) — timer en type staan voortaan los van elkaar | v2026.2.48.11 |
+| 73 | **51a** | **Fase 2 start** — kolom `teacher_id` op `sessions` (eigenaar), gevuld bij elke nieuwe sessie (REST én socket) via `bepaalSessieEigenaar`. Backfill: bij precies 1 leerkrachtaccount krijgen bestaande sessies die eigenaar, anders blijft het bewust onbekend (`NULL`) — er was voordien nergens geregistreerd wie een sessie aanmaakte | v2026.2.48.11 |
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
@@ -300,6 +301,92 @@ Startscherm → "Ik ben leerkracht" → login. **Na een geslaagde login:**
 **Login-bug (root cause):** sinds sprint 45 serveert de app de leerling-ingang op de nette route **`/student`**, waardoor `page === 'student'`. Maar `_socketPages` in `app.js` (de lijst pagina's die een echte Socket.IO-verbinding krijgen) bevatte wél `'student-start.html'` maar **niet `'student'`**. Op `/student` werd de socket dus een **no-op stub** → `socket.emit('student_join', …)` deed niets → "Deelnemen" en "Vrij oefenen" leken dood. **Fix:** `'student'` toegevoegd aan `_socketPages`. (De CSP-report-only-meldingen in de console waren onschuldig en niet de oorzaak.)
 
 **Sessie-overzicht (Req A):** `teacher-sessions.html` heeft nu drie tabs **Sessies / 🧪 Toetsen / 📝 Taken**. De Toetsen- en Taken-tabs tonen **enkel actieve** items (geen previews, geen gesloten/verlopen), gefilterd op type. De volledige bank (incl. previews, met activeren/verwijderen/filters) blijft bereikbaar via de nav-link "📚 Toetsen & taken" (`?tab=quizzes`).
+
+---
+
+### Sprint 43.14 — "+ Nieuwe taak" maakt een toets *(~0.5 dag)* — ✅ AFGEROND (v2026.2.48.11)
+
+**Aangemeld:** 16/07/2026 (testronde) · **Cat:** BUG · **Prio:** 🔴 P10
+
+**Symptoom:** klik je op **"+ Nieuwe taak"**, dan krijg je een scherm dat overal *toets* zegt — en wat je aanmaakt is ook echt een **toets**, geen taak.
+
+**Oorzaak — drie dingen die samenvallen:**
+1. De knop linkt naar `/quiz-teacher.html` **zonder enige aanduiding** van het type. Dat geldt op **twee plekken**: de knop "+ Nieuwe taak" in `taak-overzicht.html` (43.7) én "+ Nieuwe taak aanmaken" in de Taken-tab van `teacher-sessions.html` (43.6b).
+2. `quiz-teacher.html` is volledig **hardgecodeerd op "toets"**: `<title>`, de kop *"Nieuwe toets aanmaken"*, de uitleg *"Stel een toets in…"* en het veld *"Naam van de toets"*.
+3. Het type wordt **afgeleid uit de timer** (`type: noTimer ? 'taak' : 'toets'`, quiz-teacher.js), en de standaard staat op **Tijdslimiet 45 minuten** → dus een toets.
+
+Je moet dus tóevallig weten dat "Geen tijdslimiet" er een taak van maakt. Dat is geen taak aanmaken; dat is een toets aanmaken die per ongeluk een taak wordt.
+
+**Waarom dit nu pas opvalt:** vóór 43.7 bestond er geen aparte weg naar "taak aanmaken" — je maakte gewoon een toets en zette de timer uit. De knoppen die 43.6b en 43.7 toevoegden beloven iets wat het scherm niet waarmaakt.
+
+**Fix-richting:** sprint **43.3** gaf `assignment_bank` al een echte `type`-kolom, maar het **formulier vraagt er niet naar**. Het type is nog steeds een neveneffect van de timerkeuze. Te doen:
+- Type meegeven in de link (`/quiz-teacher.html?type=taak`) én de pagina laten meebewegen: titel, uitleg, veldnamen, en de timer standaard op *"Geen tijdslimiet"*.
+- Beter nog: het type een **expliciete keuze** op het formulier maken (zoals Klasmodus/Examenmodus bij een sessie), met de timer als gevolg i.p.v. als oorzaak. Dan kan je ook een taak mét tijdslimiet maken, als dat ooit nodig blijkt.
+- Nakijken of "Geen tijdslimiet" nog steeds automatisch `type='taak'` mag betekenen, of dat die afleiding volledig moet vervallen zodra het type expliciet gekozen wordt.
+
+**❓ Beantwoord (17/07/2026):** ja, een **taak** mag een tijdslimiet hebben — dat is enkel niet meer verplicht. Gevolg: het type moet al vaststaan **vóór** het aanmaakscherm opent (via de link) en is **niet meer wijzigbaar** eenmaal je aan het aanmaken bent. Meldingen tijdens het aanmaken volgen dat vaste type.
+
+**Gebouwd — gekozen richting: fix-optie 1 (link + meebewegende pagina), niet de expliciete formulierkeuze.** Precies omdat het type al vaststaat vóór het openen, is er geen radio-knop "toets of taak" nodig op het scherm zelf:
+- Alle 6 plekken die naar `quiz-teacher.html` linken (`taak-overzicht.html`, `toets-overzicht.html`, `quiz-archive.html`, en de 3 links in `teacher-sessions.html` — Toetsen-tab, Taken-tab, Toetsen-/takenbank-tab) geven nu `?type=toets` of `?type=taak` expliciet mee.
+- `quiz-teacher.html`/`.js` lezen dat type bij het laden en laten titel, topbar-badge, kop, subtekst, veldlabel, placeholder, knoptekst, bevestigingstitel en toast/meldingtekst overal meebewegen (`QUIZ_TYPE_META`). De timer-radio start op de zinvolle default per type (toets → tijdslimiet, taak → geen tijdslimiet) maar blijft voor **beide** types vrij instelbaar — een taak MAG dus nu ook een tijdslimiet krijgen.
+- Ontbreekt het type (rechtstreekse link, oude bookmark) dan verschijnt een klein keuzescherm (`#type-chooser`) vóór de wizard zelf zichtbaar wordt — de wizard blijft verborgen tot het type vaststaat, dus geen manier om "per ongeluk" in een half-bepaald scherm te belanden.
+- Server (`POST /api/quiz`) vertrouwt het type niet blind: `isValidAssignmentType` (nieuw, `lib/validation.js`) weigert de aanvraag zonder geldig `'toets'`/`'taak'`. De oude afleiding `type: noTimer ? 'taak' : 'toets'` is weg, zowel in `server.js` als in `database.js` zelf (`createQuizSession`, waar diezelfde afleiding als vangnet stond) — een expliciet type wint nu altijd.
+- **Bijkomend gevonden en meegefixt:** `/api/quiz/:code/duplicate` gaf `type` helemaal niet mee aan `createQuizSession`, en viel dus terug op diezelfde noTimer-afleiding — een taak dupliceren kon in theorie stiekem een toets opleveren. Kopieert nu `meta.type` expliciet mee.
+- Tests: `web/tests/validation.test.js` (sprint 43.14-sectie, `isValidAssignmentType`).
+
+*Bestanden: quiz-teacher.html, quiz-teacher.js, taak-overzicht.html, toets-overzicht.html, quiz-archive.html, teacher-sessions.html, server.js, database.js, lib/validation.js, tests/validation.test.js*
+
+---
+
+### Sprint 51a — Fase 2 start: sessie-eigenaar (`teacher_id`) *(~0.5 dag)* — ✅ AFGEROND (v2026.2.48.11)
+
+**Cat:** AUTH · **Prio:** 🟠 P8 · **Gebouwd samen met 43.14** (17/07/2026)
+
+**Wat:** `sessions.teacher_id` (FK → `teachers`, `ON DELETE SET NULL`) + index. Elke nieuwe sessie krijgt meteen haar eigenaar mee:
+- `POST /api/quiz` (nieuwe toets/taak) en `POST /api/quiz/:code/duplicate` (kopie) → `req.teacher`.
+- `teacher_create_session` (klassessie/examenmodus via socket) → `socket.data.teacher`, beschikbaar sinds de `io.use`-middleware van **50f** (die het hier expliciet al aankondigde: *"de socket weet nu WIE de leerkracht is — dat heeft sprint 51 nodig"*).
+
+Beide lopen via één nieuwe pure functie `bepaalSessieEigenaar(teacher)` in `lib/auth.js` (naast `bepaalTeacherIdentiteit`), zodat REST en socket exact dezelfde regel volgen en het los van Express/sockets test baar blijft. Bij `authUit` (open modus, geen accounts) is er bewust geen eigenaar.
+
+`persistSession` schrijft `teacher_id` enkel bij de **INSERT**, niet bij de `ON CONFLICT DO UPDATE` — de eigenaar staat vast bij aanmaken en latere autosaves/sluitacties overschrijven hem niet.
+
+**Backfill bestaande rijen:** er werd vóór deze sprint nergens geregistreerd wie een sessie aanmaakte, dus de werkelijke aanmaker van oude sessies is niet meer te achterhalen. Bij **precies 1** leerkrachtaccount is er maar één mogelijke eigenaar — die kennen we dus wél zeker en die krijgen alle bestaande sessies zonder eigenaar. Bij **0 of meerdere** accounts blijft `teacher_id` bewust `NULL` ("onbekend/legacy") in plaats van te gokken. Idempotent: draait bij elke opstart, raakt alleen rijen die nog geen eigenaar hebben.
+
+**Niet in deze sprint:** autorisatie die op `teacher_id` filtert (leerkracht ziet/beheert enkel eigen sessies) — dat is **51b**, expliciet de volgende stap in Fase 2.
+
+*Test: nieuwe sessie krijgt de juiste eigenaar (`tests/auth.test.js`, sectie 51a — dekt `bepaalSessieEigenaar` én de backfill-logica met een in-memory replica, zelfde patroon als `membership.test.js`).*
+
+*Bestanden: database.js, lib/auth.js, server.js, tests/auth.test.js*
+
+---
+
+### Sprint 48b3 — 🎉 Blok 2 af: het schoollogo *(~0.5 dag)* — ✅ AFGEROND (v2026.2.48.10)
+
+**Cat:** UX · **Prio:** 🟡 P6
+
+**Wat bleek:** `/api/school-info` bestond al sinds sprint 19b, maar **niemand riep het aan**. De branding-hook was dode code — het logo werd nooit getoond.
+
+**Wat is gebouwd:** het schoollogo (met naam) verschijnt naast het PyCodeFlow-merk in de topbalk, en **volgt de actieve school** uit de sessie.
+
+**De server beslist, niet de client.** Dat is de kern van de opzet:
+
+| Toestand | Resultaat |
+|---|---|
+| geen leerkracht-sessie | **niets** — startscherm, loginscherm en leerlingpagina's |
+| sessie mét actieve school | het logo van **die** school |
+| sessie zónder school | terugval op `.env` (installatie met één school) |
+
+Zo hoefde er geen lijst van *"op welke pagina's wel"* bijgehouden te worden — precies zo'n lijst die je gegarandeerd ooit vergeet bij te werken. De eis *"niet op start- en loginscherm"* volgt vanzelf: daar is geen sessie.
+
+**⚠️ Padcontrole toegevoegd op `/school-logo`.** Het logo-pad komt uit de databank en wordt door een beheerder **ingetypt**. Een pad als `../../etc/passwd` zou zomaar uitgeserveerd worden. Nu: enkel **absolute** paden, geen `..`, en enkel afbeeldingsextensies. Nagetrokken op acht paden — `/etc/passwd`, `/data/../etc/passwd.png` en relatieve paden worden allemaal geweigerd.
+
+**Twee details die anders opvallen:**
+- **Een kapot logo-pad** geeft geen gebroken-afbeelding-icoon: de afbeelding verwijdert zichzelf en enkel de naam blijft staan.
+- **`monitoring.html` laadde `app.js` niet** en zou als enige pagina zonder logo staan. Vóór het toevoegen gecontroleerd op naamconflicten tussen `app.js` en `monitoring.js` (geen) en op page-blokken (geen). Nu dragen alle **14** pagina's met een topbalk de branding.
+
+**Nog niet voor leerlingen.** Zij hebben nog geen login (52) en sessies hebben nog geen `school_id` (48c1), dus de app kan hun school niet kennen. Dat volgt vanzelf zodra die er zijn — de server-logica hoeft dan niet te wijzigen.
+
+**Tests:** geen nieuwe unittests (branding + een endpoint). Wel de padcontrole apart nagetrokken op acht gevallen. Suite blijft **218/218 groen**.
 
 ---
 

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>PyCodeFlow — Nieuwe toets aanmaken</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.43.0"/>
+  <title>PyCodeFlow — Nieuwe toets/taak aanmaken</title>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.48.11"/>
   <style>
     .wizard-steps { display:flex; gap:0; margin-bottom:28px; }
     .wizard-step { flex:1; padding:12px; text-align:center; background:var(--surface-soft);
@@ -53,17 +53,32 @@
   <link rel="icon" href="/assets/favicon.png" type="image/png">
 </head>
 <body>
+<!-- Sprint 43.14: het type (toets/taak) wordt VÓÓR het openen van dit scherm bepaald
+     (via ?type= in de link vanuit taak-overzicht/toets-overzicht/teacher-sessions).
+     Ontbreekt dat — bv. rechtstreekse navigatie of een oude bookmark — dan vraagt
+     dit korte keuzescherm het op, éénmalig, vóórdat de wizard zelf verschijnt.
+     Eenmaal gekozen (en dus in de URL) staat het vast voor de rest van het aanmaken. -->
+<div id="type-chooser" style="display:none;max-width:480px;margin:90px auto;padding:0 20px;text-align:center;">
+  <h1 style="margin:0 0 8px;">Wat wil je aanmaken?</h1>
+  <p class="muted" style="margin:0 0 24px;">Kies het type — dit kan je nadien niet meer wijzigen.</p>
+  <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;">
+    <button type="button" class="btn btn-primary" style="padding:18px 26px;font-size:1rem;" onclick="location.href='/quiz-teacher.html?type=toets'">🧪 Nieuwe toets</button>
+    <button type="button" class="btn btn-soft" style="padding:18px 26px;font-size:1rem;" onclick="location.href='/quiz-teacher.html?type=taak'">📝 Nieuwe taak</button>
+  </div>
+</div>
+
+<div id="wizard-root" style="display:none;">
 <div class="topbar">
   <div class="topbar-inner">
     <div class="logo-group">
       <img src="/assets/pycodeflow-logo.png" class="logo-small" alt=""/>
       <span>PyCodeFlow</span>
-      <span class="badge" style="margin-left:8px;">Nieuwe toets</span>
+      <span class="badge" style="margin-left:8px;" id="type-badge">Nieuwe toets</span>
     </div>
     <div class="top-actions">
       <a href="/teacher-sessions.html" class="btn btn-muted small">← Sessies</a>
       <a href="/quiz-bank.html" class="btn btn-muted small">📋 Vragenbank</a>
-      
+
     </div>
   </div>
 </div>
@@ -79,8 +94,8 @@
 </div></div>
 
 <div class="screen" style="max-width:850px;margin:0 auto;padding:28px 20px;">
-  <h1 style="margin:0 0 6px;">Nieuwe toets aanmaken</h1>
-  <p class="muted" style="margin:0 0 20px;">Stel een toets of taak in met vragen uit de vragenbank.</p>
+  <h1 style="margin:0 0 6px;" id="page-h1">Nieuwe toets aanmaken</h1>
+  <p class="muted" style="margin:0 0 20px;" id="page-sub">Stel een toets in met vragen uit de vragenbank.</p>
 
   <div class="wizard-steps">
     <div class="wizard-step active" id="step-1-ind">① Basisinfo</div>
@@ -93,14 +108,14 @@
   <div id="step-1">
     <div class="card" style="padding:24px;">
       <div class="input-group">
-        <label>Naam van de toets</label>
+        <label id="name-label">Naam van de toets</label>
         <input id="quiz-name" placeholder="Bv. Toets Functies H2"/>
       </div>
       <div class="form-row-2" style="margin-top:16px;">
         <div>
           <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:8px;font-weight:600;">Timer</label>
           <label class="opt-card">
-            <input type="radio" name="quiz-timer-type" value="timed" checked onchange="toggleTimer(this.value)"/>
+            <input type="radio" name="quiz-timer-type" value="timed" onchange="toggleTimer(this.value)"/>
             <span class="opt-body">
               <span class="opt-title">Tijdslimiet</span>
               <span class="opt-inline">
@@ -238,7 +253,7 @@
   <!-- Stap 3: Live preview (25h) -->
   <div id="step-3" style="display:none;">
     <div style="background:#fef3c7;color:#92400e;border:1.5px solid #f59e0b;border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-      <span><strong>🔍 PREVIEW MODUS</strong> — antwoorden worden niet opgeslagen. Dit is hoe de leerling de toets ziet.</span>
+      <span><strong>🔍 PREVIEW MODUS</strong> — antwoorden worden niet opgeslagen. Dit is hoe de leerling <span id="preview-noun">de toets</span> ziet.</span>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-muted small" onclick="goStep(2)">✎ Aanpassen</button>
         <button class="btn btn-primary small" onclick="goStep(4)">✅ Ziet er goed uit →</button>
@@ -270,10 +285,11 @@
     </div>
   </div>
 </div>
+</div><!-- /wizard-root -->
 
-<script src="/app.js?v=v2026.2.43.0"></script>
+<script src="/app.js?v=v2026.2.48.11"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.43.0"></script>
-<script src="/quiz-teacher.js?v=v2026.2.43.0"></script>
+<script src="/code-highlight.js?v=v2026.2.48.11"></script>
+<script src="/quiz-teacher.js?v=v2026.2.48.11"></script>
 </body>
 </html>

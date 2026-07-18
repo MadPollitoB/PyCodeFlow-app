@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Sessies</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.43.0"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.48.11"/>
 <style>
   .free-session-panel { margin-top: 32px; }
   .free-student-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
@@ -140,18 +140,19 @@
       </div><!-- /tab-sessions -->
       <div id="tab-toetsen" style="display:none;">
         <div id="toets-list"><p class="muted">Laden…</p></div>
-        <div style="margin-top:12px;"><a href="/quiz-teacher.html" class="btn btn-soft small">+ Nieuwe toets aanmaken</a></div>
+        <div style="margin-top:12px;"><a href="/quiz-teacher.html?type=toets" class="btn btn-soft small">+ Nieuwe toets aanmaken</a></div>
       </div><!-- /tab-toetsen -->
       <div id="tab-taken" style="display:none;">
         <div id="taak-list"><p class="muted">Laden…</p></div>
-        <div style="margin-top:12px;"><a href="/quiz-teacher.html" class="btn btn-soft small">+ Nieuwe taak aanmaken</a></div>
+        <div style="margin-top:12px;"><a href="/quiz-teacher.html?type=taak" class="btn btn-soft small">+ Nieuwe taak aanmaken</a></div>
       </div><!-- /tab-taken -->
       <div id="tab-quizzes" style="display:none;">
         <div class="inline-note">Alle toetsen en taken die je hebt aangemaakt (toetsen-/takenbank).</div>
         <div id="quiz-filters" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0;"></div>
         <div id="quiz-list"><p class="muted">Laden…</p></div>
-        <div style="margin-top:12px;">
-          <a href="/quiz-teacher.html" class="btn btn-soft small">+ Nieuwe toets aanmaken</a>
+        <div style="margin-top:12px;display:flex;gap:8px;">
+          <a href="/quiz-teacher.html?type=toets" class="btn btn-soft small">+ Nieuwe toets aanmaken</a>
+          <a href="/quiz-teacher.html?type=taak" class="btn btn-soft small">+ Nieuwe taak aanmaken</a>
         </div>
       </div><!-- /tab-quizzes -->
     </div>
@@ -172,4 +173,4 @@
   </div>
 
 </div>
-</div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=v2026.2.43.0"></script></body></html>
+</div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=v2026.2.48.11"></script></body></html>

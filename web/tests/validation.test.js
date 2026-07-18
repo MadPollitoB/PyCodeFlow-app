@@ -285,3 +285,32 @@ test('48b1: 2 scholen waarvan 1 inactief → de actieve wordt gekozen', () => {
 test('48b1: active ontbreekt → als actief beschouwd', () => {
   assert.strictEqual(v.kiesActieveSchool([{ id: 's1' }]), 's1');
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Sprint 43.14 — Expliciet toets/taak-type (isValidAssignmentType)
+//
+// Bug die dit voorkomt: "+ Nieuwe taak" opende een scherm dat het type afleidde
+// uit de timerkeuze (noTimer ? 'taak' : 'toets') met timer standaard AAN → dus
+// altijd een toets, ongeacht welke knop je had aangeklikt. Vanaf nu is het type
+// EXPLICIET (komt uit de link) en wordt het hier — net als elk ander verplicht
+// veld — gevalideerd i.p.v. blind vertrouwd.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test('43.14 KERNTEST: enkel "toets" en "taak" zijn geldig', () => {
+  assert.strictEqual(v.isValidAssignmentType('toets'), true);
+  assert.strictEqual(v.isValidAssignmentType('taak'), true);
+});
+
+test('43.14: ontbrekend of leeg type → ongeldig (geen gok naar "toets")', () => {
+  assert.strictEqual(v.isValidAssignmentType(undefined), false);
+  assert.strictEqual(v.isValidAssignmentType(null), false);
+  assert.strictEqual(v.isValidAssignmentType(''), false);
+});
+
+test('43.14: type mag niet afgeleid worden uit iets anders dan de twee toegestane waarden', () => {
+  assert.strictEqual(v.isValidAssignmentType('quiz'), false);
+  assert.strictEqual(v.isValidAssignmentType('exam'), false);
+  assert.strictEqual(v.isValidAssignmentType('Toets'), false); // hoofdlettergevoelig
+  assert.strictEqual(v.isValidAssignmentType(true), false);
+  assert.strictEqual(v.isValidAssignmentType(0), false);
+});

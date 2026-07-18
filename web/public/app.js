@@ -3179,3 +3179,46 @@ window.pyAlert = function(message, type) {
     if (okBtn) { okBtn.addEventListener('click', close); okBtn.focus(); }
   });
 };
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Sprint 48b3 — Schoollogo naast het PyCodeFlow-merk
+// Draait op elke pagina die app.js laadt. De SERVER bepaalt of er een school is:
+// zonder leerkracht-sessie geeft /api/school-info niets terug, dus op het startscherm,
+// het loginscherm en de leerlingpagina's verschijnt er vanzelf niets.
+// ══════════════════════════════════════════════════════════════════════════════
+(function toonSchoolBranding() {
+  async function laad() {
+    const groep = document.querySelector('.logo-group');
+    if (!groep || document.getElementById('school-brand')) return;
+    try {
+      const r = await fetch('/api/school-info');
+      if (!r.ok) return;
+      const info = await r.json();
+      if (!info.logoUrl && !info.schoolId) return;   // geen school bekend → niets tonen
+
+      const wrap = document.createElement('span');
+      wrap.id = 'school-brand';
+      wrap.style.cssText = 'display:flex;align-items:center;gap:8px;margin-left:10px;padding-left:12px;border-left:1px solid var(--border);';
+
+      if (info.logoUrl) {
+        const img = document.createElement('img');
+        img.src = info.logoUrl;
+        img.alt = info.name || 'School';
+        img.className = 'logo-small';
+        // Een kapot pad of ontbrekend bestand mag geen gebroken-afbeelding-icoon geven:
+        // dan tonen we gewoon de naam.
+        img.onerror = () => img.remove();
+        wrap.appendChild(img);
+      }
+      if (info.name && info.name !== 'PyCodeFlow') {
+        const naam = document.createElement('span');
+        naam.textContent = info.name;
+        naam.style.cssText = 'font-size:0.9rem;font-weight:600;opacity:0.85;';
+        wrap.appendChild(naam);
+      }
+      if (wrap.childNodes.length) groep.appendChild(wrap);
+    } catch { /* branding is bijzaak — nooit een pagina hierop laten stuklopen */ }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', laad);
+  else laad();
+})();
