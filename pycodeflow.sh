@@ -275,6 +275,21 @@ setup_eerste_start() {
   echo -e "  ${GEEL}Dit kan enkele minuten duren bij de eerste keer...${RESET}"
   echo ""
 
+  # ── PostgreSQL bind-mount rechten voorbereiden (Synology/NAS) ─────────────
+  # Het postgres:16-alpine image draait als uid 70. Bij een verse installatie
+  # maakt de Docker-daemon de host-map ./pgdata als root aan, waardoor postgres
+  # de PGDATA-submap niet kan aanmaken:
+  #   mkdir: can't create directory '/var/lib/postgresql/data/pgdata': Permission denied
+  # We maken de mappen vooraf aan en zetten de juiste eigenaar via een
+  # wegwerp-container (draait als root, werkt dus ook zonder sudo).
+  mkdir -p "$BASE/pgdata" "$BASE/logs" 2>/dev/null
+  if docker run --rm -v "$BASE/pgdata:/pgdata" alpine chown -R 70:70 /pgdata 2>/dev/null; then
+    ok "pgdata/ rechten ingesteld (postgres uid 70)"
+  else
+    warn "Kon pgdata/ rechten niet automatisch zetten — postgres kan mogelijk niet starten"
+  fi
+  echo ""
+
   $COMPOSE --project-directory "$BASE" up --build -d --remove-orphans
   local compose_exit=$?
 
