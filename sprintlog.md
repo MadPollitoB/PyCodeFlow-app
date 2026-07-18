@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.48.11**
+**Huidige versie: v2026.2.48.12**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -32,7 +32,6 @@
 | Sprint | Prio | Cat | Inhoud | Inschatting |
 |---|---|---|---|---|
 | **43.13** | 🟡 P5 | BUG | **Monaco-worker-warning** *"Could not create web worker(s)"* blijft, ondanks `monaco-env.js` (43.6c). Diagnose was fout. Niet fataal: de editor werkt, maar valt terug op de main-thread (mogelijke UI-freezes bij grote bestanden). Vereist onderzoek in de browser (Network-tab: laadt `/monaco/min/vs/base/worker/workerMain.js`?). Ook de geblokkeerde `purify.min.js.map` (sourcemap) hoort hierbij — onschuldig. | ~0.5 dag |
-| **51b** | 🟠 P8 | AUTH | **Fase 2** — Autorisatie: leerkracht beheert enkel **eigen** sessies; admin alles **binnen de school**. *Test: A kan B's sessie niet openen/sluiten/verwijderen (403).* | ~1.5 dag |
 | **51c** | 🟠 P8 | FEAT | **Fase 2** — Vragenbank standaard **privé** + `shared`-vlag per vraag ("delen met collega's"). *Test: A ziet B's privé-vraag niet; gedeelde vraag wel; A kan B's vraag niet bewerken.* | ~1.5 dag |
 | **51d** | 🟠 P8 | AUTH | **Fase 2** — `teacher_classes` echt gebruiken (`listClassesForTeacher` bestaat maar wordt genegeerd). *Test: leerkracht ziet enkel eigen klassen.* | ~1 dag |
 | **52a** | 🟠 P8 | AUTH | **Leerling** — `students`: `google_email` → **`email`** (UNIEK, wijzigbaar) + `pass_hash` + `must_change_password` + **`first_name`** + **`last_name`** (apart → geen "Janssens Marie"-verwarring meer). `name` **blijft** de weergavenaam en wordt gevuld als `first_name + ' ' + last_name` — zo breekt niets: `name` zit in álle schermen én in de bevroren `quiz_answers.student_name`. `id` blijft de sleutel. *Test: bestaande leerlingen blijven bestaan met hun naam; nieuwe krijgen voor+achternaam.* | ~0.5 dag |
@@ -168,6 +167,7 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 71 | **48b3** | **🎉 BLOK 2 AF** — schoollogo naast het PyCodeFlow-merk, volgt de actieve school. Niet op start-/loginscherm. Padcontrole op het logo-bestand | v2026.2.48.10 |
 | 72 | **43.14** | **"+ Nieuwe taak" maakte een toets**: type komt nu uit de link (`?type=`), staat al vast bij het openen en is niet meer af te leiden uit de timerkeuze. Titel/kop/veldnamen/knoppen/meldingen bewegen mee met het type; ontbreekt het (rechtstreekse link) dan vraagt een kort keuzescherm het éénmalig op. Bevestigd: een taak MAG een tijdslimiet hebben (niet verplicht) — timer en type staan voortaan los van elkaar | v2026.2.48.11 |
 | 73 | **51a** | **Fase 2 start** — kolom `teacher_id` op `sessions` (eigenaar), gevuld bij elke nieuwe sessie (REST én socket) via `bepaalSessieEigenaar`. Backfill: bij precies 1 leerkrachtaccount krijgen bestaande sessies die eigenaar, anders blijft het bewust onbekend (`NULL`) — er was voordien nergens geregistreerd wie een sessie aanmaakte | v2026.2.48.11 |
+| 74 | **51b** | **Fase 2 autorisatie** — een leerkracht beheert/ziet enkel **eigen** sessies, een admin alle. Pure regel `magSessieBeheren`; REST-middleware `requireSessionAccess` op alle 31 `:code`-endpoints (openen/sluiten/verwijderen/inzien → **403** voor andermans sessie); socketguards op openen/waarnemen/grid + dubbele grendel op sluiten/verwijderen; `/api/sessions` en `/api/quiz-sessions` tonen enkel eigen sessies | v2026.2.48.12 |
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
@@ -357,6 +357,30 @@ Beide lopen via één nieuwe pure functie `bepaalSessieEigenaar(teacher)` in `li
 *Test: nieuwe sessie krijgt de juiste eigenaar (`tests/auth.test.js`, sectie 51a — dekt `bepaalSessieEigenaar` én de backfill-logica met een in-memory replica, zelfde patroon als `membership.test.js`).*
 
 *Bestanden: database.js, lib/auth.js, server.js, tests/auth.test.js*
+
+---
+
+### Sprint 51b — Fase 2: autorisatie op eigenaarschap *(~1.5 dag)* — ✅ AFGEROND (v2026.2.48.12)
+
+**Cat:** AUTH · **Prio:** 🟠 P8 · Bouwt voort op **51a** (eigenaar op `sessions`).
+
+**Wat:** vanaf nu beheert en ziet een leerkracht enkel zijn **eigen** sessies; een **admin** mag/ziet alles. Concreet: A kan B's sessie niet meer openen, sluiten, verwijderen of inzien — dat geeft **403** (REST) of een weigering (socket).
+
+**Eén regel, twee kanten.** De beslissing zit in de pure functie **`magSessieBeheren(teacher, sessionOwnerId)`** (`lib/auth.js`), zodat de REST- en de socketkant identiek beslissen en ze zonder databank testbaar is. Volgorde: geen leerkracht → nooit; **admin → alles** (de open-modus krijgt rol `admin` en valt hier, dus niets breekt bij één gebruiker); **onbekende eigenaar (`NULL`) → toegestaan** (legacy-sessies van vóór 51a niemand buitensluiten); anders enkel de eigenaar zelf.
+
+**REST — `requireSessionAccess`-middleware** op **alle 31** `:code`-endpoints van `/api/quiz`, `/api/sessions` en `/api/quiz-sessions` (na `requireTeacherAuth`). Haalt de eigenaar op via de nieuwe `getSessionOwner(code)` (bron = databank, dus klopt ook voor gesloten/gearchiveerde toetsen die niet in het geheugen staan). **Belangrijke subtiliteit:** `/api/quiz/:code` staat qua route-volgorde vóór literals als `/api/quiz/archive`, `/api/quiz/stats` en `/api/quiz/comment-templates`, die daardoor (Express first-match) óók via `:code` binnenkomen. De middleware dwingt daarom enkel af wanneer de code een **echte sessiecode** is (`isValidSessionCode`, 8× A-Z0-9); die literals laten we ongemoeid doorlopen, exact hun bestaande gedrag. De student-endpoints (`/review-login`, `/my-result`) hebben geen `requireTeacherAuth` en blijven dus onaangeroerd.
+
+**Socket — `socketMagSessie(socket, session)`** (eigenaar rechtstreeks uit `session.teacherId` in het geheugen, identiteit uit `socket.data.teacher` van 50f, geen DB nodig):
+- `teacher_join_session` (**openen**) en `teacher_join_as_observer` (**waarnemen**) en `teacher_grid_observe` (grid-overzicht) → weigeren bij een vreemde sessie. Openen is de deur: wie er niet binnenkomt, bereikt de sluit-/verwijder-acties sowieso niet.
+- `teacher_close_session` en `teacher_delete_session` krijgen bovendien een **dubbele grendel** — ze controleren het eigenaarschap nog eens expliciet, zodat verwijderen nooit op andermans sessie kan slaan.
+
+**Lijsten filteren** — `/api/sessions` (actief + gesloten) en `/api/quiz-sessions` tonen enkel sessies die de leerkracht mag beheren. Zo verdwijnt andermans werk uit het overzicht zelf, niet enkel uit het beheer. `loadClosedSessions` geeft daarvoor nu `teacher_id` mee.
+
+**Bewust nog niet:** de school-grens op "admin ziet alles" (nu schooloverstijgend) hoort bij Fase 3 (`school_id`, 48c-reeks). De vragenbank-privacy is **51c**, klas-filtering **51d**. Los opgemerkt (bestaande bug, buiten 51b): door dezelfde route-volgorde is het **archief-overzicht** (`GET /api/quiz/archive`) al langer afgeschermd door `/api/quiz/:code` — apart op te lossen door de literals vóór `:code` te registreren.
+
+*Test: `tests/auth.test.js`, sectie 51b — A mag B's sessie niet beheren (kern), eigenaar wel, admin overal, open-modus overal, legacy-`NULL` blijft beheerbaar, geen leerkracht → nooit. Aanvullend end-to-end gesimuleerd met een mini-Express: eigenaar 200, vreemde 403, admin 200, legacy 200, onbestaand 404, en de shadowed literal `/api/quiz/archive` loopt ongewijzigd door.*
+
+*Bestanden: lib/auth.js, db/database.js, server.js, tests/auth.test.js*
 
 ---
 

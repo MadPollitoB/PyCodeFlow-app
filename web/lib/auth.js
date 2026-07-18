@@ -150,6 +150,30 @@ function bepaalSessieEigenaar(teacher) {
   return teacher?.id || null;
 }
 
+// ── Sprint 51b (Fase 2 — autorisatie): mag deze leerkracht deze sessie beheren?
+// Pure regel (openen/sluiten/verwijderen/inzien van één sessie), los van Express en
+// sockets, zodat REST- én socketkant exact dezelfde beslissing volgen en ze
+// rechtstreeks testbaar is zonder databank.
+//
+// De regels, in volgorde:
+//  1. Geen (geldige) leerkracht → nooit. Vangnet; endpoints eisen al `requireTeacherAuth`.
+//  2. Admin → alles. Binnen model B (Fase 3) wordt dat "alles binnen de eigen school";
+//     die school-grens bestaat nog niet, dus voorlopig is admin schooloverstijgend.
+//     De open-modus (POC_BASIC_AUTH_ENABLED=false) krijgt via bepaalTeacherIdentiteit
+//     rol 'admin' en valt dus hier — één leerkracht, geen isolatie, niets breekt.
+//  3. Onbekende eigenaar (`teacher_id IS NULL`) → toegestaan voor elke leerkracht.
+//     Dit zijn legacy-sessies van vóór 51a waarvan de aanmaker nooit is vastgelegd en
+//     die de backfill niet kon toewijzen (school met >1 account). Ze buitensluiten zou
+//     bestaande werking breken; de eigenaarschapsregel geldt vanaf nu voor álle nieuwe
+//     sessies (die krijgen wél een eigenaar).
+//  4. Anders: enkel de eigenaar zelf.
+function magSessieBeheren(teacher, sessionOwnerId) {
+  if (!teacher) return false;                       // 1
+  if (teacher.role === 'admin') return true;        // 2
+  if (sessionOwnerId == null) return true;          // 3 (null én undefined)
+  return teacher.id === sessionOwnerId;             // 4
+}
+
 module.exports = {
   SCRYPT_PARAMS,
   safeEqual,
@@ -162,4 +186,5 @@ module.exports = {
   bepaalTeacherIdentiteit,
   berekenSessieVerlenging,
   bepaalSessieEigenaar,
+  magSessieBeheren,
 };

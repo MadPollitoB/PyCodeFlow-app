@@ -739,8 +739,20 @@ module.exports = {
         closed:      true,
         deleted:     row.deleted === 1,
         studentCount: 0,
+        teacherId:   row.teacher_id || null, // Sprint 51b: eigenaar, voor lijst-filtering
       }));
     } catch { return []; }
+  },
+
+  // ── Sprint 51b (Fase 2 — autorisatie): eigenaar van één sessie ophalen ────────
+  // Bron van waarheid is de databank, zodat dit óók klopt voor sessies die niet (meer)
+  // in het geheugen staan (gesloten/gearchiveerde toetsen). Geeft:
+  //   { found: false }                → sessie bestaat niet
+  //   { found: true, teacherId: … }   → teacherId is de eigenaar, of null (legacy/onbekend)
+  async getSessionOwner(code) {
+    const r = await query(`SELECT teacher_id FROM sessions WHERE code = $1`, [code]);
+    if (!r.rows.length) return { found: false, teacherId: null };
+    return { found: true, teacherId: r.rows[0].teacher_id || null };
   },
 
   async markSessionDeleted(code) {

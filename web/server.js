@@ -185,6 +185,8 @@ const bepaalTeacherIdentiteit = authLib.bepaalTeacherIdentiteit;
 const berekenSessieVerlenging = authLib.berekenSessieVerlenging;
 // Sprint 51a: wie wordt eigenaar van een nieuwe sessie
 const bepaalSessieEigenaar = authLib.bepaalSessieEigenaar;
+// Sprint 51b: mag deze leerkracht deze sessie beheren?
+const magSessieBeheren = authLib.magSessieBeheren;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -453,6 +455,37 @@ async function requireTeacherAuth(req, res, next) {
   return res.redirect(`/teacher-login.html?next=${dest}`);
 }
 
+// ── Sprint 51b (Fase 2 — autorisatie): eigenaarschap afdwingen per sessie ─────
+// Draait ná requireTeacherAuth (req.teacher is dan gezet) op endpoints met een
+// `:code`-parameter. Een leerkracht mag enkel zijn eigen sessies openen/beheren;
+// een admin mag alles. De beslissing zelf is de pure functie magSessieBeheren().
+//
+// Belangrijk detail over de route-volgorde: `/api/quiz/:code` staat vóór literals
+// als `/api/quiz/archive`, `/api/quiz/stats` en `/api/quiz/comment-templates`, dus
+// die enkelvoudige paden komen (door Express' first-match) óók via `:code` binnen.
+// Daarom dwingen we enkel af wanneer de code een ECHTE sessiecode is (8 tekens
+// A-Z0-9); anders laten we ongemoeid door — die literals zijn geen sessie en houden
+// exact hun bestaande gedrag.
+async function requireSessionAccess(req, res, next) {
+  const code = String(req.params.code || '').toUpperCase();
+  if (!validationLib.isValidSessionCode(code)) return next(); // literal-route, geen sessie
+  let eigenaar;
+  try {
+    eigenaar = await dbModule.getSessionOwner(code);
+  } catch (e) {
+    log.error('[auth] eigenaar bepalen mislukt:', e.message);
+    return res.status(500).json({ error: 'Kon de eigenaar van de sessie niet bepalen.' });
+  }
+  if (!eigenaar || !eigenaar.found) {
+    return res.status(404).json({ error: 'Sessie niet gevonden.' });
+  }
+  if (!magSessieBeheren(req.teacher, eigenaar.teacherId)) {
+    log.warn(`[auth] ${req.teacher?.username || '?'} probeerde sessie ${code} te beheren zonder eigenaar te zijn`);
+    return res.status(403).json({ error: 'Je hebt geen toegang tot deze sessie. Ze is van een andere leerkracht.' });
+  }
+  return next();
+}
+
 // ── Sprint 50d: sessie verlengen bij activiteit ──────────────────────────────
 // De rekenregel (wanneer wel/niet) staat in lib/auth.js en is apart getest.
 // Hier doen we enkel het schrijfwerk. Bewust fail-safe: mislukt het verlengen, dan
@@ -492,6 +525,14 @@ async function verlengSessieIndienNodig(req, res, sessie) {
 // paginaverversing wordt opnieuw gecontroleerd.
 function socketIsTeacherAuthorized(socket) {
   return !!socket.data?.teacher;
+}
+
+// ── Sprint 51b (Fase 2 — autorisatie): mag deze socket deze sessie beheren? ───
+// De socketkant kent de eigenaar rechtstreeks uit het geheugen (session.teacherId,
+// gezet in 51a) en de identiteit uit socket.data.teacher (gezet door de io.use van
+// 50f), dus geen databank nodig. Zelfde beslissing als de REST-kant via magSessieBeheren.
+function socketMagSessie(socket, session) {
+  return magSessieBeheren(socket.data?.teacher, session?.teacherId);
 }
 
 // Fix SEC-3: HTTP security headers
@@ -994,7 +1035,7 @@ app.get('/api/templates', requireTeacherAuth, (req, res) => {
 });
 
 // Code history: snapshots voor een leerling ophalen
-app.get('/api/sessions/:code/history/:studentId', requireTeacherAuth, async (req, res) => {
+app.get('/api/sessions/:code/history/:studentId', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   const code = (req.params.code || '').toUpperCase();
   const studentId = req.params.studentId;
   const session = sessions.get(code);
@@ -1685,7 +1726,7 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/quiz/:code', requireTeacherAuth, async (req, res) => {
+app.get('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   const code = req.params.code.toUpperCase();
   const session = sessions.get(code);
   const meta = await dbModule.getQuizMeta(code);
@@ -1693,7 +1734,7 @@ app.get('/api/quiz/:code', requireTeacherAuth, async (req, res) => {
   res.json({ session: session ? { code, name: session.name, mode: session.mode } : null, meta, questions });
 });
 
-app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   const code = req.params.code.toUpperCase();
   const meta = await dbModule.getQuizMeta(code);
   const questions = await dbModule.getQuizQuestions(code);
@@ -1755,7 +1796,7 @@ app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireCsrf, async (re
 
 // ── Sprint 43.4: leerling-selectie per toets/taak ────────────────────────────
 // GET → { classId, students:[{id,name,allowed}], restricted:bool }
-app.get('/api/quiz/:code/students', requireTeacherAuth, async (req, res) => {
+app.get('/api/quiz/:code/students', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   const code = String(req.params.code || '').toUpperCase();
   try {
     const meta = await dbModule.getQuizMeta(code);
@@ -1778,7 +1819,7 @@ app.get('/api/quiz/:code/students', requireTeacherAuth, async (req, res) => {
 });
 
 // PUT { studentIds:[...] } → sla selectie op. Alles aangevinkt = beperking opheffen.
-app.put('/api/quiz/:code/students', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.put('/api/quiz/:code/students', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   const code = String(req.params.code || '').toUpperCase();
   const ids = Array.isArray(req.body?.studentIds) ? req.body.studentIds : [];
   try {
@@ -1797,7 +1838,7 @@ app.put('/api/quiz/:code/students', requireTeacherAuth, requireCsrf, async (req,
 });
 
 // ── Sprint 43.2b: preview-toets activeren (→ echte toets die gestart kan worden) ──
-app.post('/api/quiz/:code/activate', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.post('/api/quiz/:code/activate', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   const code = String(req.params.code || '').toUpperCase();
   try {
     await dbModule.query('UPDATE assignment_bank SET is_teacher_preview = false WHERE session_code = $1', [code]);
@@ -1812,7 +1853,7 @@ app.post('/api/quiz/:code/activate', requireTeacherAuth, requireCsrf, async (req
 
 // ── 16b: Toets pauzeren ──────────────────────────────────────────────────────
 
-app.post('/api/quiz/:code/pause', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.post('/api/quiz/:code/pause', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   const session = sessions.get(req.params.code.toUpperCase());
   if (!session || session.mode !== 'quiz') return res.status(404).json({ error: 'Niet gevonden.' });
   session.quizPaused = !session.quizPaused;
@@ -1822,12 +1863,12 @@ app.post('/api/quiz/:code/pause', requireTeacherAuth, requireCsrf, async (req, r
 
 // ── 16d: Verbetermodule ───────────────────────────────────────────────────────
 
-app.get('/api/quiz/:code/answers', requireTeacherAuth, async (req, res) => {
+app.get('/api/quiz/:code/answers', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   try { res.json(await dbModule.getQuizAnswers(req.params.code.toUpperCase())); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/quiz/:code/answers/:studentId', requireTeacherAuth, async (req, res) => {
+app.get('/api/quiz/:code/answers/:studentId', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   try {
     const answers = await dbModule.getQuizAnswersByStudent(
       req.params.code.toUpperCase(), req.params.studentId
@@ -1841,7 +1882,7 @@ app.get('/api/quiz/:code/answers/:studentId', requireTeacherAuth, async (req, re
 
 // 33a: scores-samenvatting exporteren als CSV (opent direct in Excel).
 // Eén rij per leerling, een kolom per vraag + totaal. Geen externe dependency nodig.
-app.get('/api/quiz/:code/export/csv', requireTeacherAuth, async (req, res) => {
+app.get('/api/quiz/:code/export/csv', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   try {
     const code = req.params.code.toUpperCase();
     const rows = await dbModule.getQuizAnswers(code);
@@ -1903,7 +1944,7 @@ app.get('/api/quiz/:code/export/csv', requireTeacherAuth, async (req, res) => {
   }
 });
 
-app.get('/api/quiz/:code/run-history/:studentId/:questionId', requireTeacherAuth, async (req, res) => {
+app.get('/api/quiz/:code/run-history/:studentId/:questionId', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   try {
     res.json(await dbModule.getQuizRunHistory(
       req.params.code.toUpperCase(), req.params.studentId, req.params.questionId
@@ -1911,7 +1952,7 @@ app.get('/api/quiz/:code/run-history/:studentId/:questionId', requireTeacherAuth
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.put('/api/quiz/:code/answers/:answerId/score', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.put('/api/quiz/:code/answers/:answerId/score', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   const { score, teacherComment } = req.body || {};
   const actor = getActorFromReq(req);
   // Haal oude score op voor audit
@@ -1931,7 +1972,7 @@ app.put('/api/quiz/:code/answers/:answerId/score', requireTeacherAuth, requireCs
   res.json({ ok: true });
 });
 
-app.put('/api/quiz/:code/general-comment/:studentId', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.put('/api/quiz/:code/general-comment/:studentId', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   const { comment } = req.body || {};
   await dbModule.saveQuizGeneralComment(
     req.params.code.toUpperCase(), req.params.studentId,
@@ -1940,7 +1981,7 @@ app.put('/api/quiz/:code/general-comment/:studentId', requireTeacherAuth, requir
   res.json({ ok: true });
 });
 
-app.post('/api/quiz/:code/release', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.post('/api/quiz/:code/release', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   const code = req.params.code.toUpperCase();
   await dbModule.releaseQuizResults(code);
   const session = sessions.get(code);
@@ -1960,7 +2001,7 @@ function reviewTokenSecret() {
 }
 
 // Leerkracht zet nakijk-modus aan of uit voor één toets.
-app.post('/api/quiz/:code/review-mode', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.post('/api/quiz/:code/review-mode', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   const code = req.params.code.toUpperCase();
   const enabled = req.body?.enabled === true;
   const ok = await dbModule.setReviewMode(code, enabled);
@@ -2063,7 +2104,7 @@ app.get('/api/quiz/:code/my-result', requireReviewToken, async (req, res) => {
 });
 
 // 37b: leerkracht slaat de modelcode/het modelantwoord van één vraag op (per toets).
-app.put('/api/quiz/:code/question/:questionId/model', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.put('/api/quiz/:code/question/:questionId/model', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   const code = req.params.code.toUpperCase();
   const modelAnswer = String(req.body?.modelAnswer || '');
   const ok = await dbModule.setSnapshotModelAnswer(code, req.params.questionId, modelAnswer);
@@ -2071,7 +2112,7 @@ app.put('/api/quiz/:code/question/:questionId/model', requireTeacherAuth, requir
   res.json({ ok: true });
 });
 
-app.get('/api/quiz/:code/similarity', requireTeacherAuth, async (req, res) => {
+app.get('/api/quiz/:code/similarity', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   try {
     const answers = await dbModule.getQuizAnswers(req.params.code.toUpperCase());
     // Bereken Levenshtein-gelijkenis per vraag
@@ -2365,7 +2406,7 @@ async function generateQuizPDF(sessionCode, type, studentId = null, scored = fal
   return doc;
 }
 
-app.get('/api/quiz/:code/pdf/questions', requireTeacherAuth, async (req, res) => {
+app.get('/api/quiz/:code/pdf/questions', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   try {
     const doc = await generateQuizPDF(req.params.code.toUpperCase(), 'questions');
     res.setHeader('Content-Type', 'application/pdf');
@@ -2375,7 +2416,7 @@ app.get('/api/quiz/:code/pdf/questions', requireTeacherAuth, async (req, res) =>
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/quiz/:code/pdf/answers/:studentId', requireTeacherAuth, async (req, res) => {
+app.get('/api/quiz/:code/pdf/answers/:studentId', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   try {
     const scored = req.query.scored === 'true';
     const doc = await generateQuizPDF(req.params.code.toUpperCase(), 'answers', req.params.studentId, scored);
@@ -2387,7 +2428,7 @@ app.get('/api/quiz/:code/pdf/answers/:studentId', requireTeacherAuth, async (req
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/quiz/:code/pdf/answers', requireTeacherAuth, async (req, res) => {
+app.get('/api/quiz/:code/pdf/answers', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   try {
     const scored = req.query.scored === 'true';
     const doc = await generateQuizPDF(req.params.code.toUpperCase(), 'answers', null, scored);
@@ -2398,7 +2439,7 @@ app.get('/api/quiz/:code/pdf/answers', requireTeacherAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/quiz/:code/pdf/overview', requireTeacherAuth, async (req, res) => {
+app.get('/api/quiz/:code/pdf/overview', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   try {
     const doc = await generateQuizPDF(req.params.code.toUpperCase(), 'overview');
     res.setHeader('Content-Type', 'application/pdf');
@@ -2409,7 +2450,7 @@ app.get('/api/quiz/:code/pdf/overview', requireTeacherAuth, async (req, res) => 
 });
 
 // Sprint 19h: Bulk PDF ZIP — aparte PDF per leerling
-app.get('/api/quiz/:code/pdf/zip', requireTeacherAuth, async (req, res) => {
+app.get('/api/quiz/:code/pdf/zip', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   const code = req.params.code.toUpperCase();
   const scored = req.query.scored === 'true';
 
@@ -2606,7 +2647,7 @@ app.get('/api/quiz/:code/pdf/zip', requireTeacherAuth, async (req, res) => {
 });
 
 // Originele TXT export (behouden als fallback)
-app.get('/api/quiz/:code/export/zip', requireTeacherAuth, async (req, res) => {
+app.get('/api/quiz/:code/export/zip', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   // ZIP met .py bestanden per leerling (TXT formaat)
   const zlib = require('zlib');
   const code = req.params.code.toUpperCase();
@@ -2678,22 +2719,22 @@ app.get('/api/quiz/archive/years', requireTeacherAuth, async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/quiz/:code/stats/detailed', requireTeacherAuth, async (req, res) => {
+app.get('/api/quiz/:code/stats/detailed', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   try { res.json(await dbModule.getQuizStatsDetailed(req.params.code.toUpperCase())); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.put('/api/quiz/:code/archive', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.put('/api/quiz/:code/archive', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   await dbModule.archiveQuiz(req.params.code.toUpperCase());
   res.json({ ok: true });
 });
 
-app.put('/api/quiz/:code/unarchive', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.put('/api/quiz/:code/unarchive', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   await dbModule.unarchiveQuiz(req.params.code.toUpperCase());
   res.json({ ok: true });
 });
 
-app.delete('/api/quiz/:code', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.delete('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   const { confirmName } = req.body || {};
   const code = req.params.code.toUpperCase();
   const session = sessions.get(code);
@@ -3177,24 +3218,29 @@ app.get("/api/free-students", requireTeacherAuth, (req, res) => {
 
 app.get("/api/sessions", requireTeacherAuth, async (req, res) => {
   const includeClosed = req.query.includeClosed === 'true';
+  // Sprint 51b: een leerkracht ziet enkel zijn eigen sessies (een admin ziet alle).
+  // Zo verdwijnen andermans sessies uit het overzicht, niet enkel uit het beheer.
   const activeList = [...sessions.values()]
     .filter(s => !s.deleted && !s.closed)
+    .filter(s => magSessieBeheren(req.teacher, s.teacherId))
     .map(sessionSummary)
     .sort((a,b) => b.createdAt - a.createdAt);
 
   if (!includeClosed) return res.json(activeList);
 
   // Sprint 11B: voeg gesloten sessies toe vanuit SQLite
-  const closedList = (await dbModule.loadClosedSessions()).map(s => ({
-    code:        s.code,
-    name:        s.name,
-    mode:        s.mode,
-    createdAt:   s.createdAt,
-    studentCount: s.studentCount,
-    closed:      true,
-    deleted:     s.deleted,
-    editorAssist: s.editorAssist,
-  }));
+  const closedList = (await dbModule.loadClosedSessions())
+    .filter(s => magSessieBeheren(req.teacher, s.teacherId)) // Sprint 51b
+    .map(s => ({
+      code:        s.code,
+      name:        s.name,
+      mode:        s.mode,
+      createdAt:   s.createdAt,
+      studentCount: s.studentCount,
+      closed:      true,
+      deleted:     s.deleted,
+      editorAssist: s.editorAssist,
+    }));
 
   res.json([...activeList, ...closedList]);
 });
@@ -3246,19 +3292,24 @@ app.get("/api/quiz-sessions", requireTeacherAuth, async (req, res) => {
     const mem = sessions.get(code);
     let name = mem && mem.name, createdAt = mem && mem.createdAt;
     let closed = mem ? !!mem.closed : false, deleted = mem ? !!mem.deleted : false;
+    // Sprint 51b: eigenaar mee ophalen zodat de bank/lijst enkel eigen toetsen toont.
+    let ownerId = mem ? (mem.teacherId || null) : null;
     if (!mem) {
-      // Sessie niet in geheugen → naam/status uit de DB halen.
+      // Sessie niet in geheugen → naam/status/eigenaar uit de DB halen.
       try {
-        const r = await dbModule.query(`SELECT name, created_at, closed, deleted FROM sessions WHERE code = $1`, [code]);
+        const r = await dbModule.query(`SELECT name, created_at, closed, deleted, teacher_id FROM sessions WHERE code = $1`, [code]);
         if (r.rows[0]) {
           name = r.rows[0].name;
           createdAt = Number(r.rows[0].created_at);
           closed  = r.rows[0].closed  === 1 || r.rows[0].closed  === true;
           deleted = r.rows[0].deleted === 1 || r.rows[0].deleted === true;
+          ownerId = r.rows[0].teacher_id || null;
         }
       } catch { /* sessie-info optioneel */ }
     }
     if (deleted) continue;
+    // Sprint 51b: enkel eigen toetsen/taken (admin ziet alle).
+    if (!magSessieBeheren(req.teacher, ownerId)) continue;
     const students = mem ? Object.values(mem.students || {}).filter(st => !st.removed) : [];
     const onlineCount = students.filter(st => st.online).length;
     const row = quizSummaryRow(code, name || code, createdAt || 0, closed, meta, onlineCount, students.length, now);
@@ -3275,7 +3326,7 @@ app.get("/api/quiz-sessions", requireTeacherAuth, async (req, res) => {
 // De "gekoppelde" leerlingen zijn de leden van de aan de toets gekoppelde klas
 // (van dat schooljaar), via class_memberships. Matching op naam, omdat een
 // toets-leerling een eigen (niet-globale) id krijgt bij quiz_start.
-app.get("/api/quiz-sessions/:code/roster", requireTeacherAuth, async (req, res) => {
+app.get("/api/quiz-sessions/:code/roster", requireTeacherAuth, requireSessionAccess, async (req, res) => {
   const code = (req.params.code || '').toUpperCase();
   const meta = await dbModule.getQuizMeta(code);
   if (!meta) return res.status(404).json({ error: 'Toets niet gevonden.' });
@@ -3332,7 +3383,7 @@ app.get("/api/quiz-sessions/:code/roster", requireTeacherAuth, async (req, res) 
 });
 
 // ── ZIP Export: alle leerlingencode + output per sessie ───────────────────────
-app.get("/api/sessions/:code/export", requireTeacherAuth, (req, res) => {
+app.get("/api/sessions/:code/export", requireTeacherAuth, requireSessionAccess, (req, res) => {
   const code = (req.params.code || '').toUpperCase();
   const session = sessions.get(code);
   if (!session) return res.status(404).json({ error: 'Sessie niet gevonden' });
@@ -3404,7 +3455,7 @@ app.get("/api/sessions/:code/export", requireTeacherAuth, (req, res) => {
   res.send(buf);
 });
 
-app.post("/api/sessions/:code/block-toggle", requireTeacherAuth, requireCsrf, (req, res) => {
+app.post("/api/sessions/:code/block-toggle", requireTeacherAuth, requireSessionAccess, requireCsrf, (req, res) => {
   const code = String(req.params.code || "").toUpperCase();
   const session = sessions.get(code);
   if (!session || session.deleted || session.closed) return res.status(404).json({ error: "not_found" });
@@ -3424,7 +3475,7 @@ app.post("/api/sessions/:code/block-toggle", requireTeacherAuth, requireCsrf, (r
   res.json(sessionSummary(session));
 });
 
-app.delete("/api/sessions/:code", requireTeacherAuth, requireCsrf, (req, res) => {
+app.delete("/api/sessions/:code", requireTeacherAuth, requireSessionAccess, requireCsrf, (req, res) => {
   const code = String(req.params.code || "").toUpperCase();
   const session = sessions.get(code);
   if (!session) return res.status(404).json({ error: "not_found" });
@@ -4072,6 +4123,12 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     if (!socketIsTeacherAuthorized(socket)) return socket.emit("error_message", "Leerkracht-authenticatie vereist");
     const session = sessions.get((code || "").toUpperCase());
     if (!session || session.closed || session.deleted) return socket.emit("error_message", "Sessie niet gevonden");
+    // Sprint 51b: enkel de eigenaar (of een admin) mag een sessie openen. Dit is de
+    // deur: wie hier niet binnenkomt, kan ook geen sluit-/verwijder-acties uitvoeren,
+    // want die werken op de sessie die je via socketToUser hebt "geopend".
+    if (!socketMagSessie(socket, session)) {
+      return socket.emit("error_message", "Deze sessie is van een andere leerkracht.");
+    }
     session.teacherSocketId = socket.id;
     socket.join(session.code);
     socketToUser.set(socket.id, { role: "teacher", code: session.code });
@@ -4352,6 +4409,11 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     const session = sessions.get((code || '').toUpperCase());
     if (!session || session.deleted || session.closed) {
       return socket.emit("error_message", "Sessie niet gevonden of gesloten");
+    }
+    // Sprint 51b: ook read-only meekijken is enkel voor de eigenaar (of admin) —
+    // anders zag een collega alsnog de live-inhoud van andermans sessie.
+    if (!socketMagSessie(socket, session)) {
+      return socket.emit("error_message", "Deze sessie is van een andere leerkracht.");
     }
     // Observer: join de room maar met read-only rol
     socket.join(session.code);
@@ -4898,6 +4960,11 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     if (!ctx || ctx.role !== "teacher") return;
     const session = sessions.get(ctx.code);
     if (!session) return;
+    // Sprint 51b: dubbele grendel. Openen is al afgeschermd, maar we controleren het
+    // eigenaarschap óók hier, zodat verwijderen nooit op andermans sessie kan slaan.
+    if (!socketMagSessie(socket, session)) {
+      return socket.emit("error_message", "Deze sessie is van een andere leerkracht.");
+    }
     session.deleted = true;
     dbModule.markSessionDeleted(session.code).catch(()=>{});
     // Sprint 9A: cleanup memory
@@ -4927,6 +4994,10 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     if (!ctx || ctx.role !== "teacher") return;
     const session = sessions.get(ctx.code);
     if (!session) return;
+    // Sprint 51b: dubbele grendel (zie teacher_delete_session).
+    if (!socketMagSessie(socket, session)) {
+      return socket.emit("error_message", "Deze sessie is van een andere leerkracht.");
+    }
     session.closed = true;
     dbModule.markSessionClosed(session.code).catch(()=>{});
     io.to(session.code).emit("force_landing");
@@ -5417,8 +5488,12 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
   // Grid-overzicht in nieuw tabblad (teacher-grid.html)
   socket.on('teacher_grid_observe', ({ code }) => {
     if (!code) return;
+    if (!socketIsTeacherAuthorized(socket)) return;
     const session = sessions.get(code.toUpperCase());
     if (!session) return;
+    // Sprint 51b: het grid-overzicht toont dezelfde live-data als het sessiescherm —
+    // dus ook hier enkel voor de eigenaar (of admin).
+    if (!socketMagSessie(socket, session)) return;
     // Stuur huidige sessiedata naar dit socket (de grid viewer)
     const data = buildTeacherData(session);
     socket.emit('teacher_session_data', data);

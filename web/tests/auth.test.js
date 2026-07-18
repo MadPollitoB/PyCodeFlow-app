@@ -416,3 +416,55 @@ test('51a backfill: raakt nooit een sessie die al een eigenaar heeft', () => {
   const result = backfillSessionOwners(sessies, ['solo-teacher']);
   assert.strictEqual(result[0].teacherId, 'al-gezet', 'idempotent: bestaande eigenaar blijft staan');
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Sprint 51b (Fase 2 — autorisatie) — magSessieBeheren
+//
+// De regel die zowel de REST-middleware (requireSessionAccess) als de socketguards
+// (socketMagSessie) gebruiken: mag deze leerkracht deze sessie openen/beheren?
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const leerkrachtA = { id: 'id-a', username: 'anja', role: 'teacher' };
+const leerkrachtB = { id: 'id-b', username: 'bram', role: 'teacher' };
+const beheerder   = { id: 'id-x', username: 'admin', role: 'admin' };
+
+test('51b KERNTEST: A mag B\'s sessie NIET beheren (openen/sluiten/verwijderen)', () => {
+  // sessie is van B (owner id-b); A probeert erbij
+  assert.strictEqual(auth.magSessieBeheren(leerkrachtA, 'id-b'), false);
+});
+
+test('51b: de eigenaar mag zijn eigen sessie beheren', () => {
+  assert.strictEqual(auth.magSessieBeheren(leerkrachtA, 'id-a'), true);
+  assert.strictEqual(auth.magSessieBeheren(leerkrachtB, 'id-b'), true);
+});
+
+test('51b: een admin mag elke sessie beheren', () => {
+  assert.strictEqual(auth.magSessieBeheren(beheerder, 'id-a'), true);
+  assert.strictEqual(auth.magSessieBeheren(beheerder, 'id-b'), true);
+  assert.strictEqual(auth.magSessieBeheren(beheerder, null), true);
+});
+
+test('51b: open-modus (source open → rol admin) mag alles', () => {
+  const open = auth.bepaalTeacherIdentiteit({ authUit: true });
+  assert.strictEqual(auth.magSessieBeheren(open, 'id-a'), true);
+});
+
+test('51b: legacy-sessie zonder eigenaar (null) blijft voor elke leerkracht beheerbaar', () => {
+  // Bewuste transitieregel: sessies van vóór 51a die de backfill niet kon toewijzen
+  // mogen niemand buitensluiten.
+  assert.strictEqual(auth.magSessieBeheren(leerkrachtA, null), true);
+  assert.strictEqual(auth.magSessieBeheren(leerkrachtB, null), true);
+  assert.strictEqual(auth.magSessieBeheren(leerkrachtA, undefined), true);
+});
+
+test('51b: geen (geldige) leerkracht → nooit toegang', () => {
+  assert.strictEqual(auth.magSessieBeheren(null, 'id-a'), false);
+  assert.strictEqual(auth.magSessieBeheren(undefined, 'id-a'), false);
+});
+
+test('51b: identiteit uit bepaalTeacherIdentiteit werkt rechtstreeks in de regel', () => {
+  // Zoals de echte flow: identiteit komt uit de sessie, eigenaar is een teacher_id.
+  const a = auth.bepaalTeacherIdentiteit({ sessie: { teacher_id: 'id-a', username: 'anja', role: 'teacher' } });
+  assert.strictEqual(auth.magSessieBeheren(a, 'id-a'), true);   // eigen
+  assert.strictEqual(auth.magSessieBeheren(a, 'id-b'), false);  // van iemand anders
+});
