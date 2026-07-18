@@ -8,9 +8,8 @@ services:
       POSTGRES_USER: pycodeflow
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: pycodeflow
-      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
-      - ./pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
     networks:
       - pycodeflow
     healthcheck:
@@ -84,3 +83,6 @@ networks:
   runner_internal:
     driver: bridge
     internal: true
+
+volumes:
+  pgdata:

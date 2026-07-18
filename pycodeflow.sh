@@ -8,6 +8,10 @@
 
 BASE="/volume3/docker/pycodeflow"
 ENV_FILE="$BASE/.env"
+# Naam van het Docker-named-volume voor de PostgreSQL-data.
+# Compose leidt de projectnaam af uit de basename van --project-directory,
+# dus het volume heet <projectnaam>_pgdata (bv. pycodeflow_pgdata).
+PGVOLUME="$(basename "$BASE")_pgdata"
 COMPOSE_FILE="-f $BASE/docker-compose.yml"
 COMPOSE_PROD="-f $BASE/docker-compose.prod.yml"
 COMPOSE="docker compose $COMPOSE_FILE"
@@ -93,6 +97,21 @@ postgres_db_bestaat() {
   docker exec pycodeflow-postgres-1     psql "postgresql://pycodeflow:${pw}@localhost/pycodeflow"     -c "SELECT 1" > /dev/null 2>&1
 }
 
+pgvolume_heeft_data() {
+  # 0 (waar) als het named volume bestaat én niet leeg is
+  docker volume inspect "$PGVOLUME" > /dev/null 2>&1 || return 1
+  local inhoud
+  inhoud=$(docker run --rm -v "$PGVOLUME:/d" alpine sh -c "ls -A /d 2>/dev/null" 2>/dev/null)
+  [[ -n "$inhoud" ]]
+}
+
+pgvolume_wissen() {
+  # Leegt het named volume (postgres-container moet gestopt zijn)
+  if docker volume inspect "$PGVOLUME" > /dev/null 2>&1; then
+    docker run --rm -v "$PGVOLUME:/pgdata" alpine sh -c "rm -rf /pgdata/* /pgdata/.[!.]* 2>/dev/null" 2>/dev/null
+  fi
+}
+
 npm_package_aanwezig() {
   # Check of een npm package geïnstalleerd is in de web container
   docker exec pycodeflow-web-1 \
@@ -140,10 +159,10 @@ setup_eerste_start() {
     info "Wachtwoord: (reeds ingesteld)"
     POSTGRES_PW="$bestaand_pw"
 
-  elif [[ -n "$bestaand_pw" ]] && [[ -d "$BASE/pgdata" ]] && [[ -n "$(ls -A "$BASE/pgdata" 2>/dev/null)" ]]; then
-    # pgdata bestaat en is niet leeg — test of wachtwoord klopt
+  elif [[ -n "$bestaand_pw" ]] && pgvolume_heeft_data; then
+    # database-volume bestaat en is niet leeg — test of wachtwoord klopt
     echo ""
-    info "pgdata/ gevonden — wachtwoord controleren..."
+    info "database-volume gevonden — wachtwoord controleren..."
     # Start postgres tijdelijk om te testen
     docker compose --project-directory "$BASE" up -d postgres 2>/dev/null
     sleep 8
@@ -153,10 +172,10 @@ setup_eerste_start() {
     else
       echo ""
       err "PostgreSQL wachtwoord mismatch!"
-      warn "pgdata/ bevat een database met een ander wachtwoord dan in .env staat."
+      warn "database-volume bevat een database met een ander wachtwoord dan in .env staat."
       echo ""
       echo -e "  ${BOLD}Oplossingen:${RESET}"
-      echo -e "  ${BOLD}1)${RESET} pgdata/ wissen ${DIM}(aanbevolen als DB nog leeg/onbelangrijk is)${RESET}"
+      echo -e "  ${BOLD}1)${RESET} database-volume wissen ${DIM}(aanbevolen als DB nog leeg/onbelangrijk is)${RESET}"
       echo -e "  ${BOLD}2)${RESET} Origineel wachtwoord ingeven"
       echo ""
       read -rp "  Keuze (1/2) [1]: " pw_keuze
@@ -174,9 +193,9 @@ setup_eerste_start() {
           break
         done
         docker compose --project-directory "$BASE" stop postgres 2>/dev/null
-        info "pgdata/ wissen via Docker..."
-        docker run --rm           -v "$BASE/pgdata:/pgdata"           alpine sh -c "rm -rf /pgdata/*" 2>/dev/null
-        ok "pgdata/ geleegd"
+        info "database-volume wissen via Docker..."
+        pgvolume_wissen
+        ok "database-volume geleegd"
         POSTGRES_PW="$pw1"
         set_env "POSTGRES_PASSWORD" "$POSTGRES_PW"
         ok "Nieuw wachtwoord ingesteld in .env"
@@ -192,7 +211,7 @@ setup_eerste_start() {
     echo ""
 
   elif [[ -n "$bestaand_pw" ]]; then
-    # Wachtwoord in .env maar nog geen pgdata — normaal bij eerste keer
+    # Wachtwoord in .env maar nog geen database-volume — normaal bij eerste keer
     POSTGRES_PW="$bestaand_pw"
     ok "Wachtwoord gevonden in .env: (niet getoond)"
 
@@ -275,19 +294,13 @@ setup_eerste_start() {
   echo -e "  ${GEEL}Dit kan enkele minuten duren bij de eerste keer...${RESET}"
   echo ""
 
-  # ── PostgreSQL bind-mount rechten voorbereiden (Synology/NAS) ─────────────
-  # Het postgres:16-alpine image draait als uid 70. Bij een verse installatie
-  # maakt de Docker-daemon de host-map ./pgdata als root aan, waardoor postgres
-  # de PGDATA-submap niet kan aanmaken:
-  #   mkdir: can't create directory '/var/lib/postgresql/data/pgdata': Permission denied
-  # We maken de mappen vooraf aan en zetten de juiste eigenaar via een
-  # wegwerp-container (draait als root, werkt dus ook zonder sudo).
-  mkdir -p "$BASE/pgdata" "$BASE/logs" 2>/dev/null
-  if docker run --rm -v "$BASE/pgdata:/pgdata" alpine chown -R 70:70 /pgdata 2>/dev/null; then
-    ok "pgdata/ rechten ingesteld (postgres uid 70)"
-  else
-    warn "Kon pgdata/ rechten niet automatisch zetten — postgres kan mogelijk niet starten"
-  fi
+  # ── PostgreSQL data ──────────────────────────────────────────────────────
+  # De database draait op een Docker-named-volume ($PGVOLUME), niet op een
+  # bind-mount in de gedeelde map. Op Synology/NAS worden bind-mounts naar
+  # /volume*/… door ACL's afgeschermd, waardoor postgres (uid 70) zijn datamap
+  # niet kan aanmaken ("mkdir: Permission denied"). Docker beheert het volume
+  # zelf met de juiste rechten, dus hier is geen chmod/chown nodig.
+  mkdir -p "$BASE/logs" 2>/dev/null
   echo ""
 
   $COMPOSE --project-directory "$BASE" up --build -d --remove-orphans
@@ -1023,7 +1036,7 @@ actie_volledige_reset() {
   echo -e "  ${ROOD}✗${RESET} Alle Docker containers"
   echo -e "  ${ROOD}✗${RESET} Alle Docker images (pycodeflow)"
   echo -e "  ${ROOD}✗${RESET} Alle Docker volumes"
-  echo -e "  ${ROOD}✗${RESET} PostgreSQL database + alle data (pgdata/)"
+  echo -e "  ${ROOD}✗${RESET} PostgreSQL database + alle data (Docker-volume)"
   echo -e "  ${ROOD}✗${RESET} Alle logbestanden"
   echo -e "  ${ROOD}✗${RESET} SQLite legacy bestanden"
   echo ""
@@ -1059,14 +1072,12 @@ actie_volledige_reset() {
   ok "Images verwijderd (eventuele fouten hier zijn normaal)"
 
   stap "Stap 3: PostgreSQL data verwijderen"
-  if [[ -d "$BASE/pgdata" ]] && [[ -n "$(ls -A "$BASE/pgdata" 2>/dev/null)" ]]; then
-    info "pgdata/ wissen via Docker (root-bestanden)..."
-    docker run --rm \
-      -v "$BASE/pgdata:/pgdata" \
-      alpine sh -c "rm -rf /pgdata/*" 2>/dev/null
-    ok "pgdata/ geleegd"
+  if pgvolume_heeft_data; then
+    info "database-volume wissen via Docker..."
+    pgvolume_wissen
+    ok "database-volume geleegd"
   else
-    info "pgdata/ was al leeg"
+    info "database-volume was al leeg"
   fi
 
   stap "Stap 4: Logbestanden verwijderen"
