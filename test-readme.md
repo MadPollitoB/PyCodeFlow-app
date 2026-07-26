@@ -1,6 +1,6 @@
 # PyCodeFlow — Volledig Testboek
 
-> **Versie:** v2026.2.47.1 · **Bijgewerkt:** 12 juli 2026
+> **Versie:** v2026.2.48.12 · **Bijgewerkt:** 23 juli 2026 (sprints 51–54 + Fase 3 verwerkt)
 > Volledig stappenplan voor alle functies, pagina's, layouts en PDF-exports.
 > Voer tests uit op: `https://app.pycodeflow.org` (productie) of `http://localhost:3000` (lokaal)
 
@@ -10,15 +10,26 @@
 
 ### 0.1 Testdata aanmaken (eenmalig)
 
-Via `admin.html` vóór je begint:
+**Aanbevolen (sprint 54):** `pycodeflow.sh` → optie **21 🧬 Testdatabase** → `SEED` typen.
+Dat bouwt in één keer een volledige testset (idempotent; wis met `WIS`):
 
 | Item | Waarde |
 |---|---|
-| Leerkracht | `testleerkracht` / wachtwoord naar keuze |
-| Klas | `6A Informatica` |
-| Leerlingen | `Emma Janssens`, `Luca Peeters`, `Sara Declercq` (CSV-import) |
-| Vragen bank | Minstens 3 vragen: 1× Python code, 1× Open vraag, 1× Single choice |
-| Toets | `Testtoets H1` — 3 vragen, timer 45 min, random volgorde |
+| Scholen | `TESTDATA School A` en `TESTDATA School B` |
+| Leerkrachten (ww = gebruikersnaam) | `superadmin` · `leerkrachtA` (admin, school A) · `leerkrachtA2` · `leerkrachtB` (admin, school B) |
+| Klassen + startcodes (actief) | Klas 5A → `TDKLAS5A` · Klas 6A → `TDKLAS6A` · Klas 5B → `TDKLAS5B` |
+| Leerlingen (ww = gebruikersnaam) | `studentA@testschool.local` (actief) · `studentA2@…` (pending) · `studentA3@…` (geblokkeerd) · 1 leerling zónder account |
+| Vragenbank | Privé/school/publiek + 1 door admin verborgen vraag (53d) |
+| Sjablonen | School- en publiek-scope, met gekoppelde vragen |
+| Sessies | `TDLESA5` (les) · `TDTOETSA` (toets **met ingevulde antwoorden/scores**) · `TDTAAKA` (taak) |
+
+> ⚠️ Enkel voor test/staging — nooit op productie. De wis-optie verwijdert **alleen** de
+> gemarkeerde seed-rijen; wat je zélf tijdens het testen aanmaakt blijft staan. Wil je écht
+> een lege databank, gebruik dan de volledige reset (optie 14).
+
+**Handmatig alternatief** (als je bewust zonder seeder test) via `admin.html`: leerkracht
+`testleerkracht`, klas `6A Informatica`, leerlingen via CSV-import, ≥3 vragen
+(code/open/single), toets `Testtoets H1`.
 
 > **Herstel na herinstall (47.2/47.3):** een verse DB heeft geen leerkracht → de web-container stopt zichzelf (`checkAuthConfig`). Maak dan een leerkracht aan **zonder** dat de web-container hoeft te draaien:
 > ```bash
@@ -1192,7 +1203,7 @@ curl -sf -b "teacher_auth=..." $BASE/api/admin/db/tables/VERBODEN_TABEL/rows
 ✅ — → --- aan begin van regel (horizontale lijn)
 ✅ </> → ```python
 ...
-``` code-blok ingevoegd
+✅ Codeknop voegt een ```-codeblok in
 ✅ 🎨 → kleurpopup opent met 6 kleuren
 ✅ Klik kleur (bv. rood) → <span style="color:#ef4444">tekst</span>
 ✅ Klik buiten popup → popup sluit
@@ -2080,26 +2091,32 @@ Adminveld
 ## 65. Leerling-instap zonder e-mail (sprints 52a-52i)
 
 ```
-— Klascode (52b) —
-✅ Klasscherm toont één startcode, groot leesbaar (voor op het bord)
-✅ Knop "nieuwe code" geeft een andere code
-✅ Vlag "startcode actief" UIT → registratie geweigerd
-✅ Vlag terug AAN → registratie lukt weer
+— Klascode (52b) — in admin.html → klasbeheer, kolom "Startcode" —
+✅ Elke klas toont haar startcode groot leesbaar (voor op het bord) + 🟢 open / ⚪ dicht
+✅ Knop ↻ geeft een andere code (oude code werkt daarna niet meer)
+✅ "Sluiten" → registratie met die code geweigerd
+✅ "Openen" → registratie lukt weer
+✅ Leerkracht A kan de code van een klas van B NIET roteren (403)
 
-— Zelfregistratie (52c) —
+— Zelfregistratie (52c) — student-register.html (link op student-start.html) —
 ✅ Leerling registreert met klascode + VOORNAAM + ACHTERNAAM + school-e-mail + wachtwoord (2×)
 ✅ Lege voornaam of achternaam → geweigerd
 ✅ Account hangt automatisch aan de JUISTE klas (die van de code)
 ✅ Nieuwe leerling krijgt status "pending"
-✅ Adres buiten het schooldomein → geweigerd met duidelijke melding
+✅ Adres buiten het schooldomein → geweigerd ("Gebruik je school-e-mailadres.")
+ℹ️ Zolang er GEEN schooldomeinen geconfigureerd zijn wordt de domeincheck overgeslagen
+   (test-/beginfase) — configureer eerst een domein om dit geval te testen
 ✅ Dubbel adres → geweigerd
 ✅ Foute/onbekende klascode → geweigerd
 ✅ Wachtwoorden verschillen → melding
 
-— Login (52d) —
+— Login (52d) — student-login.html; aparte leerling-sessie (student_sid-cookie) —
 ✅ E-mail + wachtwoord werkt
 ✅ Fout wachtwoord → duidelijke melding
-✅ Herhaald falen → tijdelijk geblokkeerd (rate-limiting)
+✅ Herhaald falen → tijdelijk geblokkeerd (rate-limiting, Retry-After)
+✅ Geblokkeerd account → "Je account is geblokkeerd. Vraag je leerkracht om hulp."
+✅ must_change_password → de pagina toont meteen de stap "Nieuw wachtwoord"
+✅ Leerling-cookie geeft NOOIT toegang tot leerkracht-API's (en omgekeerd)
 
 — TOEGANGSREGEL (52e) — de kern —
 ✅ PENDING leerling kan deelnemen aan een KLASSESSIE
@@ -2127,18 +2144,29 @@ Adminveld
 ✅ Leerling verwijderen werkt
 ✅ Leerling blokkeren werkt
 
-— Koppeling op id (52i) —
-✅ Voortgang (43.1) klopt ook bij twee leerlingen met dezelfde naam
-✅ Leerling-selectie (43.4) klopt ook bij naamsverschillen
+— Koppeling op id (52i) — geldt voor INGELOGDE leerlingen —
+✅ Ingelogde leerling start toets → deelname onder zijn échte students.id
+✅ Server herstarten midden in de toets → herverbinden: antwoorden én vraagvolgorde terug
+✅ Twee leerlingen met dezelfde naam: voortgang (43.1) en selectie (43.4) blijven correct
+✅ Leerling-selectie (43.4) toetst een ingelogd account op id, een gast op naam
+✅ Gast (niet ingelogd) hervat zijn toets ondubbelzinnig op naam+klas
 
-— Herstel (52f) —
-✅ Knop "herstel" → leerling kan opnieuw met de KLAS-startcode in
-✅ Leerling MOET daarbij een nieuw wachtwoord kiezen
-✅ Het oude wachtwoord werkt niet meer
+— Herstel (52f) — 🔑 Reset in het leerlingbeheer + student-recover.html —
+✅ Leerkracht klikt 🔑 Reset → badge "reset" verschijnt bij de leerling
+✅ Leerling herstelt via "Wachtwoord vergeten" met KLAS-startcode + e-mail + nieuw ww (2×)
+✅ Herstel ZONDER voorafgaande reset → geweigerd met bewust vage melding
+   (zo kan een klasgenoot met de klascode nooit andermans wachtwoord overnemen)
+✅ Na herstel: inloggen met het nieuwe wachtwoord werkt, het oude niet meer
+✅ Alternatief pad: na reset inloggen met het OUDE wachtwoord kan nog één keer,
+   maar dwingt meteen een nieuwe wachtwoordkeuze af
+✅ Geblokkeerd account kan nooit herstellen
 
-— Na login (52g) —
-✅ Sessiecode → juiste sessie/toets/taak
-✅ "Vrij oefenen" werkt
+— Na login (52g) — student-start.html is login-bewust —
+✅ Ingelogd: banner "Ingelogd als … — aanvaard/nog niet aanvaard" + uitlog-link
+✅ Naam is vooringevuld vanuit het account
+✅ Bij pending: uitleg dat toets/taak pas na aanvaarding kan
+✅ Sessiecode → juiste sessie/toets/taak · "Vrij oefenen" werkt
+✅ Uitloggen → banner weg, gewone (naam-gebaseerde) instap werkt nog
 
 ℹ️ Er wordt GEEN e-mail verstuurd. Verifieer dat nergens een mailscherm of
    "controleer je inbox"-melding opduikt.
@@ -2172,44 +2200,89 @@ Adminveld
 ✅ Na 50f: oude gedeelde cookie geeft 401
 ```
 
-## 68. Fase 2 — eigenaarschap (sprints 51a-51d)
+## 68. Fase 2 — eigenaarschap (sprints 51a-51e)
 
 ```
 ✅ Nieuwe sessie krijgt de juiste eigenaar
 ✅ Leerkracht A kan sessie van B niet openen/sluiten/verwijderen (403)
 ✅ Admin kan alles binnen de eigen school
 ✅ Vragenbank: A ziet privé-vraag van B NIET
-✅ Gedeelde vraag ("delen met collega's") is wel zichtbaar
-✅ A kan een vraag van B niet bewerken
-✅ Leerkracht ziet enkel zijn eigen klassen
+✅ Gedeelde vraag (scope school/publiek) is wel zichtbaar — zie hoofdstuk 69 (Bibliotheek)
+✅ A kan een vraag van B niet bewerken/archiveren/verwijderen (403)
+✅ GEWONE sessies (les/examen): enkel de MAKER ziet ze in het overzicht (51d)
+   — géén admin-uitzondering en géén legacy-uitzondering (bewust strenger)
+
+— Klassen (51e) —
+✅ Maker van een nieuwe klas wordt automatisch gekoppeld (verschijnt in zijn overzicht)
+✅ Leerkracht ziet enkel eigen (gekoppelde) klassen + nog NIET-toegewezen klassen
+✅ Admin ziet alle klassen (klasbeheer is een admintaak)
+✅ De leerling-dropdown (/api/classes) blijft ONgefilterd — leerling kiest altijd zijn klas
 ```
 
-## 69. Templates (sprints 53a-53d)
+## 69. Bibliotheek — delen van vragen & sjablonen (51c) + admin-takedown (53d)
+
+> Het oude 53a-53c-plan (is_template op assignment_bank, visibility owner/school/public)
+> is VERVANGEN door de Bibliotheek van 51c: aparte tabellen `assignment_templates` +
+> `template_questions`, en een `share_scope` op vragen. Test dus onderstaand gedrag.
 
 ```
-✅ Template aanmaken ZONDER deadline lukt
-✅ Gewone toets zonder deadline lukt NIET (43.3 blijft gelden)
-✅ Template heeft geen klas/school
-✅ Zichtbaarheid "eigenaar" → enkel zichtbaar bij eigen scholen
-✅ Zichtbaarheid "school" → zichtbaar voor collega's van die school
-✅ Zichtbaarheid "openbaar" → zichtbaar voor andere scholen
-✅ Dupliceren naar een klas werkt; kopie staat los van het origineel
-✅ Niet-eigenaar kan het origineel NIET bewerken
-✅ Admin-knop "verbergen" → template verdwijnt meteen bij andere scholen
+— 📚 Bibliotheek-pagina (sjablonen.html; nav-item op alle leerkrachtpagina's) —
+✅ Tabs Toetsen / Taken / Vragen, secties "school" en "publiek"
+✅ Vraag delen: scope privé → school → publiek via de vragenbank (quiz-bank)
+✅ "Bewaar als sjabloon" op een toets/taak (assignment-overview) maakt een sjabloon
+✅ Sjabloon van een collega "materialiseren" → wordt een EIGEN sessie (kopie, los origineel)
+✅ Enkel de eigenaar bewerkt/verwijdert zijn sjabloon; een ander krijgt 403
+✅ Gedupliceerde vraag ("kopieer naar eigen bank") staat los van het origineel
+
+— Integriteitsregels (verwacht 409 met duidelijke melding) —
+✅ Vraag koppelen aan een sjabloon dat BREDER gedeeld is dan de vraag → geweigerd
+✅ Sjabloon-scope verbreden terwijl een gekoppelde vraag dat niet toelaat → geweigerd
+✅ Scope verkleinen of vraag verwijderen terwijl ze aan een sjabloon hangt → geweigerd
+
+— Admin-takedown (53d) —
+✅ Admin (of super-admin) ziet per kaart 🚫 Verbergen / 👁 Zichtbaar maken
+✅ Verborgen item verdwijnt METEEN uit de Bibliotheek bij andere leerkrachten/scholen
+✅ De EIGENAAR ziet zijn item nog (met 🚫 Verborgen-badge); een admin ook (kan terugzetten)
+✅ De eigenaar kan een verborgen item NIET zelf weer zichtbaar maken (ook niet via scope)
+✅ Gewone leerkracht heeft geen verberg-knop; rechtstreekse API-call → 403
+✅ Takedown verschijnt in het audit-log
 ```
 
-## 70. Fase 3 — isolatie (sprints 48c1-48c4)
+## 70. Fase 3 — schoolisolatie + super-admin (sprints 48c1-48c4)
+
+> As-built: scoping in de APPLICATIELAAG (één regel `magRijVanSchoolZien` + identieke
+> SQL-spiegel), niet via RLS (kan later als extra verdediging). Een geautomatiseerde
+> isolatiesuite bestaat: `DATABASE_URL=… node --test tests/isolatie.test.js` (8 tests
+> tegen een echte PostgreSQL; skipt zichzelf zonder DATABASE_URL). Onderstaande
+> handmatige ronde bevestigt hetzelfde door de UI. Tip: seed eerst (optie 21).
 
 ```
-⚠️ DIT IS DE ZWAARSTE TEST VAN HET PROJECT — neem er tijd voor
-✅ Alle bestaande data hangt na migratie aan school 1
-✅ Per tabel: school A ziet NUL rijen van school B
-   ✅ classes  ✅ students  ✅ question_bank  ✅ assignment_bank
-   ✅ sessions ✅ quiz_answers ✅ audit_log
-✅ ENIGE uitzondering: publieke templates (is_template + visibility=public)
-✅ Een niet-publieke template van school B is onzichtbaar voor school A
-✅ Super-admin ziet alles; gewone admin enkel de eigen school
-✅ URL-manipulatie (code/id van een andere school) → 403/404, geen data
+— 48c1: schema + migratie —
+✅ GET /api/admin/fase3/dekking (als admin): toont standaardSchoolId + tellers
+✅ Op een single-school install: alle "zonderSchool"-tellers = 0 na de migratie
+✅ Bij 2+ scholen: standaardSchoolId = null (bewust — er wordt niet gegokt)
+✅ School verwijderen vernietigt GEEN data (rijen worden school-loos, ON DELETE SET NULL)
+
+— 48c2: scoping (log in als leerkrachtA, actieve school A) —
+✅ Nieuwe klas/vraag/toets/taak/klassessie krijgt automatisch school A mee
+✅ Nieuwe leerling erft de school van zijn KLAS (niet van de leerkracht)
+✅ Klassenlijst, leerlingenlijst, vragenbank, sessielijst, audit-log:
+   NUL rijen van school B zichtbaar
+✅ School-loze (legacy) rijen blijven WEL zichtbaar — die breken nooit
+✅ De Bibliotheek is de ENIGE plek waar publiek werk van school B zichtbaar is
+✅ Ook een gewone ADMIN volgt zijn actieve school (alziend = enkel super-admin)
+
+— 48c3: isolatie hard maken —
+✅ tests/isolatie.test.js draait groen tegen een lege testdatabank (8/8)
+✅ URL-manipulatie (code/id van een andere school raden) → 403/404, geen data
+
+— 48c4: super-admin —
+✅ Rol-cyclus in leerkrachtenbeheer: leerkracht → admin → super-admin (paarse ★-badge)
+✅ Eerste super-admin: een admin mag hem aanstellen (bootstrap)
+✅ Daarna: ENKEL een super-admin kan de rol toekennen of afnemen (anders 403)
+✅ Gewone leerkracht kan geen rollen wijzigen (403)
+✅ Ingelogd als super-admin: klassen/leerlingen/vragen van ALLE scholen zichtbaar
+✅ Super-admin kan cross-school een Bibliotheek-item verbergen (53d)
 ```
 
 ## 71. Sprint 50a — Sessietabel + sessie bij login
@@ -2679,3 +2752,22 @@ en herstart. Daarna:
 ```
 
 *PyCodeFlow · Atheneum Hoboken · test-readme.md · v2026.2.48.10 · 16 juli 2026*
+
+## 83. Testdatabase-seeder (sprint 54 — pycodeflow.sh optie 21)
+
+```
+✅ Optie 21 → SEED typen → seed draait, samenvatting met alle logins verschijnt
+✅ Verkeerde bevestiging (iets anders dan SEED) → geannuleerd, niets gebeurd
+✅ Status (optie 21 → 2) toont tellers: 2 scholen / 4 leerkrachten / 3 klassen /
+   6 leerlingen / 7 vragen / 3 sessies / 6 antwoorden
+✅ TWEEDE keer seeden → identieke tellers (idempotent, geen duplicaten)
+✅ Alle geseedete items zijn herkenbaar: namen beginnen met "TESTDATA", codes met "TD"
+✅ Inloggen werkt: leerkrachtA/leerkrachtA · superadmin/superadmin ·
+   studentA@testschool.local/studentA
+✅ studentA2 (pending) wordt geweigerd bij toets TDTOETSA; studentA3 (blocked) kan niet inloggen
+✅ Verbeterscherm van TDTOETSA toont ingevulde antwoorden, scores en commentaar
+✅ Registratie met klascode TDKLAS5A werkt (nieuwe leerling → pending)
+✅ WIS typen → status toont overal 0; zelf aangemaakte (niet-gemarkeerde) data blijft staan
+✅ Na WIS opnieuw SEED → zelfde resultaat als eerste keer
+⚠️ NOOIT op productie draaien — wachtwoord = gebruikersnaam
+```
