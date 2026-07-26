@@ -1127,6 +1127,35 @@ app.get('/api/school-info', async (req, res) => {
   const geen = { name: 'PyCodeFlow', logoUrl: null, schoolId: null };
   try {
     const cookies = parseCookieHeader(req.headers.cookie);
+
+    // ── Sprint 58: leerling-modus (?rol=leerling) ─────────────────────────────
+    // Op leerlingpagina's mag de branding NOOIT uit de leerkracht-sessie komen: op een
+    // gedeelde computer (leerkracht logde eerder in op dezelfde browser) zou de leerling
+    // dan de school van die leerkracht zien — terwijl het toestel niet kán weten bij welke
+    // school een leerling hoort vóór hij inlogt. We kijken hier dus enkel naar de
+    // LEERLING-sessie; is die er niet, dan valt alles terug op de install-brede .env-naam.
+    if (req.query.rol === 'leerling') {
+      if (cookies.student_sid) {
+        const ls = await dbModule.getStudentSession(hashSessionToken(cookies.student_sid));
+        if (ls) {
+          const leerling = await dbModule.getStudentById(ls.student_id);
+          if (leerling?.school_id) {
+            const school = await dbModule.getSchool(leerling.school_id);
+            if (school) return res.json({
+              name: school.name,
+              logoUrl: school.logo_path ? `/school-logo?id=${encodeURIComponent(school.id)}` : null,
+              schoolId: school.id,
+            });
+          }
+        }
+      }
+      return res.json({
+        name: process.env.SCHOOL_NAME || 'PyCodeFlow',
+        logoUrl: process.env.SCHOOL_LOGO_PATH ? '/school-logo' : null,
+        schoolId: null,
+      });
+    }
+
     if (!cookies.teacher_sid) return res.json(geen);   // geen login = geen school
 
     const sessie = await dbModule.getTeacherSession(hashSessionToken(cookies.teacher_sid));
@@ -1715,15 +1744,40 @@ app.delete('/api/admin/classes/:id', requireTeacherAuth, requireBeheer, requireC
   res.json({ ok });
 });
 
+// Sprint 57: mag deze beheerder deze klas↔leerkracht-koppeling wijzigen?
+// Super-admin (en open modus) → altijd. Een admin → enkel binnen zijn eigen scholen:
+// de klas moet van een van zijn scholen zijn (of school-loos) én hij moet minstens één
+// school delen met de leerkracht die hij koppelt. Zo kan hij niemand van een andere
+// school in zijn klassen zetten (of zijn leerkrachten aan andermans klassen hangen).
+async function magKoppelingBeheren(req, classId, teacherId) {
+  if (!req.teacher?.id || authLib.isSuperAdmin(req.teacher)) return true;
+  const mijn = await schoolIdsVanTeacher(req.teacher);
+  const klas = await dbModule.getClassById(classId);
+  if (!klas) return false;
+  if (klas.school_id && !mijn.includes(klas.school_id)) return false;
+  if (teacherId && teacherId !== req.teacher.id) {
+    if (!(await dbModule.delenSchool(req.teacher.id, teacherId))) return false;
+  }
+  return true;
+}
+
 app.post('/api/admin/classes/:id/teachers', requireTeacherAuth, requireBeheer, requireCsrf, async (req, res) => {
   const { teacherId } = req.body || {};
   if (!teacherId) return res.status(400).json({ error: 'teacherId vereist' });
+  if (!(await magKoppelingBeheren(req, req.params.id, teacherId))) {
+    return res.status(403).json({ error: 'Je kan enkel leerkrachten van je eigen school aan je eigen klassen koppelen.' });
+  }
   await dbModule.linkTeacherClass(teacherId, req.params.id);
+  dbModule.auditLog(getActorFromReq(req), 'class_teacher_linked', req.params.id, { teacherId }, req.ip).catch(() => {});
   res.json({ ok: true });
 });
 
 app.delete('/api/admin/classes/:id/teachers/:teacherId', requireTeacherAuth, requireBeheer, requireCsrf, async (req, res) => {
+  if (!(await magKoppelingBeheren(req, req.params.id, req.params.teacherId))) {
+    return res.status(403).json({ error: 'Je kan deze koppeling niet wijzigen.' });
+  }
   await dbModule.unlinkTeacherClass(req.params.teacherId, req.params.id);
+  dbModule.auditLog(getActorFromReq(req), 'class_teacher_unlinked', req.params.id, { teacherId: req.params.teacherId }, req.ip).catch(() => {});
   res.json({ ok: true });
 });
 

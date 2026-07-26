@@ -109,7 +109,7 @@ function renderTeachers(zoek = '') {
   }
   const delen = [];
   for (const [, g] of [...groepen.entries()].sort((a, b) => a[1].naam.localeCompare(b[1].naam))) {
-    delen.push(groepsRij(6, g.naam + ` <span class="muted" style="font-weight:400;">(${g.rijen.length})</span>`));
+    delen.push(groepsRij(7, g.naam + ` <span class="muted" style="font-weight:400;">(${g.rijen.length})</span>`));
     for (const t of g.rijen) {
       const scholen = (t.schools || []).length
         ? t.schools.map(sc => `<span class="badge" style="${sc.active ? '' : 'text-decoration:line-through;opacity:0.6;'}">${escHtml(sc.name)}</span>`).join(' ')
@@ -234,7 +234,7 @@ function renderClasses(zoek = '') {
   }
   const delen = [];
   for (const [, g] of [...groepen.entries()].sort((a, b) => a[1].naam.localeCompare(b[1].naam))) {
-    delen.push(groepsRij(6, g.naam + ` <span class="muted" style="font-weight:400;">(${g.rijen.length})</span>`));
+    delen.push(groepsRij(7, g.naam + ` <span class="muted" style="font-weight:400;">(${g.rijen.length})</span>`));
     delen.push(g.rijen.map(c => {
     const readonly = jaarReadonly || c.archived;
     return `
@@ -242,6 +242,7 @@ function renderClasses(zoek = '') {
       <td><strong>${escHtml(c.name)}</strong></td>
       <td>${escHtml(c.school_year)}</td>
       <td>${c.student_count ?? 0}</td>
+      <td>${leerkrachtenCel(c, readonly)}</td>
       <td>${c.archived ? '<span class="badge">Gearchiveerd</span>' : '<span class="status-active">Actief</span>'}</td>
       <td>${startCodeCell(c, readonly)}</td>
       <td style="display:flex;gap:6px;">
@@ -253,8 +254,88 @@ function renderClasses(zoek = '') {
     }).join(''));
   }
   const tbody = document.getElementById('classes-tbody');
-  tbody.innerHTML = delen.join('') || `<tr><td colspan="6" class="muted" style="padding:14px;">Geen klassen gevonden${zoek ? ' voor deze zoekopdracht' : ''}.</td></tr>`;
+  tbody.innerHTML = delen.join('') || `<tr><td colspan="7" class="muted" style="padding:14px;">Geen klassen gevonden${zoek ? ' voor deze zoekopdracht' : ''}.</td></tr>`;
 }
+
+// Sprint 57: welke leerkrachten hangen aan deze klas? (+ knop om te wijzigen)
+function leerkrachtenCel(c, readonly) {
+  const lk = c.teachers || [];
+  const namen = lk.length
+    ? lk.map(t => `<span class="badge">${escHtml(t.displayName || t.username)}</span>`).join(' ')
+    : '<span class="muted" style="font-size:0.8rem;">⚠ niemand gekoppeld</span>';
+  const knop = readonly ? '' :
+    `<button class="btn btn-muted small" style="margin-left:6px;" title="Leerkrachten koppelen of loskoppelen" onclick="manageClassTeachers('${c.id}')">🧑‍🏫</button>`;
+  return `<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">${namen}${knop}</div>`;
+}
+
+// Modal: vink aan welke leerkrachten aan deze klas hangen. Alleen leerkrachten die je
+// mag koppelen staan in de lijst (de server weigert de rest sowieso met 403).
+window.manageClassTeachers = async function (classId) {
+  const klas = _allClasses.find(c => c.id === classId);
+  if (!klas) return await pyAlert('Klas niet gevonden.', 'warn');
+  if (!_teachers.length) { try { await loadTeachers(); } catch {} }
+  const kandidaten = _teachers.filter(t => t.role !== 'superadmin' || _teachersMeta.isSuperAdmin);
+  if (!kandidaten.length) return await pyAlert('Geen leerkrachten beschikbaar om te koppelen.', 'warn');
+
+  const gekoppeld = new Set((klas.teachers || []).map(t => t.id));
+  const origineel = new Set(gekoppeld);
+
+  const oud = document.getElementById('py-modal-overlay');
+  if (oud) oud.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'py-modal-overlay';
+  overlay.innerHTML = `
+    <div id="py-modal-box" style="max-width:480px;">
+      <div id="py-modal-title">Leerkrachten van ${escHtml(klas.name)}</div>
+      <div id="py-modal-body">
+        <p class="muted" style="margin:0 0 8px;font-size:0.85rem;">
+          Vink aan wie deze klas mag zien en beheren. Een gekoppelde leerkracht krijgt de klas
+          in <strong>👥 Mijn klassen</strong>: startcode op het bord, leerlingen aanvaarden en blokkeren.
+        </p>
+        <div id="ct-list" style="max-height:300px;overflow-y:auto;border:1.5px solid var(--border);border-radius:10px;padding:8px;"></div>
+      </div>
+      <div id="py-modal-actions">
+        <button id="ct-cancel" class="btn btn-muted small">Annuleren</button>
+        <button id="ct-save" class="btn btn-primary small">Opslaan</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  document.getElementById('ct-list').innerHTML = kandidaten.map(t => `
+    <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;">
+      <input type="checkbox" class="ct-cb" value="${t.id}"${gekoppeld.has(t.id) ? ' checked' : ''}/>
+      <span>${escHtml(t.display_name || t.username)}
+        <span class="muted" style="font-size:0.78rem;">(${escHtml(t.username)}${t.role !== 'teacher' ? ' · ' + escHtml(t.role) : ''})</span></span>
+    </label>`).join('');
+
+  document.querySelectorAll('.ct-cb').forEach(cb => cb.addEventListener('change', () => {
+    if (cb.checked) gekoppeld.add(cb.value); else gekoppeld.delete(cb.value);
+  }));
+
+  const sluit = () => overlay.remove();
+  document.getElementById('ct-cancel').addEventListener('click', sluit);
+  overlay.addEventListener('click', e => { if (e.target === overlay) sluit(); });
+
+  document.getElementById('ct-save').addEventListener('click', async () => {
+    const toevoegen = [...gekoppeld].filter(id => !origineel.has(id));
+    const weghalen  = [...origineel].filter(id => !gekoppeld.has(id));
+    try {
+      for (const id of toevoegen) {
+        const r = await apiFetch(`/api/admin/classes/${classId}/teachers`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ teacherId: id }) });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'koppelen mislukt');
+      }
+      for (const id of weghalen) {
+        const r = await apiFetch(`/api/admin/classes/${classId}/teachers/${id}`, { method: 'DELETE' });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'loskoppelen mislukt');
+      }
+      sluit();
+      loadSchoolYears().then(loadClasses);
+    } catch (e) {
+      await pyAlert('Fout: ' + e.message, 'error');
+    }
+  });
+};
 
 // Sprint 52b: startcode-cel — grote code + aan/uit + nieuwe code (voor op het bord).
 function startCodeCell(c, readonly) {

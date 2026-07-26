@@ -800,7 +800,15 @@ module.exports = {
     let yearFilter = '';
     if (schoolYear) { params.push(schoolYear); yearFilter = ` AND c.school_year = $${params.length}`; }
     const r = await query(
-      `SELECT c.*, sch.name AS school_name, COUNT(m.student_id)::int AS student_count
+      `SELECT c.*, sch.name AS school_name, COUNT(m.student_id)::int AS student_count,
+              -- Sprint 57: gekoppelde leerkrachten meegeven zodat Beheer ze kan tonen
+              COALESCE((
+                SELECT json_agg(json_build_object('id', t.id, 'username', t.username,
+                                                  'displayName', t.display_name)
+                                ORDER BY LOWER(COALESCE(t.display_name, t.username)))
+                  FROM teacher_classes tc JOIN teachers t ON t.id = tc.teacher_id
+                 WHERE tc.class_id = c.id
+              ), '[]'::json) AS teachers
          FROM classes c
          LEFT JOIN schools sch ON sch.id = c.school_id
          LEFT JOIN class_memberships m

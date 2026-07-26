@@ -62,6 +62,8 @@
 | **48c2** | 🔵 P9 | SEC | **Fase 3** — Filtering centraal afdwingen (applicatielaag; RLS later als extra verdediging). **Deel a (schrijven) ✅**: nieuwe rij krijgt `school_id` uit de actieve school; leerling erft de school van zijn klas. **Deel b (lezen) ✅**: één regel `magRijVanSchoolZien` (SQL-spiegel identiek) op klassen-, leerlingen-, vragenbank-, sessie- en auditloglijsten; Bibliotheek blijft de enige cross-school-uitzondering (publiek/school, 51c). *✅ AFGEROND.* | ~1 week |
 | **48c3** | 🔵 P9 | SEC | **Fase 3** — **Isolatie-testsuite** (`tests/isolatie.test.js`): integratietests tegen een échte PostgreSQL — klassen, leerlingen (erven school van klas), vragenbank, sessies, auditlog: A ziet **nul** rijen van B; Bibliotheek-publiek kruist als enige (en 53d-hidden wint); dekking-diagnose. Skipt zichzelf zonder `DATABASE_URL`. **Al bewezen groen (7/7, herhaald) tegen PostgreSQL 16.** *✅ AFGEROND.* | ~3 dagen |
 | **48c4** | 🔵 P9 | ARCH | **Fase 3** — **Super-admin** (rol `superadmin`, hosting-beheerder): leesscope zónder schoolfilter (ziet alle scholen), telt overal als beheerder, mag cross-school Bibliotheek-takedown; rol enkel toe te kennen door een super-admin (admin-bootstrap zolang er geen bestaat); rol-cyclus in de admin-UI. *✅ AFGEROND — daarmee is Fase 3 compleet.* | ~2 dagen |
+| **58** | 🟠 P8 | SEC/UX | **Schoolbranding lekte naar leerlingpagina's** — `/api/school-info` las de leerkracht-cookie, dus op een gedeelde computer zag een leerling de school van de leerkracht die daar eerder inlogde. Nieuwe `?rol=leerling`-modus kijkt enkel naar de leerling-sessie (eigen school ná login), anders install-brede .env-naam. *✅ AFGEROND.* | ~0.5 dag |
+| **57** | 🟠 P8 | UX/SEC | **Klas ↔ leerkracht koppelen (UI)** — de endpoints bestonden sinds 48 maar werden door géén enkel scherm aangeroepen, waardoor een klas nooit bij een collega raakte. Beheer → Klassen toont nu een kolom **Leerkrachten** (of '⚠ niemand gekoppeld') met een 🧑‍🏫-modal om te koppelen/ontkoppelen. Server-side gescoped: een admin koppelt enkel leerkrachten van zijn eigen scholen aan klassen van zijn eigen scholen (anders 403); beide acties in het audit-log. *✅ AFGEROND.* | ~0.5 dag |
 | **56** | 🟠 P8 | UX/SEC | **"Mijn klassen"** — eigen scherm voor élke leerkracht met zijn gekoppelde klassen: startcode (bord-formaat, open/dicht, ↻), wachtende leerlingen bovenaan met ✓ aanvaarden, blokkeren/deblokkeren, 🔑 reset en leerling toevoegen. Leerlingacties nu klas-gescoped (`magLeerlingBeheren`): leerkracht enkel eigen klasleerlingen, beheerder school-breed. Herstelt de klastoegang die sprint 55 achter Beheer zette. *✅ AFGEROND.* | ~1 dag |
 | **55** | 🟠 P8 | SEC/UX | **Beheer-RBAC + groepering + zoek** — Beheer enkel admin/super-admin (admin gescoped op zíjn scholen), Systeem enkel super-admin; nav-links per rol verborgen (`nav-rechten.js`) én server-side afgedwongen (`requireBeheer`/`requireSysteem` op pagina's + API's). Leerkrachten/klassen/leerlingen gegroepeerd per school (leerlingen per school→klas) met zoekvelden per tab. Rollen: super-admin alles; admin enkel teacher↔admin binnen gedeelde school (bootstrap geschrapt → eerste super-admin via CLI). Pure regels `magBeheerZien`/`magSysteemZien`/`magRolToekennen`. *✅ AFGEROND.* | ~1.5 dag |
 | **54** | 🟢 P4 | DX | **Testdatabase-seeder** — `web/scripts/seed-testdb.js` (seed/wipe/status, idempotent, alles TESTDATA-gemarkeerd, wachtwoord = gebruikersnaam) + menu-optie **21** in `pycodeflow.sh` (met SEED/WIS-bevestiging, nooit op prod). 2 scholen · 4 leerkrachten (incl. superadmin) · 3 klassen met actieve startcodes · 6 leerlingen (actief/pending/geblokkeerd/zonder account) · vragenbank privé/school/publiek + 1 hidden · 3 sjablonen · les + toets + taak · ingevulde antwoorden/scores. **Bewezen tegen echte PostgreSQL: seed→status→seed (idempotent)→wipe→her-seed + isolatie-spot-check.** *✅ AFGEROND.* | ~1.5 dag |
@@ -182,6 +184,16 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 72 | **43.14** | **"+ Nieuwe taak" maakte een toets**: type komt nu uit de link (`?type=`), staat al vast bij het openen en is niet meer af te leiden uit de timerkeuze. Titel/kop/veldnamen/knoppen/meldingen bewegen mee met het type; ontbreekt het (rechtstreekse link) dan vraagt een kort keuzescherm het éénmalig op. Bevestigd: een taak MAG een tijdslimiet hebben (niet verplicht) — timer en type staan voortaan los van elkaar | v2026.2.48.11 |
 | 73 | **51a** | **Fase 2 start** — kolom `teacher_id` op `sessions` (eigenaar), gevuld bij elke nieuwe sessie (REST én socket) via `bepaalSessieEigenaar`. Backfill: bij precies 1 leerkrachtaccount krijgen bestaande sessies die eigenaar, anders blijft het bewust onbekend (`NULL`) — er was voordien nergens geregistreerd wie een sessie aanmaakte | v2026.2.48.11 |
 | 74 | **51b** | **Fase 2 autorisatie** — een leerkracht beheert/ziet enkel **eigen** sessies, een admin alle. Pure regel `magSessieBeheren`; REST-middleware `requireSessionAccess` op alle 31 `:code`-endpoints (openen/sluiten/verwijderen/inzien → **403** voor andermans sessie); socketguards op openen/waarnemen/grid + dubbele grendel op sluiten/verwijderen; `/api/sessions` en `/api/quiz-sessions` tonen enkel eigen sessies | v2026.2.48.12 |
+| 75 | **51c** | **Bibliotheek** — vragen krijgen `share_scope` (privé/school/publiek); toetsen/taken worden deelbaar als **sjabloon** via nieuwe tabellen `assignment_templates` + `template_questions`. Nieuwe pagina 📚 Bibliotheek; materialiseren maakt een eigen sessie. Drie integriteitsregels (vraag ≥ zichtbaar als sjabloon; scope niet verbreden/verkleinen bij koppeling) | v2026.2.49.0 |
+| 76 | **51d-51e** | **Fase 2 af** — gewone sessies enkel voor de maker (`magSessieZien`); `teacher_classes` echt gebruikt: leerkracht ziet eigen + niet-toegewezen klassen, maker wordt automatisch gekoppeld (`magKlasZien`) | v2026.2.49.0 |
+| 77 | **52a-52i** | **Leerling-accounts** — e-mail+wachtwoord op `students`, klas-startcodes, zelfregistratie (pending), login met aparte sessie, toegangsregel (`pending` = wel les/oefenen, geen toets/taak), herstel via klascode, login-bewuste instap, leerlingbeheer, en toets-deelname op de échte `students.id` | v2026.2.49.0 |
+| 78 | **53d** | **Admin-takedown** — `hidden`-vlag op vraag/sjabloon, los van de scope van de eigenaar; verborgen items verdwijnen uit de Bibliotheek behalve voor eigenaar + admin | v2026.2.49.0 |
+| 79 | **48c1-48c4** | **🎉 FASE 3 AF** — `school_id` op alle kerntabellen + migratie; scoping op schrijven én lezen (`magRijVanSchoolZien`); isolatiesuite tegen echte PostgreSQL (school A ziet nul rijen van B); **super-admin** met leesscope zonder schoolfilter | v2026.2.49.0 |
+| 80 | **54** | **Testdatabase-seeder** — `seed-testdb.js` (seed/wipe/status, idempotent) + menu-optie 21 in `pycodeflow.sh`: 2 scholen, 4 leerkrachten, klassen met startcodes, leerlingen in alle statussen, vragen/sjablonen, toets mét resultaten | v2026.2.49.0 |
+| 81 | **55** | **Beheer-RBAC** — Beheer enkel admin/super-admin (gescoped op eigen scholen), Systeem enkel super-admin; leerkrachten/klassen/leerlingen gegroepeerd per school met zoekvelden per tab; rolregels (`magRolToekennen`) | v2026.2.49.0 |
+| 82 | **56** | **Mijn klassen** — eigen scherm voor élke leerkracht: startcode in bord-formaat, wachtende leerlingen aanvaarden, blokkeren, wachtwoordreset en leerling toevoegen — enkel voor eigen gekoppelde klassen (`magLeerlingBeheren`) | v2026.2.49.0 |
+| 83 | **57** | **Klas ↔ leerkracht koppelen** — de endpoints bestonden maar hadden geen UI; Beheer → Klassen toont nu de gekoppelde leerkrachten met een 🧑‍🏫-modal, gescoped per school | v2026.2.49.0 |
+| 84 | **58** | **Brandingfix** — `/api/school-info` las de leerkracht-cookie, waardoor een leerling op een gedeelde computer de school van de leerkracht zag; leerling-modus kijkt enkel naar de leerling-sessie | v2026.2.49.0 |
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
@@ -684,6 +696,36 @@ Omdat vrijwel alles al op de in-memory `student.id` sleutelde (`quiz_answers`, `
 *Test: pure sectie 56 (eigen klas / andermans klas / beheerder / open modus) → 163 groen. Tegen echte PostgreSQL geverifieerd met de seed: leerkrachtA2 mag de leerling van zijn klas 6A wél en die van 5A niet. De seeder kreeg er `studentA7` (pending in klas 6A) bij zodat het aanvaarden-scenario meteen testbaar is. Testdocument: nieuw tabblad "9 · Mijn klassen" (183 punten).*
 
 *Bestanden: lib/auth.js, db/database.js, server.js, public/mijn-klassen.html + mijn-klassen.js (nieuw), 11× html (nav), web/scripts/seed-testdb.js, tests/auth.test.js, testdocument-html/testpunten.js, sprintlog.md*
+
+---
+
+### Sprint 57 — Klas ↔ leerkracht koppelen: de ontbrekende schakel — ✅ AFGEROND
+
+**Cat:** UX/SEC · Gevonden tijdens het testen: als admin/super-admin kon je **niet zien** welke leerkrachten aan een klas hingen, en ze ook niet toevoegen of verwijderen.
+
+**Wat er mis was.** De endpoints `POST/DELETE /api/admin/classes/:id/teachers` bestonden al sinds de 48-reeks, maar werden door **geen enkel scherm** aangeroepen — er was nooit UI voor gebouwd. Daardoor was `teacher_classes` in de praktijk alleen te vullen door zélf een klas aan te maken (51e koppelt de maker automatisch). Een klas die een admin vóór een collega aanmaakte, kon die collega dus nooit bereiken — en sinds sprint 56 is die koppeling net de sleutel tot "Mijn klassen".
+
+**Opgelost.** `listClassesBeheer` geeft nu per klas de gekoppelde leerkrachten mee (geaggregeerd in SQL). Beheer → Klassen toont een kolom **Leerkrachten** met badges, of een duidelijke **⚠ niemand gekoppeld** wanneer de klas nog van niemand is. De knop 🧑‍🏫 opent een modal met alle koppelbare leerkrachten (aanvinken = koppelen, uitvinken = loskoppelen); alleen de verschillen worden weggeschreven, zodat het audit-log leesbaar blijft.
+
+**Rechten.** Nieuwe guard `magKoppelingBeheren`: super-admin (en open modus) mag alles; een admin enkel binnen zijn eigen scholen — de klas moet van een van zijn scholen zijn (of school-loos) én hij moet minstens één school delen met de leerkracht die hij koppelt. Zo kan hij geen leerkracht van een andere school in zijn klassen zetten, en evenmin zijn leerkrachten aan andermans klassen hangen. Beide acties worden gelogd (`class_teacher_linked` / `class_teacher_unlinked`).
+
+*Test: tegen echte PostgreSQL geverifieerd — de drie geseedete klassen tonen hun leerkracht, koppelen van leerkrachtA2 aan klas 5A verschijnt meteen in de lijst en verdwijnt na ontkoppelen; `delenSchool` bevestigt dat admin A wél met leerkracht A2 en niet met leerkracht B mag koppelen. Pure suites onveranderd 163 groen, isolatie 8/8. Testdocument uitgebreid met vijf koppelpunten (188).*
+
+*Bestanden: db/database.js, server.js, public/admin.js, public/admin.html, testdocument-html/testpunten.js, sprintlog.md*
+
+---
+
+### Sprint 58 — Schoolbranding op leerlingpagina's — ✅ AFGEROND
+
+**Cat:** SEC/UX · Uit de testronde: op `/student` stond "TESTDATA School A" bovenaan, terwijl er nog geen leerling was ingelogd.
+
+**Oorzaak.** `/api/school-info` bepaalde de branding uit het **`teacher_sid`-cookie**. De brandingfunctie in `app.js` draait op élke pagina die app.js laadt — dus ook op de leerlingpagina's. Op een gedeelde computer (leerkracht logde eerder in op dezelfde browser) kreeg de leerling zo de **actieve school van die leerkracht** te zien. Onlogisch (een toestel kan niet weten bij welke school een leerling hoort vóór hij inlogt) én een klein informatielek naar een publieke pagina.
+
+**Opgelost.** `/api/school-info?rol=leerling` negeert de leerkracht-cookie volledig en kijkt enkel naar de **leerling-sessie**: is die leerling ingelogd, dan toont hij zijn **eigen** school (`students.school_id`); anders valt hij terug op de install-brede `.env`-naam (een bewuste keuze van de installatie, niet iemands sessie). `app.js` vraagt die modus op alle publieke/leerlingpagina's: `/`, `/index.html`, `/student`, `student-start`, `student-app`, `student-login`, `student-register`, `student-recover`, `quiz-student`, `free-editor`.
+
+*Test: tegen echte PostgreSQL — studentA hangt aan school A en krijgt in leerling-modus "TESTDATA School A"; zonder leerling-sessie verschijnt er niets school-specifieks meer. Pure suites 163 groen.*
+
+*Bestanden: server.js, public/app.js, testdocument-html/testpunten.js, sprintlog.md*
 
 ---
 

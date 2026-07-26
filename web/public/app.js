@@ -3191,7 +3191,13 @@ window.pyAlert = function(message, type) {
     const groep = document.querySelector('.logo-group');
     if (!groep || document.getElementById('school-brand')) return;
     try {
-      const r = await fetch('/api/school-info');
+      // Sprint 58: op leerling-/publieke pagina's vragen we uitdrukkelijk de LEERLING-modus,
+      // zodat de branding niet uit een leerkracht-sessie in dezelfde browser komt.
+      const leerlingPaden = ['/', '/index.html', '/student', '/student-start.html',
+        '/student-app.html', '/student-login.html', '/student-register.html',
+        '/student-recover.html', '/quiz-student.html', '/free-editor.html'];
+      const isLeerlingPagina = leerlingPaden.includes(location.pathname);
+      const r = await fetch('/api/school-info' + (isLeerlingPagina ? '?rol=leerling' : ''));
       if (!r.ok) return;
       const info = await r.json();
       if (!info.logoUrl && !info.schoolId) return;   // geen school bekend → niets tonen
