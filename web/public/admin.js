@@ -871,12 +871,23 @@ async function loadSchools() {
         <thead><tr><th>Naam</th>${MIJ.magSysteem ? '<th>Licentie</th>' : ''}<th>Contact</th><th>Status</th><th>Aangemaakt</th><th></th></tr></thead>
         <tbody>${scholen.map(s => `
           <tr style="${s.active ? '' : 'opacity:0.5;'}">
-            <td><strong>${escHtml(s.name)}</strong>${s.logo_path ? `<br/><span class="muted" style="font-size:0.75rem;">${escHtml(s.logo_path)}</span>` : ''}</td>
+            <td>
+              <div style="display:flex;align-items:center;gap:10px;">
+                ${s.heeft_logo
+                  ? `<img src="/school-logo?id=${encodeURIComponent(s.id)}&v=${s.logo_updated_at || 0}" alt=""
+                         style="height:34px;width:auto;max-width:90px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:#fff;padding:2px;"/>`
+                  : `<span class="muted" style="font-size:0.75rem;">geen logo</span>`}
+                <div><strong>${escHtml(s.name)}</strong>
+                  ${!s.heeft_logo && s.logo_path ? `<br/><span class="muted" style="font-size:0.72rem;" title="Oud bestandspad — upload het logo opnieuw zodat het in de back-up zit">📁 ${escHtml(s.logo_path)}</span>` : ''}
+                </div>
+              </div>
+            </td>
             ${MIJ.magSysteem ? `<td>${escHtml(s.license || '—')}</td>` : ''}
             <td>${escHtml(s.contact || '—')}</td>
             <td>${s.active ? '<span class="status-active">Actief</span>' : '<span class="badge">Inactief</span>'}</td>
             <td>${fmtDate(s.created_at)}</td>
             <td style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button class="btn btn-muted small" onclick="beheerLogo('${s.id}', '${escHtml(s.name)}', ${s.heeft_logo ? 'true' : 'false'})">🖼 Logo</button>
               <button class="btn btn-muted small" onclick="manageDomains('${s.id}')">📧 Domeinen</button>
               <button class="btn btn-muted small" onclick="editSchool('${s.id}')">Bewerken</button>
               ${MIJ.magSysteem ? `
@@ -1044,6 +1055,86 @@ window.manageSchools = async function (teacherId) {
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
+// ── Sprint 64: schoollogo uploaden (naar de databank) ───────────────────────
+// Je kiest een bestand op je EIGEN computer; de browser leest het in en stuurt het als
+// base64 door. De server controleert de magic bytes en de grootte, en bewaart het als
+// blob — zo zit het logo mee in de back-up en overleeft het een container-rebuild.
+window.beheerLogo = function (schoolId, naam, heeftLogo) {
+  const oud = document.getElementById('py-modal-overlay');
+  if (oud) oud.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'py-modal-overlay';
+  overlay.innerHTML = `
+    <div id="py-modal-box" style="max-width:460px;">
+      <div id="py-modal-title">Logo — ${escHtml(naam)}</div>
+      <div id="py-modal-body">
+        <div id="logo-voorbeeld" style="text-align:center;margin-bottom:12px;min-height:70px;display:flex;align-items:center;justify-content:center;border:1.5px dashed var(--border);border-radius:10px;padding:10px;background:#fff;">
+          ${heeftLogo
+            ? `<img src="/school-logo?id=${encodeURIComponent(schoolId)}&t=${Date.now()}" alt="" style="max-height:80px;max-width:100%;object-fit:contain;"/>`
+            : '<span class="muted" style="font-size:0.85rem;">Nog geen logo ingesteld</span>'}
+        </div>
+        <input type="file" id="logo-bestand" accept="image/png,image/jpeg,image/webp"
+               style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:9px;font-size:0.85rem;"/>
+        <p class="muted" style="margin:8px 0 0;font-size:0.78rem;">
+          PNG, JPEG of WebP. SVG wordt geweigerd omdat dat scripts kan bevatten.
+          De maximumgrootte staat in <code>.env</code> (<code>SCHOOL_LOGO_MAX_KB</code>).
+        </p>
+        <div id="logo-fout" style="display:none;margin-top:9px;padding:8px 10px;border-radius:8px;background:#fee2e2;color:#991b1b;font-size:0.82rem;"></div>
+      </div>
+      <div id="py-modal-actions">
+        ${heeftLogo ? '<button id="logo-weg" class="btn btn-danger small">Logo verwijderen</button>' : ''}
+        <button id="logo-cancel" class="btn btn-muted small">Sluiten</button>
+        <button id="logo-ok" class="btn btn-primary small">Uploaden</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const sluit = () => overlay.remove();
+  const fout = t => { const e = document.getElementById('logo-fout'); e.textContent = t; e.style.display = 'block'; };
+  document.getElementById('logo-cancel').addEventListener('click', sluit);
+  overlay.addEventListener('click', e => { if (e.target === overlay) sluit(); });
+
+  // Meteen tonen wat je koos, vóór het uploaden.
+  document.getElementById('logo-bestand').addEventListener('change', function () {
+    const f = this.files && this.files[0];
+    if (!f) return;
+    const lezer = new FileReader();
+    lezer.onload = () => {
+      document.getElementById('logo-voorbeeld').innerHTML =
+        `<img src="${lezer.result}" alt="" style="max-height:80px;max-width:100%;object-fit:contain;"/>`;
+    };
+    lezer.readAsDataURL(f);
+  });
+
+  const wegKnop = document.getElementById('logo-weg');
+  if (wegKnop) wegKnop.addEventListener('click', async () => {
+    if (!await pyConfirm({ title: 'Logo verwijderen', body: `Het logo van ${naam} verwijderen?`, confirmLabel: 'Verwijderen' })) return;
+    const r = await apiFetch(`/api/admin/schools/${schoolId}/logo`, { method: 'DELETE' });
+    if (r.ok) { sluit(); loadSchools(); } else fout('Verwijderen mislukt.');
+  });
+
+  document.getElementById('logo-ok').addEventListener('click', async () => {
+    const f = document.getElementById('logo-bestand').files?.[0];
+    if (!f) return fout('Kies eerst een afbeelding.');
+    if (/svg/i.test(f.type) || /\.svg$/i.test(f.name)) return fout('SVG wordt niet aanvaard. Gebruik PNG, JPEG of WebP.');
+    const lezer = new FileReader();
+    lezer.onerror = () => fout('Kon het bestand niet lezen.');
+    lezer.onload = async () => {
+      try {
+        const r = await apiFetch(`/api/admin/schools/${schoolId}/logo`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: String(lezer.result) }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok) { sluit(); loadSchools(); pyToast('Logo opgeslagen.', 'success'); }
+        else if (r.status === 413) fout(d.error || 'De afbeelding is te groot.');
+        else fout(d.error || ('Uploaden mislukt (' + r.status + ')'));
+      } catch (e) { fout('Uploaden mislukt.'); }
+    };
+    lezer.readAsDataURL(f);
+  });
+};
+
 // Sprint 48a3 — E-maildomeinen per school
 // De regels zitten in lib/validation.js (server) en zijn daar apart getest.
 // Dit scherm legt ze uit en laat je ze meteen uitproberen.

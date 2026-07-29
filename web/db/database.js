@@ -278,6 +278,17 @@ async function initSchema() {
     END $$;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_classes_start_code ON classes (start_code) WHERE start_code IS NOT NULL;
 
+    -- ── Sprint 64: schoollogo in de DATABANK (niet meer als bestandspad) ──────
+    -- Een logo is klein (tientallen kB) en verandert bijna nooit, maar het moet wél
+    -- mee in de back-up en een container-rebuild overleven. Vandaar BYTEA i.p.v. een
+    -- pad op de schijf. logo_path blijft bestaan als terugval voor oude installaties.
+    DO $$
+    BEGIN
+      BEGIN ALTER TABLE schools ADD COLUMN logo_blob BYTEA; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE schools ADD COLUMN logo_mime TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE schools ADD COLUMN logo_updated_at BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+    END $$;
+
     -- ── Sprint 52d: leerling-sessies (login) ──────────────────────────────────
     -- Spiegelt teacher_sessions, maar apart gehouden (isolatie leerling/leerkracht).
     CREATE TABLE IF NOT EXISTS student_sessions (
@@ -1098,7 +1109,8 @@ module.exports = {
 
   async listSchools(includeInactive = false) {
     const r = await query(
-      `SELECT id, name, logo_path, license, contact, active, created_at
+      `SELECT id, name, logo_path, license, contact, active, created_at,
+              logo_mime, logo_updated_at, (logo_blob IS NOT NULL) AS heeft_logo
          FROM schools ${includeInactive ? '' : 'WHERE active = true'}
         ORDER BY LOWER(name)`
     );
@@ -1106,7 +1118,12 @@ module.exports = {
   },
 
   async getSchool(id) {
-    const r = await query(`SELECT * FROM schools WHERE id = $1`, [id]);
+    // Sprint 64: bewust NIET `SELECT *` — logo_blob zou dan bij elke paginalading
+    // meekomen. We geven enkel de vlag mee dat er een logo ís.
+    const r = await query(
+      `SELECT id, name, logo_path, license, contact, active, created_at,
+              logo_mime, logo_updated_at, (logo_blob IS NOT NULL) AS heeft_logo
+         FROM schools WHERE id = $1`, [id]);
     return r.rows[0] || null;
   },
 
@@ -1133,6 +1150,39 @@ module.exports = {
         (SELECT COUNT(*)::int FROM audit_log     WHERE school_id IS NULL) AS audit_log_zonder
     `);
     return r.rows[0];
+  },
+
+  // ── Sprint 64: schoollogo als blob ─────────────────────────────────────────
+  async setSchoolLogo(id, buffer, mime) {
+    const r = await query(
+      `UPDATE schools SET logo_blob = $2, logo_mime = $3, logo_updated_at = $4 WHERE id = $1`,
+      [id, buffer, mime, Date.now()]
+    );
+    return r.rowCount > 0;
+  },
+
+  // Enkel de metadata (voor lijsten) — haalt de blob NIET op, dat scheelt geheugen.
+  async getSchoolLogoInfo(id) {
+    const r = await query(
+      `SELECT logo_mime, logo_updated_at, (logo_blob IS NOT NULL) AS heeft_logo,
+              COALESCE(LENGTH(logo_blob), 0)::int AS bytes
+         FROM schools WHERE id = $1`, [id]);
+    return r.rows[0] || null;
+  },
+
+  async getSchoolLogo(id) {
+    const r = await query(
+      `SELECT logo_blob, logo_mime, logo_updated_at FROM schools WHERE id = $1`, [id]);
+    const rij = r.rows[0];
+    if (!rij || !rij.logo_blob) return null;
+    return { data: rij.logo_blob, mime: rij.logo_mime || 'image/png', updatedAt: Number(rij.logo_updated_at) || 0 };
+  },
+
+  async deleteSchoolLogo(id) {
+    const r = await query(
+      `UPDATE schools SET logo_blob = NULL, logo_mime = NULL, logo_updated_at = $2 WHERE id = $1`,
+      [id, Date.now()]);
+    return r.rowCount > 0;
   },
 
   async createSchool({ name, logoPath = '', license = '', contact = '' }) {

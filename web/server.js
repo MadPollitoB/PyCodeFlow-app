@@ -218,6 +218,61 @@ async function magDezeLeerling(req, studentId) {
   return authLib.magLeerlingBeheren(req.teacher, eigen);
 }
 
+// ── Sprint 64: schoollogo uploaden (naar de databank) ───────────────────────
+// Toegelaten: PNG, JPEG, WebP. SVG wordt geweigerd: dat kan JavaScript bevatten en zou
+// uitgeserveerd worden op ons eigen domein (XSS). We vertrouwen niet op de extensie of
+// de meegestuurde mimetype, maar controleren de MAGIC BYTES van de inhoud zelf.
+function herkenAfbeelding(buf) {
+  if (!buf || buf.length < 12) return null;
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47 &&
+      buf[4] === 0x0D && buf[5] === 0x0A && buf[6] === 0x1A && buf[7] === 0x0A) return 'image/png';
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'image/jpeg';
+  if (buf.slice(0, 4).toString('ascii') === 'RIFF' &&
+      buf.slice(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+  return null;   // ook SVG (begint met '<' of BOM) valt hier af
+}
+
+app.post('/api/admin/schools/:id/logo', requireTeacherAuth, requireBeheer, logoJson, requireCsrf, async (req, res) => {
+  try {
+    if (!(await magSchoolBeheren(req, req.params.id))) {
+      return res.status(403).json({ error: 'Dit is niet jouw school.' });
+    }
+    let base64 = String(req.body?.data || '');
+    const komma = base64.indexOf(',');
+    if (base64.startsWith('data:') && komma > -1) base64 = base64.slice(komma + 1);  // data-URL
+    if (!base64) return res.status(400).json({ error: 'Geen afbeelding ontvangen.' });
+
+    let buf;
+    try { buf = Buffer.from(base64, 'base64'); }
+    catch { return res.status(400).json({ error: 'Kon de afbeelding niet lezen.' }); }
+
+    if (!buf.length) return res.status(400).json({ error: 'Het bestand is leeg.' });
+    if (buf.length > LOGO_MAX_KB * 1024) {
+      return res.status(413).json({ error: `De afbeelding is te groot (max ${LOGO_MAX_KB} kB).` });
+    }
+    const mime = herkenAfbeelding(buf);
+    if (!mime) {
+      return res.status(400).json({ error: 'Alleen PNG, JPEG of WebP. (SVG wordt om veiligheidsredenen geweigerd.)' });
+    }
+    await dbModule.setSchoolLogo(req.params.id, buf, mime);
+    dbModule.auditLog(getActorFromReq(req), 'school_logo_updated', req.params.id,
+      { bytes: buf.length, mime }, req.ip).catch(() => {});
+    res.json({ ok: true, mime, bytes: buf.length });
+  } catch (e) {
+    log.error('[school-logo upload] fout:', e.message);
+    res.status(500).json({ error: 'Opslaan mislukte. Probeer opnieuw.' });
+  }
+});
+
+app.delete('/api/admin/schools/:id/logo', requireTeacherAuth, requireBeheer, requireCsrf, async (req, res) => {
+  if (!(await magSchoolBeheren(req, req.params.id))) {
+    return res.status(403).json({ error: 'Dit is niet jouw school.' });
+  }
+  await dbModule.deleteSchoolLogo(req.params.id);
+  dbModule.auditLog(getActorFromReq(req), 'school_logo_removed', req.params.id, {}, req.ip).catch(() => {});
+  res.json({ ok: true });
+});
+
 // Sprint 60: mag deze beheerder DEZE school bewerken? Super-admin/open → altijd;
 // een admin enkel zijn eigen scholen. (Aanmaken/verwijderen blijft platformwerk.)
 async function magSchoolBeheren(req, schoolId) {
@@ -724,7 +779,17 @@ app.use((req, res, next) => {
 });
 
 // Fix SEC-9: expliciete JSON body size limiet
-app.use(express.json({ limit: '64kb' }));
+// Sprint 64: de globale limiet blijft bewust klein (64 kB). Enkel de logo-upload krijgt
+// verderop een eigen, ruimere parser — één endpoint verruimen is veiliger dan overal.
+const LOGO_MAX_KB = Math.max(16, Math.min(4096, parseInt(process.env.SCHOOL_LOGO_MAX_KB || '512', 10) || 512));
+const LOGO_UPLOAD_PAD = /^\/api\/admin\/schools\/[^/]+\/logo$/;
+const globaleJson = express.json({ limit: '64kb' });
+app.use((req, res, next) => {
+  if (LOGO_UPLOAD_PAD.test(req.path)) return next();   // eigen parser op de route zelf
+  return globaleJson(req, res, next);
+});
+// base64 is ~33% groter dan de ruwe bytes; +40% marge voor de JSON-omhulling.
+const logoJson = express.json({ limit: Math.ceil(LOGO_MAX_KB * 1.4) + 'kb' });
 
 app.get('/monitoring.html', requireTeacherAuth, (req, res) => {
   if (!magSysteemZien(req.teacher)) return res.redirect('/teacher-sessions.html'); // 55
@@ -1164,7 +1229,7 @@ app.get('/api/school-info', async (req, res) => {
             const school = await dbModule.getSchool(leerling.school_id);
             if (school) return res.json({
               name: school.name,
-              logoUrl: school.logo_path ? `/school-logo?id=${encodeURIComponent(school.id)}` : null,
+              logoUrl: (school.heeft_logo || school.logo_path) ? `/school-logo?id=${encodeURIComponent(school.id)}&v=${school.logo_updated_at || 0}` : null,
               schoolId: school.id,
             });
           }
@@ -1187,7 +1252,7 @@ app.get('/api/school-info', async (req, res) => {
       if (school) {
         return res.json({
           name: school.name,
-          logoUrl: school.logo_path ? `/school-logo?id=${encodeURIComponent(school.id)}` : null,
+          logoUrl: (school.heeft_logo || school.logo_path) ? `/school-logo?id=${encodeURIComponent(school.id)}&v=${school.logo_updated_at || 0}` : null,
           schoolId: school.id,
         });
       }
@@ -1215,6 +1280,25 @@ app.get('/api/school-info', async (req, res) => {
 app.get('/school-logo', async (req, res) => {
   const fsSync = require('fs');
   let logoPath = process.env.SCHOOL_LOGO_PATH || '';
+
+  // Sprint 64: eerst de databank. Een blob is de normale opslag sinds deze sprint;
+  // het bestandspad hieronder blijft enkel als terugval voor oudere installaties.
+  if (req.query.id) {
+    try {
+      const logo = await dbModule.getSchoolLogo(String(req.query.id));
+      if (logo) {
+        const etag = `"logo-${req.query.id}-${logo.updatedAt}"`;
+        res.set('Cache-Control', 'private, max-age=300');
+        res.set('ETag', etag);
+        res.set('X-Content-Type-Options', 'nosniff');
+        if (req.headers['if-none-match'] === etag) return res.status(304).end();
+        res.type(logo.mime);
+        return res.send(logo.data);
+      }
+    } catch (e) {
+      log.warn('[school-logo] blob lezen mislukt:', e.message);
+    }
+  }
 
   if (req.query.id) {
     try {

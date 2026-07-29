@@ -63,6 +63,7 @@
 | **48c3** | 🔵 P9 | SEC | **Fase 3** — **Isolatie-testsuite** (`tests/isolatie.test.js`): integratietests tegen een échte PostgreSQL — klassen, leerlingen (erven school van klas), vragenbank, sessies, auditlog: A ziet **nul** rijen van B; Bibliotheek-publiek kruist als enige (en 53d-hidden wint); dekking-diagnose. Skipt zichzelf zonder `DATABASE_URL`. **Al bewezen groen (7/7, herhaald) tegen PostgreSQL 16.** *✅ AFGEROND.* | ~3 dagen |
 | **48c4** | 🔵 P9 | ARCH | **Fase 3** — **Super-admin** (rol `superadmin`, hosting-beheerder): leesscope zónder schoolfilter (ziet alle scholen), telt overal als beheerder, mag cross-school Bibliotheek-takedown; rol enkel toe te kennen door een super-admin (admin-bootstrap zolang er geen bestaat); rol-cyclus in de admin-UI. *✅ AFGEROND — daarmee is Fase 3 compleet.* | ~2 dagen |
 | **61** | 🟢 P3 | FEAT | **Facturatierapport (gepland)** — per schooljaar/maand per school tellen hoeveel leerlingen geregistreerd zijn en hoe lang (actief/pending/geblokkeerd), als basis voor een fee per leerling. Automatisch maandelijks document (CSV/PDF) voor de platformbeheerder. Vereist een lichte historiek (bv. `student_school_periods` of tellingen-snapshot), want `students` bewaart nu enkel de huidige status. | ~2 dagen |
+| **64** | 🟠 P8 | ARCH | **Schoollogo in de databank** — was een absoluut **bestandspad** dat je moest intypen (viel buiten de back-up, verdween bij een rebuild, en een schooladmin kon er niets mee). Nu een echte upload: bestand kiezen op je eigen computer → `BYTEA` in `schools`. PNG/JPEG/WebP toegelaten, **SVG geweigerd** (kan scripts bevatten), grootte instelbaar via `SCHOOL_LOGO_MAX_KB` in `.env`, controle op **magic bytes** i.p.v. extensie. Serveren met ETag/caching; `logo_path` blijft als terugval. *✅ AFGEROND.* | ~1 dag |
 | **63** | 🟡 P6 | BUG | **Twee testbevindingen** — (1) startpagina toonde de voettekst **dubbel**: `index.html` heeft een eigen `<footer>` met server-side versie, maar de guard in `app.js` keek enkel naar `.footer-note`; (2) een school **inklappen** verborg wel de klaskoppen maar niet de leerlingrijen, want die horen tot twee groepen (school én klas). *✅ AFGEROND.* | ~0.25 dag |
 | **62** | 🟠 P8 | UX | **Topbalk: wie ben ik?** — de balk toonde enkel 'Afmelden', maar wél een schoolnaam; daardoor leek die naam een klas-/schoolkoppeling te bevestigen. Nu: 'Ingelogd als <naam>' + rolbadge + de **actieve school** (met wisselmodal bij meerdere scholen). 'Mijn klassen' legt in de lege staat uit dat school ≠ klas. *✅ AFGEROND.* | ~0.5 dag |
 | **60** | 🟠 P8 | UX | **Beheer overzichtelijk + Scholen-tab per rol** — admin beheert de gegevens van zijn EIGEN scholen (naam, logo, contact, e-maildomeinen); aanmaken/verwijderen/deactiveren/licentie blijven platformwerk. Inklapbare groepen per school (en per klas bij leerlingen) met bewaarde stand, tellers + 'x wachtend', klasfilter, 'enkel wachtend', 🔀 klas wisselen en bulkacties (aanvaarden/blokkeren/verplaatsen). *✅ AFGEROND.* | ~1.5 dag |
@@ -793,6 +794,24 @@ Alles zit in het bestaande `nav-rechten.js` (al op elke leerkrachtpagina aanwezi
 *Test: de klaplogica is met een nagebootste DOM doorgerekend — school dicht → klaskop en beide leerlingen verborgen, schoolkop zichtbaar; enkel klas 5A dicht → alleen die leerling weg; school heropenen → klas 5A blijft dicht. Pure suites 163 groen.*
 
 *Bestanden: public/app.js, public/admin.js, testdocument-html/testpunten.js, sprintlog.md*
+
+---
+
+### Sprint 64 — Schoollogo's naar de databank — ✅ AFGEROND
+
+**Cat:** ARCH · Vraag uit de testronde: waar staan de logo's eigenlijk?
+
+**Hoe het was.** `schools.logo_path` bewaarde een **absoluut pad op de server**, en `/school-logo` las dat bestand van de schijf. Uploaden bestond niet — je typte een pad in een tekstveld. Drie problemen: het logo zat **niet in de back-up** (`backup-db.sh` dumpt enkel de databank), het **overleefde geen rebuild** tenzij het pad toevallig in een gemount volume lag, en een **schooladmin kon er niets mee** (hij heeft geen bestandstoegang tot de container) — terwijl sprint 60 hem net dat recht gaf.
+
+**Hoe het nu is.** Nieuwe kolommen `logo_blob BYTEA` + `logo_mime` + `logo_updated_at` (additief, idempotent). In Beheer → Scholen zit een knop **🖼 Logo**: je kiest een bestand op je eigen computer, ziet meteen een voorbeeld, en uploadt. De browser stuurt het als base64; de server bewaart de ruwe bytes.
+
+**Grendels.** Toegelaten zijn **PNG, JPEG en WebP**; **SVG wordt geweigerd** omdat dat JavaScript kan bevatten en op ons eigen domein zou worden uitgeserveerd (XSS). De controle gebeurt op de **magic bytes** van de inhoud, niet op de extensie of de meegestuurde mimetype — een hernoemd tekstbestand komt er dus niet door. De maximumgrootte staat in `.env` als **`SCHOOL_LOGO_MAX_KB`** (standaard 512). De globale JSON-limiet blijft bewust 64 kB: enkel deze ene route krijgt een ruimere parser (base64 is ~33% groter, plus marge). Rechten volgen sprint 60: een admin enkel zijn eigen school, en elke wijziging komt in het audit-log.
+
+**Prestatie-detail.** `getSchool()` deed `SELECT *` en zou de afbeelding dus bij **elke paginalading** meeslepen (de topbalk vraagt de schoolinfo op). Die query haalt nu enkel een vlag `heeft_logo` op; de bytes komen alleen via `/school-logo`, met **ETag** op `logo_updated_at` en `Cache-Control`, zodat browsers cachen maar een nieuw logo meteen zien.
+
+*Test: tegen echte PostgreSQL een PNG opgeslagen en teruggelezen — 75 bytes, bit-voor-bit identiek, vlaggen en `updated_at` correct, `getSchool` sleept de blob niet mee, verwijderen werkt. De magic-byte-herkenning is apart doorgerekend: PNG/JPEG/WebP aanvaard; SVG, SVG-met-BOM, een hernoemd tekstbestand en een leeg bestand geweigerd.*
+
+*Bestanden: db/database.js, server.js, public/admin.js, .env, .env.example, testdocument-html/testpunten.js, sprintlog.md*
 
 ---
 
