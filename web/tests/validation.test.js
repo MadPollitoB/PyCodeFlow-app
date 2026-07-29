@@ -345,3 +345,18 @@ test('65 server.js: geen app.use/get/post vóór `const app = express()`', () =>
   assert.deepStrictEqual(teVroeg, [],
     'server.js gebruikt `app` op regel(s) ' + teVroeg.join(', ') + ' vóór de aanmaak op regel ' + (appRegel + 1));
 });
+
+// ── Sprint 61: periodesleutel voor de leerlingtelling ───────────────────────
+test('61 maandPeriode: JJJJ-MM met voorloopnul', () => {
+  assert.strictEqual(v.maandPeriode(new Date('2026-07-26T12:00:00Z')), '2026-07');
+  assert.strictEqual(v.maandPeriode(new Date('2026-01-01T00:00:00Z')), '2026-01');
+  assert.strictEqual(v.maandPeriode(new Date('2025-12-31T23:00:00Z')), '2025-12');
+});
+test('61 maandPeriode: sorteert chronologisch als tekst', () => {
+  const p = ['2026-01', '2025-12', '2026-10', '2026-02'].sort();
+  assert.deepStrictEqual(p, ['2025-12', '2026-01', '2026-02', '2026-10']);
+});
+test('61 maandPeriode: ongeldige invoer → null', () => {
+  assert.strictEqual(v.maandPeriode('rommel'), null);
+  assert.strictEqual(v.maandPeriode(new Date('x')), null);
+});

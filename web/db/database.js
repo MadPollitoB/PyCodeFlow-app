@@ -278,6 +278,28 @@ async function initSchema() {
     END $$;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_classes_start_code ON classes (start_code) WHERE start_code IS NOT NULL;
 
+    -- ── Sprint 61: leerlingtellingen per maand (facturatiebasis) ──────────────
+    -- students bewaart enkel de HUIDIGE status, dus zonder momentopnames is er geen
+    -- historiek. Elke maand krijgt één rij per school + schooljaar. De schoolnaam wordt
+    -- BEVROREN meegeschreven: een school kan later hernoemd of verwijderd worden, maar
+    -- een factuur van vorig jaar moet blijven kloppen.
+    CREATE TABLE IF NOT EXISTS student_count_snapshots (
+      id           TEXT PRIMARY KEY,
+      periode      TEXT NOT NULL,                 -- 'JJJJ-MM'
+      school_id    TEXT REFERENCES schools(id) ON DELETE SET NULL,
+      school_name  TEXT NOT NULL DEFAULT '',      -- bevroren
+      school_year  TEXT NOT NULL DEFAULT '',
+      actief       INTEGER NOT NULL DEFAULT 0,
+      pending      INTEGER NOT NULL DEFAULT 0,
+      geblokkeerd  INTEGER NOT NULL DEFAULT 0,
+      totaal       INTEGER NOT NULL DEFAULT 0,
+      created_at   BIGINT NOT NULL,
+      updated_at   BIGINT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshot_uniek
+      ON student_count_snapshots(periode, COALESCE(school_id, ''), school_year);
+    CREATE INDEX IF NOT EXISTS idx_snapshot_periode ON student_count_snapshots(periode);
+
     -- ── Sprint 64: schoollogo in de DATABANK (niet meer als bestandspad) ──────
     -- Een logo is klein (tientallen kB) en verandert bijna nooit, maar het moet wél
     -- mee in de back-up en een container-rebuild overleven. Vandaar BYTEA i.p.v. een
@@ -1150,6 +1172,64 @@ module.exports = {
         (SELECT COUNT(*)::int FROM audit_log     WHERE school_id IS NULL) AS audit_log_zonder
     `);
     return r.rows[0];
+  },
+
+  // ── Sprint 61: leerlingtellingen (facturatie) ──────────────────────────────
+  // Live telling: per school én schooljaar hoeveel leerlingen actief/pending/geblokkeerd
+  // zijn. Een leerling telt per klas-lidmaatschap-schooljaar; wie nergens lid is valt
+  // onder schooljaar '' zodat hij niet uit de telling verdwijnt.
+  async telLeerlingen(scholenIds = null) {
+    const r = await query(
+      `SELECT COALESCE(c.school_id, s.school_id) AS school_id,
+              COALESCE(sch.name, '(zonder school)')  AS school_name,
+              COALESCE(m.school_year, '')            AS school_year,
+              COUNT(*) FILTER (WHERE s.status = 'active')::int  AS actief,
+              COUNT(*) FILTER (WHERE s.status = 'pending')::int AS pending,
+              COUNT(*) FILTER (WHERE s.status = 'blocked')::int AS geblokkeerd,
+              COUNT(*)::int AS totaal
+         FROM students s
+         LEFT JOIN class_memberships m ON m.student_id = s.id
+         LEFT JOIN classes c ON c.id = m.class_id AND c.school_year = m.school_year
+         LEFT JOIN schools sch ON sch.id = COALESCE(c.school_id, s.school_id)
+        WHERE ($1::text[] IS NULL OR COALESCE(c.school_id, s.school_id) = ANY($1))
+        GROUP BY COALESCE(c.school_id, s.school_id), sch.name, COALESCE(m.school_year, '')
+        ORDER BY sch.name NULLS LAST, school_year DESC`,
+      [scholenIds]
+    );
+    return r.rows;
+  },
+
+  // Schrijft/actualiseert de momentopname voor één periode ('JJJJ-MM'). Idempotent:
+  // binnen de maand wordt de rij bijgewerkt, na de maandwissel blijft ze staan zoals ze was.
+  async bewaarLeerlingSnapshot(periode) {
+    const tellingen = await this.telLeerlingen(null);
+    const nu = Date.now();
+    for (const t of tellingen) {
+      await query(
+        `INSERT INTO student_count_snapshots
+           (id, periode, school_id, school_name, school_year, actief, pending, geblokkeerd, totaal, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
+         ON CONFLICT (periode, COALESCE(school_id, ''), school_year) DO UPDATE SET
+           school_name = EXCLUDED.school_name, actief = EXCLUDED.actief,
+           pending = EXCLUDED.pending, geblokkeerd = EXCLUDED.geblokkeerd,
+           totaal = EXCLUDED.totaal, updated_at = EXCLUDED.updated_at`,
+        [crypto.randomUUID(), periode, t.school_id, t.school_name, t.school_year,
+         t.actief, t.pending, t.geblokkeerd, t.totaal, nu]
+      );
+    }
+    return tellingen.length;
+  },
+
+  async listLeerlingSnapshots({ van = null, tot = null, scholenIds = null } = {}) {
+    const r = await query(
+      `SELECT * FROM student_count_snapshots
+        WHERE ($1::text IS NULL OR periode >= $1)
+          AND ($2::text IS NULL OR periode <= $2)
+          AND ($3::text[] IS NULL OR school_id = ANY($3))
+        ORDER BY periode DESC, school_name, school_year DESC`,
+      [van, tot, scholenIds]
+    );
+    return r.rows;
   },
 
   // ── Sprint 64: schoollogo als blob ─────────────────────────────────────────

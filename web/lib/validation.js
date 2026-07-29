@@ -76,6 +76,14 @@ function emailPastBijDomeinen(email, patronen = []) {
 
 // Sprint 52c: basale e-mailvorm-check (iets@iets.tld). Bewust simpel — de echte grendel
 // is de schooldomein-check; dit vangt enkel tikfouten en onzin op. Puur + testbaar.
+// Sprint 61: periodesleutel 'JJJJ-MM' voor de maandelijkse leerlingtelling.
+// Puur en testbaar; overal dezelfde vorm zodat sorteren op tekst ook chronologisch is.
+function maandPeriode(datum = new Date()) {
+  const d = datum instanceof Date ? datum : new Date(datum);
+  if (isNaN(d.getTime())) return null;
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
 function isGeldigEmail(email) {
   const s = String(email || '').trim();
   if (s.length < 5 || s.length > 254) return false;
@@ -159,6 +167,7 @@ module.exports = {
   domainMatches,
   emailPastBijDomeinen,
   isGeldigEmail,
+  maandPeriode,
   normaliseerDomein,
   valideerDomein,
   // Sprint 48b1: automatische schoolkeuze

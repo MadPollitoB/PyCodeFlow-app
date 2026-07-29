@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Beheer</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.49.6"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.49.7"/>
   <style>
     .admin-tabs { display:flex; gap:8px; margin-bottom:24px; border-bottom:2px solid var(--border); padding-bottom:0; }
     .admin-tab  { padding:10px 20px; cursor:pointer; border:none; background:none; font-weight:700; font-size:0.95rem; color:var(--muted); border-bottom:3px solid transparent; margin-bottom:-2px; }
@@ -62,6 +62,24 @@
     <button class="admin-tab" data-tab="schools">🏛 Scholen</button>
     <button class="admin-tab" data-tab="classes">🏫 Klassen</button>
     <button class="admin-tab" data-tab="students">👩‍🎓 Leerlingen</button>
+    <button class="admin-tab" data-tab="telling">💶 Leerlingtelling</button>
+  </div>
+
+  <!-- LEERLINGTELLING / FACTURATIE (sprint 61) -->
+  <div class="admin-panel" id="panel-telling">
+    <div class="inline-note">
+      Basis voor een fee per leerling: de huidige stand per school en schooljaar, plus de
+      maandelijkse historiek. De telling wordt automatisch bijgewerkt (bij het opstarten en
+      elke 6 uur); een afgesloten maand blijft staan zoals ze was.
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0;">
+      <button class="btn btn-muted small" onclick="laadTelling('nu')">📊 Huidige stand</button>
+      <button class="btn btn-muted small" onclick="laadTelling('historiek')">📅 Historiek per maand</button>
+      <a class="btn btn-muted small" id="csv-nu" href="/api/admin/facturatie/export.csv">⬇ CSV (huidige stand)</a>
+      <a class="btn btn-muted small" id="csv-hist" href="/api/admin/facturatie/export.csv?historiek=true">⬇ CSV (historiek)</a>
+      <button class="btn btn-soft small" id="snapshot-knop" onclick="maakSnapshot()" title="Momentopname van deze maand nu bijwerken">📌 Nu vastleggen</button>
+    </div>
+    <div id="telling-inhoud"><p class="muted">Klik op een knop hierboven om te laden.</p></div>
   </div>
 
   <!-- SCHOLEN (sprint 48a1) -->
@@ -164,7 +182,7 @@
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="/app.js?v=v2026.2.49.6"></script>
-<script src="/admin.js?v=v2026.2.49.6"></script>
+<script src="/app.js?v=v2026.2.49.7"></script>
+<script src="/admin.js?v=v2026.2.49.7"></script>
 <script src="/nav-rechten.js"></script></body>
 </html>

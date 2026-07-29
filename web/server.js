@@ -1761,6 +1761,68 @@ app.get('/api/mijn-klassen', requireTeacherAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Sprint 61 — Leerlingtelling & facturatie
+// Een fee per leerling vraagt twee dingen: de HUIDIGE stand (hoeveel leerlingen hangen
+// er nu aan een school) en HISTORIEK (hoeveel was dat elke maand). Omdat `students`
+// enkel de huidige status bewaart, schrijven we maandelijkse momentopnames weg.
+// Scoping volgt de rest: een admin ziet zijn eigen scholen, de super-admin alles.
+// ═══════════════════════════════════════════════════════════════════════════════
+async function facturatieScope(req) {
+  if (!req.teacher?.id || authLib.isSuperAdmin(req.teacher)) return null;   // null = alles
+  return schoolIdsVanTeacher(req.teacher);
+}
+
+app.get('/api/admin/facturatie/nu', requireTeacherAuth, requireBeheer, async (req, res) => {
+  try {
+    res.json({
+      periode: validationLib.maandPeriode(new Date()),
+      regels: await dbModule.telLeerlingen(await facturatieScope(req)),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/admin/facturatie/historiek', requireTeacherAuth, requireBeheer, async (req, res) => {
+  try {
+    res.json(await dbModule.listLeerlingSnapshots({
+      van: req.query.van || null,
+      tot: req.query.tot || null,
+      scholenIds: await facturatieScope(req),
+    }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Handmatig een momentopname forceren (bv. vlak vóór het factureren).
+app.post('/api/admin/facturatie/snapshot', requireTeacherAuth, requireBeheer, requirePlatform, requireCsrf, async (req, res) => {
+  try {
+    const periode = validationLib.maandPeriode(new Date());
+    const n = await dbModule.bewaarLeerlingSnapshot(periode);
+    dbModule.auditLog(getActorFromReq(req), 'facturatie_snapshot', periode, { regels: n }, req.ip).catch(() => {});
+    res.json({ ok: true, periode, regels: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// CSV voor de boekhouding. Semikolon als scheidingsteken (Excel-NL) en een BOM,
+// zodat accenten in schoolnamen niet verminken.
+app.get('/api/admin/facturatie/export.csv', requireTeacherAuth, requireBeheer, async (req, res) => {
+  try {
+    const scope = await facturatieScope(req);
+    const rijen = req.query.historiek === 'true'
+      ? await dbModule.listLeerlingSnapshots({ van: req.query.van || null, tot: req.query.tot || null, scholenIds: scope })
+      : (await dbModule.telLeerlingen(scope)).map(r => ({ ...r, periode: validationLib.maandPeriode(new Date()) }));
+    const veilig = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const kop = ['Periode', 'School', 'Schooljaar', 'Actief', 'Wachtend', 'Geblokkeerd', 'Totaal'];
+    const lijnen = [kop.join(';')].concat(rijen.map(r => [
+      r.periode, r.school_name || '(zonder school)', r.school_year || '(geen)',
+      r.actief, r.pending, r.geblokkeerd, r.totaal,
+    ].map(veilig).join(';')));
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="leerlingtelling-${validationLib.maandPeriode(new Date())}.csv"`);
+    res.send('\uFEFF' + lijnen.join('\r\n'));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Sprint 48c1: diagnose voor Fase 3 — hoeveel rijen hangen (nog) niet aan een school?
 // Na de migratie op een single-school install horen alle tellers 0 te zijn.
 app.get('/api/admin/fase3/dekking', requireTeacherAuth, async (req, res) => {
@@ -6738,6 +6800,26 @@ cleanOldLogs();
     setInterval(opruimen, 24 * 60 * 60 * 1000);
   }, msUntil3am);
   log.info(`[logs] Automatische cleanup gepland om 03:00 (over ${Math.round(msUntil3am/3600000)}u)`);
+})();
+
+// ── Sprint 61: automatische maandelijkse leerlingtelling ─────────────────────
+// De momentopname van de LOPENDE maand wordt bijgewerkt (upsert), niet bijgemaakt. Zo
+// bevat elke maand uiteindelijk de stand zoals ze op het einde van die maand was, en
+// blijft een afgesloten maand ongewijzigd staan — precies wat je voor facturatie wil.
+// Draait bij het opstarten en daarna elke 6 uur; falen mag de server nooit hinderen.
+(function planLeerlingtelling() {
+  const ZES_UUR = 6 * 3600 * 1000;
+  async function tel() {
+    try {
+      const periode = validationLib.maandPeriode(new Date());
+      const n = await dbModule.bewaarLeerlingSnapshot(periode);
+      log.info(`[facturatie] leerlingtelling ${periode} bijgewerkt (${n} regel(s))`);
+    } catch (e) {
+      log.warn('[facturatie] leerlingtelling mislukt:', e.message);
+    }
+  }
+  setTimeout(tel, 30_000).unref?.();          // even wachten tot het schema klaar is
+  setInterval(tel, ZES_UUR).unref?.();
 })();
 
 // API endpoint voor handmatige log cleanup (via pycodeflow.sh)

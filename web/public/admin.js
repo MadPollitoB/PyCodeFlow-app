@@ -25,6 +25,7 @@ document.querySelectorAll('.admin-tab').forEach(btn => {
     document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'teachers') loadTeachers();
     if (btn.dataset.tab === 'schools')  loadSchools();
+    if (btn.dataset.tab === 'telling')  laadTelling('nu');
     if (btn.dataset.tab === 'classes')  { loadSchoolYears().then(loadClasses); }
     if (btn.dataset.tab === 'students') { loadClassFilter(); loadStudents(); }
   });
@@ -44,6 +45,7 @@ fetch('/api/me').then(r => r.ok ? r.json() : null).then(me => {
   // comfort; de server weigert deze acties sowieso voor een schooladmin (403).
   if (!MIJ.magSysteem) {
     document.getElementById('nieuwe-school-form')?.remove();
+    document.getElementById('snapshot-knop')?.remove();   // vastleggen = platformwerk (61)
     document.getElementById('inactieve-scholen-rij')?.remove();
   }
 }).catch(() => {});
@@ -1055,6 +1057,70 @@ window.manageSchools = async function (teacherId) {
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
+// ── Sprint 61: leerlingtelling / facturatie ─────────────────────────────────
+window.laadTelling = async function (soort) {
+  const doel = document.getElementById('telling-inhoud');
+  doel.innerHTML = '<p class="muted">Laden…</p>';
+  try {
+    if (soort === 'nu') {
+      const r = await fetch('/api/admin/facturatie/nu');
+      const d = await r.json();
+      toonTelling(doel, d.regels || [], `Huidige stand — periode ${escHtml(d.periode || '')}`, false);
+    } else {
+      const r = await fetch('/api/admin/facturatie/historiek');
+      const rijen = await r.json();
+      toonTelling(doel, rijen || [], 'Historiek per maand', true);
+    }
+  } catch (e) {
+    doel.innerHTML = '<p class="muted">Kon de telling niet laden.</p>';
+  }
+};
+
+function toonTelling(doel, rijen, titel, metPeriode) {
+  if (!rijen.length) {
+    doel.innerHTML = `<h3 style="margin:0 0 8px;">${titel}</h3><p class="muted">Nog geen gegevens.</p>`;
+    return;
+  }
+  // Totaal per school (over de schooljaren heen) bovenaan: dat is het getal waarop je factureert.
+  const perSchool = new Map();
+  for (const r of rijen) {
+    const k = r.school_name || '(zonder school)';
+    const v = perSchool.get(k) || { actief: 0, pending: 0, geblokkeerd: 0, totaal: 0 };
+    v.actief += r.actief; v.pending += r.pending; v.geblokkeerd += r.geblokkeerd; v.totaal += r.totaal;
+    perSchool.set(k, v);
+  }
+  const kaarten = [...perSchool.entries()].map(([naam, v]) => `
+    <div style="display:inline-block;border:1.5px solid var(--border);border-radius:10px;padding:10px 16px;margin:0 8px 10px 0;">
+      <div style="font-weight:700;">${escHtml(naam)}</div>
+      <div style="font-size:1.5rem;font-weight:800;">${v.actief}</div>
+      <div class="muted" style="font-size:0.78rem;">actief · ${v.pending} wachtend · ${v.geblokkeerd} geblokkeerd</div>
+    </div>`).join('');
+
+  doel.innerHTML = `
+    <h3 style="margin:0 0 8px;">${titel}</h3>
+    ${metPeriode ? '' : `<div style="margin-bottom:10px;">${kaarten}</div>`}
+    <table class="admin-table">
+      <thead><tr>${metPeriode ? '<th>Periode</th>' : ''}<th>School</th><th>Schooljaar</th>
+        <th>Actief</th><th>Wachtend</th><th>Geblokkeerd</th><th>Totaal</th></tr></thead>
+      <tbody>${rijen.map(r => `<tr>
+        ${metPeriode ? `<td><strong>${escHtml(r.periode)}</strong></td>` : ''}
+        <td>${escHtml(r.school_name || '(zonder school)')}</td>
+        <td>${escHtml(r.school_year || '(geen)')}</td>
+        <td>${r.actief}</td><td>${r.pending}</td><td>${r.geblokkeerd}</td>
+        <td><strong>${r.totaal}</strong></td></tr>`).join('')}</tbody>
+    </table>
+    <p class="muted" style="font-size:0.8rem;margin-top:8px;">
+      Een leerling telt per schooljaar waarin hij lid is van een klas; wie nergens lid is staat onder "(geen)".
+      De schoolnaam in de historiek is bevroren op het moment van de telling.</p>`;
+}
+
+window.maakSnapshot = async function () {
+  const res = await apiFetch('/api/admin/facturatie/snapshot', { method: 'POST' });
+  const d = await res.json().catch(() => ({}));
+  if (res.ok && d.ok) { pyToast(`Telling ${d.periode} vastgelegd (${d.regels} regels).`, 'success'); laadTelling('historiek'); }
+  else await pyAlert('Vastleggen mislukt: ' + (d.error || res.status), 'error');
+};
+
 // ── Sprint 64: schoollogo uploaden (naar de databank) ───────────────────────
 // Je kiest een bestand op je EIGEN computer; de browser leest het in en stuurt het als
 // base64 door. De server controleert de magic bytes en de grootte, en bewaart het als
