@@ -37,7 +37,16 @@ function fmtDate(ts) {
 
 // ── Sprint 55: identiteit + zoekvelden + groepering ──────────────────────────
 let MIJ = { role: 'admin', magSysteem: true };
-fetch('/api/me').then(r => r.ok ? r.json() : null).then(me => { if (me) MIJ = me; }).catch(() => {});
+fetch('/api/me').then(r => r.ok ? r.json() : null).then(me => {
+  if (!me) return;
+  MIJ = me;
+  // Sprint 60: scholen aanmaken + het inactieve-filter zijn platformwerk. Verbergen is
+  // comfort; de server weigert deze acties sowieso voor een schooladmin (403).
+  if (!MIJ.magSysteem) {
+    document.getElementById('nieuwe-school-form')?.remove();
+    document.getElementById('inactieve-scholen-rij')?.remove();
+  }
+}).catch(() => {});
 
 // Plaatst (eenmalig) een zoekveld vlak boven de tabel van een tbody; filtert client-side.
 function zorgZoekveld(tbodyId, placeholder, onzoek) {
@@ -54,6 +63,32 @@ function zorgZoekveld(tbodyId, placeholder, onzoek) {
 }
 function zoekwaarde(tbodyId) {
   return (document.getElementById('zoek-' + tbodyId)?.value || '').trim().toLowerCase();
+}
+// Sprint 60: inklapbare groepen. Eén rij die als kop dient; klikken klapt de rijen
+// eronder in/uit. De stand wordt lokaal onthouden zodat je ze niet elke keer heropent.
+const KLAP_SLEUTEL = 'pycodeflow-beheer-ingeklapt';
+function ingeklapt() {
+  try { return new Set(JSON.parse(localStorage.getItem(KLAP_SLEUTEL) || '[]')); }
+  catch { return new Set(); }
+}
+function bewaarKlap(set) {
+  try { localStorage.setItem(KLAP_SLEUTEL, JSON.stringify([...set])); } catch {}
+}
+window.klapGroep = function (sleutel) {
+  const set = ingeklapt();
+  if (set.has(sleutel)) set.delete(sleutel); else set.add(sleutel);
+  bewaarKlap(set);
+  document.querySelectorAll(`[data-groep="${CSS.escape(sleutel)}"]`).forEach(r => {
+    r.style.display = set.has(sleutel) ? 'none' : '';
+  });
+  const pijl = document.getElementById('pijl-' + sleutel);
+  if (pijl) pijl.textContent = set.has(sleutel) ? '▸' : '▾';
+};
+function klapKop(kolommen, sleutel, tekst, extra = '') {
+  const dicht = ingeklapt().has(sleutel);
+  return `<tr class="klap-kop"><td colspan="${kolommen}" onclick="klapGroep('${sleutel}')"
+      style="background:var(--blauw-l,#eff6ff);font-weight:800;padding:8px 10px;border-top:2px solid var(--border);cursor:pointer;user-select:none;">
+      <span id="pijl-${sleutel}" style="display:inline-block;width:14px;">${dicht ? '▸' : '▾'}</span> ${tekst}${extra}</td></tr>`;
 }
 function groepsRij(kolommen, tekst) {
   return `<tr><td colspan="${kolommen}" style="background:var(--blauw-l,#eff6ff);font-weight:800;padding:8px 10px;border-top:2px solid var(--border);">${tekst}</td></tr>`;
@@ -154,12 +189,55 @@ async function addTeacher() {
   else await pyAlert('Fout: ' + (data.error || 'onbekend'), "error");
 }
 
+// Sprint 59: wachtwoord wijzigen via een echte PyCodeFlow-modal met TWEE velden
+// (wachtwoord + bevestiging). Voordien was dit een kale browser-prompt zonder
+// bevestiging — één typfout en de leerkracht kon niet meer inloggen.
 async function resetPwd(username) {
-  const pwd = prompt(`Nieuw wachtwoord voor ${username} (min. 8 tekens):`);
-  if (!pwd || pwd.length < 8) return;
-  const res = await apiFetch(`/api/admin/teachers/${encodeURIComponent(username)}/password`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: pwd }) });
-  const data = await res.json();
-  data.ok ? pyToast('Wachtwoord bijgewerkt.', 'success') : await pyAlert('Fout: ' + data.error, "error");
+  const oud = document.getElementById('py-modal-overlay');
+  if (oud) oud.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'py-modal-overlay';
+  overlay.innerHTML = `
+    <div id="py-modal-box" style="max-width:420px;">
+      <div id="py-modal-title">Wachtwoord wijzigen</div>
+      <div id="py-modal-body">
+        <p class="muted" style="margin:0 0 10px;font-size:0.85rem;">
+          Nieuw wachtwoord voor <strong>${escHtml(username)}</strong> (minstens 8 tekens).
+          De lopende sessies van deze leerkracht worden ingetrokken.
+        </p>
+        <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:3px;">Nieuw wachtwoord</label>
+        <input id="pw-1" type="password" autocomplete="new-password" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px;margin-bottom:9px;"/>
+        <label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:3px;">Herhaal wachtwoord</label>
+        <input id="pw-2" type="password" autocomplete="new-password" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px;"/>
+        <div id="pw-fout" style="display:none;margin-top:9px;padding:8px 10px;border-radius:8px;background:#fee2e2;color:#991b1b;font-size:0.82rem;"></div>
+      </div>
+      <div id="py-modal-actions">
+        <button id="pw-cancel" class="btn btn-muted small">Annuleren</button>
+        <button id="pw-save" class="btn btn-primary small">Wachtwoord instellen</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const sluit = () => overlay.remove();
+  const toonFout = t => { const e = document.getElementById('pw-fout'); e.textContent = t; e.style.display = 'block'; };
+  document.getElementById('pw-cancel').addEventListener('click', sluit);
+  overlay.addEventListener('click', e => { if (e.target === overlay) sluit(); });
+  document.getElementById('pw-1').focus();
+
+  document.getElementById('pw-save').addEventListener('click', async () => {
+    const p1 = document.getElementById('pw-1').value;
+    const p2 = document.getElementById('pw-2').value;
+    if (p1.length < 8) return toonFout('Het wachtwoord moet minstens 8 tekens lang zijn.');
+    if (p1 !== p2)     return toonFout('De twee wachtwoorden komen niet overeen.');
+    const res = await apiFetch(`/api/admin/teachers/${encodeURIComponent(username)}/password`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: p1 }) });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.ok) { sluit(); pyToast('Wachtwoord bijgewerkt.', 'success'); }
+    else toonFout(data.error || ('Wijzigen mislukt (' + res.status + ')'));
+  });
+  document.getElementById('pw-2').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('pw-save').click();
+  });
 }
 
 async function toggleRole(username, currentRole) {
@@ -234,11 +312,13 @@ function renderClasses(zoek = '') {
   }
   const delen = [];
   for (const [, g] of [...groepen.entries()].sort((a, b) => a[1].naam.localeCompare(b[1].naam))) {
-    delen.push(groepsRij(7, g.naam + ` <span class="muted" style="font-weight:400;">(${g.rijen.length})</span>`));
+    const sleutel = 'kl-' + (g.rijen[0]?.school_id || 'geen');
+    delen.push(klapKop(7, sleutel, g.naam, ` <span class="muted" style="font-weight:400;">(${g.rijen.length} klassen)</span>`));
+    const dicht = ingeklapt().has(sleutel);
     delen.push(g.rijen.map(c => {
     const readonly = jaarReadonly || c.archived;
     return `
-    <tr style="${c.archived ? 'opacity:0.5;' : ''}">
+    <tr data-groep="${sleutel}" style="${c.archived ? 'opacity:0.5;' : ''}${dicht ? 'display:none;' : ''}">
       <td><strong>${escHtml(c.name)}</strong></td>
       <td>${escHtml(c.school_year)}</td>
       <td>${c.student_count ?? 0}</td>
@@ -452,6 +532,7 @@ async function loadStudents() {
     if (!r.ok) throw new Error(`Server antwoordde ${r.status}`);
     _allStudents = await r.json();
     zorgZoekveld('students-tbody', 'Zoek leerling (naam, e-mail, klas, school)…', z => renderStudentTable(_allStudents, z));
+    zorgLeerlingBalk();
     renderStudentTable(_allStudents, zoekwaarde('students-tbody'));
   } catch(e) {
     errorEl.textContent = '⚠️ Kon leerlingen niet laden: ' + e.message + ' — herlaad de pagina.';
@@ -477,15 +558,23 @@ function renderStudentTable(students, zoek = '') {
     || (s.email || '').toLowerCase().includes(zoek)
     || (s.class_name || '').toLowerCase().includes(zoek)
     || (s.school_name || '').toLowerCase().includes(zoek);
-  const lijst = students.filter(past);
-  if (!lijst.length) { tbody.innerHTML = `<tr><td colspan="7" class="muted" style="padding:16px;">Geen leerlingen gevonden${zoek ? ' voor deze zoekopdracht' : ''}.</td></tr>`; return; }
+  // Sprint 60: extra filters uit de balk (klas + enkel wachtend)
+  const klasKeuze = document.getElementById('klas-filter')?.value || '';
+  const enkelWachtend = document.getElementById('enkel-wachtend')?.checked;
+  const lijst = students.filter(past).filter(s => {
+    if (klasKeuze === '__geen' && s.class_name) return false;
+    if (klasKeuze && klasKeuze !== '__geen' && s.class_name !== klasKeuze) return false;
+    if (enkelWachtend && s.status !== 'pending') return false;
+    return true;
+  });
+  if (!lijst.length) { tbody.innerHTML = `<tr><td colspan="7" class="muted" style="padding:16px;">Geen leerlingen gevonden${zoek || klasKeuze || enkelWachtend ? ' voor deze filters' : ''}.</td></tr>`; werkBulkBalkBij(); return; }
 
   // Sprint 55: groepeer school → klas (beheeroverzicht levert één rij per lidmaatschap;
   // zonder klas → "Zonder klas", zonder school → "Zonder school").
   const scholen = new Map();
   for (const s of lijst) {
     const sSleutel = s.groep_school_id || s.school_id || '__geen';
-    if (!scholen.has(sSleutel)) scholen.set(sSleutel, { naam: s.school_name ? '🏛 ' + escHtml(s.school_name) : '🏛 Zonder school', klassen: new Map() });
+    if (!scholen.has(sSleutel)) scholen.set(sSleutel, { id: String(sSleutel).replace(/[^a-zA-Z0-9_-]/g, '_'), naam: s.school_name ? '🏛 ' + escHtml(s.school_name) : '🏛 Zonder school', klassen: new Map() });
     const sch = scholen.get(sSleutel);
     const kSleutel = s.class_name || '__geen';
     if (!sch.klassen.has(kSleutel)) sch.klassen.set(kSleutel, { naam: s.class_name ? escHtml(s.class_name) + (s.school_year ? ' · ' + escHtml(s.school_year) : '') : 'Zonder klas', rijen: [] });
@@ -494,12 +583,26 @@ function renderStudentTable(students, zoek = '') {
   const delen = [];
   for (const [, sch] of [...scholen.entries()].sort((a, b) => a[1].naam.localeCompare(b[1].naam))) {
     const totaal = [...sch.klassen.values()].reduce((n, k) => n + k.rijen.length, 0);
-    delen.push(groepsRij(7, sch.naam + ` <span class="muted" style="font-weight:400;">(${totaal})</span>`));
-    for (const [, k] of [...sch.klassen.entries()].sort((a, b) => a[1].naam.localeCompare(b[1].naam))) {
-      delen.push(`<tr><td colspan="7" style="padding:5px 10px 5px 26px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);">👥 ${k.naam} <span style="font-weight:400;">(${k.rijen.length})</span></td></tr>`);
+    const wachtend = [...sch.klassen.values()].reduce((n, k) => n + k.rijen.filter(r => r.status === 'pending').length, 0);
+    const sSleutel = 'st-' + (sch.id || 'geen');
+    delen.push(klapKop(7, sSleutel, sch.naam,
+      ` <span class="muted" style="font-weight:400;">(${totaal} leerlingen)</span>` +
+      (wachtend ? ` <span class="badge" style="background:#fef3c7;color:#92400e;">${wachtend} wachtend</span>` : '')));
+    const sDicht = ingeklapt().has(sSleutel);
+    for (const [kSleutelRuw, k] of [...sch.klassen.entries()].sort((a, b) => a[1].naam.localeCompare(b[1].naam))) {
+      const kSleutel = (sSleutel + '-' + kSleutelRuw).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const kWacht = k.rijen.filter(r => r.status === 'pending').length;
+      delen.push(`<tr data-groep="${sSleutel}" style="${sDicht ? 'display:none;' : ''}"><td colspan="7"
+        onclick="klapGroep('${kSleutel}')"
+        style="padding:5px 10px 5px 26px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:pointer;user-select:none;">
+        <span id="pijl-${kSleutel}" style="display:inline-block;width:12px;">${ingeklapt().has(kSleutel) ? '▸' : '▾'}</span>
+        👥 ${k.naam} <span style="font-weight:400;">(${k.rijen.length})</span>${kWacht ? ` <span class="badge" style="background:#fef3c7;color:#92400e;">${kWacht} wachtend</span>` : ''}</td></tr>`);
+      const rijDicht = sDicht || ingeklapt().has(kSleutel);
       delen.push(k.rijen.map(s => `
-    <tr>
-      <td><strong>${escHtml(s.name)}</strong>${s.must_change_password ? ' <span class="badge" title="Wachtwoordreset staat klaar" style="background:#fef3c7;color:#92400e;">reset</span>' : ''}</td>
+    <tr data-groep="${kSleutel}" data-groep2="${sSleutel}" style="${rijDicht ? 'display:none;' : ''}">
+      <td><label style="display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" class="ll-select" value="${s.id}" onchange="werkBulkBalkBij()"/>
+        <strong>${escHtml(s.name)}</strong></label>${s.must_change_password ? ' <span class="badge" title="Wachtwoordreset staat klaar" style="background:#fef3c7;color:#92400e;">reset</span>' : ''}</td>
       <td>${s.email ? escHtml(s.email) : '<span class="muted" style="font-size:0.8rem;">—</span>'}</td>
       <td>${escHtml(s.class_name || '—')}</td>
       <td><span class="status-${s.status}">${statusLabel[s.status] || s.status}</span></td>
@@ -509,6 +612,7 @@ function renderStudentTable(students, zoek = '') {
         ${s.status !== 'active'   ? `<button class="btn btn-success small" onclick="setStudentStatus('${s.id}','active')" title="Leerling aanvaarden">✓ Aanvaarden</button>` : ''}
         ${s.status !== 'blocked'  ? `<button class="btn btn-muted small" onclick="setStudentStatus('${s.id}','blocked')" title="Leerling blokkeren — kan niet meer inloggen">✕ Blokkeren</button>` : ''}
         ${s.status === 'blocked'  ? `<button class="btn btn-muted small" onclick="setStudentStatus('${s.id}','active')" title="Blokkering opheffen">↩ Deblokkeren</button>` : ''}
+        <button class="btn btn-muted small" title="Van klas wisselen" onclick="wisselKlas('${s.id}','${escHtml(s.name)}')">🔀 Klas</button>
         <button class="btn btn-muted small" title="Naam/e-mail bewerken" onclick='editStudentIdentity(${JSON.stringify({id:s.id,first:s.first_name||'',last:s.last_name||'',email:s.email||''})})'>✏️ Bewerken</button>
         ${s.email ? `<button class="btn btn-muted small" title="Wachtwoordreset klaarzetten (leerling herstelt zelf via klascode)" onclick="resetStudentPassword('${s.id}','${escHtml(s.name)}')">🔑 Reset</button>` : ''}
         <button class="btn btn-muted small" title="Notitie bewerken" onclick="editNote('${s.id}','${escHtml(s.notes||'')}')">🗒 Notitie</button>
@@ -518,7 +622,146 @@ function renderStudentTable(students, zoek = '') {
     }
   }
   tbody.innerHTML = delen.join('');
+  werkBulkBalkBij();
 }
+
+// Sprint 60: klasfilter + bulkbalk boven de leerlingentabel (eenmalig injecteren).
+function zorgLeerlingBalk() {
+  const tbody = document.getElementById('students-tbody');
+  if (!tbody || document.getElementById('leerling-balk')) {
+    vulKlasFilter();
+    return;
+  }
+  const tabel = tbody.closest('table');
+  const balk = document.createElement('div');
+  balk.id = 'leerling-balk';
+  balk.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px;';
+  balk.innerHTML = `
+    <select id="klas-filter" onchange="renderStudentTable(_allStudents, zoekwaarde('students-tbody'))"
+      style="padding:8px 12px;border:1.5px solid var(--border);border-radius:9px;font-size:0.88rem;">
+      <option value="">Alle klassen</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;">
+      <input type="checkbox" id="enkel-wachtend" onchange="renderStudentTable(_allStudents, zoekwaarde('students-tbody'))"/>
+      Enkel wachtend
+    </label>
+    <button class="btn btn-muted small" onclick="klapAlles(false)">Alles uitklappen</button>
+    <button class="btn btn-muted small" onclick="klapAlles(true)">Alles inklappen</button>
+    <div id="bulk-balk" style="display:none;align-items:center;gap:8px;margin-left:auto;padding:6px 10px;border:1.5px solid var(--border);border-radius:10px;background:var(--bg);">
+      <strong id="bulk-teller" style="font-size:0.85rem;"></strong>
+      <button class="btn btn-success small" onclick="bulkStatus('active')">✓ Aanvaarden</button>
+      <button class="btn btn-muted small" onclick="bulkStatus('blocked')">✕ Blokkeren</button>
+      <button class="btn btn-muted small" onclick="bulkVerplaats()">🔀 Verplaatsen</button>
+    </div>`;
+  tabel.parentNode.insertBefore(balk, tabel);
+  vulKlasFilter();
+}
+
+function vulKlasFilter() {
+  const sel = document.getElementById('klas-filter');
+  if (!sel) return;
+  const huidig = sel.value;
+  const klassen = [...new Set((_allStudents || []).map(s => s.class_name).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">Alle klassen</option>'
+    + klassen.map(k => `<option value="${escHtml(k)}">${escHtml(k)}</option>`).join('')
+    + '<option value="__geen">— Zonder klas —</option>';
+  sel.value = huidig;
+}
+
+// Alles in- of uitklappen (schoolgroepen én klasgroepen).
+window.klapAlles = function (dicht) {
+  const set = new Set();
+  if (dicht) {
+    document.querySelectorAll('[id^="pijl-"]').forEach(p => set.add(p.id.slice(5)));
+  }
+  bewaarKlap(set);
+  renderStudentTable(_allStudents, zoekwaarde('students-tbody'));
+  if (typeof renderClasses === 'function') renderClasses(zoekwaarde('classes-tbody'));
+};
+
+// ── Sprint 60: bulkacties op leerlingen ─────────────────────────────────────
+function geselecteerdeLeerlingen() {
+  return [...document.querySelectorAll('.ll-select:checked')].map(cb => cb.value);
+}
+window.werkBulkBalkBij = function () {
+  const n = geselecteerdeLeerlingen().length;
+  const balk = document.getElementById('bulk-balk');
+  if (!balk) return;
+  balk.style.display = n ? 'flex' : 'none';
+  const teller = document.getElementById('bulk-teller');
+  if (teller) teller.textContent = `${n} geselecteerd`;
+};
+window.bulkStatus = async function (status) {
+  const ids = geselecteerdeLeerlingen();
+  if (!ids.length) return;
+  const woord = status === 'active' ? 'aanvaarden' : status === 'blocked' ? 'blokkeren' : 'op wachtend zetten';
+  if (!await pyConfirm({ title: 'Bulkactie', body: `${ids.length} leerling(en) ${woord}?` +
+      (status === 'blocked' ? ' Blokkeren geldt voor het volledige account: die leerlingen kunnen dan nergens meer inloggen.' : ''),
+      confirmLabel: 'Uitvoeren' })) return;
+  let fouten = 0;
+  for (const id of ids) {
+    const r = await apiFetch(`/api/admin/students/${id}/status`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+    if (!r.ok) fouten++;
+  }
+  if (fouten) await pyAlert(`${fouten} van de ${ids.length} lukten niet (geen rechten of gearchiveerde klas).`, 'warn');
+  loadStudents();
+};
+window.bulkVerplaats = async function () {
+  const ids = geselecteerdeLeerlingen();
+  if (!ids.length) return;
+  const klasId = await kiesKlasModal(`${ids.length} leerling(en) verplaatsen naar…`);
+  if (!klasId) return;
+  let fouten = 0;
+  for (const id of ids) {
+    const r = await apiFetch(`/api/admin/students/${id}/class`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ classId: klasId }) });
+    if (!r.ok) fouten++;
+  }
+  if (fouten) await pyAlert(`${fouten} van de ${ids.length} lukten niet.`, 'warn');
+  loadStudents();
+};
+
+// Kiest een klas uit de klassen die JIJ mag beheren; geeft het id terug (of null).
+function kiesKlasModal(titel) {
+  return new Promise(resolve => {
+    const opties = (_allClasses || []).filter(c => !c.archived);
+    if (!opties.length) { pyAlert('Geen (niet-gearchiveerde) klassen beschikbaar.', 'warn'); return resolve(null); }
+    const oud = document.getElementById('py-modal-overlay');
+    if (oud) oud.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'py-modal-overlay';
+    overlay.innerHTML = `
+      <div id="py-modal-box" style="max-width:420px;">
+        <div id="py-modal-title">${escHtml(titel)}</div>
+        <div id="py-modal-body">
+          <select id="kies-klas" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px;">
+            ${opties.map(c => `<option value="${c.id}">${escHtml(c.school_name ? c.school_name + ' · ' : '')}${escHtml(c.name)} (${escHtml(c.school_year)})</option>`).join('')}
+          </select>
+          <p class="muted" style="margin:8px 0 0;font-size:0.8rem;">De leerling wordt lid van deze klas; bestaande resultaten blijven bewaard.</p>
+        </div>
+        <div id="py-modal-actions">
+          <button id="kk-cancel" class="btn btn-muted small">Annuleren</button>
+          <button id="kk-ok" class="btn btn-primary small">Verplaatsen</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const sluit = v => { overlay.remove(); resolve(v); };
+    document.getElementById('kk-cancel').addEventListener('click', () => sluit(null));
+    overlay.addEventListener('click', e => { if (e.target === overlay) sluit(null); });
+    document.getElementById('kk-ok').addEventListener('click', () => sluit(document.getElementById('kies-klas').value));
+  });
+}
+
+window.wisselKlas = async function (studentId, naam) {
+  const klasId = await kiesKlasModal(`${naam} verplaatsen naar…`);
+  if (!klasId) return;
+  const r = await apiFetch(`/api/admin/students/${studentId}/class`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ classId: klasId }) });
+  const d = await r.json().catch(() => ({}));
+  if (r.ok && d.ok) loadStudents();
+  else await pyAlert('Verplaatsen mislukt: ' + (d.error || r.status), 'error');
+};
 
 async function editStudentIdentity(s) {
   const first = await pyPrompt({ title: 'Voornaam', body: 'Voornaam:', defaultValue: s.first, confirmLabel: 'Volgende' });
@@ -610,20 +853,24 @@ async function loadSchools() {
       return;
     }
     el.innerHTML = `
+      ${MIJ.magSysteem ? '' : `<p class="muted" style="margin:0 0 10px;font-size:0.85rem;">
+        Je beheert hier de gegevens van je eigen school (naam, logo, contact, e-maildomeinen).
+        Scholen aanmaken of verwijderen en de licentie instellen doet de platformbeheerder.</p>`}
       <table class="admin-table">
-        <thead><tr><th>Naam</th><th>Licentie</th><th>Contact</th><th>Status</th><th>Aangemaakt</th><th></th></tr></thead>
+        <thead><tr><th>Naam</th>${MIJ.magSysteem ? '<th>Licentie</th>' : ''}<th>Contact</th><th>Status</th><th>Aangemaakt</th><th></th></tr></thead>
         <tbody>${scholen.map(s => `
           <tr style="${s.active ? '' : 'opacity:0.5;'}">
             <td><strong>${escHtml(s.name)}</strong>${s.logo_path ? `<br/><span class="muted" style="font-size:0.75rem;">${escHtml(s.logo_path)}</span>` : ''}</td>
-            <td>${escHtml(s.license || '—')}</td>
+            ${MIJ.magSysteem ? `<td>${escHtml(s.license || '—')}</td>` : ''}
             <td>${escHtml(s.contact || '—')}</td>
             <td>${s.active ? '<span class="status-active">Actief</span>' : '<span class="badge">Inactief</span>'}</td>
             <td>${fmtDate(s.created_at)}</td>
             <td style="display:flex;gap:6px;flex-wrap:wrap;">
               <button class="btn btn-muted small" onclick="manageDomains('${s.id}')">📧 Domeinen</button>
               <button class="btn btn-muted small" onclick="editSchool('${s.id}')">Bewerken</button>
-              <button class="btn btn-muted small" onclick="toggleSchool('${s.id}', ${!s.active})">${s.active ? 'Deactiveren' : 'Heractiveren'}</button>
-              <button class="btn btn-danger small" onclick="deleteSchool('${s.id}')">Verwijderen</button>
+              ${MIJ.magSysteem ? `
+                <button class="btn btn-muted small" onclick="toggleSchool('${s.id}', ${!s.active})">${s.active ? 'Deactiveren' : 'Heractiveren'}</button>
+                <button class="btn btn-danger small" onclick="deleteSchool('${s.id}')">Verwijderen</button>` : ''}
             </td>
           </tr>`).join('')}
         </tbody>

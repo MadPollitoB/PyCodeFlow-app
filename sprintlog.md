@@ -62,6 +62,10 @@
 | **48c2** | 🔵 P9 | SEC | **Fase 3** — Filtering centraal afdwingen (applicatielaag; RLS later als extra verdediging). **Deel a (schrijven) ✅**: nieuwe rij krijgt `school_id` uit de actieve school; leerling erft de school van zijn klas. **Deel b (lezen) ✅**: één regel `magRijVanSchoolZien` (SQL-spiegel identiek) op klassen-, leerlingen-, vragenbank-, sessie- en auditloglijsten; Bibliotheek blijft de enige cross-school-uitzondering (publiek/school, 51c). *✅ AFGEROND.* | ~1 week |
 | **48c3** | 🔵 P9 | SEC | **Fase 3** — **Isolatie-testsuite** (`tests/isolatie.test.js`): integratietests tegen een échte PostgreSQL — klassen, leerlingen (erven school van klas), vragenbank, sessies, auditlog: A ziet **nul** rijen van B; Bibliotheek-publiek kruist als enige (en 53d-hidden wint); dekking-diagnose. Skipt zichzelf zonder `DATABASE_URL`. **Al bewezen groen (7/7, herhaald) tegen PostgreSQL 16.** *✅ AFGEROND.* | ~3 dagen |
 | **48c4** | 🔵 P9 | ARCH | **Fase 3** — **Super-admin** (rol `superadmin`, hosting-beheerder): leesscope zónder schoolfilter (ziet alle scholen), telt overal als beheerder, mag cross-school Bibliotheek-takedown; rol enkel toe te kennen door een super-admin (admin-bootstrap zolang er geen bestaat); rol-cyclus in de admin-UI. *✅ AFGEROND — daarmee is Fase 3 compleet.* | ~2 dagen |
+| **61** | 🟢 P3 | FEAT | **Facturatierapport (gepland)** — per schooljaar/maand per school tellen hoeveel leerlingen geregistreerd zijn en hoe lang (actief/pending/geblokkeerd), als basis voor een fee per leerling. Automatisch maandelijks document (CSV/PDF) voor de platformbeheerder. Vereist een lichte historiek (bv. `student_school_periods` of tellingen-snapshot), want `students` bewaart nu enkel de huidige status. | ~2 dagen |
+| **62** | 🟠 P8 | UX | **Topbalk: wie ben ik?** — de balk toonde enkel 'Afmelden', maar wél een schoolnaam; daardoor leek die naam een klas-/schoolkoppeling te bevestigen. Nu: 'Ingelogd als <naam>' + rolbadge + de **actieve school** (met wisselmodal bij meerdere scholen). 'Mijn klassen' legt in de lege staat uit dat school ≠ klas. *✅ AFGEROND.* | ~0.5 dag |
+| **60** | 🟠 P8 | UX | **Beheer overzichtelijk + Scholen-tab per rol** — admin beheert de gegevens van zijn EIGEN scholen (naam, logo, contact, e-maildomeinen); aanmaken/verwijderen/deactiveren/licentie blijven platformwerk. Inklapbare groepen per school (en per klas bij leerlingen) met bewaarde stand, tellers + 'x wachtend', klasfilter, 'enkel wachtend', 🔀 klas wisselen en bulkacties (aanvaarden/blokkeren/verplaatsen). *✅ AFGEROND.* | ~1.5 dag |
+| **59** | 🔴 P10 | SEC | **Beheer-lekken gedicht** — `PUT /teachers/:username/password` had **géén** rolcontrole (elke ingelogde leerkracht kon eender wiens wachtwoord overschrijven, ook dat van de super-admin); idem grendel op verwijderen. Super-admin verdwijnt uit de lijst van een schooladmin. Wachtwoord wijzigen gaat nu via een PyCodeFlow-modal met bevestigingsveld i.p.v. een kale browser-prompt. *✅ AFGEROND.* | ~0.5 dag |
 | **58** | 🟠 P8 | SEC/UX | **Schoolbranding lekte naar leerlingpagina's** — `/api/school-info` las de leerkracht-cookie, dus op een gedeelde computer zag een leerling de school van de leerkracht die daar eerder inlogde. Nieuwe `?rol=leerling`-modus kijkt enkel naar de leerling-sessie (eigen school ná login), anders install-brede .env-naam. *✅ AFGEROND.* | ~0.5 dag |
 | **57** | 🟠 P8 | UX/SEC | **Klas ↔ leerkracht koppelen (UI)** — de endpoints bestonden sinds 48 maar werden door géén enkel scherm aangeroepen, waardoor een klas nooit bij een collega raakte. Beheer → Klassen toont nu een kolom **Leerkrachten** (of '⚠ niemand gekoppeld') met een 🧑‍🏫-modal om te koppelen/ontkoppelen. Server-side gescoped: een admin koppelt enkel leerkrachten van zijn eigen scholen aan klassen van zijn eigen scholen (anders 403); beide acties in het audit-log. *✅ AFGEROND.* | ~0.5 dag |
 | **56** | 🟠 P8 | UX/SEC | **"Mijn klassen"** — eigen scherm voor élke leerkracht met zijn gekoppelde klassen: startcode (bord-formaat, open/dicht, ↻), wachtende leerlingen bovenaan met ✓ aanvaarden, blokkeren/deblokkeren, 🔑 reset en leerling toevoegen. Leerlingacties nu klas-gescoped (`magLeerlingBeheren`): leerkracht enkel eigen klasleerlingen, beheerder school-breed. Herstelt de klastoegang die sprint 55 achter Beheer zette. *✅ AFGEROND.* | ~1 dag |
@@ -726,6 +730,54 @@ Omdat vrijwel alles al op de in-memory `student.id` sleutelde (`quiz_answers`, `
 *Test: tegen echte PostgreSQL — studentA hangt aan school A en krijgt in leerling-modus "TESTDATA School A"; zonder leerling-sessie verschijnt er niets school-specifieks meer. Pure suites 163 groen.*
 
 *Bestanden: server.js, public/app.js, testdocument-html/testpunten.js, sprintlog.md*
+
+---
+
+### Sprint 59 — Beheer: rolgrendels en een echte wachtwoord-modal — ✅ AFGEROND
+
+**Cat:** SEC · Uit de testronde als admin (`leerkrachtA`).
+
+**Het ernstigste punt was niet zichtbaar in de UI.** `PUT /api/admin/teachers/:username/password` had enkel `requireTeacherAuth` — géén beheerdersgrendel en géén controle op de doel-leerkracht. Elke ingelogde leerkracht kon dus via de API het wachtwoord van **eender wie** overschrijven, inclusief de super-admin, en werd daarmee de facto platformbeheerder. Nu: `requireBeheer` + een admin raakt enkel leerkrachten van zijn eigen school en **nooit** een super-admin (403). Dezelfde grendel staat op verwijderen.
+
+**Super-admin uit de schooladmin-lijst.** De filter van sprint 55 hield leerkrachten over die ≥1 school delen — maar een super-admin is vaak aan álle scholen gekoppeld, dus die kwam er doorheen. Platformbeheer hoort niet in het schoolscherm: super-admins worden nu expliciet weggefilterd voor iedereen behalve een super-admin.
+
+**Wachtwoord-modal.** De knop gebruikte een kale `prompt()` — geen huisstijl, en vooral: **geen bevestigingsveld**, dus één typfout sloot een collega buiten. Nu een PyCodeFlow-modal met wachtwoord + herhaling, inline validatie (≥8 tekens, moeten overeenkomen) en een duidelijke foutmelding; pas bij een geldige invoer wordt er iets opgeslagen.
+
+*Test: pure suites 163 groen. Tegen de testdatabank bevestigd waaróm de super-admin zichtbaar was (hij is aan beide scholen gekoppeld, dus deelde hij school A met leerkrachtA).*
+
+*Bestanden: server.js, public/admin.js, testdocument-html/testpunten.js, sprintlog.md*
+
+---
+
+### Sprint 60 — Beheer overzichtelijk + Scholen-tab per rol — ✅ AFGEROND
+
+**Cat:** UX · Uit de testronde: met twee scholen werd het beheerscherm onwerkbaar, en de Scholen-tab toonde álles aan iedereen.
+
+**Scholen-tab per rol.** `GET /api/admin/schools` is nu beheer-only én gefilterd: een admin ziet enkel de scholen waaraan hij gekoppeld is. Hij **bewerkt** hun gegevens (naam, logo, contact, 📧 e-maildomeinen) — dat is schoolwerk. **Platformwerk** blijft bij de super-admin: scholen aanmaken en verwijderen (`requirePlatform`), activeren/deactiveren en de licentie (server weigert die velden voor een schooladmin met 403). De domein-endpoints kregen naast de beheer-gate ook een eigen-school-controle, zodat admin A niet aan de domeinen van school B kan — wie de domeinen bepaalt, bepaalt immers wie zich kan registreren.
+
+**Overzichtelijkheid.** Klassen en leerlingen staan in **inklapbare** schoolgroepen (bij leerlingen met een tweede niveau per klas); de in-/uitklapstand wordt lokaal onthouden, met knoppen om alles in één keer te openen of te sluiten. De groepskoppen tonen tellers en — belangrijk in de praktijk — een geel **"x wachtend"** zodat je meteen ziet waar leerlingen op aanvaarding wachten. Daarnaast een **klasfilter** en een **"enkel wachtend"**-schakelaar die samenwerken met het bestaande zoekveld.
+
+**Leerlingen verplaatsen + bulk.** Het endpoint om een leerling van klas te wisselen bestond al maar had (net als bij 57) geen knop: nu **🔀 Klas** per leerling, met een modal die enkel niet-gearchiveerde klassen toont die jij mag beheren. Met vinkjes selecteer je meerdere leerlingen; de bulkbalk kan ze in één keer **aanvaarden, blokkeren of verplaatsen** — bij een klas die zich massaal registreert scheelt dat tientallen klikken. Blokkeren waarschuwt opnieuw expliciet dat het voor het hele account geldt.
+
+*Test: pure suites 163 groen, isolatie 8/8. Tegen de testdatabank bevestigd dat admin A enkel "TESTDATA School A" ziet en dat de twee wachtende leerlingen (klas 5A en 6A) correct als 'wachtend' geteld worden.*
+
+*Bestanden: server.js, public/admin.js, public/admin.html, testdocument-html/testpunten.js, sprintlog.md*
+
+---
+
+### Sprint 62 — Topbalk: wie ben ik, en in welke school werk ik? — ✅ AFGEROND
+
+**Cat:** UX · Uit de testronde: op "Mijn klassen" stond *"Je bent nog aan geen enkele klas gekoppeld"* terwijl de topbalk **TESTDATA School A** toonde — dat leek tegenstrijdig.
+
+**Wat er werkelijk aan de hand was.** Beide meldingen waren correct, maar onmogelijk te rijmen zonder te weten wie je bent. De tester was ingelogd als **superadmin**: die is (in de seed) aan **beide scholen** gekoppeld maar aan **geen enkele klas**. De naam in de balk was dus de **actieve school** van de sessie (gekozen bij het inloggen), geen uitspraak over klaskoppelingen. Omdat de balk enkel "Afmelden" bevatte, was er geen enkele aanwijzing over identiteit of rol.
+
+**Opgelost.** De topbalk toont nu op alle leerkrachtpagina's: **"Ingelogd als &lt;naam&gt;"**, een **rolbadge** (Leerkracht / Admin / ★ Super-admin, met tooltip die de rol uitlegt) en de **actieve school** — met de tooltip dat dáárin nieuwe klassen, toetsen en vragen terechtkomen. Dat laatste is precies wat een super-admin moet weten: hij **leest** alles, maar **schrijft** in één school. Hangt hij aan meerdere scholen, dan is de schoolnaam klikbaar en opent een **wisselmodal** (via het bestaande, gescopede endpoint); daarna volgen alle lijsten mee. Zonder koppeling staat er eerlijk "🏛 geen school".
+
+Alles zit in het bestaande `nav-rechten.js` (al op elke leerkrachtpagina aanwezig, haalde al `/api/me` op) — geen nieuw script om te onderhouden. `/api/me` geeft nu ook de scholen van de leerkracht mee. De lege staat van **Mijn klassen** benoemt nu expliciet het verschil tussen school en klas, verwijst naar *Beheer → Klassen → 🧑‍🏫*, en vertelt een beheerder dat het volledige klasoverzicht in Beheer staat.
+
+*Test: pure suites 163 groen. Met de testdatabank bevestigd dat superadmin aan 2 scholen maar 0 klassen hangt (leerkrachtA/A2 elk 1 school + 1 klas) — precies het waargenomen gedrag.*
+
+*Bestanden: server.js, public/nav-rechten.js, public/mijn-klassen.js, testdocument-html/testpunten.js, sprintlog.md*
 
 ---
 

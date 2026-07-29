@@ -218,6 +218,19 @@ async function magDezeLeerling(req, studentId) {
   return authLib.magLeerlingBeheren(req.teacher, eigen);
 }
 
+// Sprint 60: mag deze beheerder DEZE school bewerken? Super-admin/open → altijd;
+// een admin enkel zijn eigen scholen. (Aanmaken/verwijderen blijft platformwerk.)
+async function magSchoolBeheren(req, schoolId) {
+  if (!req.teacher?.id || authLib.isSuperAdmin(req.teacher)) return true;
+  const mijn = await schoolIdsVanTeacher(req.teacher);
+  return mijn.includes(schoolId);
+}
+// Enkel de platformbeheerder (scholen aanmaken/verwijderen, licentie, activeren).
+function requirePlatform(req, res, next) {
+  if (!req.teacher?.id || authLib.isSuperAdmin(req.teacher)) return next();
+  return res.status(403).json({ error: 'Scholen aanmaken of verwijderen kan enkel de platformbeheerder.' });
+}
+
 function requireSysteem(req, res, next) {
   if (magSysteemZien(req.teacher)) return next();
   return res.status(403).json({ error: 'Enkel de super-admin heeft toegang tot Systeem.' });
@@ -1087,8 +1100,16 @@ app.post('/api/teacher-login/school', requireTeacherAuth, requireCsrf, async (re
   }
 });
 
-app.get('/api/me', requireTeacherAuth, (req, res) => {
+app.get('/api/me', requireTeacherAuth, async (req, res) => {
+  // Sprint 62: ook de scholen van deze leerkracht meegeven, zodat de topbalk kan tonen
+  // wie je bent én (bij meerdere scholen) een wisselknop kan aanbieden.
+  let scholen = [];
+  if (req.teacher?.id) {
+    try { scholen = (await dbModule.getSchoolsForTeacher(req.teacher.id)).map(s => ({ id: s.id, name: s.name })); }
+    catch { scholen = []; }
+  }
   res.json({
+    scholen,
     username: req.teacher.username,
     displayName: req.teacher.displayName,
     role: req.teacher.role,
@@ -1434,8 +1455,11 @@ app.get('/api/admin/teachers', requireTeacherAuth, requireBeheer, requireCsrf, a
     let mijnScholen = null;   // null = alles (superadmin/open)
     if (req.teacher?.id && !authLib.isSuperAdmin(req.teacher)) {
       mijnScholen = await schoolIdsVanTeacher(req.teacher);
+      // Sprint 59: een super-admin is platformbeheer — die hoort niet in de lijst van een
+      // schooladmin (hij deelt vaak wél een school, dus enkel op school filteren volstaat niet).
       teachers = teachers.filter(t =>
-        t.id === req.teacher.id || (t.schools || []).some(sc => mijnScholen.includes(sc.id)));
+        t.role !== 'superadmin' &&
+        (t.id === req.teacher.id || (t.schools || []).some(sc => mijnScholen.includes(sc.id))));
     }
     res.json({ mijnScholen, isSuperAdmin: authLib.isSuperAdmin(req.teacher) || !req.teacher?.id, teachers });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -1443,13 +1467,19 @@ app.get('/api/admin/teachers', requireTeacherAuth, requireBeheer, requireCsrf, a
 
 // ── Sprint 48a2: leerkracht ↔ school koppelen ────────────────────────────────
 // ── Sprint 48a3: e-maildomeinen per school ───────────────────────────────────
-app.get('/api/admin/schools/:id/domains', requireTeacherAuth, async (req, res) => {
+app.get('/api/admin/schools/:id/domains', requireTeacherAuth, requireBeheer, async (req, res) => {
+  if (!(await magSchoolBeheren(req, req.params.id))) {
+    return res.status(403).json({ error: 'Dit is niet jouw school.' });   // Sprint 60
+  }
   try {
     res.json(await dbModule.listSchoolDomains(req.params.id));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/admin/schools/:id/domains', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.post('/api/admin/schools/:id/domains', requireTeacherAuth, requireBeheer, requireCsrf, async (req, res) => {
+  if (!(await magSchoolBeheren(req, req.params.id))) {
+    return res.status(403).json({ error: 'Dit is niet jouw school.' });   // Sprint 60
+  }
   // De validatie zit in lib/validation.js en is apart getest — hier enkel toepassen.
   const check = validationLib.valideerDomein(req.body?.domain);
   if (!check.ok) return res.status(400).json({ error: check.fout });
@@ -1465,7 +1495,10 @@ app.post('/api/admin/schools/:id/domains', requireTeacherAuth, requireCsrf, asyn
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.delete('/api/admin/schools/:id/domains/:domain', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.delete('/api/admin/schools/:id/domains/:domain', requireTeacherAuth, requireBeheer, requireCsrf, async (req, res) => {
+  if (!(await magSchoolBeheren(req, req.params.id))) {
+    return res.status(403).json({ error: 'Dit is niet jouw school.' });   // Sprint 60
+  }
   const domein = decodeURIComponent(req.params.domain);
   try {
     // Elke school heeft minstens één domein nodig: zonder domein kan straks geen enkele
@@ -1483,7 +1516,10 @@ app.delete('/api/admin/schools/:id/domains/:domain', requireTeacherAuth, require
 
 // Het testveldje: plak een adres en zie of het mag — en via welke regel.
 // Zonder dit ontdekt een leerling de fout op de dag van de toets.
-app.post('/api/admin/schools/:id/domains/test', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.post('/api/admin/schools/:id/domains/test', requireTeacherAuth, requireBeheer, requireCsrf, async (req, res) => {
+  if (!(await magSchoolBeheren(req, req.params.id))) {
+    return res.status(403).json({ error: 'Dit is niet jouw school.' });   // Sprint 60
+  }
   const email = String(req.body?.email || '').trim();
   if (!email.includes('@')) return res.status(400).json({ error: 'Geef een volledig e-mailadres in.' });
   try {
@@ -1518,7 +1554,10 @@ app.delete('/api/admin/teachers/:id/schools/:schoolId', requireTeacherAuth, requ
 });
 
 // Wie werkt er op deze school? Handig vanuit het scholen-overzicht.
-app.get('/api/admin/schools/:id/teachers', requireTeacherAuth, async (req, res) => {
+app.get('/api/admin/schools/:id/teachers', requireTeacherAuth, requireBeheer, async (req, res) => {
+  if (!(await magSchoolBeheren(req, req.params.id))) {
+    return res.status(403).json({ error: 'Dit is niet jouw school.' });   // Sprint 60
+  }
   try {
     res.json(await dbModule.getTeachersForSchool(req.params.id));
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -1541,9 +1580,23 @@ app.post('/api/admin/teachers', requireTeacherAuth, requireBeheer, requireCsrf, 
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.put('/api/admin/teachers/:username/password', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.put('/api/admin/teachers/:username/password', requireTeacherAuth, requireBeheer, requireCsrf, async (req, res) => {
   const { password } = req.body || {};
   if (!password || password.length < 8) return res.status(400).json({ error: 'Wachtwoord moet minimaal 8 tekens zijn' });
+  // Sprint 59: dit endpoint had GEEN rolcontrole — elke ingelogde leerkracht kon zo het
+  // wachtwoord van eender wie (ook de super-admin) overschrijven. Nu: beheerders only, en
+  // een admin enkel bij leerkrachten van zijn eigen school; een super-admin blijft
+  // onaanraakbaar behalve voor zichzelf of een andere super-admin.
+  const doelLk = await dbModule.getTeacherByUsername(req.params.username);
+  if (!doelLk) return res.status(404).json({ error: 'Leerkracht niet gevonden.' });
+  if (req.teacher?.id && !authLib.isSuperAdmin(req.teacher)) {
+    if (doelLk.role === 'superadmin') {
+      return res.status(403).json({ error: 'Je kan het wachtwoord van een super-admin niet wijzigen.' });
+    }
+    if (doelLk.id !== req.teacher.id && !(await dbModule.delenSchool(req.teacher.id, doelLk.id))) {
+      return res.status(403).json({ error: 'Deze leerkracht hoort niet bij jouw school.' });
+    }
+  }
   // Sprint 36: createPasswordHash geeft één string (scrypt$...) — geen destructuring.
   const passHash = createPasswordHash(password);
   const ok = await dbModule.updatePassHash(req.params.username, passHash);
@@ -1583,6 +1636,18 @@ app.put('/api/admin/teachers/:username/role', requireTeacherAuth, requireBeheer,
 });
 
 app.delete('/api/admin/teachers/:username', requireTeacherAuth, requireBeheer, requireCsrf, async (req, res) => {
+  // Sprint 59: een admin mag geen super-admin verwijderen, en niemand buiten zijn scholen.
+  {
+    const doelLk = await dbModule.getTeacherByUsername(req.params.username);
+    if (doelLk && req.teacher?.id && !authLib.isSuperAdmin(req.teacher)) {
+      if (doelLk.role === 'superadmin') {
+        return res.status(403).json({ error: 'Je kan een super-admin niet verwijderen.' });
+      }
+      if (doelLk.id !== req.teacher.id && !(await dbModule.delenSchool(req.teacher.id, doelLk.id))) {
+        return res.status(403).json({ error: 'Deze leerkracht hoort niet bij jouw school.' });
+      }
+    }
+  }
   const ok = await dbModule.deleteTeacher(req.params.username);
   res.json({ ok });
 });
@@ -1623,9 +1688,14 @@ app.get('/api/classes', async (req, res) => {
 // ── Sprint 48a1: scholen beheren ─────────────────────────────────────────────
 // Additief: zolang niets aan een school hangt, verandert dit niets aan de werking.
 // 48a2 koppelt hier leerkrachten aan, 48a3 e-maildomeinen.
-app.get('/api/admin/schools', requireTeacherAuth, async (req, res) => {
+app.get('/api/admin/schools', requireTeacherAuth, requireBeheer, async (req, res) => {
   try {
-    res.json(await dbModule.listSchools(req.query.includeInactive === 'true'));
+    // Sprint 60: een admin ziet enkel de scholen waaraan hij gekoppeld is (hij beheert
+    // hun gegevens); de platformbeheerder ziet alle scholen.
+    const alle = await dbModule.listSchools(req.query.includeInactive === 'true');
+    if (!req.teacher?.id || authLib.isSuperAdmin(req.teacher)) return res.json(alle);
+    const mijn = await schoolIdsVanTeacher(req.teacher);
+    res.json(alle.filter(s => mijn.includes(s.id)));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1666,7 +1736,7 @@ app.get('/api/admin/fase3/dekking', requireTeacherAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/admin/schools', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.post('/api/admin/schools', requireTeacherAuth, requireBeheer, requirePlatform, requireCsrf, async (req, res) => {
   const { name, logoPath, license, contact } = req.body || {};
   if (!name?.trim()) return res.status(400).json({ error: 'Naam vereist' });
   try {
@@ -1688,10 +1758,19 @@ app.post('/api/admin/schools', requireTeacherAuth, requireCsrf, async (req, res)
   }
 });
 
-app.put('/api/admin/schools/:id', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.put('/api/admin/schools/:id', requireTeacherAuth, requireBeheer, requireCsrf, async (req, res) => {
   const { name, logoPath, license, contact, active } = req.body || {};
   if (name !== undefined && !String(name).trim()) {
     return res.status(400).json({ error: 'Naam mag niet leeg zijn' });
+  }
+  // Sprint 60: een admin bewerkt de gegevens van zijn EIGEN school (naam, logo, contact).
+  // Licentie en actief/inactief blijven platformzaken — dat zijn commerciële hendels.
+  if (!(await magSchoolBeheren(req, req.params.id))) {
+    return res.status(403).json({ error: 'Dit is niet jouw school.' });
+  }
+  const platform = !req.teacher?.id || authLib.isSuperAdmin(req.teacher);
+  if (!platform && (license !== undefined || active !== undefined)) {
+    return res.status(403).json({ error: 'Licentie en actief/inactief worden door de platformbeheerder ingesteld.' });
   }
   try {
     const ok = await dbModule.updateSchool(req.params.id, {
@@ -1711,7 +1790,7 @@ app.put('/api/admin/schools/:id', requireTeacherAuth, requireCsrf, async (req, r
   }
 });
 
-app.delete('/api/admin/schools/:id', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.delete('/api/admin/schools/:id', requireTeacherAuth, requireBeheer, requirePlatform, requireCsrf, async (req, res) => {
   try {
     const ok = await dbModule.deleteSchool(req.params.id);
     if (ok) dbModule.auditLog(getActorFromReq(req), 'school_deleted', req.params.id, {}, req.ip).catch(() => {});

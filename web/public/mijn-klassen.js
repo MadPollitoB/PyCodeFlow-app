@@ -22,8 +22,20 @@ async function laadKlassen() {
     return;
   }
   if (!KLASSEN.length) {
-    doel.innerHTML = `<div class="card"><p><strong>Je bent nog aan geen enkele klas gekoppeld.</strong></p>
-      <p class="muted">Vraag je beheerder om je aan je klassen te koppelen (Beheer → Klassen → 🏛). Klassen die je zelf aanmaakt worden automatisch aan jou gekoppeld.</p></div>`;
+    // Sprint 62: expliciet het verschil tussen SCHOOL en KLAS benoemen — de school in de
+    // topbalk zegt niets over klaskoppelingen, en dat verwarde bij het testen.
+    let ik = null;
+    try { const r = await fetch('/api/me'); if (r.ok) ik = await r.json(); } catch (e) { /* stil */ }
+    const school = ik?.activeSchoolName ? `<strong>${esc(ik.activeSchoolName)}</strong>` : 'je actieve school';
+    doel.innerHTML = `<div class="card">
+      <p><strong>Je bent nog aan geen enkele klas gekoppeld.</strong></p>
+      <p class="muted">Dat staat los van je school: je werkt in ${school} (zie de topbalk), maar er is nog geen
+        <em>klas</em> aan jou toegewezen. Een beheerder koppelt je via <strong>Beheer → Klassen → 🧑‍🏫</strong>.
+        Klassen die je zelf aanmaakt worden automatisch aan jou gekoppeld.</p>
+      ${ik && (ik.role === 'superadmin' || ik.role === 'admin')
+        ? `<p class="muted">Als beheerder gebruik je dit scherm alleen voor klassen waar je zélf lesgeeft;
+             het volledige overzicht van alle klassen staat in <strong>Beheer → Klassen</strong>.</p>` : ''}
+    </div>`;
     return;
   }
   doel.innerHTML = KLASSEN.map(kaart).join('');
