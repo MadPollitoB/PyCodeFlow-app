@@ -207,3 +207,36 @@ t('48c4 superadmin: ziet klassen van BEIDE scholen (scope null)', async () => {
   assert.ok(zichtbaar.includes(kA), 'superadmin ziet de A-klas');
   assert.ok(zichtbaar.includes(kB), 'superadmin ziet óók de B-klas');
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sprint 68: een school verwijderen mag de facturatiehistoriek niet breken
+// (regressie: school_id had ON DELETE SET NULL, en omdat de unieke index NULL als ''
+//  behandelt kregen meerdere rijen dan dezelfde sleutel → unieke-index-schending)
+// ─────────────────────────────────────────────────────────────────────────────
+t('68 historiek: twee scholen met snapshots verwijderen lukt en bewaart de historiek', async () => {
+  const nu = Date.now();
+  await db.query(`INSERT INTO schools (id, name, created_at) VALUES ($1,$2,$4),($3,$5,$4)
+                  ON CONFLICT (id) DO NOTHING`,
+    [P + 'weg-a', P + 'Weg A', P + 'weg-b', nu, P + 'Weg B']);
+  const kA = await db.createClass(P + 'Weg klas A', '2025-2026', P + 'weg-a');
+  const kB = await db.createClass(P + 'Weg klas B', '2025-2026', P + 'weg-b');
+  await db.createStudent(P + 'Weg leerling A', kA);
+  await db.createStudent(P + 'Weg leerling B', kB);
+  await db.bewaarLeerlingSnapshot('2099-01');   // toekomstige periode: raakt echte data niet
+
+  const voor = await db.query(
+    `SELECT count(*)::int AS n FROM student_count_snapshots WHERE periode = '2099-01' AND school_name LIKE $1`,
+    [P + 'Weg%']);
+  assert.strictEqual(voor.rows[0].n, 2, 'beide scholen hebben een snapshotrij');
+
+  // Dit gooide vóór de fix: duplicate key value violates unique constraint
+  await db.query(`DELETE FROM schools WHERE id IN ($1, $2)`, [P + 'weg-a', P + 'weg-b']);
+
+  const na = await db.query(
+    `SELECT school_name, totaal FROM student_count_snapshots
+      WHERE periode = '2099-01' AND school_name LIKE $1 ORDER BY school_name`, [P + 'Weg%']);
+  assert.strictEqual(na.rows.length, 2, 'historiek blijft bestaan na het verwijderen');
+  assert.ok(na.rows.every(r => r.totaal === 1), 'de bevroren aantallen blijven kloppen');
+
+  await db.query(`DELETE FROM student_count_snapshots WHERE periode = '2099-01'`);
+});

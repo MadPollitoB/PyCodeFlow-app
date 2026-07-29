@@ -63,6 +63,7 @@
 | **48c3** | 🔵 P9 | SEC | **Fase 3** — **Isolatie-testsuite** (`tests/isolatie.test.js`): integratietests tegen een échte PostgreSQL — klassen, leerlingen (erven school van klas), vragenbank, sessies, auditlog: A ziet **nul** rijen van B; Bibliotheek-publiek kruist als enige (en 53d-hidden wint); dekking-diagnose. Skipt zichzelf zonder `DATABASE_URL`. **Al bewezen groen (7/7, herhaald) tegen PostgreSQL 16.** *✅ AFGEROND.* | ~3 dagen |
 | **48c4** | 🔵 P9 | ARCH | **Fase 3** — **Super-admin** (rol `superadmin`, hosting-beheerder): leesscope zónder schoolfilter (ziet alle scholen), telt overal als beheerder, mag cross-school Bibliotheek-takedown; rol enkel toe te kennen door een super-admin (admin-bootstrap zolang er geen bestaat); rol-cyclus in de admin-UI. *✅ AFGEROND — daarmee is Fase 3 compleet.* | ~2 dagen |
 | **61** | 🟢 P3 | FEAT | **Facturatierapport** — per schooljaar/maand per school tellen hoeveel leerlingen geregistreerd zijn en hoe lang (actief/pending/geblokkeerd), als basis voor een fee per leerling. Automatisch maandelijks document (CSV/PDF) voor de platformbeheerder. Vereist een lichte historiek (bv. `student_school_periods` of tellingen-snapshot), want `students` bewaart nu enkel de huidige status. *✅ AFGEROND.* | ~2 dagen |
+| **68** | 🔴 P10 | BUG | **Twee fouten uit jouw testsuite** — (a) mijn test `maandPeriode` ging uit van **UTC** en faalde daardoor in Brussel-tijd (31/12 23:00 UTC = 1/1 lokaal); test nu tijdzone-onafhankelijk, gecontroleerd in 5 tijdzones. (b) `student_count_snapshots.school_id` had `ON DELETE SET NULL`, terwijl de unieke index NULL als `''` behandelt → **een school verwijderen kon mislukken** met een unieke-index-schending. FK verwijderd (historiek hoort onveranderlijk); migratie voor bestaande installaties + regressietest. *✅ AFGEROND.* | ~0.5 dag |
 | **67** | 🟡 P5 | UX | **Topbalk in twee vaste rijen** — met schoolbranding + identiteit erbij liep rij 1 over, waardoor 'Afmelden' en de schoolnaam onvoorspelbaar afbraken en de balk per pagina een andere hoogte kreeg. Nu: rij 1 = merk + knoppen, rij 2 = schoollogo + naam (links) en identiteit (rechts). Schoolnaam stond dubbel → nu één keer. Logo mag hoger (46 px). Subnav plakt op `--topbar-h` i.p.v. een vaste 72 px. *✅ AFGEROND.* | ~0.5 dag |
 | **66** | 🟡 P5 | BUG | **Rechthoekig schoollogo werd vierkant afgesneden** — de topbalk gebruikte `.logo-small` (38×38 met `object-fit:cover`), gemaakt voor het vierkante PyCodeFlow-icoon. Nieuwe klasse `.logo-school`: vaste hoogte, vrije breedte, `contain`. Ook het verouderde 'Logo (pad)'-veld uit het nieuwe-school-formulier verwijderd (logo's gaan sinds 64 via upload). *✅ AFGEROND.* | ~0.25 dag |
 | **65** | 🔴 P10 | BUG | **(a) Startfout in v2026.2.49.5** — de logo-endpoints van sprint 64 belandden vóór `const app = express()`: de server startte niet op. Verplaatst + een test die dit voortaan vangt. **(b) 43.13 opgelost** — er bestond een tweede, verouderde `/monaco-env.js` als serverroute die vóór `express.static` geregistreerd stond en dus won van de fix uit 43.6c; ze gaf worker-paden op die in de min-build niet bestaan → 404 → *"Could not create web worker(s)"*. Route verwijderd. *✅ AFGEROND.* | ~0.5 dag |
@@ -864,6 +865,22 @@ De dubbele naam is weg: de identiteit toont enkel nog wie je bent, plus bij meer
 *Test: met een headless browser gerenderd en gemeten met een bewust **breed** logo (300×70). Balkhoogte 118 px op zowel 1280 als 1024 breed — dus geen verspringen — en 154 px op 820 (tablet), telkens met de subnav exact aansluitend (geen overlap). De verhouding van het logo blijft exact bewaard (180×42 binnen de padding = 4,29, net als de bron). Een minimale balk (leerkracht zonder school) komt op 100 px. Suites: 167 groen.*
 
 *Bestanden: public/styles.css, public/app.js, public/nav-rechten.js, testdocument-html/testpunten.js, sprintlog.md*
+
+---
+
+### Sprint 68 — Tijdzone-afhankelijke test + een school verwijderen kon mislukken — ✅ AFGEROND
+
+**Cat:** BUG · Beide gevonden door **jouw** testsuite vóór de rebuild — precies waarvoor die poort dient.
+
+**(a) De test ging uit van UTC.** `maandPeriode` gebruikt (bewust) **lokale** tijd: een facturatiemaand hoort bij de tijdzone van de school, niet bij UTC. Mijn test construeerde de data echter met UTC-strings, en `2025-12-31T23:00:00Z` is in Brussel al **1 januari 2026** — dus gaf de functie correct `2026-01` waar de test `2025-12` verwachtte. In mijn container (UTC) slaagde hij, op de NAS niet. De test bouwt de data nu met de lokale constructor (`new Date(2025, 11, 31, 23, 0)`) en is daarmee tijdzone-onafhankelijk; er is een tweede test bijgekomen die het lokale-tijd-gedrag expliciet vastlegt. Gecontroleerd in **vijf** tijdzones (UTC, Brussel, Auckland +13, Los Angeles −8, Kolkata +5:30).
+
+**(b) Een school verwijderen kon de databank laten struikelen.** `student_count_snapshots.school_id` verwees met `ON DELETE SET NULL` naar `schools`. De unieke index is `(periode, COALESCE(school_id, ''), school_year)` — die behandelt NULL als `''`. Verwijderde je dus **twee** scholen die in dezelfde maand een telling hadden, dan werden beide rijen NULL en kregen ze dezelfde sleutel → `duplicate key value violates unique constraint`. De verwijdering faalde. `school_id` is nu **geen foreign key** meer: facturatiehistoriek hoort onveranderlijk te zijn, en de schoolnaam staat er al bevroren in. Er is een idempotente migratie die de FK op bestaande installaties (v49.7–v49.10) verwijdert, plus een **regressietest** die twee scholen met tellingen verwijdert en nagaat dat de historiek intact blijft.
+
+**Les voor mijn eigen werkwijze.** Ik draaide tot nu toe drie testbestanden (`auth`, `validation`, `isolatie`) in plaats van de volledige map — daardoor zag ik ~300 tests nooit, en ook deze twee fouten niet. Vanaf nu: `node --test` op de hele suite, mét databank, en waar relevant met een andere tijdzone.
+
+*Test: volledige suite **306/306 groen** — zowel met databank (Brussel-tijd) als zonder (dan 9 overgeslagen, zoals bedoeld).*
+
+*Bestanden: db/database.js, tests/validation.test.js, tests/isolatie.test.js, testdocument-html/testpunten.js, sprintlog.md*
 
 ---
 

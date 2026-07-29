@@ -347,10 +347,23 @@ test('65 server.js: geen app.use/get/post vóór `const app = express()`', () =>
 });
 
 // ── Sprint 61: periodesleutel voor de leerlingtelling ───────────────────────
-test('61 maandPeriode: JJJJ-MM met voorloopnul', () => {
-  assert.strictEqual(v.maandPeriode(new Date('2026-07-26T12:00:00Z')), '2026-07');
-  assert.strictEqual(v.maandPeriode(new Date('2026-01-01T00:00:00Z')), '2026-01');
-  assert.strictEqual(v.maandPeriode(new Date('2025-12-31T23:00:00Z')), '2025-12');
+// LET OP: maandPeriode werkt met LOKALE tijd — dat is ook de bedoeling, want een
+// facturatiemaand hoort bij de tijdzone van de school, niet bij UTC. Deze test bouwt de
+// data daarom met de lokale constructor `new Date(jaar, maandIndex, dag, uur)`. Met
+// UTC-strings ('...T23:00:00Z') was de test tijdzone-afhankelijk: in Brussel is 31/12
+// 23:00 UTC al 1 januari, waardoor hij hier faalde en in een UTC-container slaagde.
+test('61 maandPeriode: JJJJ-MM met voorloopnul (tijdzone-onafhankelijk)', () => {
+  assert.strictEqual(v.maandPeriode(new Date(2026, 6, 26, 12, 0)), '2026-07');   // juli
+  assert.strictEqual(v.maandPeriode(new Date(2026, 0, 1, 0, 0)), '2026-01');     // januari
+  assert.strictEqual(v.maandPeriode(new Date(2025, 11, 31, 23, 0)), '2025-12');  // laatste uur van december
+});
+
+test('61 maandPeriode: gebruikt lokale tijd (bewuste keuze voor facturatie)', () => {
+  // Middernacht lokaal hoort altijd bij de maand van díe dag, in elke tijdzone.
+  const eersteVanDeMaand = new Date(2026, 2, 1, 0, 0, 0);
+  assert.strictEqual(v.maandPeriode(eersteVanDeMaand), '2026-03');
+  const laatsteVanDeMaand = new Date(2026, 2, 31, 23, 59, 59);
+  assert.strictEqual(v.maandPeriode(laatsteVanDeMaand), '2026-03');
 });
 test('61 maandPeriode: sorteert chronologisch als tekst', () => {
   const p = ['2026-01', '2025-12', '2026-10', '2026-02'].sort();

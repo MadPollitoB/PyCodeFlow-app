@@ -283,10 +283,16 @@ async function initSchema() {
     -- historiek. Elke maand krijgt één rij per school + schooljaar. De schoolnaam wordt
     -- BEVROREN meegeschreven: een school kan later hernoemd of verwijderd worden, maar
     -- een factuur van vorig jaar moet blijven kloppen.
+    -- Sprint 68: school_id is hier BEWUST géén foreign key. Met ON DELETE SET NULL
+    -- werden bij het verwijderen van meerdere scholen alle bijhorende snapshotrijen NULL,
+    -- en omdat de unieke index NULL als '' behandelt kregen die dan dezelfde sleutel →
+    -- unieke-index-schending, waardoor een school verwijderen kón mislukken. Historiek
+    -- hoort trouwens onveranderlijk te zijn: de naam staat bevroren in school_name, dus
+    -- een verwijderde school blijft correct in de facturatiehistoriek staan.
     CREATE TABLE IF NOT EXISTS student_count_snapshots (
       id           TEXT PRIMARY KEY,
       periode      TEXT NOT NULL,                 -- 'JJJJ-MM'
-      school_id    TEXT REFERENCES schools(id) ON DELETE SET NULL,
+      school_id    TEXT,                          -- geen FK: historiek blijft onaangeroerd
       school_name  TEXT NOT NULL DEFAULT '',      -- bevroren
       school_year  TEXT NOT NULL DEFAULT '',
       actief       INTEGER NOT NULL DEFAULT 0,
@@ -299,6 +305,16 @@ async function initSchema() {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshot_uniek
       ON student_count_snapshots(periode, COALESCE(school_id, ''), school_year);
     CREATE INDEX IF NOT EXISTS idx_snapshot_periode ON student_count_snapshots(periode);
+    -- Sprint 68: bestaande installaties hebben de foreign key nog → verwijderen.
+    DO $$
+    DECLARE c record;
+    BEGIN
+      FOR c IN SELECT conname FROM pg_constraint
+                WHERE conrelid = 'student_count_snapshots'::regclass AND contype = 'f' LOOP
+        EXECUTE format('ALTER TABLE student_count_snapshots DROP CONSTRAINT %I', c.conname);
+      END LOOP;
+    EXCEPTION WHEN undefined_table THEN NULL;
+    END $$;
 
     -- ── Sprint 64: schoollogo in de DATABANK (niet meer als bestandspad) ──────
     -- Een logo is klein (tientallen kB) en verandert bijna nooit, maar het moet wél
