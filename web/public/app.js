@@ -3184,6 +3184,30 @@ window.pyAlert = function(message, type) {
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Sprint 48b3 — Schoollogo naast het PyCodeFlow-merk
+// ── Sprint 67: gedeelde helpers voor de tweede topbalk-rij ───────────────────
+// Eén plek waar de contextrij wordt aangemaakt, zodat schoolbranding (hier) en de
+// identiteit (nav-rechten.js) niet om plaats vechten en de balk niet verspringt.
+window.pcfTopbarContext = function () {
+  let rij = document.getElementById('topbar-context');
+  if (rij) return rij;
+  const inner = document.querySelector('.topbar-inner');
+  if (!inner) return null;
+  rij = document.createElement('div');
+  rij.id = 'topbar-context';
+  inner.appendChild(rij);
+  return rij;
+};
+
+// De subnav plakt onder de topbalk (position:sticky met top). Nu die balk twee rijen
+// hoog kan zijn, moet die waarde meebewegen — anders schuift de subnav eronder.
+window.pcfSyncTopbarHoogte = function () {
+  const balk = document.querySelector('.topbar');
+  if (!balk) return;
+  const h = Math.round(balk.getBoundingClientRect().height);
+  if (h > 0) document.documentElement.style.setProperty('--topbar-h', h + 'px');
+};
+window.addEventListener('resize', () => window.pcfSyncTopbarHoogte());
+
 // Draait op elke pagina die app.js laadt. De SERVER bepaalt of er een school is:
 // zonder leerkracht-sessie geeft /api/school-info niets terug, dus op het startscherm,
 // het loginscherm en de leerlingpagina's verschijnt er vanzelf niets.
@@ -3191,7 +3215,7 @@ window.pyAlert = function(message, type) {
 (function toonSchoolBranding() {
   async function laad() {
     const groep = document.querySelector('.logo-group');
-    if (!groep || document.getElementById('school-brand')) return;
+    if (document.getElementById('school-brand')) return;
     try {
       // Sprint 58: op leerling-/publieke pagina's vragen we uitdrukkelijk de LEERLING-modus,
       // zodat de branding niet uit een leerkracht-sessie in dezelfde browser komt.
@@ -3206,7 +3230,8 @@ window.pyAlert = function(message, type) {
 
       const wrap = document.createElement('span');
       wrap.id = 'school-brand';
-      wrap.style.cssText = 'display:flex;align-items:center;gap:8px;margin-left:10px;padding-left:12px;border-left:1px solid var(--border);';
+      // Sprint 67: staat nu op de contextrij (rij 2), dus geen scheidingslijn links meer.
+      wrap.style.cssText = 'display:flex;align-items:center;gap:10px;';
 
       if (info.logoUrl) {
         const img = document.createElement('img');
@@ -3215,16 +3240,24 @@ window.pyAlert = function(message, type) {
         img.className = 'logo-school';   // Sprint 66: vaste hoogte, vrije breedte
         // Een kapot pad of ontbrekend bestand mag geen gebroken-afbeelding-icoon geven:
         // dan tonen we gewoon de naam.
-        img.onerror = () => img.remove();
+        // Hoogte hermeten zodra de afbeelding er is: vóór het laden is de rij lager,
+        // en de subnav zou dan op de verkeerde hoogte blijven plakken.
+        img.onload = () => window.pcfSyncTopbarHoogte && window.pcfSyncTopbarHoogte();
+        img.onerror = () => { img.remove(); window.pcfSyncTopbarHoogte && window.pcfSyncTopbarHoogte(); };
         wrap.appendChild(img);
       }
       if (info.name && info.name !== 'PyCodeFlow') {
         const naam = document.createElement('span');
         naam.textContent = info.name;
-        naam.style.cssText = 'font-size:0.9rem;font-weight:600;opacity:0.85;';
+        naam.className = 'ctx-naam';
+        naam.style.cssText = 'font-size:0.95rem;';
         wrap.appendChild(naam);
       }
-      if (wrap.childNodes.length) groep.appendChild(wrap);
+      if (wrap.childNodes.length) {
+        const rij = window.pcfTopbarContext();
+        if (rij) rij.insertBefore(wrap, rij.firstChild);   // school helemaal links
+        window.pcfSyncTopbarHoogte();
+      }
     } catch { /* branding is bijzaak — nooit een pagina hierop laten stuklopen */ }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', laad);

@@ -53,7 +53,26 @@ button { cursor: pointer; }
   width: min(1320px, calc(100% - 32px));
   margin: 0 auto;
   min-height: 72px;
-  display:flex; align-items:center; justify-content:space-between; gap:20px;
+  display:flex; align-items:center; justify-content:space-between; gap:8px 20px;
+  flex-wrap: wrap;           /* Sprint 67: rij 1 = merk + acties, rij 2 = context */
+  padding: 8px 0;
+}
+/* Sprint 67 — tweede rij van de topbalk (schoolbranding + wie ben ik).
+   Vroeger werden die stukken in rij 1 geduwd, waardoor "Afmelden" en de schoolnaam
+   onvoorspelbaar afbraken en de balk bij elke pagina een andere hoogte kreeg. Deze rij
+   neemt ALTIJD de volle breedte, dus het afbreken gebeurt op één vaste plaats. */
+#topbar-context {
+  flex-basis: 100%;
+  display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap;
+  padding-top: 8px; border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+#topbar-context .ctx-scheiding { opacity: .35; }
+#topbar-context .ctx-rechts { margin-left: auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+/* Namen niet middenin een woord afbreken; bij extreem lange namen afkappen. */
+#topbar-context .ctx-naam {
+  font-weight: 600; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; max-width: 320px;
 }
 .logo-group { display:flex; align-items:center; gap:12px; font-weight:800; font-size:1.2rem; }
 .logo-small {
@@ -66,7 +85,7 @@ button { cursor: pointer; }
    de hoogte vast — zodat het in de balk past — maar laten we de breedte de verhouding
    volgen, met 'contain' zodat er niets wegvalt. Een extreem breed logo wordt begrensd. */
 .logo-school {
-  height:38px; width:auto; max-width:180px;
+  height:46px; width:auto; max-width:240px;   /* Sprint 67: eigen rij → mag hoger */
   object-fit:contain; border-radius:8px;
   background:#fff; padding:2px;
   box-shadow:0 4px 12px rgba(51,78,162,.14);
@@ -78,7 +97,7 @@ button { cursor: pointer; }
 .subnav {
   background: var(--surface-soft);
   border-bottom: 1px solid var(--border);
-  position: sticky; top: 72px; z-index: 90;
+  position: sticky; top: var(--topbar-h, 72px); z-index: 90;   /* Sprint 67 */
 }
 .subnav-inner {
   width: min(1320px, calc(100% - 32px));

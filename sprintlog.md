@@ -63,6 +63,7 @@
 | **48c3** | 🔵 P9 | SEC | **Fase 3** — **Isolatie-testsuite** (`tests/isolatie.test.js`): integratietests tegen een échte PostgreSQL — klassen, leerlingen (erven school van klas), vragenbank, sessies, auditlog: A ziet **nul** rijen van B; Bibliotheek-publiek kruist als enige (en 53d-hidden wint); dekking-diagnose. Skipt zichzelf zonder `DATABASE_URL`. **Al bewezen groen (7/7, herhaald) tegen PostgreSQL 16.** *✅ AFGEROND.* | ~3 dagen |
 | **48c4** | 🔵 P9 | ARCH | **Fase 3** — **Super-admin** (rol `superadmin`, hosting-beheerder): leesscope zónder schoolfilter (ziet alle scholen), telt overal als beheerder, mag cross-school Bibliotheek-takedown; rol enkel toe te kennen door een super-admin (admin-bootstrap zolang er geen bestaat); rol-cyclus in de admin-UI. *✅ AFGEROND — daarmee is Fase 3 compleet.* | ~2 dagen |
 | **61** | 🟢 P3 | FEAT | **Facturatierapport** — per schooljaar/maand per school tellen hoeveel leerlingen geregistreerd zijn en hoe lang (actief/pending/geblokkeerd), als basis voor een fee per leerling. Automatisch maandelijks document (CSV/PDF) voor de platformbeheerder. Vereist een lichte historiek (bv. `student_school_periods` of tellingen-snapshot), want `students` bewaart nu enkel de huidige status. *✅ AFGEROND.* | ~2 dagen |
+| **67** | 🟡 P5 | UX | **Topbalk in twee vaste rijen** — met schoolbranding + identiteit erbij liep rij 1 over, waardoor 'Afmelden' en de schoolnaam onvoorspelbaar afbraken en de balk per pagina een andere hoogte kreeg. Nu: rij 1 = merk + knoppen, rij 2 = schoollogo + naam (links) en identiteit (rechts). Schoolnaam stond dubbel → nu één keer. Logo mag hoger (46 px). Subnav plakt op `--topbar-h` i.p.v. een vaste 72 px. *✅ AFGEROND.* | ~0.5 dag |
 | **66** | 🟡 P5 | BUG | **Rechthoekig schoollogo werd vierkant afgesneden** — de topbalk gebruikte `.logo-small` (38×38 met `object-fit:cover`), gemaakt voor het vierkante PyCodeFlow-icoon. Nieuwe klasse `.logo-school`: vaste hoogte, vrije breedte, `contain`. Ook het verouderde 'Logo (pad)'-veld uit het nieuwe-school-formulier verwijderd (logo's gaan sinds 64 via upload). *✅ AFGEROND.* | ~0.25 dag |
 | **65** | 🔴 P10 | BUG | **(a) Startfout in v2026.2.49.5** — de logo-endpoints van sprint 64 belandden vóór `const app = express()`: de server startte niet op. Verplaatst + een test die dit voortaan vangt. **(b) 43.13 opgelost** — er bestond een tweede, verouderde `/monaco-env.js` als serverroute die vóór `express.static` geregistreerd stond en dus won van de fix uit 43.6c; ze gaf worker-paden op die in de min-build niet bestaan → 404 → *"Could not create web worker(s)"*. Route verwijderd. *✅ AFGEROND.* | ~0.5 dag |
 | **64** | 🟠 P8 | ARCH | **Schoollogo in de databank** — was een absoluut **bestandspad** dat je moest intypen (viel buiten de back-up, verdween bij een rebuild, en een schooladmin kon er niets mee). Nu een echte upload: bestand kiezen op je eigen computer → `BYTEA` in `schools`. PNG/JPEG/WebP toegelaten, **SVG geweigerd** (kan scripts bevatten), grootte instelbaar via `SCHOOL_LOGO_MAX_KB` in `.env`, controle op **magic bytes** i.p.v. extensie. Serveren met ETag/caching; `logo_path` blijft als terugval. *✅ AFGEROND.* | ~1 dag |
@@ -842,6 +843,27 @@ Alles zit in het bestaande `nav-rechten.js` (al op elke leerkrachtpagina aanwezi
 **Meegenomen opruiming.** Het formulier "Nieuwe school" had nog een veld **Logo (pad)** uit de tijd vóór sprint 64. Sinds logo's als blob geüpload worden is dat veld misleidend (je zou een serverpad intypen dat je toch niet kan vullen), dus het is verwijderd — een logo instellen gaat via de knop 🖼 Logo.
 
 *Bestanden: public/styles.css, public/app.js, public/admin.html, public/admin.js, testdocument-html/testpunten.js, sprintlog.md*
+
+---
+
+### Sprint 67 — Topbalk: twee vaste rijen — ✅ AFGEROND
+
+**Cat:** UX · Uit de testronde: *"de bovenste balk verschuift te veel"*.
+
+**Wat er mis was.** De topbalk was één flexrij met `justify-content:space-between`. Sinds sprint 62 en 64 kwamen daar de identiteit én de schoolbranding bij, waardoor de rij overliep: `Afmelden` viel naar een tweede regel, de schoolnaam brak middenin, en de balkhoogte verschilde per pagina naargelang hoeveel er toevallig paste. Bijkomend: de **schoolnaam stond er dubbel** — één keer bij het logo (branding) en één keer in de identiteit ("🏛 School A ⇄") — wat het probleem verergerde.
+
+**De nieuwe indeling.** Een vaste tweede rij, `#topbar-context`, met `flex-basis:100%` zodat het afbreken **altijd op dezelfde plaats** gebeurt in plaats van waar het toevallig uitkomt:
+
+* **Rij 1** — PyCodeFlow-logo + woordmerk + paginabadge (links), knoppen zoals ← Sessies en Afmelden (rechts).
+* **Rij 2** — schoollogo + schoolnaam (links), "Ingelogd als … + rolbadge" (rechts).
+
+De dubbele naam is weg: de identiteit toont enkel nog wie je bent, plus bij meerdere scholen een compacte **⇄ wissel school**. Omdat het schoollogo nu een eigen rij heeft, mag het **hoger** (46 px, breedte tot 240 px, verhouding behouden). Lange schoolnamen breken niet middenin maar krijgen een ellips.
+
+**Eén afgeleid probleem meteen opgelost:** de subnav plakte met `position:sticky; top:72px` — een vaste waarde die niet meer klopt zodra de balk twee rijen hoog is. Er is nu een CSS-variabele `--topbar-h` die na het opbouwen (en bij het laden van het logo, en bij resize) wordt bijgewerkt; de subnav gebruikt die.
+
+*Test: met een headless browser gerenderd en gemeten met een bewust **breed** logo (300×70). Balkhoogte 118 px op zowel 1280 als 1024 breed — dus geen verspringen — en 154 px op 820 (tablet), telkens met de subnav exact aansluitend (geen overlap). De verhouding van het logo blijft exact bewaard (180×42 binnen de padding = 4,29, net als de bron). Een minimale balk (leerkracht zonder school) komt op 100 px. Suites: 167 groen.*
+
+*Bestanden: public/styles.css, public/app.js, public/nav-rechten.js, testdocument-html/testpunten.js, sprintlog.md*
 
 ---
 

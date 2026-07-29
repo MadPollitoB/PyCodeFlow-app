@@ -20,9 +20,24 @@
   });
   if (me.magSysteem === false) { const b = document.getElementById('autocheck-badge'); if (b) b.remove(); }
 
-  // ── 62: identiteit in de topbalk ──
-  const acties = document.querySelector('.top-actions');
-  if (!acties || document.getElementById('wie-ben-ik')) return;
+  // ── 62 + 67: identiteit op de tweede rij van de topbalk ──
+  // Sprint 67: de schoolNAAM staat al bij het logo (schoolbranding). Hier dus enkel nog
+  // wie je bent + je rol, en — bij meerdere scholen — een compacte wisselknop. Vroeger
+  // stond de naam er twee keer, wat de balk onnodig breed maakte en deed afbreken.
+  // teacher-grid.html laadt app.js niet, dus de helper kan ontbreken → zelf voorzien.
+  function contextRij() {
+    if (window.pcfTopbarContext) return window.pcfTopbarContext();
+    let r = document.getElementById('topbar-context');
+    if (r) return r;
+    const inner = document.querySelector('.topbar-inner');
+    if (!inner) return null;
+    r = document.createElement('div');
+    r.id = 'topbar-context';
+    inner.appendChild(r);
+    return r;
+  }
+  const rij = contextRij();
+  if (!rij || document.getElementById('wie-ben-ik')) return;
 
   const ROL = {
     superadmin: { label: '★ Super-admin', kleur: 'background:#7c3aed;color:#fff;',
@@ -37,32 +52,35 @@
   const meerdere = (me.scholen || []).length > 1;
   const esc = t => { const d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; };
 
-  // Actieve school = waar nieuwe klassen/toetsen/vragen in terechtkomen. Voor een
-  // super-admin belangrijk om te zien: hij LEEST alles, maar SCHRIJFT in één school.
-  const schoolDeel = me.activeSchoolName
-    ? `<span title="Actieve school — hierin komen nieuwe klassen, toetsen en vragen terecht${meerdere ? '. Klik om te wisselen.' : ''}" ${meerdere ? 'id="school-wissel" style="cursor:pointer;text-decoration:underline dotted;"' : ''}>🏛 ${esc(me.activeSchoolName)}${meerdere ? ' ⇄' : ''}</span>`
-    : ((me.scholen && me.scholen.length)
-        ? `<span id="school-wissel" style="cursor:pointer;text-decoration:underline dotted;" title="Kies een actieve school">🏛 geen school gekozen ⇄</span>`
-        : `<span class="muted" title="Je bent aan geen enkele school gekoppeld — vraag de platformbeheerder om je te koppelen">🏛 geen school</span>`);
+  // Actieve school = waar nieuwe klassen/toetsen/vragen in terechtkomen.
+  let schoolDeel = '';
+  if (meerdere) {
+    schoolDeel = `<span class="ctx-scheiding">|</span>
+      <span id="school-wissel" style="cursor:pointer;text-decoration:underline dotted;"
+            title="Andere school kiezen — nieuwe klassen, toetsen en vragen komen in de actieve school terecht">⇄ wissel school</span>`;
+  } else if (!me.activeSchoolName && !(me.scholen || []).length) {
+    schoolDeel = `<span class="ctx-scheiding">|</span>
+      <span class="muted" title="Je bent aan geen enkele school gekoppeld — vraag de platformbeheerder om je te koppelen">🏛 geen school</span>`;
+  }
 
   const doos = document.createElement('span');
   doos.id = 'wie-ben-ik';
-  doos.style.cssText = 'display:flex;align-items:center;gap:8px;margin-right:12px;font-size:0.85rem;flex-wrap:wrap;';
+  doos.className = 'ctx-rechts';
   doos.innerHTML = `
-    <span style="opacity:0.75;">Ingelogd als</span>
+    <span style="opacity:0.7;">Ingelogd als</span>
     <strong>${esc(naam)}</strong>
     <span class="badge" style="${rol.kleur}" title="${esc(rol.titel)}">${rol.label}</span>
-    <span style="opacity:0.4;">|</span>
     ${schoolDeel}`;
-  acties.insertBefore(doos, acties.firstChild);
+  rij.appendChild(doos);
+  if (window.pcfSyncTopbarHoogte) window.pcfSyncTopbarHoogte();
 
   // ── Schoolwissel ──
   const wissel = document.getElementById('school-wissel');
   if (!wissel) return;
   wissel.addEventListener('click', function () {
     const opties = me.scholen || [];
-    const oud = document.getElementById('py-modal-overlay');
-    if (oud) oud.remove();
+    const oudOverlay = document.getElementById('py-modal-overlay');
+    if (oudOverlay) oudOverlay.remove();
     const overlay = document.createElement('div');
     overlay.id = 'py-modal-overlay';
     overlay.innerHTML = `
@@ -74,7 +92,7 @@
             terecht, en je overzichten worden erop gefilterd.
           </p>
           <select id="ws-keuze" style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:9px;">
-            ${opties.map(s => `<option value="${esc(s.id)}"${s.id === me.activeSchoolId ? ' selected' : ''}>${esc(s.name)}</option>`).join('')}
+            ${opties.map(sc => `<option value="${esc(sc.id)}"${sc.id === me.activeSchoolId ? ' selected' : ''}>${esc(sc.name)}</option>`).join('')}
           </select>
         </div>
         <div id="py-modal-actions">
