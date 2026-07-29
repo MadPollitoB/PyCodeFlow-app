@@ -63,6 +63,7 @@
 | **48c3** | 🔵 P9 | SEC | **Fase 3** — **Isolatie-testsuite** (`tests/isolatie.test.js`): integratietests tegen een échte PostgreSQL — klassen, leerlingen (erven school van klas), vragenbank, sessies, auditlog: A ziet **nul** rijen van B; Bibliotheek-publiek kruist als enige (en 53d-hidden wint); dekking-diagnose. Skipt zichzelf zonder `DATABASE_URL`. **Al bewezen groen (7/7, herhaald) tegen PostgreSQL 16.** *✅ AFGEROND.* | ~3 dagen |
 | **48c4** | 🔵 P9 | ARCH | **Fase 3** — **Super-admin** (rol `superadmin`, hosting-beheerder): leesscope zónder schoolfilter (ziet alle scholen), telt overal als beheerder, mag cross-school Bibliotheek-takedown; rol enkel toe te kennen door een super-admin (admin-bootstrap zolang er geen bestaat); rol-cyclus in de admin-UI. *✅ AFGEROND — daarmee is Fase 3 compleet.* | ~2 dagen |
 | **61** | 🟢 P3 | FEAT | **Facturatierapport (gepland)** — per schooljaar/maand per school tellen hoeveel leerlingen geregistreerd zijn en hoe lang (actief/pending/geblokkeerd), als basis voor een fee per leerling. Automatisch maandelijks document (CSV/PDF) voor de platformbeheerder. Vereist een lichte historiek (bv. `student_school_periods` of tellingen-snapshot), want `students` bewaart nu enkel de huidige status. | ~2 dagen |
+| **63** | 🟡 P6 | BUG | **Twee testbevindingen** — (1) startpagina toonde de voettekst **dubbel**: `index.html` heeft een eigen `<footer>` met server-side versie, maar de guard in `app.js` keek enkel naar `.footer-note`; (2) een school **inklappen** verborg wel de klaskoppen maar niet de leerlingrijen, want die horen tot twee groepen (school én klas). *✅ AFGEROND.* | ~0.25 dag |
 | **62** | 🟠 P8 | UX | **Topbalk: wie ben ik?** — de balk toonde enkel 'Afmelden', maar wél een schoolnaam; daardoor leek die naam een klas-/schoolkoppeling te bevestigen. Nu: 'Ingelogd als <naam>' + rolbadge + de **actieve school** (met wisselmodal bij meerdere scholen). 'Mijn klassen' legt in de lege staat uit dat school ≠ klas. *✅ AFGEROND.* | ~0.5 dag |
 | **60** | 🟠 P8 | UX | **Beheer overzichtelijk + Scholen-tab per rol** — admin beheert de gegevens van zijn EIGEN scholen (naam, logo, contact, e-maildomeinen); aanmaken/verwijderen/deactiveren/licentie blijven platformwerk. Inklapbare groepen per school (en per klas bij leerlingen) met bewaarde stand, tellers + 'x wachtend', klasfilter, 'enkel wachtend', 🔀 klas wisselen en bulkacties (aanvaarden/blokkeren/verplaatsen). *✅ AFGEROND.* | ~1.5 dag |
 | **59** | 🔴 P10 | SEC | **Beheer-lekken gedicht** — `PUT /teachers/:username/password` had **géén** rolcontrole (elke ingelogde leerkracht kon eender wiens wachtwoord overschrijven, ook dat van de super-admin); idem grendel op verwijderen. Super-admin verdwijnt uit de lijst van een schooladmin. Wachtwoord wijzigen gaat nu via een PyCodeFlow-modal met bevestigingsveld i.p.v. een kale browser-prompt. *✅ AFGEROND.* | ~0.5 dag |
@@ -778,6 +779,20 @@ Alles zit in het bestaande `nav-rechten.js` (al op elke leerkrachtpagina aanwezi
 *Test: pure suites 163 groen. Met de testdatabank bevestigd dat superadmin aan 2 scholen maar 0 klassen hangt (leerkrachtA/A2 elk 1 school + 1 klas) — precies het waargenomen gedrag.*
 
 *Bestanden: server.js, public/nav-rechten.js, public/mijn-klassen.js, testdocument-html/testpunten.js, sprintlog.md*
+
+---
+
+### Sprint 63 — Dubbele voettekst + inklappen van schoolgroepen — ✅ AFGEROND
+
+**Cat:** BUG · Twee bevindingen uit de testronde.
+
+**Dubbele voettekst op `/`.** `injectFooter()` in `app.js` voegt onderaan elke pagina een versieregel toe en sloeg dat over als er al een `.footer-note` stond. Maar de startpagina heeft een **eigen `<footer>`-element** met de server-side ingevulde `{{APP_VERSION}}` (sprint 45) — zonder die klasse. Gevolg: twee regels onder elkaar. De guard kijkt nu ook naar een bestaand `<footer>`.
+
+**Inklappen liet leerlingen staan.** Een leerlingrij hoort tot **twee** groepen: haar school én haar klas. De oude `klapGroep` verborg enkel rijen waarvan `data-groep` exact overeenkwam, dus bij het inklappen van een school verdwenen de klaskoppen (die hangen aan de schoolsleutel) maar bleven de leerlingrijen staan (die hangen aan de klassleutel). Opgelost met **`pasKlapToe()`**, dat na elke klik de zichtbaarheid van álle rijen herrekent: een rij is verborgen zodra **één** van haar groepen ingeklapt is. De schoolkop zelf draagt bewust geen groepssleutel, zodat je altijd kan heropenen; en een afzonderlijk ingeklapte klas onthoudt zijn eigen stand wanneer je de school weer opent. Dezelfde functie draait na elk hertekenen (zoeken, filteren, bulkactie), zodat de stand niet verspringt.
+
+*Test: de klaplogica is met een nagebootste DOM doorgerekend — school dicht → klaskop en beide leerlingen verborgen, schoolkop zichtbaar; enkel klas 5A dicht → alleen die leerling weg; school heropenen → klas 5A blijft dicht. Pure suites 163 groen.*
+
+*Bestanden: public/app.js, public/admin.js, testdocument-html/testpunten.js, sprintlog.md*
 
 ---
 

@@ -2895,7 +2895,9 @@ async function applyStudentState(data) {
   });
 
   async function injectFooter() {
-  if (document.querySelector('.footer-note')) return;
+  // Sprint 63: index.html heeft al een eigen <footer> met server-side ingevulde versie.
+  // De oude check keek enkel naar .footer-note, dus daar kwam er een tweede bij.
+  if (document.querySelector('.footer-note') || document.querySelector('footer')) return;
 
   let versionText = '';
   try {

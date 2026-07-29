@@ -74,15 +74,27 @@ function ingeklapt() {
 function bewaarKlap(set) {
   try { localStorage.setItem(KLAP_SLEUTEL, JSON.stringify([...set])); } catch {}
 }
+// Sprint 63: een rij kan tot TWEE groepen horen (school én klas). Bij het inklappen van
+// een school moesten dus ook de leerlingrijen verdwijnen, niet enkel de klaskoppen.
+// Daarom herrekenen we na elke klik de zichtbaarheid van álle rijen: een rij is verborgen
+// zodra één van haar groepen ingeklapt is.
+function pasKlapToe() {
+  const set = ingeklapt();
+  document.querySelectorAll('[data-groep]').forEach(r => {
+    const g1 = r.getAttribute('data-groep');
+    const g2 = r.getAttribute('data-groep2');
+    r.style.display = (set.has(g1) || (g2 && set.has(g2))) ? 'none' : '';
+  });
+  document.querySelectorAll('[id^="pijl-"]').forEach(p => {
+    p.textContent = set.has(p.id.slice(5)) ? '▸' : '▾';
+  });
+}
+
 window.klapGroep = function (sleutel) {
   const set = ingeklapt();
   if (set.has(sleutel)) set.delete(sleutel); else set.add(sleutel);
   bewaarKlap(set);
-  document.querySelectorAll(`[data-groep="${CSS.escape(sleutel)}"]`).forEach(r => {
-    r.style.display = set.has(sleutel) ? 'none' : '';
-  });
-  const pijl = document.getElementById('pijl-' + sleutel);
-  if (pijl) pijl.textContent = set.has(sleutel) ? '▸' : '▾';
+  pasKlapToe();
 };
 function klapKop(kolommen, sleutel, tekst, extra = '') {
   const dicht = ingeklapt().has(sleutel);
@@ -335,6 +347,7 @@ function renderClasses(zoek = '') {
   }
   const tbody = document.getElementById('classes-tbody');
   tbody.innerHTML = delen.join('') || `<tr><td colspan="7" class="muted" style="padding:14px;">Geen klassen gevonden${zoek ? ' voor deze zoekopdracht' : ''}.</td></tr>`;
+  pasKlapToe();
 }
 
 // Sprint 57: welke leerkrachten hangen aan deze klas? (+ knop om te wijzigen)
@@ -622,6 +635,7 @@ function renderStudentTable(students, zoek = '') {
     }
   }
   tbody.innerHTML = delen.join('');
+  pasKlapToe();
   werkBulkBalkBij();
 }
 
@@ -671,12 +685,9 @@ function vulKlasFilter() {
 // Alles in- of uitklappen (schoolgroepen én klasgroepen).
 window.klapAlles = function (dicht) {
   const set = new Set();
-  if (dicht) {
-    document.querySelectorAll('[id^="pijl-"]').forEach(p => set.add(p.id.slice(5)));
-  }
+  if (dicht) document.querySelectorAll('[id^="pijl-"]').forEach(p => set.add(p.id.slice(5)));
   bewaarKlap(set);
-  renderStudentTable(_allStudents, zoekwaarde('students-tbody'));
-  if (typeof renderClasses === 'function') renderClasses(zoekwaarde('classes-tbody'));
+  pasKlapToe();
 };
 
 // ── Sprint 60: bulkacties op leerlingen ─────────────────────────────────────
