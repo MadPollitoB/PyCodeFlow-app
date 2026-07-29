@@ -45,7 +45,10 @@ fetch('/api/me').then(r => r.ok ? r.json() : null).then(me => {
   // comfort; de server weigert deze acties sowieso voor een schooladmin (403).
   if (!MIJ.magSysteem) {
     document.getElementById('nieuwe-school-form')?.remove();
-    document.getElementById('snapshot-knop')?.remove();   // vastleggen = platformwerk (61)
+    // Sprint 61b: de volledige facturatie-tab is platformwerk — verbergen voor een
+    // schooladmin (de server weigert de endpoints sowieso met 403).
+    document.querySelector('.admin-tab[data-tab="telling"]')?.remove();
+    document.getElementById('panel-telling')?.remove();
     document.getElementById('inactieve-scholen-rij')?.remove();
   }
 }).catch(() => {});

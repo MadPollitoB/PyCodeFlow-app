@@ -246,7 +246,7 @@ async function magSchoolBeheren(req, schoolId) {
 // Enkel de platformbeheerder (scholen aanmaken/verwijderen, licentie, activeren).
 function requirePlatform(req, res, next) {
   if (!req.teacher?.id || authLib.isSuperAdmin(req.teacher)) return next();
-  return res.status(403).json({ error: 'Scholen aanmaken of verwijderen kan enkel de platformbeheerder.' });
+  return res.status(403).json({ error: 'Enkel de platformbeheerder (super-admin) heeft hier toegang.' });
 }
 
 function requireSysteem(req, res, next) {
@@ -1766,14 +1766,16 @@ app.get('/api/mijn-klassen', requireTeacherAuth, async (req, res) => {
 // Een fee per leerling vraagt twee dingen: de HUIDIGE stand (hoeveel leerlingen hangen
 // er nu aan een school) en HISTORIEK (hoeveel was dat elke maand). Omdat `students`
 // enkel de huidige status bewaart, schrijven we maandelijkse momentopnames weg.
-// Scoping volgt de rest: een admin ziet zijn eigen scholen, de super-admin alles.
+// ENKEL de platformbeheerder (super-admin): facturatie is een zaak tussen jou en de
+// scholen, geen schoolbeheer. De scope-functie blijft staan als tweede verdediging —
+// mocht de poort ooit versoepeld worden, dan geldt de school-filtering meteen weer.
 // ═══════════════════════════════════════════════════════════════════════════════
 async function facturatieScope(req) {
   if (!req.teacher?.id || authLib.isSuperAdmin(req.teacher)) return null;   // null = alles
   return schoolIdsVanTeacher(req.teacher);
 }
 
-app.get('/api/admin/facturatie/nu', requireTeacherAuth, requireBeheer, async (req, res) => {
+app.get('/api/admin/facturatie/nu', requireTeacherAuth, requireBeheer, requirePlatform, async (req, res) => {
   try {
     res.json({
       periode: validationLib.maandPeriode(new Date()),
@@ -1782,7 +1784,7 @@ app.get('/api/admin/facturatie/nu', requireTeacherAuth, requireBeheer, async (re
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/admin/facturatie/historiek', requireTeacherAuth, requireBeheer, async (req, res) => {
+app.get('/api/admin/facturatie/historiek', requireTeacherAuth, requireBeheer, requirePlatform, async (req, res) => {
   try {
     res.json(await dbModule.listLeerlingSnapshots({
       van: req.query.van || null,
@@ -1804,7 +1806,7 @@ app.post('/api/admin/facturatie/snapshot', requireTeacherAuth, requireBeheer, re
 
 // CSV voor de boekhouding. Semikolon als scheidingsteken (Excel-NL) en een BOM,
 // zodat accenten in schoolnamen niet verminken.
-app.get('/api/admin/facturatie/export.csv', requireTeacherAuth, requireBeheer, async (req, res) => {
+app.get('/api/admin/facturatie/export.csv', requireTeacherAuth, requireBeheer, requirePlatform, async (req, res) => {
   try {
     const scope = await facturatieScope(req);
     const rijen = req.query.historiek === 'true'

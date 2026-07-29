@@ -840,7 +840,7 @@ Alles zit in het bestaande `nav-rechten.js` (al op elke leerkrachtpagina aanwezi
 
 **Bewuste keuze: de schoolnaam wordt bevroren** in elke telling. Een school kan later hernoemd of verwijderd worden (`ON DELETE SET NULL`), maar een factuur van vorig jaar moet blijven kloppen — dus de naam gaat mee de momentopname in.
 
-**In Beheer** staat een nieuwe tab **💶 Leerlingtelling** met kaarten per school (het getal waarop je factureert), een tabel per school × schooljaar, de maandhistoriek en **CSV-export** (semikolon + BOM, dus Excel-NL toont accenten correct). Scoping volgt de rest: een admin ziet enkel zijn eigen scholen en heeft geen vastleg-knop; de super-admin ziet alles.
+**In Beheer** staat een nieuwe tab **💶 Leerlingtelling** met kaarten per school (het getal waarop je factureert), een tabel per school × schooljaar, de maandhistoriek en **CSV-export** (semikolon + BOM, dus Excel-NL toont accenten correct). **Enkel voor de super-admin**: facturatie is een zaak tussen de platformbeheerder en de scholen, geen schoolbeheer. Voor een schooladmin verdwijnt de tab, en alle vier de endpoints geven 403 (`requirePlatform`). De school-scoping in de code blijft staan als tweede verdedigingslinie, mocht die poort ooit versoepeld worden.
 
 **Telregel:** een leerling telt per schooljaar waarin hij lid is van een klas; wie nergens lid is valt onder schooljaar "(geen)" zodat hij niet stilletjes uit de telling verdwijnt.
 
