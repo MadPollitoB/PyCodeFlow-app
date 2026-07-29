@@ -327,3 +327,21 @@ test('52c isGeldigEmail: weigert onzin', () => {
     assert.strictEqual(v.isGeldigEmail(e), false, e);
   }
 });
+
+// ── Sprint 65: structuurbewaking van server.js ──────────────────────────────
+// In sprint 64 belandden twee endpoints per ongeluk vóór `const app = express()`.
+// Dat is geen syntaxfout (node --check ziet het niet) maar de server startte niet meer
+// op: "Cannot access 'app' before initialization". Deze test vangt die klasse fouten.
+test('65 server.js: geen app.use/get/post vóór `const app = express()`', () => {
+  const fs = require('node:fs');
+  const pad = require('node:path').join(__dirname, '..', 'server.js');
+  const regels = fs.readFileSync(pad, 'utf8').split('\n');
+  const appRegel = regels.findIndex(r => /^const app = express\(\)/.test(r));
+  assert.ok(appRegel > 0, '`const app = express()` niet gevonden in server.js');
+  const teVroeg = [];
+  regels.slice(0, appRegel).forEach((r, i) => {
+    if (/^\s*app\.(use|get|post|put|delete|patch|all)\s*\(/.test(r)) teVroeg.push(i + 1);
+  });
+  assert.deepStrictEqual(teVroeg, [],
+    'server.js gebruikt `app` op regel(s) ' + teVroeg.join(', ') + ' vóór de aanmaak op regel ' + (appRegel + 1));
+});

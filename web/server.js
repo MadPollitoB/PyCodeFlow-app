@@ -232,46 +232,9 @@ function herkenAfbeelding(buf) {
   return null;   // ook SVG (begint met '<' of BOM) valt hier af
 }
 
-app.post('/api/admin/schools/:id/logo', requireTeacherAuth, requireBeheer, logoJson, requireCsrf, async (req, res) => {
-  try {
-    if (!(await magSchoolBeheren(req, req.params.id))) {
-      return res.status(403).json({ error: 'Dit is niet jouw school.' });
-    }
-    let base64 = String(req.body?.data || '');
-    const komma = base64.indexOf(',');
-    if (base64.startsWith('data:') && komma > -1) base64 = base64.slice(komma + 1);  // data-URL
-    if (!base64) return res.status(400).json({ error: 'Geen afbeelding ontvangen.' });
+// (Sprint 65) De logo-endpoints stonden hier fout: vóór `const app = express()`.
+// Ze staan nu bij de andere school-endpoints, ná de aanmaak van `app`.
 
-    let buf;
-    try { buf = Buffer.from(base64, 'base64'); }
-    catch { return res.status(400).json({ error: 'Kon de afbeelding niet lezen.' }); }
-
-    if (!buf.length) return res.status(400).json({ error: 'Het bestand is leeg.' });
-    if (buf.length > LOGO_MAX_KB * 1024) {
-      return res.status(413).json({ error: `De afbeelding is te groot (max ${LOGO_MAX_KB} kB).` });
-    }
-    const mime = herkenAfbeelding(buf);
-    if (!mime) {
-      return res.status(400).json({ error: 'Alleen PNG, JPEG of WebP. (SVG wordt om veiligheidsredenen geweigerd.)' });
-    }
-    await dbModule.setSchoolLogo(req.params.id, buf, mime);
-    dbModule.auditLog(getActorFromReq(req), 'school_logo_updated', req.params.id,
-      { bytes: buf.length, mime }, req.ip).catch(() => {});
-    res.json({ ok: true, mime, bytes: buf.length });
-  } catch (e) {
-    log.error('[school-logo upload] fout:', e.message);
-    res.status(500).json({ error: 'Opslaan mislukte. Probeer opnieuw.' });
-  }
-});
-
-app.delete('/api/admin/schools/:id/logo', requireTeacherAuth, requireBeheer, requireCsrf, async (req, res) => {
-  if (!(await magSchoolBeheren(req, req.params.id))) {
-    return res.status(403).json({ error: 'Dit is niet jouw school.' });
-  }
-  await dbModule.deleteSchoolLogo(req.params.id);
-  dbModule.auditLog(getActorFromReq(req), 'school_logo_removed', req.params.id, {}, req.ip).catch(() => {});
-  res.json({ ok: true });
-});
 
 // Sprint 60: mag deze beheerder DEZE school bewerken? Super-admin/open → altijd;
 // een admin enkel zijn eigen scholen. (Aanmaken/verwijderen blijft platformwerk.)
@@ -1502,24 +1465,15 @@ app.get('/api/csrf-token', requireTeacherAuth, (req, res) => {
 
 // Sprint 12a-D: Monaco ESM worker configuratie (publiek endpoint)
 // Workers via blob: URLs — vereist geen unsafe-eval
-app.get('/monaco-env.js', (req, res) => {
-  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-  res.setHeader('Cache-Control', 'public, max-age=86400');
-  res.send(`// PyCodeFlow — Monaco ESM Worker Environment (Sprint 12a-D)
-// Configureert Monaco workers als blob: URLs zodat unsafe-eval niet nodig is
-window.MonacoEnvironment = {
-  getWorkerUrl: function(moduleId, label) {
-    var base = '/monaco/min/vs';
-    if (label === 'json')       return base + '/language/json/json.worker.js';
-    if (label === 'css' || label === 'scss' || label === 'less')
-                                return base + '/language/css/css.worker.js';
-    if (label === 'html')       return base + '/language/html/html.worker.js';
-    if (label === 'typescript' || label === 'javascript')
-                                return base + '/language/typescript/ts.worker.js';
-    return base + '/editor.worker.js';
-  }
-};`);
-});
+// ── Sprint 65 (43.13): deze route is VERWIJDERD ──────────────────────────────
+// Hier stond een tweede, verouderde MonacoEnvironment die worker-paden opgaf uit de
+// ESM/webpack-distributie (vs/editor.worker.js, vs/language/typescript/ts.worker.js).
+// Die bestanden bestaan NIET in de min/AMD-build die wij serveren (monaco-editor 0.47),
+// dus elke worker gaf een 404 → "Could not create web worker(s)" en Monaco viel terug
+// op de main-thread. Omdat deze route vóór express.static(public) geregistreerd stond,
+// won ze bovendien van public/monaco-env.js — waardoor de fix van 43.6c nooit werd
+// uitgeserveerd. Dat statische bestand doet het correct (blob → vs/base/worker/workerMain.js)
+// en wordt nu wél gebruikt.
 
 // ── Sprint 12b: Admin API — leerkrachten ─────────────────────────────────────
 
@@ -1872,6 +1826,47 @@ app.put('/api/admin/schools/:id', requireTeacherAuth, requireBeheer, requireCsrf
     }
     res.status(500).json({ error: e.message });
   }
+});
+
+app.post('/api/admin/schools/:id/logo', requireTeacherAuth, requireBeheer, logoJson, requireCsrf, async (req, res) => {
+  try {
+    if (!(await magSchoolBeheren(req, req.params.id))) {
+      return res.status(403).json({ error: 'Dit is niet jouw school.' });
+    }
+    let base64 = String(req.body?.data || '');
+    const komma = base64.indexOf(',');
+    if (base64.startsWith('data:') && komma > -1) base64 = base64.slice(komma + 1);  // data-URL
+    if (!base64) return res.status(400).json({ error: 'Geen afbeelding ontvangen.' });
+
+    let buf;
+    try { buf = Buffer.from(base64, 'base64'); }
+    catch { return res.status(400).json({ error: 'Kon de afbeelding niet lezen.' }); }
+
+    if (!buf.length) return res.status(400).json({ error: 'Het bestand is leeg.' });
+    if (buf.length > LOGO_MAX_KB * 1024) {
+      return res.status(413).json({ error: `De afbeelding is te groot (max ${LOGO_MAX_KB} kB).` });
+    }
+    const mime = herkenAfbeelding(buf);
+    if (!mime) {
+      return res.status(400).json({ error: 'Alleen PNG, JPEG of WebP. (SVG wordt om veiligheidsredenen geweigerd.)' });
+    }
+    await dbModule.setSchoolLogo(req.params.id, buf, mime);
+    dbModule.auditLog(getActorFromReq(req), 'school_logo_updated', req.params.id,
+      { bytes: buf.length, mime }, req.ip).catch(() => {});
+    res.json({ ok: true, mime, bytes: buf.length });
+  } catch (e) {
+    log.error('[school-logo upload] fout:', e.message);
+    res.status(500).json({ error: 'Opslaan mislukte. Probeer opnieuw.' });
+  }
+});
+
+app.delete('/api/admin/schools/:id/logo', requireTeacherAuth, requireBeheer, requireCsrf, async (req, res) => {
+  if (!(await magSchoolBeheren(req, req.params.id))) {
+    return res.status(403).json({ error: 'Dit is niet jouw school.' });
+  }
+  await dbModule.deleteSchoolLogo(req.params.id);
+  dbModule.auditLog(getActorFromReq(req), 'school_logo_removed', req.params.id, {}, req.ip).catch(() => {});
+  res.json({ ok: true });
 });
 
 app.delete('/api/admin/schools/:id', requireTeacherAuth, requireBeheer, requirePlatform, requireCsrf, async (req, res) => {
