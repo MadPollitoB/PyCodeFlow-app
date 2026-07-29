@@ -63,6 +63,7 @@
 | **48c3** | 🔵 P9 | SEC | **Fase 3** — **Isolatie-testsuite** (`tests/isolatie.test.js`): integratietests tegen een échte PostgreSQL — klassen, leerlingen (erven school van klas), vragenbank, sessies, auditlog: A ziet **nul** rijen van B; Bibliotheek-publiek kruist als enige (en 53d-hidden wint); dekking-diagnose. Skipt zichzelf zonder `DATABASE_URL`. **Al bewezen groen (7/7, herhaald) tegen PostgreSQL 16.** *✅ AFGEROND.* | ~3 dagen |
 | **48c4** | 🔵 P9 | ARCH | **Fase 3** — **Super-admin** (rol `superadmin`, hosting-beheerder): leesscope zónder schoolfilter (ziet alle scholen), telt overal als beheerder, mag cross-school Bibliotheek-takedown; rol enkel toe te kennen door een super-admin (admin-bootstrap zolang er geen bestaat); rol-cyclus in de admin-UI. *✅ AFGEROND — daarmee is Fase 3 compleet.* | ~2 dagen |
 | **61** | 🟢 P3 | FEAT | **Facturatierapport** — per schooljaar/maand per school tellen hoeveel leerlingen geregistreerd zijn en hoe lang (actief/pending/geblokkeerd), als basis voor een fee per leerling. Automatisch maandelijks document (CSV/PDF) voor de platformbeheerder. Vereist een lichte historiek (bv. `student_school_periods` of tellingen-snapshot), want `students` bewaart nu enkel de huidige status. *✅ AFGEROND.* | ~2 dagen |
+| **66** | 🟡 P5 | BUG | **Rechthoekig schoollogo werd vierkant afgesneden** — de topbalk gebruikte `.logo-small` (38×38 met `object-fit:cover`), gemaakt voor het vierkante PyCodeFlow-icoon. Nieuwe klasse `.logo-school`: vaste hoogte, vrije breedte, `contain`. Ook het verouderde 'Logo (pad)'-veld uit het nieuwe-school-formulier verwijderd (logo's gaan sinds 64 via upload). *✅ AFGEROND.* | ~0.25 dag |
 | **65** | 🔴 P10 | BUG | **(a) Startfout in v2026.2.49.5** — de logo-endpoints van sprint 64 belandden vóór `const app = express()`: de server startte niet op. Verplaatst + een test die dit voortaan vangt. **(b) 43.13 opgelost** — er bestond een tweede, verouderde `/monaco-env.js` als serverroute die vóór `express.static` geregistreerd stond en dus won van de fix uit 43.6c; ze gaf worker-paden op die in de min-build niet bestaan → 404 → *"Could not create web worker(s)"*. Route verwijderd. *✅ AFGEROND.* | ~0.5 dag |
 | **64** | 🟠 P8 | ARCH | **Schoollogo in de databank** — was een absoluut **bestandspad** dat je moest intypen (viel buiten de back-up, verdween bij een rebuild, en een schooladmin kon er niets mee). Nu een echte upload: bestand kiezen op je eigen computer → `BYTEA` in `schools`. PNG/JPEG/WebP toegelaten, **SVG geweigerd** (kan scripts bevatten), grootte instelbaar via `SCHOOL_LOGO_MAX_KB` in `.env`, controle op **magic bytes** i.p.v. extensie. Serveren met ETag/caching; `logo_path` blijft als terugval. *✅ AFGEROND.* | ~1 dag |
 | **63** | 🟡 P6 | BUG | **Twee testbevindingen** — (1) startpagina toonde de voettekst **dubbel**: `index.html` heeft een eigen `<footer>` met server-side versie, maar de guard in `app.js` keek enkel naar `.footer-note`; (2) een school **inklappen** verborg wel de klaskoppen maar niet de leerlingrijen, want die horen tot twee groepen (school én klas). *✅ AFGEROND.* | ~0.25 dag |
@@ -827,6 +828,20 @@ Alles zit in het bestaande `nav-rechten.js` (al op elke leerkrachtpagina aanwezi
 *Test: de min-build van monaco-editor 0.47.0 opgehaald en geverifieerd dat `vs/editor.worker.js` en `ts.worker.js` er **niet** in zitten terwijl `vs/base/worker/workerMain.js` er **wel** is. Daarna de echte server opgestart tegen PostgreSQL: `/health` → 200, `/monaco-env.js` levert nu het 43.6c-bestand (geen ESM-paden meer), en `/monaco/min/vs/base/worker/workerMain.js` → 200. Suites: 164 groen.*
 
 *Bestanden: server.js, tests/validation.test.js, testdocument-html/testpunten.js, sprintlog.md*
+
+---
+
+### Sprint 66 — Rechthoekige schoollogo's — ✅ AFGEROND
+
+**Cat:** BUG · Uit de testronde: het logo kwam correct uit de databank (sprint 64 werkt), maar een rechthoekig schoolwapen werd als vierkant getoond.
+
+**Oorzaak.** De topbalk hergebruikte `.logo-small`, de klasse van het **PyCodeFlow-icoon**: `width:38px; height:38px; object-fit:cover`. Voor een vierkant icoon is dat perfect, maar `cover` **snijdt** een rechthoekige afbeelding bij tot het vierkant gevuld is — dus verdween de linker- en rechterkant van het logo.
+
+**Opgelost** met een aparte klasse `.logo-school`: **hoogte vast** op 38 px zodat het in de balk blijft passen, **breedte auto** zodat de verhouding behouden blijft, en `object-fit:contain` zodat er niets wegvalt. Een extreem breed woordmerk wordt begrensd op 180 px. Het PyCodeFlow-icoon houdt zijn eigen klasse — dat was geen probleem.
+
+**Meegenomen opruiming.** Het formulier "Nieuwe school" had nog een veld **Logo (pad)** uit de tijd vóór sprint 64. Sinds logo's als blob geüpload worden is dat veld misleidend (je zou een serverpad intypen dat je toch niet kan vullen), dus het is verwijderd — een logo instellen gaat via de knop 🖼 Logo.
+
+*Bestanden: public/styles.css, public/app.js, public/admin.html, public/admin.js, testdocument-html/testpunten.js, sprintlog.md*
 
 ---
 

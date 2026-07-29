@@ -914,14 +914,13 @@ async function addSchool() {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       name: naam,
-      logoPath: document.getElementById('new-school-logo').value.trim(),
       license: document.getElementById('new-school-license').value.trim(),
       contact: document.getElementById('new-school-contact').value.trim(),
     }),
   });
   const data = await res.json();
   if (data.ok) {
-    ['new-school-name', 'new-school-logo', 'new-school-license', 'new-school-contact']
+    ['new-school-name', 'new-school-license', 'new-school-contact']
       .forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
     loadSchools();
   } else {

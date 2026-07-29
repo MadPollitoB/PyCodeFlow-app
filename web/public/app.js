@@ -3212,7 +3212,7 @@ window.pyAlert = function(message, type) {
         const img = document.createElement('img');
         img.src = info.logoUrl;
         img.alt = info.name || 'School';
-        img.className = 'logo-small';
+        img.className = 'logo-school';   // Sprint 66: vaste hoogte, vrije breedte
         // Een kapot pad of ontbrekend bestand mag geen gebroken-afbeelding-icoon geven:
         // dan tonen we gewoon de naam.
         img.onerror = () => img.remove();
