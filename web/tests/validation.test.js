@@ -373,3 +373,43 @@ test('61 maandPeriode: ongeldige invoer → null', () => {
   assert.strictEqual(v.maandPeriode('rommel'), null);
   assert.strictEqual(v.maandPeriode(new Date('x')), null);
 });
+
+// ── Sprint 70: inleverstatus (één regel voor scherm, matrix en Excel) ───────
+const DL = new Date(2026, 4, 20, 23, 59).getTime();   // deadline
+test('70 status: gewettigd afwezig overrulet alles', () => {
+  assert.strictEqual(v.bepaalInleverStatus({ handmatigeStatus: 'gewettigd', heeftInhoud: true,
+    submittedAt: DL - 1000, submittedBy: 'student' }), 'gewettigd');
+});
+test('70 status: lid geworden na de deadline → n.v.t.', () => {
+  assert.strictEqual(v.bepaalInleverStatus({ lidSinds: DL + 86400000, deadline: DL }), 'nvt');
+  assert.strictEqual(v.bepaalInleverStatus({ lidSinds: DL - 86400000, deadline: DL }), 'niets');
+});
+test('70 status: geen inhoud → niets, ook bij een lege automatische inzending', () => {
+  assert.strictEqual(v.bepaalInleverStatus({ heeftInhoud: false }), 'niets');
+  assert.strictEqual(v.bepaalInleverStatus({ heeftInhoud: false, submittedAt: DL,
+    submittedBy: 'timer', deadline: DL }), 'niets');
+});
+test('70 status: leerling levert zelf in — vóór deadline op tijd, erna te laat', () => {
+  assert.strictEqual(v.bepaalInleverStatus({ heeftInhoud: true, submittedAt: DL - 60000,
+    submittedBy: 'student', deadline: DL }), 'op_tijd');
+  assert.strictEqual(v.bepaalInleverStatus({ heeftInhoud: true, submittedAt: DL + 60000,
+    submittedBy: 'student', deadline: DL }), 'te_laat');
+});
+test('70 status: timer of deadline dient in → op tijd (hij mocht doorwerken)', () => {
+  for (const wie of ['timer', 'deadline']) {
+    assert.strictEqual(v.bepaalInleverStatus({ heeftInhoud: true, submittedAt: DL + 5000,
+      submittedBy: wie, deadline: DL }), 'op_tijd', wie);
+  }
+});
+test('70 status: leerkracht drukt op stoppen → te laat (leerling diende zelf niet in)', () => {
+  assert.strictEqual(v.bepaalInleverStatus({ heeftInhoud: true, submittedAt: DL - 60000,
+    submittedBy: 'teacher', deadline: DL }), 'te_laat');
+});
+test('70 status: wel gewerkt maar nooit ingediend → te laat', () => {
+  assert.strictEqual(v.bepaalInleverStatus({ heeftInhoud: true, submittedAt: null, deadline: DL }), 'te_laat');
+});
+test('70 gemiddelde: gewettigd en n.v.t. tellen niet mee', () => {
+  assert.strictEqual(v.teltMeeVoorGemiddelde('gewettigd'), false);
+  assert.strictEqual(v.teltMeeVoorGemiddelde('nvt'), false);
+  for (const s of ['op_tijd', 'te_laat', 'niets']) assert.strictEqual(v.teltMeeVoorGemiddelde(s), true);
+});

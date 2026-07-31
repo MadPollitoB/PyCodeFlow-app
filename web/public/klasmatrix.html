@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="nl"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PyCodeFlow — Klasoverzicht</title>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.49.13"/>
+<link rel="icon" href="assets/favicon.png" type="image/png">
+<style>
+  .matrix-wrap { overflow:auto; max-height:70vh; border:1.5px solid var(--border); border-radius:12px; }
+  table.matrix { border-collapse:separate; border-spacing:0; font-size:0.85rem; width:max-content; min-width:100%; }
+  table.matrix th, table.matrix td { padding:7px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  table.matrix thead th { position:sticky; top:0; z-index:3; background:var(--bg);
+    border-bottom:2px solid var(--border); text-align:center; font-size:0.78rem; line-height:1.3; }
+  table.matrix tbody th, table.matrix thead th:first-child {
+    position:sticky; left:0; z-index:2; background:var(--surface); text-align:left; font-weight:600;
+    box-shadow:1px 0 0 var(--border); }
+  table.matrix thead th:first-child { z-index:4; background:var(--bg); }
+  table.matrix td { text-align:center; }
+  .cel { display:inline-block; min-width:34px; padding:2px 6px; border-radius:6px; font-weight:700; }
+  .legende { display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin:10px 0; font-size:0.82rem; }
+  .legende span.item { display:inline-flex; align-items:center; gap:5px; }
+  .legende i { width:14px; height:14px; border-radius:4px; display:inline-block; border:1px solid rgba(0,0,0,.12); }
+</style>
+</head><body>
+<div class="topbar"><div class="topbar-inner">
+  <div class="logo-group"><img src="/assets/pycodeflow-logo.png" class="logo-small" alt=""/><span>PyCodeFlow</span></div>
+  <div class="top-actions"><a href="/teacher-sessions.html" class="btn btn-muted small">← Sessies</a>
+    <a href="/logout" class="btn btn-muted small">Afmelden</a></div>
+</div></div>
+<div class="subnav"><div class="subnav-inner">
+  <a href="/quiz-bank.html">📋 Vragenbank</a>
+  <a href="/toets-overzicht.html">🧪 Toets overzicht</a>
+  <a href="/taak-overzicht.html">📝 Taak overzicht</a>
+  <a href="/mijn-klassen.html">👥 Mijn klassen</a>
+  <a href="/klasmatrix.html" class="actief">📊 Klasoverzicht</a>
+  <a href="/sjablonen.html">📚 Bibliotheek</a>
+  <a href="/quiz-archive.html">📦 Archief</a>
+  <div class="subnav-sep"></div>
+  <a href="/admin.html">👤 Beheer</a>
+  <a href="/monitoring.html">⚙️ Systeem</a>
+</div></div>
+
+<div class="page">
+  <h1>📊 Klasoverzicht</h1>
+  <p class="muted">Alle toetsen en taken van een klas naast elkaar. In de cel staat het cijfer als de
+    toets verbeterd is, anders het teken van de status.</p>
+
+  <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:16px 0;">
+    <div><label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:3px;">Klas</label>
+      <select id="klas-keuze" style="padding:9px 12px;border:1.5px solid var(--border);border-radius:9px;min-width:240px;"></select></div>
+    <div><label style="display:block;font-size:0.8rem;font-weight:600;margin-bottom:3px;">Type</label>
+      <select id="type-keuze" onchange="tekenMatrix()" style="padding:9px 12px;border:1.5px solid var(--border);border-radius:9px;">
+        <option value="">Alles</option><option value="toets">Enkel toetsen</option><option value="taak">Enkel taken</option>
+      </select></div>
+    <button class="btn btn-muted small" onclick="laadMatrix()">↻ Vernieuwen</button>
+    <a class="btn btn-primary small" id="excel-knop" href="#">⬇ Exporteer naar Excel</a>
+  </div>
+
+  <div class="legende" id="legende"></div>
+  <div id="matrix-inhoud"><p class="muted">Kies een klas om te beginnen.</p></div>
+</div>
+
+<script src="/app.js?v=v2026.2.49.13"></script>
+<script src="/klasmatrix.js?v=v2026.2.49.13"></script>
+<script src="/nav-rechten.js"></script>
+</body></html>

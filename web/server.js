@@ -760,6 +760,10 @@ app.get('/monitoring.html', requireTeacherAuth, (req, res) => {
 });
 
 // Sprint 12b: admin pagina
+app.get('/klasmatrix.html', requireTeacherAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'klasmatrix.html'));
+});
+
 app.get('/mijn-klassen.html', requireTeacherAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'mijn-klassen.html'));
 });
@@ -2220,7 +2224,7 @@ setInterval(async () => {
         if (student.quizSubmitted || !student.quizStartedAt) continue;
         student.quizSubmitted = true;
         if (student.socketId) io.to(student.socketId).emit('quiz_force_submit', { reason: 'deadline' });
-        await dbModule.submitQuizAnswers(code, student.id, true).catch(() => {});
+        await dbModule.submitQuizAnswers(code, student.id, true, 'deadline').catch(() => {});
       }
       log.info(`[quiz] Sessie ${code}: deadline bereikt`);
     } catch (e) { /* stille fout — zie debug */ }
@@ -2270,7 +2274,7 @@ app.post('/api/quiz/:code/stop', requireTeacherAuth, requireCsrf, async (req, re
         student.quizSubmitted = true;
         if (student._quizTimerInterval) clearInterval(student._quizTimerInterval);
         if (student.socketId) io.to(student.socketId).emit('quiz_force_submit', { reason: 'gestopt' });
-        await dbModule.submitQuizAnswers(code, student.id, true).catch(() => {});
+        await dbModule.submitQuizAnswers(code, student.id, true, 'teacher').catch(() => {});
         aantal++;
       }
       session._deadlineHandled = true;
@@ -2278,7 +2282,7 @@ app.post('/api/quiz/:code/stop', requireTeacherAuth, requireCsrf, async (req, re
     // Vangnet: wie in de databank nog openstaat maar niet (meer) in het geheugen zit —
     // bijvoorbeeld na een serverherstart — wordt hier alsnog ingediend.
     for (const rij of await dbModule.listOpenQuizStudents(code)) {
-      await dbModule.submitQuizAnswers(code, rij.student_id, true).catch(() => {});
+      await dbModule.submitQuizAnswers(code, rij.student_id, true, 'teacher').catch(() => {});
       aantal++;
     }
 
@@ -2323,7 +2327,7 @@ function startQuizTimer(session, student, totalSeconds) {
       clearInterval(student._quizTimerInterval);
       if (!student.quizSubmitted) {
         student.quizSubmitted = true;
-        if (student.socketId) io.to(student.socketId).emit('quiz_force_submit');
+        if (student.socketId) io.to(student.socketId).emit('quiz_force_submit', { reason: 'timer' });
         // Sla alle in-memory antwoorden op
         const sessionCode = Object.entries(session.students)
           .find(([,s]) => s.id === student.id)?.[0] ? session.code : session.code;
@@ -2336,7 +2340,7 @@ function startQuizTimer(session, student, totalSeconds) {
             firstVisitAt: ans.firstVisitAt || null, firstRunAt: ans.firstRunAt || null,
           }).catch(() => {});
         });
-        dbModule.submitQuizAnswers(session.code, student.id, true).catch(() => {});
+        dbModule.submitQuizAnswers(session.code, student.id, true, 'timer').catch(() => {});
         // Notificeer leerkracht
         if (session.teacherSocketId) {
           io.to(session.teacherSocketId).emit('quiz_student_progress', {
@@ -4528,51 +4532,268 @@ app.get("/api/quiz-sessions/:code/roster", requireTeacherAuth, requireSessionAcc
   let roster = [];
   if (classId) {
     try { roster = await dbModule.listStudents(classId); } catch { roster = []; }
-    // enkel actieve lidmaatschappen van dat schooljaar (listStudents joint al op klas+jaar)
     roster = roster.filter(s => (s.membership_status || 'active') === 'active');
   }
 
-  const answers = await dbModule.getQuizAnswers(code).catch(() => []);
+  // Sprint 70: koppelen op leerling-id (sinds 52i staat de échte students.id in
+  // quiz_answers voor wie ingelogd is). Naam blijft de terugval voor gasten.
+  const deelnames = await dbModule.getQuizDeelnames(code).catch(() => []);
+  const handmatig = await dbModule.listAssignmentStudentStatus(code).catch(() => []);
+  const perId = new Map(deelnames.map(d => [d.student_id, d]));
   const norm = n => (n || '').trim().toLowerCase();
+  const perNaam = new Map();
+  for (const d of deelnames) if (d.student_name) perNaam.set(norm(d.student_name), d);
+  const statusPerId = new Map(handmatig.map(h => [h.student_id, h]));
+  const deadline = meta.access_until ? Number(meta.access_until) : null;
 
-  // Activiteit groeperen per (genormaliseerde) naam.
-  const byName = new Map();
-  for (const a of answers) {
-    const key = norm(a.student_name);
-    if (!key) continue;
-    let g = byName.get(key);
-    if (!g) { g = { name: a.student_name, submitted: false, hasContent: false }; byName.set(key, g); }
-    if (a.submitted_at) g.submitted = true;
-    const hasCode    = (a.code || '').trim() !== '';
-    const hasChoices = (a.selected_choices || '[]').trim() !== '[]' && (a.selected_choices || '').trim() !== '';
-    if (hasCode || hasChoices || (a.run_count || 0) > 0 || a.first_run_at) g.hasContent = true;
+  function bouw(leerling) {
+    const d = perId.get(leerling.id) || perNaam.get(norm(leerling.name));
+    const hand = statusPerId.get(leerling.id);
+    const status = validationLib.bepaalInleverStatus({
+      handmatigeStatus: hand?.status || null,
+      lidSinds: leerling.membership_created_at || leerling.created_at || null,
+      deadline,
+      heeftInhoud: d?.heeft_inhoud === true,
+      submittedAt: d?.submitted_at ? Number(d.submitted_at) : null,
+      submittedBy: d?.submitted_by || null,
+    });
+    return {
+      id: leerling.id, name: leerling.name, status,
+      note: hand?.note || '',
+      score: d?.heeft_score ? Number(d.score_totaal) : null,
+      submittedAt: d?.submitted_at ? Number(d.submitted_at) : null,
+      submittedBy: d?.submitted_by || null,
+    };
   }
-  const statusOf = g => !g ? 'none' : (g.submitted ? 'submitted' : (g.hasContent ? 'started' : 'none'));
 
-  const students = roster.map(s => ({ id: s.id, name: s.name, status: statusOf(byName.get(norm(s.name))) }));
+  const students = roster.map(bouw);
 
-  // Deelnemers die (nog) niet in de klas zitten (bv. andere naam ingetypt) — apart tonen.
-  const rosterNames = new Set(roster.map(s => norm(s.name)));
-  const extras = [];
-  for (const [key, g] of byName) {
-    if (!rosterNames.has(key)) extras.push({ name: g.name, status: statusOf(g) });
-  }
-  extras.sort((a, b) => a.name.localeCompare(b.name, 'nl'));
+  // Deelnemers die niet (meer) in de klas zitten — bv. een gast met een andere naam.
+  const idsInKlas = new Set(roster.map(s => s.id));
+  const namenInKlas = new Set(roster.map(s => norm(s.name)));
+  const extras = deelnames
+    .filter(d => !idsInKlas.has(d.student_id) && !namenInKlas.has(norm(d.student_name)))
+    .map(d => ({
+      name: d.student_name || '(onbekend)',
+      status: validationLib.bepaalInleverStatus({
+        deadline, heeftInhoud: d.heeft_inhoud === true,
+        submittedAt: d.submitted_at ? Number(d.submitted_at) : null,
+        submittedBy: d.submitted_by || null,
+      }),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'nl'));
 
-  const counts = {
-    submitted: students.filter(s => s.status === 'submitted').length,
-    started:   students.filter(s => s.status === 'started').length,
-    none:      students.filter(s => s.status === 'none').length,
-    total:     students.length,
-  };
-
+  const tel = st => students.filter(s => s.status === st).length;
   res.json({
     code, classId,
     className: roster[0]?.class_name || '',
-    schoolYear: meta.school_year || '',
     hasClass: !!classId,
-    students, extras, counts,
+    deadline,
+    students, extras,
+    counts: {
+      op_tijd: tel('op_tijd'), te_laat: tel('te_laat'), niets: tel('niets'),
+      gewettigd: tel('gewettigd'), nvt: tel('nvt'), total: students.length,
+      // oude namen blijven bestaan zodat bestaande schermcode niet breekt
+      submitted: tel('op_tijd') + tel('te_laat'), started: tel('te_laat'), none: tel('niets'),
+    },
   });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Sprint 71 — Klasmatrix: alle toetsen/taken van één klas naast elkaar
+// Rijen = leerlingen, kolommen = toetsen op datum. Eén functie bouwt de gegevens;
+// het scherm en de Excel-export gebruiken allebei exact deze uitkomst.
+// ═══════════════════════════════════════════════════════════════════════════════
+async function bouwKlasMatrix(classId, schoolYear) {
+  const opdrachten = await dbModule.listAssignmentsForClass(classId, schoolYear || null);
+  let leerlingen = await dbModule.listStudents(classId, true).catch(() => []);
+  leerlingen = leerlingen
+    .filter(s => (s.membership_status || 'active') === 'active')
+    .sort((a, b) => String(a.name).localeCompare(String(b.name), 'nl'));
+
+  const kolommen = [];
+  for (const o of opdrachten) {
+    const deelnames = await dbModule.getQuizDeelnames(o.session_code).catch(() => []);
+    const handmatig = await dbModule.listAssignmentStudentStatus(o.session_code).catch(() => []);
+    kolommen.push({
+      code: o.session_code,
+      naam: o.session_name || o.session_code,
+      type: o.type || 'toets',
+      datum: o.access_until ? Number(o.access_until) : Number(o.created_at),
+      deadline: o.access_until ? Number(o.access_until) : null,
+      archived: !!o.archived,
+      perId: new Map(deelnames.map(d => [d.student_id, d])),
+      perNaam: new Map(deelnames.filter(d => d.student_name)
+        .map(d => [String(d.student_name).trim().toLowerCase(), d])),
+      handmatig: new Map(handmatig.map(h => [h.student_id, h])),
+    });
+  }
+
+  const rijen = leerlingen.map(l => {
+    const cellen = kolommen.map(k => {
+      const d = k.perId.get(l.id) || k.perNaam.get(String(l.name).trim().toLowerCase());
+      const status = validationLib.bepaalInleverStatus({
+        handmatigeStatus: k.handmatig.get(l.id)?.status || null,
+        lidSinds: l.membership_created_at || l.created_at || null,
+        deadline: k.deadline,
+        heeftInhoud: d?.heeft_inhoud === true,
+        submittedAt: d?.submitted_at ? Number(d.submitted_at) : null,
+        submittedBy: d?.submitted_by || null,
+      });
+      const score = d?.heeft_score ? Number(d.score_totaal) : null;
+      return { code: k.code, status, score };
+    });
+    // Gemiddelde: gewettigd afwezig en 'nog geen lid' tellen niet mee; wie niets
+    // inleverde telt wél mee, als nul.
+    const meetellend = cellen.filter(c => validationLib.teltMeeVoorGemiddelde(c.status));
+    const metScore = meetellend.filter(c => c.score !== null);
+    const gemiddelde = metScore.length
+      ? Math.round((metScore.reduce((n, c) => n + c.score, 0) / metScore.length) * 100) / 100
+      : null;
+    return { id: l.id, naam: l.name, cellen, gemiddelde, meegeteld: meetellend.length };
+  });
+
+  const klas = leerlingen[0] || {};
+  return {
+    classId,
+    className: klas.class_name || '',
+    schoolYear: schoolYear || klas.school_year || '',
+    kolommen: kolommen.map(k => ({ code: k.code, naam: k.naam, type: k.type, datum: k.datum, archived: k.archived })),
+    rijen,
+    statussen: validationLib.INLEVER_STATUSSEN,
+  };
+}
+
+app.get('/api/klasmatrix', requireTeacherAuth, async (req, res) => {
+  try {
+    const classId = String(req.query.classId || '');
+    if (!classId) return res.status(400).json({ error: 'classId is verplicht.' });
+    res.json(await bouwKlasMatrix(classId, req.query.schoolYear || null));
+  } catch (e) {
+    log.error('[klasmatrix] fout:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Excel-export: vier tabbladen — Alles, Toetsen, Taken en een Legende.
+app.get('/api/klasmatrix/export.xlsx', requireTeacherAuth, async (req, res) => {
+  let ExcelJS;
+  try { ExcelJS = require('exceljs'); }
+  catch (e) { return res.status(500).json({ error: 'exceljs niet geïnstalleerd. Voer "npm install exceljs" uit in de web-map.' }); }
+  try {
+    const classId = String(req.query.classId || '');
+    if (!classId) return res.status(400).json({ error: 'classId is verplicht.' });
+    const m = await bouwKlasMatrix(classId, req.query.schoolYear || null);
+    const S = m.statussen;
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'PyCodeFlow';
+    wb.created = new Date();
+
+    function maakBlad(titel, filter) {
+      const kolommen = m.kolommen.filter(filter);
+      const ws = wb.addWorksheet(titel, { views: [{ state: 'frozen', xSplit: 1, ySplit: 3 }] });
+
+      ws.getCell('A1').value = `${m.className || 'Klas'} — ${titel}`;
+      ws.getCell('A1').font = { bold: true, size: 14 };
+      ws.getCell('A2').value = `Schooljaar ${m.schoolYear || '—'} · geëxporteerd op ${new Date().toLocaleString('nl-BE')}`;
+      ws.getCell('A2').font = { italic: true, size: 9, color: { argb: 'FF666666' } };
+
+      // Kop: naam + datum per opdracht
+      const kop = ['Leerling'].concat(kolommen.map(k =>
+        `${k.naam}\n${new Date(k.datum).toLocaleDateString('nl-BE')}`)).concat(['Gemiddelde']);
+      const kopRij = ws.getRow(3);
+      kopRij.values = kop;
+      kopRij.height = 34;
+      kopRij.eachCell(cel => {
+        cel.font = { bold: true, size: 10 };
+        cel.alignment = { wrapText: true, vertical: 'middle', horizontal: 'center' };
+        cel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } };
+        cel.border = { bottom: { style: 'thin' } };
+      });
+      kopRij.getCell(1).alignment = { vertical: 'middle', horizontal: 'left' };
+
+      m.rijen.forEach((r, i) => {
+        const cellenVoorBlad = kolommen.map(k => r.cellen.find(c => c.code === k.code));
+        const waarden = [r.naam].concat(cellenVoorBlad.map(c => {
+          if (!c) return '';
+          // Cijfer als er verbeterd is, anders het icoon van de status.
+          if (c.score !== null && (c.status === 'op_tijd' || c.status === 'te_laat')) return c.score;
+          return S[c.status]?.icoon || '';
+        }));
+        // Gemiddelde per blad opnieuw berekenen (enkel de kolommen van dít blad)
+        const meetellend = cellenVoorBlad.filter(c => c && validationLib.teltMeeVoorGemiddelde(c.status) && c.score !== null);
+        waarden.push(meetellend.length
+          ? Math.round((meetellend.reduce((n, c) => n + c.score, 0) / meetellend.length) * 100) / 100
+          : '');
+        const rij = ws.addRow(waarden);
+        rij.getCell(1).font = { bold: true };
+        cellenVoorBlad.forEach((c, kol) => {
+          if (!c) return;
+          const cel = rij.getCell(kol + 2);
+          cel.alignment = { horizontal: 'center' };
+          const kleur = S[c.status]?.kleur;
+          if (kleur) cel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + kleur } };
+          cel.note = S[c.status]?.label;
+        });
+        rij.getCell(waarden.length).font = { bold: true };
+        if (i % 2 === 1) rij.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+      });
+
+      ws.getColumn(1).width = 28;
+      for (let i = 2; i <= kolommen.length + 1; i++) ws.getColumn(i).width = 14;
+      ws.getColumn(kolommen.length + 2).width = 12;
+      if (kolommen.length) {
+        ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: kolommen.length + 2 } };
+      }
+      return ws;
+    }
+
+    maakBlad('Alles', () => true);
+    maakBlad('Toetsen', k => k.type === 'toets');
+    maakBlad('Taken', k => k.type === 'taak');
+
+    // Legende: zodat het bestand zichzelf uitlegt wanneer je het doorstuurt.
+    const uitleg = wb.addWorksheet('Legende');
+    uitleg.getCell('A1').value = 'Legende';
+    uitleg.getCell('A1').font = { bold: true, size: 14 };
+    uitleg.addRow([]);
+    uitleg.addRow(['Teken', 'Betekenis', 'Telt mee voor het gemiddelde']);
+    uitleg.getRow(3).font = { bold: true };
+    for (const [sleutel, info] of Object.entries(S)) {
+      const r = uitleg.addRow([info.icoon, info.label,
+        validationLib.teltMeeVoorGemiddelde(sleutel) ? 'ja' : 'nee']);
+      r.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + info.kleur } };
+      r.getCell(1).alignment = { horizontal: 'center' };
+    }
+    uitleg.addRow([]);
+    uitleg.addRow(['In een cel staat het behaalde cijfer wanneer de toets verbeterd is; anders het teken hierboven.']);
+    uitleg.addRow(['"Niets ingeleverd" telt mee als nul. "Gewettigd afwezig" en "Nog geen lid" tellen niet mee.']);
+    uitleg.getColumn(1).width = 8;
+    uitleg.getColumn(2).width = 34;
+    uitleg.getColumn(3).width = 28;
+
+    const bestand = `klasmatrix-${(m.className || 'klas').replace(/[^a-zA-Z0-9]+/g, '-')}-${m.schoolYear || ''}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${bestand}"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (e) {
+    log.error('[klasmatrix export] fout:', e.message);
+    if (!res.headersSent) res.status(500).json({ error: 'Export mislukte: ' + e.message });
+  }
+});
+
+// Sprint 70: gewettigd afwezig aan/uit zetten voor één leerling bij één toets.
+app.put('/api/quiz-sessions/:code/roster/:studentId/status', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
+  try {
+    const code = (req.params.code || '').toUpperCase();
+    const status = req.body?.status || null;            // 'gewettigd' of null om te wissen
+    if (status && status !== 'gewettigd') return res.status(400).json({ error: 'Onbekende status.' });
+    await dbModule.setAssignmentStudentStatus(code, req.params.studentId, status,
+      req.body?.note || '', req.teacher?.username || '');
+    res.json({ ok: true, status });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── ZIP Export: alle leerlingencode + output per sessie ───────────────────────
@@ -6674,7 +6895,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
         }
       }
     }
-    await dbModule.submitQuizAnswers(ctx.code, ctx.studentId, false).catch(() => {});
+    await dbModule.submitQuizAnswers(ctx.code, ctx.studentId, false, 'student').catch(() => {});
 
     socket.emit('quiz_submitted_ok', {
       name: student.name,

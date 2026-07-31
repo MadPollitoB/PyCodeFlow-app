@@ -278,6 +278,21 @@ async function initSchema() {
     END $$;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_classes_start_code ON classes (start_code) WHERE start_code IS NOT NULL;
 
+    -- ── Sprint 70: handmatige status per leerling per toets ───────────────────
+    -- Voor leerlingen die NIETS maakten bestaat er geen rij in quiz_answers, dus kan de
+    -- leerkracht daar niets bij noteren. Enkel handmatige waarden staan hier; de rest
+    -- (op tijd / te laat / niets) wordt afgeleid uit de antwoorden zelf.
+    CREATE TABLE IF NOT EXISTS assignment_student_status (
+      session_code TEXT NOT NULL,
+      student_id   TEXT NOT NULL,
+      status       TEXT NOT NULL,           -- 'gewettigd' (uitbreidbaar)
+      note         TEXT NOT NULL DEFAULT '',
+      set_by       TEXT NOT NULL DEFAULT '',
+      set_at       BIGINT NOT NULL,
+      PRIMARY KEY (session_code, student_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_ass_student_status ON assignment_student_status(session_code);
+
     -- ── Sprint 61: leerlingtellingen per maand (facturatiebasis) ──────────────
     -- students bewaart enkel de HUIDIGE status, dus zonder momentopnames is er geen
     -- historiek. Elke maand krijgt één rij per school + schooljaar. De schoolnaam wordt
@@ -571,6 +586,10 @@ async function initSchema() {
       -- Sprint 69: 'no_back' = terugbladeren verboden (1 kans per vraag). 'stopped_at' =
       -- door de leerkracht gestopt: iedereen ingeleverd én niemand kan nog starten.
       BEGIN ALTER TABLE assignment_bank ADD COLUMN no_back BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 70: WIE diende in? 'auto_submitted' stond op true voor zowel de timer als
+      -- de stopknop van de leerkracht, terwijl die twee een ANDERE status opleveren
+      -- (timer = op tijd, stopknop = te laat). Vandaar een expliciete waarde.
+      BEGIN ALTER TABLE quiz_answers ADD COLUMN submitted_by TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE assignment_bank ADD COLUMN stopped_at BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
       -- 37d: nakijk-modus. Leerkracht stelt expliciet open; leerlingen kunnen dan
       -- hun eigen toets read-only inzien (los van results_released).
@@ -1566,7 +1585,8 @@ module.exports = {
       // Eén specifieke klas: de klas zélf is al de scope (48c2b hoeft hier niet te filteren —
       // wie de klas mag zien is de vraag van magKlasZien/listClassesVisibleTo).
       const r = await query(
-        `SELECT s.*, c.name AS class_name, c.school_year, m.status AS membership_status
+        `SELECT s.*, c.name AS class_name, c.school_year, m.status AS membership_status,
+                m.created_at AS membership_created_at    -- Sprint 70: voor de 'nog geen lid'-regel
          FROM class_memberships m
          JOIN students s ON s.id = m.student_id
          JOIN classes  c ON c.id = m.class_id AND c.school_year = m.school_year
@@ -2437,14 +2457,73 @@ module.exports = {
     );
   },
 
-  async submitQuizAnswers(sessionCode, studentId, autoSubmitted = false) {
+  // Sprint 70: submittedBy = 'student' | 'timer' | 'deadline' | 'teacher'.
+  // auto_submitted blijft bestaan (oudere schermen lezen die nog), maar de status wordt
+  // voortaan uit submitted_by afgeleid — timer/deadline is op tijd, de stopknop niet.
+  async submitQuizAnswers(sessionCode, studentId, autoSubmitted = false, submittedBy = null) {
     const now = Date.now();
+    const wie = submittedBy || (autoSubmitted ? 'timer' : 'student');
     await query(
       `UPDATE quiz_answers
-       SET submitted_at = $1, auto_submitted = $2
+       SET submitted_at = $1, auto_submitted = $2, submitted_by = $5
        WHERE session_code = $3 AND student_id = $4 AND submitted_at IS NULL`,
-      [now, autoSubmitted, sessionCode, studentId]
+      [now, autoSubmitted, sessionCode, studentId, wie]
     );
+  },
+
+  // ── Sprint 71: alle toetsen/taken van één klas + schooljaar (voor de matrix) ─
+  async listAssignmentsForClass(classId, schoolYear = null) {
+    const r = await query(
+      `SELECT ab.session_code, ab.type, ab.access_until, ab.created_at, ab.school_year,
+              ab.is_teacher_preview, ab.archived, s.name AS session_name
+         FROM assignment_bank ab
+         LEFT JOIN sessions s ON s.code = ab.session_code
+        WHERE ab.target_class = $1
+          AND ($2::text IS NULL OR ab.school_year = $2)
+          AND ab.is_teacher_preview = false
+        ORDER BY COALESCE(ab.access_until, ab.created_at), ab.session_code`,
+      [classId, schoolYear]);
+    return r.rows;
+  },
+
+  // ── Sprint 70: handmatige status (gewettigd afwezig) ───────────────────────
+  async setAssignmentStudentStatus(sessionCode, studentId, status, note, setBy) {
+    if (!status) {
+      await query(`DELETE FROM assignment_student_status WHERE session_code = $1 AND student_id = $2`,
+        [sessionCode, studentId]);
+      return null;
+    }
+    await query(
+      `INSERT INTO assignment_student_status (session_code, student_id, status, note, set_by, set_at)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (session_code, student_id) DO UPDATE SET
+         status = EXCLUDED.status, note = EXCLUDED.note,
+         set_by = EXCLUDED.set_by, set_at = EXCLUDED.set_at`,
+      [sessionCode, studentId, status, String(note || '').slice(0, 200), String(setBy || '').slice(0, 64), Date.now()]
+    );
+    return status;
+  },
+
+  async listAssignmentStudentStatus(sessionCode) {
+    const r = await query(`SELECT * FROM assignment_student_status WHERE session_code = $1`, [sessionCode]);
+    return r.rows;
+  },
+
+  // Per leerling samengevat: heeft hij inhoud, wanneer/door wie ingediend?
+  async getQuizDeelnames(sessionCode) {
+    const r = await query(
+      `SELECT student_id, MAX(student_name) AS student_name,
+              BOOL_OR(COALESCE(TRIM(code), '') <> ''
+                      OR COALESCE(TRIM(selected_choices), '') NOT IN ('', '[]')
+                      OR COALESCE(run_count, 0) > 0
+                      OR first_run_at IS NOT NULL) AS heeft_inhoud,
+              MAX(submitted_at) AS submitted_at,
+              MAX(submitted_by) AS submitted_by,
+              SUM(COALESCE(score, 0))::float AS score_totaal,
+              BOOL_OR(score IS NOT NULL) AS heeft_score
+         FROM quiz_answers WHERE session_code = $1
+        GROUP BY student_id`, [sessionCode]);
+    return r.rows;
   },
 
   async saveQuizStudentOrder(sessionCode, studentId, orderedQuestionIds) {

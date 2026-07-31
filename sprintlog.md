@@ -63,6 +63,8 @@
 | **48c3** | 🔵 P9 | SEC | **Fase 3** — **Isolatie-testsuite** (`tests/isolatie.test.js`): integratietests tegen een échte PostgreSQL — klassen, leerlingen (erven school van klas), vragenbank, sessies, auditlog: A ziet **nul** rijen van B; Bibliotheek-publiek kruist als enige (en 53d-hidden wint); dekking-diagnose. Skipt zichzelf zonder `DATABASE_URL`. **Al bewezen groen (7/7, herhaald) tegen PostgreSQL 16.** *✅ AFGEROND.* | ~3 dagen |
 | **48c4** | 🔵 P9 | ARCH | **Fase 3** — **Super-admin** (rol `superadmin`, hosting-beheerder): leesscope zónder schoolfilter (ziet alle scholen), telt overal als beheerder, mag cross-school Bibliotheek-takedown; rol enkel toe te kennen door een super-admin (admin-bootstrap zolang er geen bestaat); rol-cyclus in de admin-UI. *✅ AFGEROND — daarmee is Fase 3 compleet.* | ~2 dagen |
 | **61** | 🟢 P3 | FEAT | **Facturatierapport** — per schooljaar/maand per school tellen hoeveel leerlingen geregistreerd zijn en hoe lang (actief/pending/geblokkeerd), als basis voor een fee per leerling. Automatisch maandelijks document (CSV/PDF) voor de platformbeheerder. Vereist een lichte historiek (bv. `student_school_periods` of tellingen-snapshot), want `students` bewaart nu enkel de huidige status. *✅ AFGEROND.* | ~2 dagen |
+| **71** | 🟠 P8 | FEAT | **Klasoverzicht + Excel** — matrix per klas (rijen leerlingen, kolommen toetsen/taken op datum) met cijfer of statusteken in kleur, filter op type, bevroren kop/kolom. Export via **ExcelJS** naar `.xlsx` met vier tabbladen (Alles, Toetsen, Taken, Legende), kleuren, autofilter en gemiddelde-kolom. *✅ AFGEROND.* | ~2 dagen |
+| **70** | 🟠 P8 | FEAT | **Afwezigheid & inleverstatus** — vijf statussen via één pure regel `bepaalInleverStatus`; kolom `submitted_by` (student/timer/deadline/teacher) omdat timer en stopknop een ándere status opleveren; tabel voor 'gewettigd afwezig' (telt niet mee voor het gemiddelde); voortgangslijst koppelt nu op leerling-**id**; leerling krijgt melding + slot bij automatisch afsluiten. *✅ AFGEROND.* | ~1.5 dag |
 | **69** | 🟠 P8 | FEAT | **Toets afsluiten: drie manieren + twee bugs** — (bugs) een offline leerling werd **nooit** automatisch ingediend (timer en deadlinebewaker sloegen hem over) en de vlag *Bij deadline automatisch indienen* werd genegeerd. (nieuw) **⏹ Stoppen** door de leerkracht: iedereen levert in, ook offline, en de toets gaat dicht. (nieuw) **Terugbladeren uitschakelen** (1 kans per vraag) als optie per toets, met een startpopup die de spelregels toont vóór de timer loopt. *✅ AFGEROND.* | ~1.5 dag |
 | **68** | 🔴 P10 | BUG | **Twee fouten uit jouw testsuite** — (a) mijn test `maandPeriode` ging uit van **UTC** en faalde daardoor in Brussel-tijd (31/12 23:00 UTC = 1/1 lokaal); test nu tijdzone-onafhankelijk, gecontroleerd in 5 tijdzones. (b) `student_count_snapshots.school_id` had `ON DELETE SET NULL`, terwijl de unieke index NULL als `''` behandelt → **een school verwijderen kon mislukken** met een unieke-index-schending. FK verwijderd (historiek hoort onveranderlijk); migratie voor bestaande installaties + regressietest. *✅ AFGEROND.* | ~0.5 dag |
 | **67** | 🟡 P5 | UX | **Topbalk in twee vaste rijen** — met schoolbranding + identiteit erbij liep rij 1 over, waardoor 'Afmelden' en de schoolnaam onvoorspelbaar afbraken en de balk per pagina een andere hoogte kreeg. Nu: rij 1 = merk + knoppen, rij 2 = schoollogo + naam (links) en identiteit (rechts). Schoolnaam stond dubbel → nu één keer. Logo mag hoger (46 px). Subnav plakt op `--topbar-h` i.p.v. een vaste 72 px. *✅ AFGEROND.* | ~0.5 dag |
@@ -900,6 +902,42 @@ De dubbele naam is weg: de identiteit toont enkel nog wie je bent, plus bij meer
 *Test: volledige suite 306/306 groen (met databank). Tegen een draaiende server: `startinfo` geeft de juiste spelregels, `stop` levert de openstaande deelname in en zet `stopped: true`, waarna starten geweigerd wordt. In de databank geverifieerd dat `no_back` bewaard wordt en dat tweemaal stoppen hetzelfde tijdstip houdt.*
 
 *Bestanden: db/database.js, server.js, public/quiz-student.js, public/quiz-student.html, public/quiz-teacher.js, public/quiz-teacher.html, public/assignment-overview.js, public/app.js, testdocument-html/testpunten.js, sprintlog.md*
+
+---
+
+### Sprint 70 — Afwezigheid en inleverstatus — ✅ AFGEROND
+
+**Cat:** FEAT · Wie niets maakte had geen rij in `quiz_answers`, dus viel er niets bij te noteren.
+
+**Eén regel voor iedereen.** `bepaalInleverStatus()` in `lib/validation.js` bepaalt de status; scherm, klasmatrix en Excel roepen allemaal exact die functie aan, zodat ze nooit iets anders kunnen zeggen. Vijf uitkomsten: **✅ op tijd · 🟠 te laat · ⬜ niets ingeleverd · 🅰 gewettigd afwezig · ➖ nog geen lid**.
+
+**De afgesproken regels.** Levert de leerling zelf in vóór de deadline → op tijd, erna → te laat. Dient de **timer of de deadline** in terwijl er werk is → **op tijd** (hij mocht doorwerken tot het einde). Drukt de **leerkracht** op ⏹ Stoppen terwijl de leerling zelf nog niet had ingediend → **te laat**. Geen inhoud → **niets ingeleverd**, óók wanneer het systeem een lege inzending indiende. Wie pas ná de deadline aan de klas werd toegevoegd → **n.v.t.** (afgeleid uit `class_memberships.created_at`). Gewettigd afwezig overrulet alles en **telt niet mee** voor het gemiddelde.
+
+**Hiervoor was een nieuwe kolom nodig.** `auto_submitted` stond op `true` voor zowel de timer als de stopknop, terwijl die twee nu een verschillende status geven. Vandaar `quiz_answers.submitted_by` (`student` / `timer` / `deadline` / `teacher`), gezet op alle vijf de inleverpaden.
+
+**Meegenomen verbetering:** de voortgangslijst koppelde antwoorden nog op **naam** — een restant van vóór 52i. Dat gebeurt nu op **leerling-id**, met de naam als terugval voor gasten; bij twee gelijknamige leerlingen klopt de lijst daardoor wél.
+
+**Leerlingkant:** bij een geforceerde inlevering sprong de leerling zonder uitleg naar het eindscherm. Nu krijgt hij een melding die zegt wát er gebeurde (tijd om / deadline / leerkracht sloot af) en dat hij niets meer kan wijzigen — en een vlag blokkeert verder opslaan.
+
+*Test: `tests/validation.test.js` sectie 70 — acht gevallen die elk van de afgesproken regels vastleggen. Tegen een draaiende server: gewettigd afwezig zetten verplaatst de leerling meteen naar die teller.*
+
+*Bestanden: lib/validation.js, db/database.js, server.js, public/app.js, public/quiz-student.js, tests/validation.test.js, sprintlog.md*
+
+---
+
+### Sprint 71 — Klasoverzicht en Excel-export — ✅ AFGEROND
+
+**Cat:** FEAT · Alle toetsen en taken van een klas in één beeld.
+
+**Scherm eerst.** Nieuwe pagina **📊 Klasoverzicht**: rijen zijn leerlingen, kolommen zijn toetsen/taken op datum. In de cel staat het **cijfer** als er verbeterd is, anders het **statusteken**, met de kleur van de status. De eerste kolom en de titelrij blijven staan bij het scrollen. Een filter toont alles, enkel toetsen of enkel taken — en het gemiddelde volgt dat filter.
+
+**Excel.** Eén endpoint bouwt een `.xlsx` met **ExcelJS** (nieuwe afhankelijkheid; SheetJS kan geen celkleuren in de gratis versie). Vier tabbladen: **Alles**, **Toetsen**, **Taken** en een **Legende** die de tekens en de telregels uitlegt, zodat het bestand zichzelf verklaart als je het doorstuurt. Per blad: bevroren titelrij en eerste kolom, autofilter, kleur per status, een notitie met de statusnaam bij elke cel, en een gemiddelde-kolom die per blad opnieuw berekend wordt.
+
+**Server en scherm delen dezelfde bron:** `bouwKlasMatrix()` levert de gegevens voor beide, dus de Excel kan niet afwijken van wat je op het scherm zag.
+
+*Test: tegen echte PostgreSQL geëxporteerd en het bestand daarna teruggelezen — vier tabbladen aanwezig, kleuren per status correct toegepast, cijfer 8 waar verbeterd is, bevroren paneel op B4 en autofilter op de kopregel. Volledige suite 314/314 groen.*
+
+*Bestanden: db/database.js, server.js, public/klasmatrix.html + klasmatrix.js (nieuw), 12× html (nav), package.json (exceljs), testdocument-html/testpunten.js, sprintlog.md*
 
 ---
 

@@ -84,6 +84,47 @@ function maandPeriode(datum = new Date()) {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
 }
 
+// ── Sprint 70: één plek die bepaalt hoe een leerling ervoor staat ───────────
+// Scherm, klasmatrix en Excel-export gebruiken allemaal deze functie, zodat ze nooit
+// iets anders kunnen zeggen. Geeft: 'gewettigd' | 'nvt' | 'op_tijd' | 'te_laat' | 'niets'.
+//
+// De regels (afgesproken met de leerkracht):
+//  • gewettigd afwezig overrulet alles en telt NIET mee voor het gemiddelde;
+//  • lid geworden ná de deadline → 'nvt' (die toets bestond nog niet voor hem);
+//  • geen inhoud (niets getypt, niets aangeklikt, nooit uitgevoerd) → 'niets',
+//    óók als het systeem een lege inzending indiende;
+//  • wél inhoud én ingediend:
+//      - door de leerling zelf   → op tijd, tenzij ná de deadline ingediend;
+//      - door de timer/deadline  → op tijd (hij mocht doorwerken tot het einde);
+//      - door de leerkracht (⏹)  → te laat (hij had zelf niet ingediend);
+//  • wél inhoud maar nooit ingediend → te laat.
+function bepaalInleverStatus({
+  handmatigeStatus = null, lidSinds = null, deadline = null,
+  heeftInhoud = false, submittedAt = null, submittedBy = null,
+} = {}) {
+  if (handmatigeStatus) return handmatigeStatus;                 // 'gewettigd'
+  if (lidSinds && deadline && Number(lidSinds) > Number(deadline)) return 'nvt';
+  if (!heeftInhoud) return 'niets';
+  if (!submittedAt) return 'te_laat';
+  if (submittedBy === 'teacher') return 'te_laat';
+  if (submittedBy === 'timer' || submittedBy === 'deadline') return 'op_tijd';
+  if (deadline && Number(submittedAt) > Number(deadline)) return 'te_laat';
+  return 'op_tijd';
+}
+
+// Telt deze status mee in het klasgemiddelde? Gewettigd afwezig en n.v.t. niet.
+function teltMeeVoorGemiddelde(status) {
+  return status !== 'gewettigd' && status !== 'nvt';
+}
+
+const INLEVER_STATUSSEN = {
+  op_tijd:   { label: 'Op tijd ingeleverd', icoon: '✅', kleur: 'C6EFCE' },
+  te_laat:   { label: 'Te laat',            icoon: '🟠', kleur: 'FFE0B2' },
+  niets:     { label: 'Niets ingeleverd',   icoon: '⬜', kleur: 'E2E8F0' },
+  gewettigd: { label: 'Gewettigd afwezig',  icoon: '🅰', kleur: 'BBDEFB' },
+  nvt:       { label: 'Nog geen lid',       icoon: '➖', kleur: 'F5F5F5' },
+};
+
 function isGeldigEmail(email) {
   const s = String(email || '').trim();
   if (s.length < 5 || s.length > 254) return false;
@@ -168,6 +209,9 @@ module.exports = {
   emailPastBijDomeinen,
   isGeldigEmail,
   maandPeriode,
+  bepaalInleverStatus,
+  teltMeeVoorGemiddelde,
+  INLEVER_STATUSSEN,
   normaliseerDomein,
   valideerDomein,
   // Sprint 48b1: automatische schoolkeuze

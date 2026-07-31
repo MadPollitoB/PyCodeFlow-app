@@ -5,6 +5,7 @@
 const socket = io();
 let _state = null;        // volledige quiz state van server
 let _currentIdx = 0;      // huidige vraag index (in persoonlijke volgorde)
+let _afgesloten = false;  // Sprint 70: toets automatisch of door de leerkracht afgesloten
 let _answers = {};        // { questionId: { code, runCount, firstVisitAt, firstRunAt } }
 let _visited = new Set(); // bezochte vraag IDs
 let _timerInterval = null;
@@ -350,10 +351,22 @@ socket.on('quiz_warning', ({ message }) => {
   setTimeout(() => b.classList.remove('visible'), 30000);
 });
 
-socket.on('quiz_force_submit', () => {
+// Sprint 70: de leerling moet WETEN dat het systeem (of de leerkracht) heeft afgesloten,
+// en dat hij niets meer kan wijzigen. Vroeger sprong hij zonder uitleg naar het
+// eindscherm, wat aanvoelde als een fout.
+socket.on('quiz_force_submit', (data) => {
   const code = getCurrentCode();
   if (_currentQuestionId) saveCurrentAnswer(code);
+  _afgesloten = true;                       // blokkeert verder bewerken en opslaan
   showDoneScreen(urlName, Object.keys(_answers).length);
+
+  const reden = (data && data.reden) || (data && data.reason) || '';
+  const tekst =
+    reden === 'timer'    ? 'Je tijd is om. Je toets is automatisch ingeleverd met alles wat je tot nu toe hebt gemaakt.'
+  : reden === 'deadline' ? 'De deadline is bereikt. Je werk is automatisch ingeleverd.'
+  : reden === 'gestopt'  ? 'Je leerkracht heeft de toets afgesloten. Je werk is ingeleverd zoals het op dit moment was.'
+  :                        'De toets is afgesloten. Je werk is ingeleverd.';
+  window.pyAlert(tekst + ' Je kan niets meer aanpassen.', 'warn');
 });
 
 socket.on('quiz_paused', ({ paused }) => {
@@ -672,6 +685,9 @@ async function navigate(dir) {
 
 function saveCurrentAnswer(code) {
   if (!_currentQuestionId) return;
+  // Sprint 70: na een geforceerde inlevering mag er niets meer bijkomen. De ene
+  // opslag die de afsluiting zelf doet, gebeurt vóór deze vlag wordt gezet.
+  if (_afgesloten) return;
   if (!_answers[_currentQuestionId]) _answers[_currentQuestionId] = {};
   const ans = getCurrentAnswer();
   _answers[_currentQuestionId].code = ans.code;

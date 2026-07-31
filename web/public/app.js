@@ -1395,24 +1395,76 @@
         box.innerHTML = '<span class="muted" style="font-size:0.85rem;">Aan deze toets is geen klas gekoppeld, dus er is geen leerlingenlijst om te volgen.</span>';
         return;
       }
+      // Sprint 70: vijf statussen i.p.v. drie, plus een aanvinkbare lijst voor
+      // "gewettigd afwezig" bij iedereen die niets inleverde.
+      const S = {
+        op_tijd:   { icoon: '✅', label: 'op tijd',    kleur: '#166534' },
+        te_laat:   { icoon: '🟠', label: 'te laat',    kleur: '#92400e' },
+        niets:     { icoon: '⬜', label: 'niets',      kleur: '#64748b' },
+        gewettigd: { icoon: '🅰', label: 'gewettigd',  kleur: '#1d4ed8' },
+        nvt:       { icoon: '➖', label: 'nog geen lid', kleur: '#94a3b8' },
+      };
+      const c = d.counts;
       const legend = `
         <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:0.82rem;">
           <strong>${escapeHtml(d.className || 'Klas')}</strong>
-          <span style="color:#166534;">🟢 ${d.counts.submitted} ingeleverd</span>
-          <span style="color:#92400e;">🟡 ${d.counts.started} bezig</span>
-          <span style="color:#64748b;">⚪ ${d.counts.none} nog niets</span>
-          <span class="muted">· ${d.counts.total} leerlingen</span>
+          <span style="color:${S.op_tijd.kleur};">✅ ${c.op_tijd} op tijd</span>
+          <span style="color:${S.te_laat.kleur};">🟠 ${c.te_laat} te laat</span>
+          <span style="color:${S.niets.kleur};">⬜ ${c.niets} niets</span>
+          ${c.gewettigd ? `<span style="color:${S.gewettigd.kleur};">🅰 ${c.gewettigd} gewettigd</span>` : ''}
+          ${c.nvt ? `<span style="color:${S.nvt.kleur};">➖ ${c.nvt} n.v.t.</span>` : ''}
+          <span class="muted">· ${c.total} leerlingen</span>
           <button class="btn btn-muted small" style="margin-left:auto;" onclick="toggleQuizRoster('${code}');toggleQuizRoster('${code}')" title="Vernieuwen">↻</button>
         </div>`;
-      const chips = d.students.length
-        ? `<div style="display:flex;gap:6px;flex-wrap:wrap;">${d.students.map(rosterChip).join('')}</div>`
+
+      const rij = st => {
+        const info = S[st.status] || S.niets;
+        // Aanvinken kan enkel voor wie NIETS inleverde — wie werk indiende is niet afwezig.
+        const aanvinkbaar = st.status === 'niets' || st.status === 'gewettigd';
+        return `<tr>
+          <td style="padding:4px 8px;">${escapeHtml(st.name)}</td>
+          <td style="padding:4px 8px;color:${info.kleur};white-space:nowrap;">${info.icoon} ${info.label}</td>
+          <td style="padding:4px 8px;text-align:center;">${
+            aanvinkbaar
+              ? `<label style="cursor:pointer;white-space:nowrap;"><input type="checkbox" ${st.status === 'gewettigd' ? 'checked' : ''}
+                   onchange="zetLeerlingStatus('${code}','${st.id}', this.checked)"/> gewettigd afwezig</label>`
+              : '<span class="muted" style="font-size:0.78rem;">—</span>'}</td>
+        </tr>`;
+      };
+
+      const tabel = d.students.length
+        ? `<table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+             <thead><tr style="background:var(--bg);">
+               <th style="text-align:left;padding:4px 8px;">Leerling</th>
+               <th style="text-align:left;padding:4px 8px;">Status</th>
+               <th style="padding:4px 8px;">Afwezigheid</th>
+             </tr></thead><tbody>${d.students.map(rij).join('')}</tbody></table>
+           <p class="muted" style="font-size:0.78rem;margin:6px 0 0;">
+             Gewettigd afwezig telt niet mee voor het klasgemiddelde.</p>`
         : '<span class="muted" style="font-size:0.85rem;">Geen leerlingen in deze klas voor dit schooljaar.</span>';
+
       const extras = (d.extras && d.extras.length)
         ? `<div style="margin-top:10px;font-size:0.8rem;"><span class="muted">Niet in de klas (andere naam ingetypt?):</span><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">${d.extras.map(rosterChip).join('')}</div></div>`
         : '';
-      box.innerHTML = legend + chips + extras;
+      box.innerHTML = legend + tabel + extras;
     } catch (e) {
       box.innerHTML = '<span class="muted">Fout bij laden voortgang.</span>';
+    }
+  };
+
+  // Sprint 70: gewettigd afwezig aan/uit voor één leerling bij één toets.
+  window.zetLeerlingStatus = async function(code, studentId, aan) {
+    try {
+      const fetcher = window.apiFetch || fetch;
+      const r = await fetcher('/api/quiz-sessions/' + code + '/roster/' + studentId + '/status', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: aan ? 'gewettigd' : null }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+      // paneel verversen zodat tellers en status meteen kloppen
+      toggleQuizRoster(code); toggleQuizRoster(code);
+    } catch (e) {
+      await pyAlert('Kon de afwezigheid niet bewaren: ' + e.message, 'error');
     }
   };
 
