@@ -2205,17 +2205,91 @@ setInterval(async () => {
       if (session._deadlineHandled) continue;
       session._deadlineHandled = true;
 
-      // Stuur force_submit naar alle nog actieve leerlingen
+      // Sprint 69 (a): de vlag "Bij deadline automatisch indienen" werd genegeerd — er
+      // werd altijd geforceerd ingediend. Staat ze uit, dan laten we het werk open staan.
+      if (meta.auto_submit_late === false) {
+        log.info(`[quiz] Sessie ${code}: deadline bereikt, automatisch indienen staat UIT`);
+        continue;
+      }
+
+      // Sprint 69 (b): vroeger stond hier ook `student.socketId` in de voorwaarde, waardoor
+      // een leerling die zijn browser had gesloten NOOIT werd ingediend en eeuwig als
+      // "bezig" bleef staan. Het indienen gebeurt nu voor iedereen die begonnen is; het
+      // bericht sturen we uiteraard enkel naar wie nog verbonden is.
       for (const student of Object.values(session.students)) {
-        if (!student.quizSubmitted && student.socketId && student.quizStartedAt) {
-          io.to(student.socketId).emit('quiz_force_submit', { reason: 'deadline' });
-          await dbModule.submitQuizAnswers(code, student.id, true).catch(() => {});
-        }
+        if (student.quizSubmitted || !student.quizStartedAt) continue;
+        student.quizSubmitted = true;
+        if (student.socketId) io.to(student.socketId).emit('quiz_force_submit', { reason: 'deadline' });
+        await dbModule.submitQuizAnswers(code, student.id, true).catch(() => {});
       }
       log.info(`[quiz] Sessie ${code}: deadline bereikt`);
     } catch (e) { /* stille fout — zie debug */ }
   }
 }, 60 * 1000);
+
+// ── Sprint 69: info vóór het starten ────────────────────────────────────────
+// De leerling moet de spelregels te zien krijgen VÓÓR de timer loopt, maar de instellingen
+// zitten in quiz_state — dat komt pas ná quiz_start. Vandaar dit kleine, publieke
+// endpoint: het verklapt niets gevoeligs (geen vragen), enkel de spelregels.
+app.get('/api/quiz/:code/startinfo', async (req, res) => {
+  try {
+    const meta = await dbModule.getQuizMeta(String(req.params.code || '').toUpperCase());
+    if (!meta) return res.status(404).json({ error: 'Toets niet gevonden.' });
+    const vragen = await dbModule.getQuizQuestions(String(req.params.code || '').toUpperCase());
+    res.json({
+      type: meta.type || 'toets',
+      noTimer: meta.no_timer === true,
+      timerSeconds: meta.timer_seconds || null,
+      noBack: meta.no_back === true,
+      stopped: !!meta.stopped_at,
+      questionCount: vragen.length,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Sprint 69: leerkracht stopt de toets/taak ───────────────────────────────
+// Twee dingen tegelijk: iedereen die bezig is wordt ingediend (ook wie offline is), en
+// de toets gaat DICHT zodat een laatkomer niet alsnog kan starten.
+app.post('/api/quiz/:code/stop', requireTeacherAuth, requireCsrf, async (req, res) => {
+  try {
+    const code = String(req.params.code || '').toUpperCase();
+    const session = sessions.get(code);
+    const meta = await dbModule.getQuizMeta(code);
+    if (!meta) return res.status(404).json({ error: 'Toets niet gevonden.' });
+    if (session && !magSessieBeheren(req.teacher, session.teacherId)) {
+      return res.status(403).json({ error: 'Je kan enkel je eigen toetsen stoppen.' });
+    }
+
+    const gestoptOp = await dbModule.stopAssignment(code);
+
+    // In-memory deelnemers: bericht + indienen.
+    let aantal = 0;
+    if (session) {
+      for (const student of Object.values(session.students)) {
+        if (student.quizSubmitted || !student.quizStartedAt) continue;
+        student.quizSubmitted = true;
+        if (student._quizTimerInterval) clearInterval(student._quizTimerInterval);
+        if (student.socketId) io.to(student.socketId).emit('quiz_force_submit', { reason: 'gestopt' });
+        await dbModule.submitQuizAnswers(code, student.id, true).catch(() => {});
+        aantal++;
+      }
+      session._deadlineHandled = true;
+    }
+    // Vangnet: wie in de databank nog openstaat maar niet (meer) in het geheugen zit —
+    // bijvoorbeeld na een serverherstart — wordt hier alsnog ingediend.
+    for (const rij of await dbModule.listOpenQuizStudents(code)) {
+      await dbModule.submitQuizAnswers(code, rij.student_id, true).catch(() => {});
+      aantal++;
+    }
+
+    dbModule.auditLog(getActorFromReq(req), 'quiz_stopped', code, { ingediend: aantal }, req.ip).catch(() => {});
+    log.info(`[quiz] ${code} gestopt door leerkracht — ${aantal} deelname(s) ingediend`);
+    res.json({ ok: true, ingediend: aantal, gestoptOp });
+  } catch (e) {
+    log.error('[quiz stop] fout:', e.message);
+    res.status(500).json({ error: 'Stoppen mislukte.' });
+  }
+});
 
 // ══ Sprint 16: Quiz Timer helper ═════════════════════════════════════════════
 
@@ -2224,13 +2298,18 @@ function startQuizTimer(session, student, totalSeconds) {
   const endAt = (student.quizStartedAt || Date.now()) + totalSeconds * 1000;
 
   student._quizTimerInterval = setInterval(() => {
-    if (!student.socketId) return;
     const remaining = Math.max(0, Math.round((endAt - Date.now()) / 1000));
 
-    io.to(student.socketId).emit('quiz_timer_update', { remaining, total: totalSeconds });
+    // Sprint 69: hier stond `if (!student.socketId) return;` bovenaan, waardoor bij een
+    // leerling die offline ging de hele timer stilviel — inclusief het automatisch
+    // indienen bij nul. Nu blijft de tijd gewoon lopen; enkel de BERICHTEN naar de
+    // leerling slaan we over als er geen verbinding is.
+    if (student.socketId) {
+      io.to(student.socketId).emit('quiz_timer_update', { remaining, total: totalSeconds });
+    }
 
     // 10% waarschuwing
-    if (!student._quizWarned && remaining <= Math.round(totalSeconds * 0.10)) {
+    if (student.socketId && !student._quizWarned && remaining <= Math.round(totalSeconds * 0.10)) {
       student._quizWarned = true;
       const mins = Math.ceil(remaining / 60);
       io.to(student.socketId).emit('quiz_warning', {
@@ -2244,7 +2323,7 @@ function startQuizTimer(session, student, totalSeconds) {
       clearInterval(student._quizTimerInterval);
       if (!student.quizSubmitted) {
         student.quizSubmitted = true;
-        io.to(student.socketId).emit('quiz_force_submit');
+        if (student.socketId) io.to(student.socketId).emit('quiz_force_submit');
         // Sla alle in-memory antwoorden op
         const sessionCode = Object.entries(session.students)
           .find(([,s]) => s.id === student.id)?.[0] ? session.code : session.code;
@@ -2450,7 +2529,7 @@ app.post('/api/quiz/bank/import-csv', requireTeacherAuth, requireCsrf, async (re
 // ── 16b: Toets aanmaken & beheren ────────────────────────────────────────────
 
 app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
-  const { name, questions, randomize, timerSeconds, minRunsPerQ,
+  const { name, questions, randomize, timerSeconds, minRunsPerQ, noBack,
           hideQuestionOnScreen, isTeacherPreview, templateCode,
           noTimer, accessFrom, accessUntil, autoSubmitLate,
           schoolYear, targetClass, type, studentIds } = req.body || {};
@@ -2517,6 +2596,7 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
       accessFrom: accessFrom ? Number(accessFrom) : null,
       accessUntil: accessUntil ? Number(accessUntil) : null,
       autoSubmitLate: autoSubmitLate !== false,
+      noBack: noBack === true,                 // Sprint 69: 1 kans per vraag
       minRunsPerQ: parseInt(minRunsPerQ) || 0,
       hideQuestionOnScreen: hideQuestionOnScreen === true,
       isTeacherPreview: isTeacherPreview === true,
@@ -4372,6 +4452,8 @@ function quizSummaryRow(code, name, createdAt, closed, meta, onlineCount, studen
     // Sprint 43.2: extra velden voor de toetsen-/takenbank
     isPreview:   !!(meta && meta.is_teacher_preview),
     archived:    !!(meta && meta.archived),
+    stoppedAt:   (meta && meta.stopped_at) ? Number(meta.stopped_at) : null,   // Sprint 69
+    noBack:      !!(meta && meta.no_back),
     schoolYear:  (meta && meta.school_year) || '',
     targetClass: (meta && meta.target_class) || '',
     className:   '',
@@ -6385,6 +6467,12 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       }
     } catch (e) { log.warn('[quiz_start] leerling-selectie check mislukt:', e.message); }
 
+    // Sprint 69: door de leerkracht gestopt → niemand kan nog starten (ook geen laatkomer).
+    if (meta.stopped_at) {
+      return socket.emit('error_message',
+        'Deze toets is afgesloten door je leerkracht. Je kan niet meer starten.');
+    }
+
     // Sprint 52e: een 'pending' of 'blocked' leerling mag GEEN toets/taak starten.
     // We nemen bij voorkeur de ingelogde identiteit (socket.data.student, gezet door io.use);
     // is die er niet, dan zoeken we op naam binnen de gekoppelde klas. Preview-toetsen zijn
@@ -6468,6 +6556,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       submitted: student.quizSubmitted,
       paused: session.quizPaused || false,
       hideQuestionOnScreen: meta.hide_question_on_screen,
+      noBack: meta.no_back === true,             // Sprint 69: 1 kans per vraag
       questions: savedOrder.length > 0
         ? savedOrder.map(o => questions.find(q => q.id === o.question_id)).filter(Boolean)
         : questions,

@@ -311,6 +311,7 @@ async function createQuiz() {
   const autoSubmitLate        = document.getElementById('quiz-auto-submit')?.checked !== false;
   const hideQuestionOnScreen  = document.getElementById('quiz-hide-question').checked;
   const minRunsPerQ           = document.getElementById('quiz-min-runs').checked ? 1 : 0;
+  const noBack                = document.getElementById('quiz-no-back')?.checked === true;  // Sprint 69
   const isTeacherPreview      = document.getElementById('quiz-is-preview').checked;
 
   if (accessFrom && accessUntil && accessFrom >= accessUntil) {
@@ -338,7 +339,7 @@ async function createQuiz() {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ name, questions, randomize, timerSeconds, noTimer, minRunsPerQ,
                              hideQuestionOnScreen, isTeacherPreview, schoolYear, targetClass,
-                             accessFrom, accessUntil, autoSubmitLate,
+                             accessFrom, accessUntil, autoSubmitLate, noBack,
                              // Sprint 43.14: type komt van de link (?type=), staat al vast bij
                              // het openen van dit scherm — niet meer afgeleid uit de timerkeuze.
                              type: QUIZ_TYPE,

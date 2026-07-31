@@ -63,6 +63,7 @@
 | **48c3** | 🔵 P9 | SEC | **Fase 3** — **Isolatie-testsuite** (`tests/isolatie.test.js`): integratietests tegen een échte PostgreSQL — klassen, leerlingen (erven school van klas), vragenbank, sessies, auditlog: A ziet **nul** rijen van B; Bibliotheek-publiek kruist als enige (en 53d-hidden wint); dekking-diagnose. Skipt zichzelf zonder `DATABASE_URL`. **Al bewezen groen (7/7, herhaald) tegen PostgreSQL 16.** *✅ AFGEROND.* | ~3 dagen |
 | **48c4** | 🔵 P9 | ARCH | **Fase 3** — **Super-admin** (rol `superadmin`, hosting-beheerder): leesscope zónder schoolfilter (ziet alle scholen), telt overal als beheerder, mag cross-school Bibliotheek-takedown; rol enkel toe te kennen door een super-admin (admin-bootstrap zolang er geen bestaat); rol-cyclus in de admin-UI. *✅ AFGEROND — daarmee is Fase 3 compleet.* | ~2 dagen |
 | **61** | 🟢 P3 | FEAT | **Facturatierapport** — per schooljaar/maand per school tellen hoeveel leerlingen geregistreerd zijn en hoe lang (actief/pending/geblokkeerd), als basis voor een fee per leerling. Automatisch maandelijks document (CSV/PDF) voor de platformbeheerder. Vereist een lichte historiek (bv. `student_school_periods` of tellingen-snapshot), want `students` bewaart nu enkel de huidige status. *✅ AFGEROND.* | ~2 dagen |
+| **69** | 🟠 P8 | FEAT | **Toets afsluiten: drie manieren + twee bugs** — (bugs) een offline leerling werd **nooit** automatisch ingediend (timer en deadlinebewaker sloegen hem over) en de vlag *Bij deadline automatisch indienen* werd genegeerd. (nieuw) **⏹ Stoppen** door de leerkracht: iedereen levert in, ook offline, en de toets gaat dicht. (nieuw) **Terugbladeren uitschakelen** (1 kans per vraag) als optie per toets, met een startpopup die de spelregels toont vóór de timer loopt. *✅ AFGEROND.* | ~1.5 dag |
 | **68** | 🔴 P10 | BUG | **Twee fouten uit jouw testsuite** — (a) mijn test `maandPeriode` ging uit van **UTC** en faalde daardoor in Brussel-tijd (31/12 23:00 UTC = 1/1 lokaal); test nu tijdzone-onafhankelijk, gecontroleerd in 5 tijdzones. (b) `student_count_snapshots.school_id` had `ON DELETE SET NULL`, terwijl de unieke index NULL als `''` behandelt → **een school verwijderen kon mislukken** met een unieke-index-schending. FK verwijderd (historiek hoort onveranderlijk); migratie voor bestaande installaties + regressietest. *✅ AFGEROND.* | ~0.5 dag |
 | **67** | 🟡 P5 | UX | **Topbalk in twee vaste rijen** — met schoolbranding + identiteit erbij liep rij 1 over, waardoor 'Afmelden' en de schoolnaam onvoorspelbaar afbraken en de balk per pagina een andere hoogte kreeg. Nu: rij 1 = merk + knoppen, rij 2 = schoollogo + naam (links) en identiteit (rechts). Schoolnaam stond dubbel → nu één keer. Logo mag hoger (46 px). Subnav plakt op `--topbar-h` i.p.v. een vaste 72 px. *✅ AFGEROND.* | ~0.5 dag |
 | **66** | 🟡 P5 | BUG | **Rechthoekig schoollogo werd vierkant afgesneden** — de topbalk gebruikte `.logo-small` (38×38 met `object-fit:cover`), gemaakt voor het vierkante PyCodeFlow-icoon. Nieuwe klasse `.logo-school`: vaste hoogte, vrije breedte, `contain`. Ook het verouderde 'Logo (pad)'-veld uit het nieuwe-school-formulier verwijderd (logo's gaan sinds 64 via upload). *✅ AFGEROND.* | ~0.25 dag |
@@ -881,6 +882,24 @@ De dubbele naam is weg: de identiteit toont enkel nog wie je bent, plus bij meer
 *Test: volledige suite **306/306 groen** — zowel met databank (Brussel-tijd) als zonder (dan 9 overgeslagen, zoals bedoeld).*
 
 *Bestanden: db/database.js, tests/validation.test.js, tests/isolatie.test.js, testdocument-html/testpunten.js, sprintlog.md*
+
+---
+
+### Sprint 69 — Afsluiten van een toets/taak: drie manieren — ✅ AFGEROND
+
+**Cat:** FEAT + BUG · De timer per leerling bestond al (sprint 16); daar zaten wel twee gaten in.
+
+**Twee bugs eerst.** (a) Zowel de timer als de deadlinebewaker begonnen met *"sla over als de leerling geen socket heeft"*. Sloot een leerling zijn browser, dan **viel zijn timer stil** en werd hij nooit ingediend — zijn antwoorden stonden wel in de databank, maar `submitted_at` bleef leeg, dus hij bleef eeuwig "bezig". Nu loopt de tijd gewoon door; enkel de *berichten* naar de leerling slaan we over als er geen verbinding is, en het indienen gebeurt voor iedereen die begonnen is. (b) De vlag **`auto_submit_late`** werd opgeslagen en doorgegeven maar door de deadlinebewaker **genegeerd**: er werd altijd geforceerd ingediend. Staat het vinkje uit, dan blijft het werk nu open.
+
+**⏹ Stoppen (nieuw).** Knop op elke actieve toets-/taakkaart, met een bevestiging die de drie gevolgen opsomt. `POST /api/quiz/:code/stop` (eigenaar-check) dient iedereen in die bezig is — inclusief wie offline is — en zet `stopped_at`, waardoor **niemand nog kan starten**: een laatkomer krijgt "Deze toets is afgesloten door je leerkracht". Er is een vangnet voor deelnames die na een serverherstart niet meer in het geheugen zitten maar in de databank nog openstaan. Tweemaal stoppen behoudt het eerste tijdstip. Daarna toont de kaart een badge **⏹ gestopt** in plaats van de knop.
+
+**Terugbladeren uitschakelen (nieuw).** Optie `no_back` per toets, standaard uit, in te stellen in de wizard. De leerling kan dan enkel vooruit: eerdere vraagbolletjes zijn uitgeschakeld, vooruitgaan vraagt telkens bevestiging ("je kan niet meer terugkeren"), en `goToQuestion` weigert een lagere index ook als iemand de knoppen omzeilt.
+
+**De startpopup verschijnt altijd**, ook zonder bijzondere instellingen, en toont de spelregels: aantal vragen, beschikbare tijd (met de waarschuwing dat die doorloopt als je de pagina sluit), of je kan terugbladeren, en dat antwoorden automatisch bewaard worden. Bij `no_back` staat er nadrukkelijk **"je krijgt één kans per vraag"**. De popup komt vóór `quiz_start`, dus **vóór de timer begint** — annuleren laat de klok onaangeroerd. Omdat de instellingen pas in `quiz_state` zitten (ná het starten), is er een klein publiek endpoint `GET /api/quiz/:code/startinfo` dat enkel de spelregels teruggeeft, geen vragen.
+
+*Test: volledige suite 306/306 groen (met databank). Tegen een draaiende server: `startinfo` geeft de juiste spelregels, `stop` levert de openstaande deelname in en zet `stopped: true`, waarna starten geweigerd wordt. In de databank geverifieerd dat `no_back` bewaard wordt en dat tweemaal stoppen hetzelfde tijdstip houdt.*
+
+*Bestanden: db/database.js, server.js, public/quiz-student.js, public/quiz-student.html, public/quiz-teacher.js, public/quiz-teacher.html, public/assignment-overview.js, public/app.js, testdocument-html/testpunten.js, sprintlog.md*
 
 ---
 

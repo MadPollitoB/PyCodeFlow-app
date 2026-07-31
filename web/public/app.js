@@ -3055,6 +3055,7 @@ window.pyConfirm = function(opties) {
   var title        = opties.title        || 'Bevestigen';
   var body         = opties.body         || '';
   var confirmLabel = opties.confirmLabel || 'Bevestigen';
+  var cancelLabel  = opties.cancelLabel  || 'Annuleren';   // Sprint 69
   var danger       = opties.danger       || false;
 
   return new Promise(function(resolve) {
@@ -3069,7 +3070,7 @@ window.pyConfirm = function(opties) {
         '<div id="py-modal-title">' + title + '</div>' +
         '<div id="py-modal-body">'  + body  + '</div>' +
         '<div id="py-modal-actions">' +
-          '<button id="py-modal-cancel" class="btn btn-muted small">Annuleren</button>' +
+          '<button id="py-modal-cancel" class="btn btn-muted small">' + cancelLabel + '</button>' +
           '<button id="py-modal-confirm" class="btn ' + (danger ? 'btn-danger' : 'btn-primary') + ' small">' + confirmLabel + '</button>' +
         '</div>' +
       '</div>';
@@ -3114,7 +3115,7 @@ window.pyPrompt = function(opties) {
           '<input id="py-modal-input" type="text" style="width:100%;box-sizing:border-box;margin-top:10px;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:1rem;background:var(--surface);color:var(--text);"/>' +
         '</div>' +
         '<div id="py-modal-actions">' +
-          '<button id="py-modal-cancel" class="btn btn-muted small">Annuleren</button>' +
+          '<button id="py-modal-cancel" class="btn btn-muted small">' + cancelLabel + '</button>' +
           '<button id="py-modal-confirm" class="btn btn-primary small">' + confirmLabel + '</button>' +
         '</div>' +
       '</div>';

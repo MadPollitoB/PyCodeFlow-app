@@ -568,6 +568,10 @@ async function initSchema() {
       BEGIN ALTER TABLE assignment_bank ADD COLUMN access_from BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE assignment_bank ADD COLUMN access_until BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE assignment_bank ADD COLUMN auto_submit_late BOOLEAN NOT NULL DEFAULT true; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 69: 'no_back' = terugbladeren verboden (1 kans per vraag). 'stopped_at' =
+      -- door de leerkracht gestopt: iedereen ingeleverd én niemand kan nog starten.
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN no_back BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN stopped_at BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
       -- 37d: nakijk-modus. Leerkracht stelt expliciet open; leerlingen kunnen dan
       -- hun eigen toets read-only inzien (los van results_released).
       BEGIN ALTER TABLE assignment_bank ADD COLUMN review_mode BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
@@ -1188,6 +1192,30 @@ module.exports = {
         (SELECT COUNT(*)::int FROM audit_log     WHERE school_id IS NULL) AS audit_log_zonder
     `);
     return r.rows[0];
+  },
+
+  // ── Sprint 69: toets stoppen + terugbladeren ───────────────────────────────
+  async setAssignmentNoBack(sessionCode, noBack) {
+    const r = await query(`UPDATE assignment_bank SET no_back = $2 WHERE session_code = $1`,
+      [sessionCode, !!noBack]);
+    return r.rowCount > 0;
+  },
+
+  // Markeert de toets/taak als gestopt door de leerkracht. Idempotent: een tweede keer
+  // stoppen verandert het tijdstip niet, zodat het moment van stoppen bewaard blijft.
+  async stopAssignment(sessionCode) {
+    const r = await query(
+      `UPDATE assignment_bank SET stopped_at = COALESCE(stopped_at, $2) WHERE session_code = $1
+       RETURNING stopped_at`, [sessionCode, Date.now()]);
+    return r.rows[0]?.stopped_at || null;
+  },
+
+  // Alle leerlingen die begonnen zijn maar nog niet indienden (ook wie offline is).
+  async listOpenQuizStudents(sessionCode) {
+    const r = await query(
+      `SELECT DISTINCT student_id, student_name FROM quiz_answers
+        WHERE session_code = $1 AND submitted_at IS NULL`, [sessionCode]);
+    return r.rows;
   },
 
   // ── Sprint 61: leerlingtellingen (facturatie) ──────────────────────────────
@@ -2057,7 +2085,7 @@ module.exports = {
   async createQuizSession({ sessionCode, questions, randomize, timerSeconds,
                              noTimer, minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
                              schoolYear, targetClass, accessFrom, accessUntil, autoSubmitLate,
-                             type }) {
+                             type, noBack }) {
     const now = Date.now();
     // noTimer = true → geen tijdslimiet (taak)
     // timerSeconds = null + noTimer = false → gebruik standaard 2700s
@@ -2074,8 +2102,8 @@ module.exports = {
       await client.query(
         `INSERT INTO assignment_bank (session_code, randomize, timer_seconds, no_timer, individual_timer,
           min_runs_per_q, hide_question_on_screen, results_released, is_teacher_preview,
-          school_year, target_class, access_from, access_until, auto_submit_late, type, created_at)
-         VALUES ($1,$2,$3,$4,true,$5,$6,false,$7,$8,$9,$10,$11,$12,$13,$14)`,
+          school_year, target_class, access_from, access_until, auto_submit_late, type, no_back, created_at)
+         VALUES ($1,$2,$3,$4,true,$5,$6,false,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
         [sessionCode, randomize, effectiveTimer, noTimer || false,
          minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
          schoolYear || currentYear, targetClass || '',
@@ -2084,6 +2112,7 @@ module.exports = {
          // vast bij het openen van het aanmaakscherm. De noTimer-afleiding is enkel
          // nog een vangnet voor een aanroeper die (nog) geen type meegeeft.
          (type === 'taak' || type === 'toets') ? type : (noTimer ? 'taak' : 'toets'),
+         noBack === true,                       // Sprint 69: 1 kans per vraag
          now]
       );
       for (const q of questions) {

@@ -240,7 +240,55 @@ function _showStartError(msg) {
 }
 function _clearStartTimeout() { if (_startTimeout) { clearTimeout(_startTimeout); _startTimeout = null; } }
 
-function startQuiz() {
+// ── Sprint 69: spelregels tonen VÓÓR de timer loopt ─────────────────────────
+// De popup verschijnt altijd, ook zonder bijzondere instellingen: zo weet de leerling
+// precies wanneer zijn tijd begint te lopen en wat de regels zijn. De tekst hangt af van
+// de instellingen, die we vooraf ophalen (quiz_state komt pas ná het starten).
+let _startInfo = null;
+async function haalStartInfo() {
+  try {
+    const r = await fetch('/api/quiz/' + encodeURIComponent(urlCode) + '/startinfo');
+    if (r.ok) _startInfo = await r.json();
+  } catch (e) { /* stil: de popup toont dan de algemene tekst */ }
+  // Startscherm bijwerken: de vaste regel over terugbladeren klopt niet altijd meer.
+  const uitleg = document.getElementById('start-regels');
+  if (uitleg && _startInfo) {
+    uitleg.textContent = _startInfo.noBack
+      ? 'Let op: je kan niet terugkeren naar een vorige vraag.'
+      : 'Je kan op elk moment opslaan en terugkeren naar vorige vragen.';
+  }
+}
+haalStartInfo();
+
+async function startQuiz() {
+  const soort = _startInfo?.type === 'taak' ? 'taak' : 'toets';
+  const regels = [];
+  if (_startInfo?.noBack) {
+    regels.push('⚠️ <strong>Je krijgt één kans per vraag.</strong> Ga je naar de volgende vraag, dan kan je <strong>niet meer terug</strong>.');
+  } else {
+    regels.push('Je kan tussen de vragen heen en weer bladeren en je antwoorden aanpassen.');
+  }
+  if (_startInfo && !_startInfo.noTimer && _startInfo.timerSeconds) {
+    regels.push(`Je hebt <strong>${Math.round(_startInfo.timerSeconds / 60)} minuten</strong>. De tijd start zodra je op Starten klikt en loopt door, ook als je de pagina sluit.`);
+  }
+  if (_startInfo?.questionCount) {
+    regels.push(`Deze ${soort} bevat <strong>${_startInfo.questionCount} vragen</strong>.`);
+  }
+  regels.push('Je antwoorden worden automatisch bewaard.');
+
+  const bevestigd = await window.pyConfirm({
+    title: (_startInfo?.noBack ? '⚠️ Let op — ' : '') + soort.charAt(0).toUpperCase() + soort.slice(1) + ' starten',
+    body: '<ul style="text-align:left;margin:0;padding-left:18px;">'
+        + regels.map(r => '<li style="margin-bottom:6px;">' + r + '</li>').join('')
+        + '</ul>',
+    confirmLabel: 'Starten',
+    cancelLabel: 'Nog even wachten',
+  });
+  if (!bevestigd) return;
+  _doeStart();
+}
+
+function _doeStart() {
   const btn = document.querySelector('.start-card button');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Bezig met laden…'; }
   const info = document.getElementById('start-info');
@@ -503,7 +551,12 @@ function renderNav() {
     } else if (_visited.has(qid)) {
       cls += ' visited';
     }
-    return `<button class="${cls}" onclick="goToQuestion(${i})" title="Vraag ${i+1}">${i+1}</button>`;
+    // Sprint 69: bij noBack zijn eerdere vragen niet meer bereikbaar.
+    const geblokkeerd = _state?.noBack && i < _currentIdx;
+    if (geblokkeerd) cls += ' locked';
+    return `<button class="${cls}"${geblokkeerd
+      ? ' disabled style="opacity:.45;cursor:not-allowed;" title="Afgerond — terugkeren kan niet bij deze toets"'
+      : ` onclick="goToQuestion(${i})" title="Vraag ${i+1}"`}>${i+1}</button>`;
   }).join('');
   document.getElementById('qs-progress').textContent =
     `${_currentIdx+1}/${questions.length} · ${Object.keys(_answers).filter(k=>_answers[k]?.code).length} opgeslagen`;
@@ -512,6 +565,10 @@ function renderNav() {
 function goToQuestion(idx) {
   const questions = _state?.questions || [];
   if (idx < 0 || idx >= questions.length) return;
+
+  // Sprint 69: bij "1 kans per vraag" kan je enkel vooruit. De server bepaalt dit
+  // (state.noBack); de knoppen zijn ook uitgeschakeld, dit is de harde grendel.
+  if (_state?.noBack && idx < _currentIdx) return;
 
   // Sla huidige vraag op voor navigatie
   if (_currentQuestionId) {
@@ -599,7 +656,17 @@ const qTextEl = document.getElementById('q-text');
   renderNav();
 }
 
-function navigate(dir) {
+async function navigate(dir) {
+  // Sprint 69: bij "1 kans per vraag" is vooruitgaan onomkeerbaar → expliciet bevestigen.
+  if (_state?.noBack && dir > 0 && _currentIdx < (_state?.questions?.length || 0) - 1) {
+    const ok = await window.pyConfirm({
+      title: 'Naar de volgende vraag?',
+      body: 'Je kan <strong>niet meer terugkeren</strong> naar deze vraag. Ben je klaar met je antwoord?',
+      confirmLabel: 'Ja, volgende vraag',
+      cancelLabel: 'Nog even blijven',
+    });
+    if (!ok) return;
+  }
   goToQuestion(_currentIdx + dir);
 }
 

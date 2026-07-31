@@ -84,7 +84,15 @@
       ? '<button class="btn btn-soft small" onclick="openPreviewRun(\'' + a.code + '\')" title="Doorloop deze preview zelf, als leerling">🧑‍🎓 Doorlopen</button>' : '';
     var live = a.isPreview ? '' :
       '<a class="btn btn-soft small" href="/teacher-grid.html?code=' + a.code + '" target="_blank">👁 Live</a>' +
-      '<button class="btn btn-soft small" onclick="toggleQuizRoster(\'' + a.code + '\')">👥 Voortgang</button>';
+      '<button class="btn btn-soft small" onclick="toggleQuizRoster(\'' + a.code + '\')">👥 Voortgang</button>' +
+      // Sprint 69: stoppen dient ook als "iedereen nu inleveren" — enkel zinvol zolang
+      // de toets nog niet gestopt is.
+      (a.stoppedAt
+        ? '<span class="badge" style="background:#e2e8f0;color:#475569;" title="Gestopt op ' +
+            new Date(a.stoppedAt).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) +
+          '">⏹ gestopt</span>'
+        : '<button class="btn btn-muted small" onclick="stopQuiz(\'' + a.code + '\',\'' + esc(a.name || a.code) + '\')" ' +
+          'title="Iedereen die bezig is meteen laten inleveren en de ' + LABEL + ' sluiten">⏹ Stoppen</button>');
     var deadline = a.accessUntil
       ? '<span class="a-sub">⏰ Deadline: ' + new Date(a.accessUntil).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) + '</span>'
       : '';
@@ -175,3 +183,32 @@
   document.addEventListener('DOMContentLoaded', window.reloadAssignments);
   if (document.readyState !== 'loading') window.reloadAssignments();
 })();
+
+
+// ── Sprint 69: leerkracht stopt de toets/taak ───────────────────────────────
+// Twee effecten tegelijk, dus expliciet bevestigen: iedereen die bezig is wordt
+// ingeleverd met wat hij op dat moment heeft, én niemand kan nadien nog starten.
+window.stopQuiz = async function (code, naam) {
+  var ok = await window.pyConfirm({
+    title: '⏹ Stoppen en inleveren',
+    body: '<p><strong>' + naam + '</strong> nu stoppen?</p>' +
+          '<ul style="text-align:left;margin:8px 0 0;padding-left:18px;">' +
+          '<li>Iedereen die bezig is, levert meteen in met wat hij heeft.</li>' +
+          '<li>Ook leerlingen die hun browser gesloten hebben worden ingeleverd.</li>' +
+          '<li>Niemand kan nadien nog starten.</li></ul>' +
+          '<p style="margin-top:8px;">Dit kan je niet ongedaan maken.</p>',
+    confirmLabel: 'Stoppen en inleveren',
+    cancelLabel: 'Annuleren',
+    danger: true,
+  });
+  if (!ok) return;
+  var r = await window.apiFetch('/api/quiz/' + encodeURIComponent(code) + '/stop', { method: 'POST' });
+  var d = await r.json().catch(function () { return {}; });
+  if (r.ok && d.ok) {
+    await window.pyAlert(d.ingediend + ' deelname(s) ingeleverd. De ' + LABEL + ' is gesloten.', 'success');
+    if (typeof loadAssignments === 'function') loadAssignments();
+    else location.reload();
+  } else {
+    await window.pyAlert('Stoppen mislukt: ' + (d.error || r.status), 'error');
+  }
+};
