@@ -63,6 +63,7 @@
 | **48c3** | 🔵 P9 | SEC | **Fase 3** — **Isolatie-testsuite** (`tests/isolatie.test.js`): integratietests tegen een échte PostgreSQL — klassen, leerlingen (erven school van klas), vragenbank, sessies, auditlog: A ziet **nul** rijen van B; Bibliotheek-publiek kruist als enige (en 53d-hidden wint); dekking-diagnose. Skipt zichzelf zonder `DATABASE_URL`. **Al bewezen groen (7/7, herhaald) tegen PostgreSQL 16.** *✅ AFGEROND.* | ~3 dagen |
 | **48c4** | 🔵 P9 | ARCH | **Fase 3** — **Super-admin** (rol `superadmin`, hosting-beheerder): leesscope zónder schoolfilter (ziet alle scholen), telt overal als beheerder, mag cross-school Bibliotheek-takedown; rol enkel toe te kennen door een super-admin (admin-bootstrap zolang er geen bestaat); rol-cyclus in de admin-UI. *✅ AFGEROND — daarmee is Fase 3 compleet.* | ~2 dagen |
 | **61** | 🟢 P3 | FEAT | **Facturatierapport** — per schooljaar/maand per school tellen hoeveel leerlingen geregistreerd zijn en hoe lang (actief/pending/geblokkeerd), als basis voor een fee per leerling. Automatisch maandelijks document (CSV/PDF) voor de platformbeheerder. Vereist een lichte historiek (bv. `student_school_periods` of tellingen-snapshot), want `students` bewaart nu enkel de huidige status. *✅ AFGEROND.* | ~2 dagen |
+| **72** | 🔴 P10 | SEC | **Klasresultaten afgeschermd** — `/api/klasmatrix` en de Excel-export controleerden enkel dát je leerkracht was, niet **welke klas** je opvroeg: met een andere `classId` in de URL kon je de cijfers van een collega (of een andere school) ophalen. Nu: gekoppeld aan de klas, óf beheerder binnen de eigen school. *✅ AFGEROND.* | ~0.25 dag |
 | **71** | 🟠 P8 | FEAT | **Klasoverzicht + Excel** — matrix per klas (rijen leerlingen, kolommen toetsen/taken op datum) met cijfer of statusteken in kleur, filter op type, bevroren kop/kolom. Export via **ExcelJS** naar `.xlsx` met vier tabbladen (Alles, Toetsen, Taken, Legende), kleuren, autofilter en gemiddelde-kolom. *✅ AFGEROND.* | ~2 dagen |
 | **70** | 🟠 P8 | FEAT | **Afwezigheid & inleverstatus** — vijf statussen via één pure regel `bepaalInleverStatus`; kolom `submitted_by` (student/timer/deadline/teacher) omdat timer en stopknop een ándere status opleveren; tabel voor 'gewettigd afwezig' (telt niet mee voor het gemiddelde); voortgangslijst koppelt nu op leerling-**id**; leerling krijgt melding + slot bij automatisch afsluiten. *✅ AFGEROND.* | ~1.5 dag |
 | **69** | 🟠 P8 | FEAT | **Toets afsluiten: drie manieren + twee bugs** — (bugs) een offline leerling werd **nooit** automatisch ingediend (timer en deadlinebewaker sloegen hem over) en de vlag *Bij deadline automatisch indienen* werd genegeerd. (nieuw) **⏹ Stoppen** door de leerkracht: iedereen levert in, ook offline, en de toets gaat dicht. (nieuw) **Terugbladeren uitschakelen** (1 kans per vraag) als optie per toets, met een startpopup die de spelregels toont vóór de timer loopt. *✅ AFGEROND.* | ~1.5 dag |
@@ -938,6 +939,20 @@ De dubbele naam is weg: de identiteit toont enkel nog wie je bent, plus bij meer
 *Test: tegen echte PostgreSQL geëxporteerd en het bestand daarna teruggelezen — vier tabbladen aanwezig, kleuren per status correct toegepast, cijfer 8 waar verbeterd is, bevroren paneel op B4 en autofilter op de kopregel. Volledige suite 314/314 groen.*
 
 *Bestanden: db/database.js, server.js, public/klasmatrix.html + klasmatrix.js (nieuw), 12× html (nav), package.json (exceljs), testdocument-html/testpunten.js, sprintlog.md*
+
+---
+
+### Sprint 72 — Klasresultaten afschermen — ✅ AFGEROND
+
+**Cat:** SEC · Gevonden bij de vraag *"dit is toch voor de leerkrachten?"*.
+
+Het antwoord was ja — de pagina staat achter gewone leerkracht-authenticatie en de keuzelijst toont enkel je eigen gekoppelde klassen. Maar bij het nakijken bleek dat de twee nieuwe endpoints (`/api/klasmatrix` en de Excel-export) **alleen controleerden dát je leerkracht was**, niet **welke klas** je opvroeg. Eén andere `classId` in de URL volstond dus om de cijfers van de klas van een collega op te halen — en omdat er geen schoolcontrole was, zelfs van een andere school. Precies dezelfde soort fout als bij het wachtwoord-endpoint in sprint 59: het scherm was correct, de poort niet.
+
+**Nu:** `magKlasResultatenZien()` laat door wie **aan de klas gekoppeld** is (`teacher_classes`), of wie **beheerder** is binnen de school van die klas — een super-admin overal, een admin enkel in zijn eigen scholen. Alle andere gevallen krijgen 403. Open modus (installatie zonder login) blijft ongemoeid.
+
+*Test: in de testdatabank bevestigd dat leerkrachtA2 wél aan klas 6A gekoppeld is en niet aan 5A of 5B — precies de scheiding die de poort nu afdwingt. Suite 315 groen.*
+
+*Bestanden: server.js, tests/auth.test.js, testdocument-html/testpunten.js, sprintlog.md*
 
 ---
 

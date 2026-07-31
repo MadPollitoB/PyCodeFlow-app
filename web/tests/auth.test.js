@@ -797,3 +797,15 @@ test('56 klasbeheer: open modus mag alles; geen leerkracht → nooit', () => {
   assert.strictEqual(auth.magLeerlingBeheren({ id: null, role: 'teacher' }, false), true);
   assert.strictEqual(auth.magLeerlingBeheren(null, true), false);
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Sprint 72 — resultaten van een klas: enkel eigen klassen (of beheerder in de school)
+// De pure kant hiervan: een gewone leerkracht die niet gekoppeld is, mag niets zien.
+// (De volledige poort staat in server.js: koppeling → beheerder → school.)
+// ═══════════════════════════════════════════════════════════════════════════════
+test('72 klasresultaten: gewone leerkracht is géén beheerder, dus koppeling is bepalend', () => {
+  assert.strictEqual(auth.isBeheerder({ id: 't', role: 'teacher' }), false);
+  assert.strictEqual(auth.isBeheerder({ id: 'a', role: 'admin' }), true);
+  assert.strictEqual(auth.isSuperAdmin({ id: 's', role: 'superadmin' }), true);
+  assert.strictEqual(auth.isSuperAdmin({ id: 'a', role: 'admin' }), false);
+});

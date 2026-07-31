@@ -4664,10 +4664,28 @@ async function bouwKlasMatrix(classId, schoolYear) {
   };
 }
 
+// Sprint 72: mag deze leerkracht de RESULTATEN van deze klas zien? Het scherm toont enkel
+// eigen klassen, maar de endpoints moeten het ook zelf afdwingen — anders volstond een
+// andere classId in de URL om bij de cijfers van een collega (of een andere school) te komen.
+async function magKlasResultatenZien(req, classId) {
+  if (!req.teacher?.id) return true;                                   // open modus
+  if (await dbModule.isTeacherLinkedToClass(req.teacher.id, classId)) return true;
+  if (!authLib.isBeheerder(req.teacher)) return false;
+  // Beheerder: enkel binnen de eigen scholen (super-admin overal).
+  if (authLib.isSuperAdmin(req.teacher)) return true;
+  const klas = await dbModule.getClassById(classId);
+  if (!klas) return false;
+  const mijn = await schoolIdsVanTeacher(req.teacher);
+  return !klas.school_id || mijn.includes(klas.school_id);
+}
+
 app.get('/api/klasmatrix', requireTeacherAuth, async (req, res) => {
   try {
     const classId = String(req.query.classId || '');
     if (!classId) return res.status(400).json({ error: 'classId is verplicht.' });
+    if (!(await magKlasResultatenZien(req, classId))) {
+      return res.status(403).json({ error: 'Je bent niet gekoppeld aan deze klas.' });
+    }
     res.json(await bouwKlasMatrix(classId, req.query.schoolYear || null));
   } catch (e) {
     log.error('[klasmatrix] fout:', e.message);
@@ -4683,6 +4701,9 @@ app.get('/api/klasmatrix/export.xlsx', requireTeacherAuth, async (req, res) => {
   try {
     const classId = String(req.query.classId || '');
     if (!classId) return res.status(400).json({ error: 'classId is verplicht.' });
+    if (!(await magKlasResultatenZien(req, classId))) {
+      return res.status(403).json({ error: 'Je bent niet gekoppeld aan deze klas.' });   // Sprint 72
+    }
     const m = await bouwKlasMatrix(classId, req.query.schoolYear || null);
     const S = m.statussen;
 
