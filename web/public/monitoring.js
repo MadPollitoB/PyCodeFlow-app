@@ -762,3 +762,72 @@ async function fetchDbRows() {
     tbody.innerHTML = `<tr><td colspan="99" style="padding:16px;color:var(--error-fg);">Fout: ${e.message}</td></tr>`;
   }
 }
+
+// ── Sprint 73: beheer van vrij oefenen (IP-log, blokkades, noodrem) ─────────
+async function laadVrijOefenen() {
+  const doel = document.getElementById('vrij-oefenen-inhoud');
+  if (!doel) return;
+  try {
+    const r = await fetch('/api/admin/free-practice');
+    if (!r.ok) { doel.innerHTML = '<p class="muted">Geen toegang tot deze gegevens.</p>'; return; }
+    const d = await r.json();
+    const schakelaar = document.getElementById('vrij-oefenen-aan');
+    if (schakelaar) schakelaar.checked = d.aan !== false;
+
+    const esc = t => { const x = document.createElement('div'); x.textContent = t == null ? '' : String(t); return x.innerHTML; };
+    const dt = ms => new Date(Number(ms)).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' });
+    const geblokkeerd = new Set((d.blocks || []).map(b => b.ip));
+
+    const blokLijst = (d.blocks || []).length
+      ? `<h3 style="font-size:0.95rem;margin:14px 0 6px;">Geblokkeerde IP-adressen</h3>
+         <table class="admin-table"><thead><tr><th>IP</th><th>Reden</th><th>Door</th><th>Sinds</th><th></th></tr></thead>
+         <tbody>${d.blocks.map(b => `<tr>
+           <td><code>${esc(b.ip)}</code></td><td>${esc(b.reason || '—')}</td>
+           <td>${esc(b.blocked_by || '—')}</td><td>${dt(b.blocked_at)}</td>
+           <td><button class="btn btn-muted small" onclick="deblokkeerIp('${esc(b.ip)}')">Deblokkeren</button></td>
+         </tr>`).join('')}</tbody></table>`
+      : '';
+
+    const recent = (d.recent || []).length
+      ? `<h3 style="font-size:0.95rem;margin:14px 0 6px;">Recent vrij geoefend</h3>
+         <table class="admin-table"><thead><tr><th>IP</th><th>Laatste naam</th><th>Sessies</th><th>Laatst</th><th>Account</th><th></th></tr></thead>
+         <tbody>${d.recent.map(x => `<tr>
+           <td><code>${esc(x.ip || '—')}</code></td><td>${esc(x.name || '—')}</td>
+           <td>${x.sessies}</td><td>${dt(x.laatst)}</td>
+           <td>${x.met_account ? '✅ ingelogd' : '👤 gast'}</td>
+           <td>${geblokkeerd.has(x.ip) ? '<span class="badge">geblokkeerd</span>'
+             : `<button class="btn btn-danger small" onclick="blokkeerIp('${esc(x.ip)}')">Blokkeren</button>`}</td>
+         </tr>`).join('')}</tbody></table>`
+      : '<p class="muted">Nog niemand heeft vrij geoefend.</p>';
+
+    doel.innerHTML = blokLijst + recent;
+  } catch (e) {
+    doel.innerHTML = '<p class="muted">Kon de gegevens niet laden.</p>';
+  }
+}
+
+async function zetVrijOefenen(aan) {
+  const r = await apiFetch('/api/admin/free-practice/enabled', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ aan }) });
+  if (!r.ok) await pyAlert('Wijzigen mislukt.', 'error');
+  laadVrijOefenen();
+}
+
+async function blokkeerIp(ip) {
+  const reden = await pyPrompt({ title: 'IP blokkeren',
+    body: `Vrij oefenen blokkeren vanaf <code>${ip}</code>?<br/><span class="muted">Let op: een school zit vaak achter één IP — je blokkeert dan iedereen daar. Ingelogde leerlingen blijven wel doorkunnen.</span><br/>Reden (optioneel):`,
+    confirmLabel: 'Blokkeren' });
+  if (reden === null) return;
+  const r = await apiFetch('/api/admin/free-practice/block', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ip, reason: reden }) });
+  if (!r.ok) await pyAlert('Blokkeren mislukt.', 'error');
+  laadVrijOefenen();
+}
+
+async function deblokkeerIp(ip) {
+  const r = await apiFetch('/api/admin/free-practice/block/' + encodeURIComponent(ip), { method: 'DELETE' });
+  if (!r.ok) await pyAlert('Deblokkeren mislukt.', 'error');
+  laadVrijOefenen();
+}
+
+document.addEventListener('DOMContentLoaded', laadVrijOefenen);

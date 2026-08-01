@@ -63,6 +63,7 @@
 | **48c3** | 🔵 P9 | SEC | **Fase 3** — **Isolatie-testsuite** (`tests/isolatie.test.js`): integratietests tegen een échte PostgreSQL — klassen, leerlingen (erven school van klas), vragenbank, sessies, auditlog: A ziet **nul** rijen van B; Bibliotheek-publiek kruist als enige (en 53d-hidden wint); dekking-diagnose. Skipt zichzelf zonder `DATABASE_URL`. **Al bewezen groen (7/7, herhaald) tegen PostgreSQL 16.** *✅ AFGEROND.* | ~3 dagen |
 | **48c4** | 🔵 P9 | ARCH | **Fase 3** — **Super-admin** (rol `superadmin`, hosting-beheerder): leesscope zónder schoolfilter (ziet alle scholen), telt overal als beheerder, mag cross-school Bibliotheek-takedown; rol enkel toe te kennen door een super-admin (admin-bootstrap zolang er geen bestaat); rol-cyclus in de admin-UI. *✅ AFGEROND — daarmee is Fase 3 compleet.* | ~2 dagen |
 | **61** | 🟢 P3 | FEAT | **Facturatierapport** — per schooljaar/maand per school tellen hoeveel leerlingen geregistreerd zijn en hoe lang (actief/pending/geblokkeerd), als basis voor een fee per leerling. Automatisch maandelijks document (CSV/PDF) voor de platformbeheerder. Vereist een lichte historiek (bv. `student_school_periods` of tellingen-snapshot), want `students` bewaart nu enkel de huidige status. *✅ AFGEROND.* | ~2 dagen |
+| **73** | 🟠 P8 | UX | **Leerling-instap opnieuw ingedeeld** — startscherm zonder klasveld (gast; de dropdown toonde bovendien klassen van álle scholen), vrij oefenen als gast zonder iets in te vullen, en een nieuw **keuzescherm na login** met de open lessen van je eigen klas, een codeveld voor toets/taak, en vrij oefenen onder je eigen naam. Plus IP-registratie, IP-blokkade en een noodrem-schakelaar voor vrij oefenen in Systeem. *✅ AFGEROND.* | ~1.5 dag |
 | **72** | 🔴 P10 | SEC | **Klasresultaten afgeschermd** — `/api/klasmatrix` en de Excel-export controleerden enkel dát je leerkracht was, niet **welke klas** je opvroeg: met een andere `classId` in de URL kon je de cijfers van een collega (of een andere school) ophalen. Nu: gekoppeld aan de klas, óf beheerder binnen de eigen school. *✅ AFGEROND.* | ~0.25 dag |
 | **71** | 🟠 P8 | FEAT | **Klasoverzicht + Excel** — matrix per klas (rijen leerlingen, kolommen toetsen/taken op datum) met cijfer of statusteken in kleur, filter op type, bevroren kop/kolom. Export via **ExcelJS** naar `.xlsx` met vier tabbladen (Alles, Toetsen, Taken, Legende), kleuren, autofilter en gemiddelde-kolom. *✅ AFGEROND.* | ~2 dagen |
 | **70** | 🟠 P8 | FEAT | **Afwezigheid & inleverstatus** — vijf statussen via één pure regel `bepaalInleverStatus`; kolom `submitted_by` (student/timer/deadline/teacher) omdat timer en stopknop een ándere status opleveren; tabel voor 'gewettigd afwezig' (telt niet mee voor het gemiddelde); voortgangslijst koppelt nu op leerling-**id**; leerling krijgt melding + slot bij automatisch afsluiten. *✅ AFGEROND.* | ~1.5 dag |
@@ -953,6 +954,26 @@ Het antwoord was ja — de pagina staat achter gewone leerkracht-authenticatie e
 *Test: in de testdatabank bevestigd dat leerkrachtA2 wél aan klas 6A gekoppeld is en niet aan 5A of 5B — precies de scheiding die de poort nu afdwingt. Suite 315 groen.*
 
 *Bestanden: server.js, tests/auth.test.js, testdocument-html/testpunten.js, sprintlog.md*
+
+---
+
+### Sprint 73 — Leerling-instap opnieuw ingedeeld — ✅ AFGEROND
+
+**Cat:** UX · Uit de testronde: het startscherm klopte niet meer met hoe leerlingen binnenkomen.
+
+**Startscherm: klasveld weg.** Het veld deed twee dingen fout. De dropdown vulde zich uit `/api/classes` met de klassen van **álle scholen**, dus een leerling van school A zag de klasnamen van school B. En de getypte klas werd toch **enkel als weergavenaam** bewaard — hij koppelde niets. Nu: naam + sessiecode, met de regel *"je doet mee als gast; je leerkracht koppelt je later aan de juiste klas"*. Dat klopt ook met de praktijk: bij het aanvaarden krijgt de leerling zijn echte klas.
+
+**Vrij oefenen blijft op het startscherm, als gast.** Je hoeft niets in te vullen (je heet dan "Gast"); vul je toch een naam in, dan wordt die gebruikt. Achter de login gebruikt vrij oefenen je **accountnaam**, zodat de leerkracht je herkent in het overzicht.
+
+**Nieuw keuzescherm na login** (`student-thuis.html`) met drie blokken: (1) de **open lessen van je eigen klas** in een dropdown, met leerkracht en starttijd; (2) een **sessiecode**-veld voor een toets, taak of een les die er niet bij staat; (3) **vrij oefenen**. Toetsen en taken staan bewust **niet** in de lijst — zo kan een leerling er niet uit afleiden dat er ergens een toets klaarstaat. De lege staat legt uit dat de lijst zich vanzelf vult. Wie al ingelogd is en `/student` opent, wordt hierheen gestuurd.
+
+**Technisch punt:** een gewone klassessie is **niet** aan een klas gekoppeld (dat bestaat enkel voor toetsen/taken). De bruikbare band is dus: sessies van leerkrachten die aan een van **mijn** klassen gekoppeld zijn (`teacher_classes`). Dat geeft precies "de lessen van mijn eigen leerkrachten" zonder iets van andere klassen of scholen te tonen.
+
+**Vrij oefenen beheren.** Nieuw in Systeem (super-admin): een **schakelaar** om vrij oefenen helemaal uit te zetten, een lijst van IP-adressen die vrij oefenden, en de mogelijkheid een IP te **blokkeren**. Twee bewuste keuzes: een geblokkeerd IP raakt enkel **gasten** — een ingelogde leerling is herkenbaar en mag door, want een school zit vaak achter één publiek IP en anders sluit je iedereen buiten. En IP-adressen worden **na 30 dagen automatisch gewist** (persoonsgegeven).
+
+*Test: tegen een draaiende server ingelogd als studentA — de lijst gaf exact één les (TDLESA5 van klas 5A, met leerkracht en tijdstip) en geen toetsen. `/api/student/sessions` zonder login geeft 401. De noodrem uitzetten zet `toegestaan` meteen op false. Suite 315 groen.*
+
+*Bestanden: db/database.js, server.js, public/student-thuis.html (nieuw), public/student-start.html, public/student-login.html, public/app.js, public/monitoring.html, public/monitoring.js, testdocument-html/testpunten.js, sprintlog.md*
 
 ---
 

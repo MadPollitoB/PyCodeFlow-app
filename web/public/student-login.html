@@ -63,7 +63,7 @@ async function login(){
         document.getElementById('changeStep').style.display='block';
         toon('ok','Ingelogd. Kies nu een nieuw wachtwoord.');
       } else {
-        window.location='/student';
+        window.location='/student-thuis.html';   // Sprint 73: keuzescherm na login
       }
     } else { toon('err', d.error || 'Inloggen mislukt.'); btn.disabled=false; }
   }catch(e){ toon('err','Er ging iets mis. Probeer opnieuw.'); btn.disabled=false; }
@@ -74,7 +74,7 @@ async function wijzig(){
   try{
     var r=await fetch('/api/student/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     var d=await r.json().catch(function(){return {};});
-    if(r.ok && d.ok){ window.location='/student'; }
+    if(r.ok && d.ok){ window.location='/student-thuis.html'; }   // na wachtwoordwijziging
     else { toon('err', d.error || 'Wijzigen mislukt.'); btn.disabled=false; }
   }catch(e){ toon('err','Er ging iets mis. Probeer opnieuw.'); btn.disabled=false; }
 }

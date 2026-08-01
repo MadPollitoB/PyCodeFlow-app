@@ -927,6 +927,7 @@ app.get('/teacher', (req, res) => {
 app.get('/student-register.html', (req, res) => res.sendFile(path.join(__dirname, 'public', 'student-register.html')));
 app.get('/student-login.html',    (req, res) => res.sendFile(path.join(__dirname, 'public', 'student-login.html')));
 app.get('/student-recover.html',  (req, res) => res.sendFile(path.join(__dirname, 'public', 'student-recover.html')));
+app.get('/student-thuis.html',    (req, res) => res.sendFile(path.join(__dirname, 'public', 'student-thuis.html')));
 
 // 52c — Zelfregistratie: klascode (actief) + voornaam + achternaam + school-e-mail
 // (domeincheck) + wachtwoord (2×) → account met status 'pending', gekoppeld aan de klas.
@@ -1055,6 +1056,68 @@ app.post('/api/student/logout', async (req, res) => {
     if (cookies.student_sid) await dbModule.deleteStudentSession(hashSessionToken(cookies.student_sid));
   } catch { /* best effort */ }
   voegCookieToe(res, 'student_sid=; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=0');
+  res.json({ ok: true });
+});
+
+// ── Sprint 73: waar kan deze ingelogde leerling naartoe? ────────────────────
+// Enkel open LESSEN van zijn eigen leerkrachten. Toetsen en taken staan er bewust niet
+// in: die gaan via de code, zodat de lijst niet verklapt dat er een toets klaarstaat.
+app.get('/api/student/sessions', requireStudentAuth, async (req, res) => {
+  try {
+    const rijen = await dbModule.listOpenSessionsForStudent(req.student.id);
+    res.json({
+      sessions: rijen.map(r => ({
+        code: r.code, name: r.name,
+        teacher: r.teacher_name || '',
+        className: r.class_name || '',
+        startedAt: Number(r.created_at),
+      })),
+      vrijOefenen: (await dbModule.getSetting('vrij_oefenen', 'aan')) !== 'uit',
+    });
+  } catch (e) {
+    log.error('[student sessions] fout:', e.message);
+    res.status(500).json({ error: 'Kon je lessen niet ophalen.' });
+  }
+});
+
+// Mag er (nog) vrij geoefend worden vanaf dit IP? Publiek: het startscherm vraagt dit
+// vóór het de knop toont, zodat een geblokkeerde bezoeker meteen weet waar hij aan toe is.
+app.get('/api/free-practice/status', async (req, res) => {
+  try {
+    const aan = (await dbModule.getSetting('vrij_oefenen', 'aan')) !== 'uit';
+    const geblokkeerd = await dbModule.isFreePracticeBlocked(getClientIp(req));
+    res.json({ toegestaan: aan && !geblokkeerd, uitgeschakeld: !aan, geblokkeerd });
+  } catch (e) { res.json({ toegestaan: true, uitgeschakeld: false, geblokkeerd: false }); }
+});
+
+// ── Sprint 73: beheer van vrij oefenen (enkel de platformbeheerder) ─────────
+app.get('/api/admin/free-practice', requireTeacherAuth, requireBeheer, requireSysteem, async (req, res) => {
+  try {
+    res.json({
+      aan: (await dbModule.getSetting('vrij_oefenen', 'aan')) !== 'uit',
+      recent: await dbModule.listFreePractice(100),
+      blocks: await dbModule.listFreePracticeBlocks(),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/admin/free-practice/enabled', requireTeacherAuth, requireBeheer, requireSysteem, requireCsrf, async (req, res) => {
+  const aan = req.body?.aan !== false;
+  await dbModule.setSetting('vrij_oefenen', aan ? 'aan' : 'uit');
+  dbModule.auditLog(getActorFromReq(req), aan ? 'vrij_oefenen_aan' : 'vrij_oefenen_uit', '', {}, req.ip).catch(() => {});
+  res.json({ ok: true, aan });
+});
+
+app.post('/api/admin/free-practice/block', requireTeacherAuth, requireBeheer, requireSysteem, requireCsrf, async (req, res) => {
+  const ip = String(req.body?.ip || '').trim();
+  if (!ip) return res.status(400).json({ error: 'IP is verplicht.' });
+  await dbModule.blockFreePractice(ip, req.body?.reason || '', req.teacher?.username || '');
+  dbModule.auditLog(getActorFromReq(req), 'vrij_oefenen_ip_geblokkeerd', ip, {}, req.ip).catch(() => {});
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/free-practice/block/:ip', requireTeacherAuth, requireBeheer, requireSysteem, requireCsrf, async (req, res) => {
+  await dbModule.unblockFreePractice(req.params.ip);
   res.json({ ok: true });
 });
 
@@ -5688,15 +5751,27 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
 
   // ── Vrije sessie ────────────────────────────────────────────────────────────
   // Leerling meldt zich aan voor vrij oefenen (geen sessiecode vereist).
-  socket.on("student_join_free", ({ name, className }) => {
-    const normalizedName = String(name || "").trim();
-    const normalizedClass = String(className || "").trim();
-    if (!normalizedName) {
-      return socket.emit("error_message", "Geef eerst je naam in.");
-    }
-    if (!normalizedClass) {
-      return socket.emit("error_message", "Geef eerst je klas in.");
-    }
+  socket.on("student_join_free", async ({ name, className }) => {
+    // Sprint 73: vrij oefenen kan als GAST (dan hoef je niets in te vullen) of onder je
+    // eigen account. De klas is geen vereiste meer: zonder klas ben je gewoon gast.
+    const ingelogd = socket.data.student || null;
+    const normalizedName = ingelogd?.name || String(name || "").trim() || 'Gast';
+    let normalizedClass = String(className || "").trim();
+    if (!normalizedClass) normalizedClass = ingelogd ? '' : 'Gast';
+
+    // Noodrem + IP-blokkade (enkel voor gasten; een ingelogde leerling is herkenbaar
+    // en hoort niet mee te vallen met een geblokkeerd school-IP).
+    const ip = socket.handshake?.address || '';
+    try {
+      if ((await dbModule.getSetting('vrij_oefenen', 'aan')) === 'uit') {
+        return socket.emit("error_message", "Vrij oefenen is momenteel uitgeschakeld door de beheerder.");
+      }
+      if (!ingelogd && await dbModule.isFreePracticeBlocked(ip)) {
+        return socket.emit("error_message", "Vrij oefenen is vanaf dit toestel niet beschikbaar. Log in met je account of vraag je leerkracht om hulp.");
+      }
+      dbModule.logFreePractice({ ip, name: normalizedName, studentId: ingelogd?.id || null }).catch(() => {});
+    } catch (e) { log.warn('[vrij oefenen] controle mislukt:', e.message); }
+
     const id = crypto.randomUUID();
     const student = {
       id,

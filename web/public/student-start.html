@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Deelnemen</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.49.14"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.49.15"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .btn-divider {
@@ -32,43 +32,45 @@
       <label for="student-name">Naam</label>
       <input id="student-name" placeholder="vb.: Emma" autocomplete="off"/>
     </div>
-    <div class="input-group">
-      <label for="student-class">Klas</label>
-      <!-- Sprint 13B: dropdown of tekstveld afhankelijk van beschikbare klassen -->
-      <select id="student-class-select" style="display:none;width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:12px;font-size:1rem;background:var(--surface);color:var(--text);">
-        <option value="">— Geen klas / Gast —</option>
-      </select>
-      <input id="student-class" placeholder="vb.: 3A" autocomplete="off" style="display:none;"/>
-      <span id="student-class-loading" style="color:var(--muted);font-size:0.85rem;">Klassen ophalen...</span>
-    </div>
+    <!-- Sprint 73: het klasveld is weg. De getypte klas werd toch enkel als weergavenaam
+         bewaard en koppelde niets; bovendien toonde de dropdown de klassen van ALLE
+         scholen. Wie deelneemt zonder account is gast; de leerkracht koppelt hem later. -->
+    <input type="hidden" id="student-class" value=""/>
     <div class="input-group" id="code-group">
       <label for="student-code">Sessiecode</label>
       <input id="student-code" placeholder="vb.: AB12CD" autocomplete="off"/>
     </div>
+    <p class="free-note" style="margin:-4px 0 14px;">
+      👤 Je doet mee als <strong>gast</strong>. Je leerkracht koppelt je later aan de juiste klas.</p>
     <div class="row" style="gap:10px; flex-wrap:wrap;">
       <button class="btn btn-primary" id="student-join-btn">Deelnemen</button>
     </div>
     <div class="btn-divider">of</div>
-    <div class="row">
-      <button class="btn btn-soft" id="student-free-btn">Vrij oefenen</button>
-    </div>
-    <p class="free-note">Vrij oefenen vereist geen sessiecode. Je naam en klas worden wel bijgehouden.</p>
-    <div id="student-start-error" class="muted" style="margin-top:12px;"></div>
-    <div class="btn-divider">met een account</div>
     <div class="row" style="gap:10px;">
-      <a class="btn btn-muted" href="/student-login.html">🔑 Inloggen</a>
-      <a class="btn btn-muted" href="/student-register.html">✏️ Account aanmaken</a>
+      <a class="btn btn-muted" href="/student-login.html" style="flex:1;justify-content:center;">🔑 Inloggen</a>
+      <a class="btn btn-muted" href="/student-register.html" style="flex:1;justify-content:center;">✏️ Account aanmaken</a>
     </div>
+    <p class="free-note" style="text-align:center;">Met een account kan je ook aan toetsen en taken deelnemen.</p>
+    <div class="btn-divider">gewoon wat proberen?</div>
+    <div class="row">
+      <button class="btn btn-soft" id="student-free-btn" style="width:100%;justify-content:center;">🐍 Vrij oefenen als gast</button>
+    </div>
+    <p class="free-note" style="text-align:center;" id="vrij-oefenen-note">Geen account nodig. Je werk wordt niet bewaard.</p>
+    <div id="student-start-error" class="muted" style="margin-top:12px;"></div>
+  </div>
     <p class="free-note">Met een account (school-e-mail + klascode) kan je later ook aan toetsen en taken deelnemen.</p>
   </div>
 </div>
-</div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=v2026.2.49.14"></script>
+</div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=v2026.2.49.15"></script>
 <script>
 // Sprint 52g: is de leerling ingelogd? Zo ja: naam voorinvullen + status tonen.
 (async function(){
   try{
     var r = await fetch('/api/student/me');
     if(!r.ok) return; // niet ingelogd → gewone (naam-gebaseerde) instap
+    // Sprint 73: wie al ingelogd is hoort op het keuzescherm — daar staan zijn lessen.
+    window.location.replace('/student-thuis.html');
+    return;
     var me = await r.json();
     var banner = document.getElementById('account-banner');
     var naam = document.getElementById('student-name');

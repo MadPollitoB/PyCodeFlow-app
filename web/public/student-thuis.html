@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="nl"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PyCodeFlow — Waar wil je naartoe?</title>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.49.15"/>
+<link rel="icon" href="assets/favicon.png" type="image/png">
+<style>
+  .blok { border:1.5px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .blok label.kop { display:block; font-weight:600; font-size:0.92rem; margin-bottom:5px; }
+  .blok select, .blok input { width:100%; padding:12px 14px; border:1.5px solid var(--border);
+    border-radius:12px; font-size:1rem; background:var(--surface); color:var(--text); box-sizing:border-box; }
+  .banner { background:#dcfce7; color:#166534; padding:9px 13px; border-radius:10px;
+    font-size:0.86rem; margin:10px 0 20px; }
+  .banner.pending { background:#fef3c7; color:#92400e; }
+  .code-rij { display:flex; gap:8px; }
+  .code-rij input { flex:1; text-transform:uppercase; letter-spacing:1px; }
+</style>
+</head><body>
+<div class="topbar"><div class="topbar-inner">
+  <div class="logo-group"><img src="/assets/pycodeflow-logo.png" class="logo-small" alt=""/><span>PyCodeFlow</span></div>
+  <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a></div>
+</div></div>
+
+<div class="page">
+  <div class="card screen" style="max-width:600px;margin:0 auto;">
+    <h1 style="margin:0;">Waar wil je naartoe?</h1>
+    <div class="banner" id="banner">Laden…</div>
+
+    <div class="blok" id="blok-lessen">
+      <label class="kop">🟢 Open lessen van jouw klas</label>
+      <div id="lessen-inhoud"><p class="muted" style="margin:0;font-size:0.88rem;">Laden…</p></div>
+    </div>
+
+    <div class="blok">
+      <label class="kop">🔢 Ik heb een sessiecode</label>
+      <p class="muted" style="font-size:0.8rem;margin:0 0 8px;">
+        Voor een <strong>toets of taak</strong>, of een les die hierboven niet staat.</p>
+      <div class="code-rij">
+        <input id="code" placeholder="vb.: AB12CD" autocomplete="off"
+               onkeydown="if(event.key==='Enter')gaMetCode()"/>
+        <button class="btn btn-muted" onclick="gaMetCode()">Ga</button>
+      </div>
+      <div id="code-fout" class="muted" style="font-size:0.82rem;margin-top:8px;color:#991b1b;"></div>
+    </div>
+
+    <div class="blok" id="blok-oefenen" style="border-style:dashed;">
+      <button class="btn btn-soft" style="width:100%;justify-content:center;" onclick="vrijOefenen()">🐍 Vrij oefenen</button>
+      <p class="muted" style="font-size:0.8rem;margin:8px 0 0;text-align:center;">
+        Onder je eigen naam — je leerkracht ziet je in het overzicht.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+let MIJ = null;
+
+function esc(x) { const d = document.createElement('div'); d.textContent = x == null ? '' : String(x); return d.innerHTML; }
+
+async function laad() {
+  try {
+    const r = await fetch('/api/student/me');
+    if (!r.ok) { location.href = '/student-login.html'; return; }   // niet (meer) ingelogd
+    MIJ = await r.json();
+  } catch (e) { location.href = '/student-login.html'; return; }
+
+  const b = document.getElementById('banner');
+  const pending = MIJ.status === 'pending';
+  b.className = 'banner' + (pending ? ' pending' : '');
+  b.innerHTML = 'Ingelogd als <strong>' + esc(MIJ.name || MIJ.email) + '</strong>'
+    + ' · <a href="#" id="uit" style="text-decoration:underline;">uitloggen</a>'
+    + (pending ? '<br/><span style="font-size:0.82rem;">Je account is nog niet aanvaard. Je kan al meedoen aan een les en vrij oefenen, maar nog niet aan een toets of taak.</span>' : '');
+  document.getElementById('uit').addEventListener('click', async function (e) {
+    e.preventDefault();
+    await fetch('/api/student/logout', { method: 'POST' });
+    location.href = '/student';
+  });
+
+  try {
+    const r = await fetch('/api/student/sessions');
+    const d = r.ok ? await r.json() : { sessions: [], vrijOefenen: true };
+    toonLessen(d.sessions || []);
+    if (d.vrijOefenen === false) {
+      document.getElementById('blok-oefenen').innerHTML =
+        '<p class="muted" style="margin:0;text-align:center;font-size:0.88rem;">Vrij oefenen is momenteel uitgeschakeld.</p>';
+    }
+  } catch (e) { toonLessen([]); }
+}
+
+function toonLessen(lessen) {
+  const doel = document.getElementById('lessen-inhoud');
+  if (!lessen.length) {
+    doel.innerHTML = '<p class="muted" style="margin:0;font-size:0.88rem;">Er is op dit moment geen les bezig.'
+      + ' Zodra je leerkracht een sessie start, verschijnt ze hier vanzelf.</p>';
+    document.getElementById('blok-lessen').style.background = 'var(--bg)';
+    return;
+  }
+  doel.innerHTML =
+    '<select id="les-keuze">' + lessen.map(function (l) {
+      const tijd = new Date(l.startedAt).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' });
+      return '<option value="' + esc(l.code) + '">' + esc(l.name)
+           + (l.teacher ? ' · ' + esc(l.teacher) : '') + ' · sinds ' + tijd + '</option>';
+    }).join('') + '</select>'
+    + '<button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:10px;" onclick="gaNaarLes()">Deelnemen aan deze les</button>';
+}
+
+function naarSessie(code) {
+  const naam = encodeURIComponent(MIJ?.name || '');
+  location.href = '/student-app.html?code=' + encodeURIComponent(code) + '&name=' + naam;
+}
+
+function gaNaarLes() {
+  const sel = document.getElementById('les-keuze');
+  if (sel && sel.value) naarSessie(sel.value);
+}
+
+function gaMetCode() {
+  const code = (document.getElementById('code').value || '').trim().toUpperCase();
+  const fout = document.getElementById('code-fout');
+  if (!code) { fout.textContent = 'Vul eerst een sessiecode in.'; return; }
+  fout.textContent = '';
+  naarSessie(code);
+}
+
+function vrijOefenen() {
+  // Naam en klas komen uit het account; de server neemt ze over van de sessie.
+  try {
+    localStorage.setItem('student_name', MIJ?.name || '');
+  } catch (e) { /* stil */ }
+  location.href = '/free-editor.html';
+}
+
+laad();
+</script>
+</body></html>

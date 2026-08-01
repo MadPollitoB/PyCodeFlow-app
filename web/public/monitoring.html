@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Systeembeheer</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.49.14"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.49.15"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .mon-grid {
@@ -396,6 +396,22 @@
 
   <!-- Backup sectie -->
   <div style="margin-top:28px;">
+    <h2>🐍 Vrij oefenen <span style="font-size:0.8rem;font-weight:400;color:var(--muted);">(Sprint 73)</span></h2>
+    <p class="muted" style="font-size:0.86rem;margin:0 0 10px;">
+      Vrij oefenen kan zonder account. Hier zie je vanaf welke IP-adressen dat gebeurt en kan je
+      misbruik stoppen. <strong>Let op:</strong> een school zit meestal achter één publiek IP —
+      blokkeer je dat, dan sluit je iedereen van die school buiten. De schakelaar hieronder is
+      de veiligere noodrem. IP-adressen worden na 30 dagen automatisch gewist.
+    </p>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+      <label class="checkbox-row" style="cursor:pointer;">
+        <input type="checkbox" id="vrij-oefenen-aan" onchange="zetVrijOefenen(this.checked)"/>
+        <strong>Vrij oefenen toestaan</strong>
+      </label>
+      <button class="btn btn-muted small" onclick="laadVrijOefenen()">↻ Vernieuwen</button>
+    </div>
+    <div id="vrij-oefenen-inhoud"><p class="muted">Laden…</p></div>
+
     <h2>💾 Database backup</h2>
     <div class="mon-grid">
       <div class="mon-card">
@@ -599,8 +615,8 @@
 
 <!-- 48b3: app.js zorgt voor het schoollogo in de topbalk (geen page-blok voor deze
      pagina, dus verder gebeurt er niets) -->
-<script src="/app.js?v=v2026.2.49.14"></script>
-<script src="/monitoring.js?v=v2026.2.49.14"></script>
+<script src="/app.js?v=v2026.2.49.15"></script>
+<script src="/monitoring.js?v=v2026.2.49.15"></script>
 
 
 

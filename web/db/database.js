@@ -278,6 +278,34 @@ async function initSchema() {
     END $$;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_classes_start_code ON classes (start_code) WHERE start_code IS NOT NULL;
 
+    -- ── Sprint 73: vrij oefenen — IP-registratie + blokkeerlijst ──────────────
+    -- Een IP is een persoonsgegeven, dus met een vervaltermijn (opgeruimd na 30 dagen).
+    -- Enkel voor VRIJ OEFENEN: dat is de enige plek zonder account waar iemand kan werken.
+    CREATE TABLE IF NOT EXISTS free_practice_log (
+      id         TEXT PRIMARY KEY,
+      ip         TEXT NOT NULL DEFAULT '',
+      name       TEXT NOT NULL DEFAULT '',
+      student_id TEXT,                        -- gevuld wanneer de leerling ingelogd was
+      started_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_free_log_ip ON free_practice_log(ip);
+    CREATE INDEX IF NOT EXISTS idx_free_log_tijd ON free_practice_log(started_at);
+
+    CREATE TABLE IF NOT EXISTS free_practice_blocks (
+      ip         TEXT PRIMARY KEY,
+      reason     TEXT NOT NULL DEFAULT '',
+      blocked_by TEXT NOT NULL DEFAULT '',
+      blocked_at BIGINT NOT NULL
+    );
+
+    -- Kleine sleutel-waardetabel voor instellingen die je live wil kunnen omzetten
+    -- (nu: de noodrem "vrij oefenen aan/uit").
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key        TEXT PRIMARY KEY,
+      value      TEXT NOT NULL DEFAULT '',
+      updated_at BIGINT NOT NULL
+    );
+
     -- ── Sprint 70: handmatige status per leerling per toets ───────────────────
     -- Voor leerlingen die NIETS maakten bestaat er geen rij in quiz_answers, dus kan de
     -- leerkracht daar niets bij noteren. Enkel handmatige waarden staan hier; de rest
@@ -2469,6 +2497,84 @@ module.exports = {
        WHERE session_code = $3 AND student_id = $4 AND submitted_at IS NULL`,
       [now, autoSubmitted, sessionCode, studentId, wie]
     );
+  },
+
+  // ── Sprint 73: vrij oefenen ────────────────────────────────────────────────
+  async logFreePractice({ ip, name, studentId = null }) {
+    await query(
+      `INSERT INTO free_practice_log (id, ip, name, student_id, started_at) VALUES ($1,$2,$3,$4,$5)`,
+      [crypto.randomUUID(), String(ip || '').slice(0, 64), String(name || '').slice(0, 80), studentId, Date.now()]
+    ).catch(() => {});
+    // Opruimen: ouder dan 30 dagen weg (IP = persoonsgegeven, niet eeuwig bewaren).
+    await query(`DELETE FROM free_practice_log WHERE started_at < $1`,
+      [Date.now() - 30 * 86400000]).catch(() => {});
+  },
+
+  async listFreePractice(limit = 100) {
+    const r = await query(
+      `SELECT ip, MAX(name) AS name, COUNT(*)::int AS sessies, MAX(started_at) AS laatst,
+              BOOL_OR(student_id IS NOT NULL) AS met_account
+         FROM free_practice_log GROUP BY ip ORDER BY MAX(started_at) DESC LIMIT $1`, [limit]);
+    return r.rows;
+  },
+
+  async isFreePracticeBlocked(ip) {
+    if (!ip) return false;
+    const r = await query(`SELECT 1 FROM free_practice_blocks WHERE ip = $1 LIMIT 1`, [String(ip)]);
+    return r.rows.length > 0;
+  },
+
+  async listFreePracticeBlocks() {
+    const r = await query(`SELECT * FROM free_practice_blocks ORDER BY blocked_at DESC`);
+    return r.rows;
+  },
+
+  async blockFreePractice(ip, reason, by) {
+    await query(
+      `INSERT INTO free_practice_blocks (ip, reason, blocked_by, blocked_at) VALUES ($1,$2,$3,$4)
+       ON CONFLICT (ip) DO UPDATE SET reason = EXCLUDED.reason, blocked_by = EXCLUDED.blocked_by,
+                                      blocked_at = EXCLUDED.blocked_at`,
+      [String(ip), String(reason || '').slice(0, 200), String(by || '').slice(0, 64), Date.now()]);
+  },
+
+  async unblockFreePractice(ip) {
+    await query(`DELETE FROM free_practice_blocks WHERE ip = $1`, [String(ip)]);
+  },
+
+  // ── Sprint 73: instellingen (sleutel/waarde) ───────────────────────────────
+  async getSetting(key, standaard = null) {
+    const r = await query(`SELECT value FROM app_settings WHERE key = $1`, [key]);
+    return r.rows.length ? r.rows[0].value : standaard;
+  },
+
+  async setSetting(key, value) {
+    await query(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES ($1,$2,$3)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
+      [key, String(value), Date.now()]);
+  },
+
+  // ── Sprint 73: open klassessies die voor deze leerling relevant zijn ───────
+  // Enkel LESSEN (mode <> 'quiz'): toetsen en taken gaan bewust via de code, zodat een
+  // leerling niet uit een lijst kan afleiden dat er ergens een toets klaarstaat.
+  //
+  // Let op: een gewone klassessie is NIET aan een klas gekoppeld (dat bestaat enkel voor
+  // toetsen/taken). De bruikbare band is dus: sessies van leerkrachten die aan een van
+  // MIJN klassen gekoppeld zijn (teacher_classes). Dat geeft precies "de lessen van mijn
+  // eigen leerkrachten" en lekt niets van andere klassen of scholen.
+  async listOpenSessionsForStudent(studentId) {
+    const r = await query(
+      `SELECT DISTINCT s.code, s.name, s.created_at,
+              t.display_name AS teacher_name,
+              c.name AS class_name
+         FROM sessions s
+         JOIN teachers t          ON t.id = s.teacher_id
+         JOIN teacher_classes tc  ON tc.teacher_id = t.id
+         JOIN classes c           ON c.id = tc.class_id
+         JOIN class_memberships m ON m.class_id = c.id AND m.student_id = $1
+        WHERE s.closed = 0 AND s.deleted = 0 AND s.mode <> 'quiz'
+        ORDER BY s.created_at DESC`, [studentId]);
+    return r.rows;
   },
 
   // ── Sprint 71: alle toetsen/taken van één klas + schooljaar (voor de matrix) ─

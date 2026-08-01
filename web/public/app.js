@@ -1575,38 +1575,26 @@
   }
 
   if (page === 'student-start.html' || page === 'student') {
-    // Sprint 13B: klas-dropdown initialiseren
+    // Sprint 73: de klas-dropdown is verwijderd. Ze vulde zich met de klassen van ÁLLE
+    // scholen (dus school A zag de klasnamen van school B) en de getypte klas werd toch
+    // enkel als weergavenaam bewaard. Wie zonder account deelneemt is gewoon gast;
+    // de leerkracht koppelt hem daarna aan de juiste klas.
     (async () => {
-      const loading = document.getElementById('student-class-loading');
-      const selectEl = document.getElementById('student-class-select');
-      const inputEl  = document.getElementById('student-class');
+      // Vrij oefenen kan uitgeschakeld of geblokkeerd zijn — dan de knop niet tonen.
       try {
-        const r = await fetch('/api/classes');
-        const classes = await r.json();
-        if (loading) loading.style.display = 'none';
-        if (classes.length > 0) {
-          // Dropdown beschikbaar
-          classes.forEach(cls => {
-            const opt = document.createElement('option');
-            opt.value = cls.name;
-            opt.textContent = cls.name;
-            selectEl?.appendChild(opt);
-          });
-          if (selectEl) selectEl.style.display = '';
-          // Herstel vorige keuze
-          const saved = getLS('student_class');
-          if (saved && selectEl) {
-            const match = [...selectEl.options].find(o => o.value === saved);
-            if (match) selectEl.value = saved;
+        const r = await fetch('/api/free-practice/status');
+        if (r.ok) {
+          const st = await r.json();
+          if (!st.toegestaan) {
+            const knop = document.getElementById('student-free-btn');
+            const note = document.getElementById('vrij-oefenen-note');
+            if (knop) knop.remove();
+            if (note) note.textContent = st.uitgeschakeld
+              ? 'Vrij oefenen is momenteel uitgeschakeld door de beheerder.'
+              : 'Vrij oefenen is vanaf dit toestel niet beschikbaar. Log in met je account.';
           }
-        } else {
-          // Geen klassen — gebruik vrij tekstveld
-          if (inputEl) inputEl.style.display = '';
         }
-      } catch {
-        if (loading) loading.style.display = 'none';
-        if (inputEl) inputEl.style.display = ''; // fallback bij API fout
-      }
+      } catch (e) { /* stil: bij twijfel gewoon tonen, de server weigert desnoods */ }
     })();
     const nameInput = qs('student-name');
     const codeInput = qs('student-code');
@@ -1622,11 +1610,9 @@
     const submitStudentJoin = () => {
       const name = normalizeStudentFieldValue(qs('student-name')?.value, 'name');
       const code = normalizeStudentFieldValue(qs('student-code')?.value, 'code');
-      // Sprint 13B: klas ophalen uit dropdown of vrij tekstveld
-      const selectEl = document.getElementById('student-class-select');
-      const inputEl  = document.getElementById('student-class');
-      const className = ((selectEl?.style.display !== 'none' ? selectEl?.value : inputEl?.value) || '').trim();
-      if (className) setLS('student_class', className);
+      // Sprint 73: geen klasveld meer op het startscherm — wie zonder account deelneemt
+      // is gast; de leerkracht koppelt hem nadien aan de juiste klas.
+      const className = '';
       const errorEl = qs('student-start-error');
       if (!name) {
         if (errorEl) errorEl.textContent = 'Geef eerst je naam in. De placeholder telt niet als naam.';
@@ -1650,24 +1636,15 @@
       if (e.key === 'Enter') submitStudentJoin();
     });
 
-    // Vrij oefenen: geen sessiecode nodig, wel naam en klas
+    // Sprint 73: vrij oefenen als GAST — je hoeft niets in te vullen. Vul je toch een
+    // naam in, dan gebruiken we die; anders word je gewoon 'Gast'. De klas vervalt.
     const submitFreeJoin = () => {
-      const name = normalizeStudentFieldValue(qs('student-name')?.value, 'name');
-      // Sprint 13B: klas uit dropdown of tekstveld
-      const selectEl = document.getElementById('student-class-select');
-      const inputEl  = document.getElementById('student-class');
-      const className = ((selectEl?.style.display !== 'none' ? selectEl?.value : inputEl?.value) || '').trim();
-      if (className) setLS('student_class', className);
+      const name = normalizeStudentFieldValue(qs('student-name')?.value, 'name') || 'Gast';
       const errorEl = qs('student-start-error');
-      if (!name) {
-        if (errorEl) errorEl.textContent = 'Geef eerst je naam in.';
-        qs('student-name')?.focus();
-        return;
-      }
       if (errorEl) errorEl.textContent = '';
       setLS('freeStudentName', name);
-      setLS('freeStudentClass', className);
-      socket.emit('student_join_free', { name, className });
+      setLS('freeStudentClass', '');
+      socket.emit('student_join_free', { name, className: '' });
     };
 
     qs('student-free-btn')?.addEventListener('click', submitFreeJoin);
