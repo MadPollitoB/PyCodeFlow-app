@@ -291,6 +291,15 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_free_log_ip ON free_practice_log(ip);
     CREATE INDEX IF NOT EXISTS idx_free_log_tijd ON free_practice_log(started_at);
 
+    -- Sprint 75: vrij oefenen kan ook per LEERLING-ACCOUNT geblokkeerd worden. Een IP
+    -- treft iedereen op die school; dit treft precies één leerling.
+    CREATE TABLE IF NOT EXISTS free_practice_student_blocks (
+      student_id TEXT PRIMARY KEY,
+      reason     TEXT NOT NULL DEFAULT '',
+      blocked_by TEXT NOT NULL DEFAULT '',
+      blocked_at BIGINT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS free_practice_blocks (
       ip         TEXT PRIMARY KEY,
       reason     TEXT NOT NULL DEFAULT '',
@@ -614,10 +623,6 @@ async function initSchema() {
       -- Sprint 69: 'no_back' = terugbladeren verboden (1 kans per vraag). 'stopped_at' =
       -- door de leerkracht gestopt: iedereen ingeleverd én niemand kan nog starten.
       BEGIN ALTER TABLE assignment_bank ADD COLUMN no_back BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
-      -- Sprint 70: WIE diende in? 'auto_submitted' stond op true voor zowel de timer als
-      -- de stopknop van de leerkracht, terwijl die twee een ANDERE status opleveren
-      -- (timer = op tijd, stopknop = te laat). Vandaar een expliciete waarde.
-      BEGIN ALTER TABLE quiz_answers ADD COLUMN submitted_by TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE assignment_bank ADD COLUMN stopped_at BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
       -- 37d: nakijk-modus. Leerkracht stelt expliciet open; leerlingen kunnen dan
       -- hun eigen toets read-only inzien (los van results_released).
@@ -664,6 +669,16 @@ async function initSchema() {
       auto_scored      BOOLEAN NOT NULL DEFAULT false,
       UNIQUE(session_code, student_id, question_id)
     );
+
+    -- Sprint 70 (verplaatst in 75): WIE diende in? 'auto_submitted' stond op true voor
+    -- zowel de timer als de stopknop van de leerkracht, terwijl die twee een ANDERE
+    -- status opleveren (timer = op tijd, stopknop = te laat). Vandaar een expliciete
+    -- waarde. LET OP: deze migratie moet ná CREATE TABLE quiz_answers staan — stond ze
+    -- ervóór, dan brak een VERSE installatie ("relation quiz_answers does not exist").
+    DO $$
+    BEGIN
+      BEGIN ALTER TABLE quiz_answers ADD COLUMN submitted_by TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+    END $$;
     DO $$ BEGIN
       BEGIN ALTER TABLE quiz_answers ADD COLUMN selected_choices TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE quiz_answers ADD COLUMN auto_scored BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
@@ -2539,6 +2554,44 @@ module.exports = {
 
   async unblockFreePractice(ip) {
     await query(`DELETE FROM free_practice_blocks WHERE ip = $1`, [String(ip)]);
+  },
+
+  // ── Sprint 75: vrij oefenen blokkeren per leerling-account ─────────────────
+  async isFreePracticeStudentBlocked(studentId) {
+    if (!studentId) return false;
+    const r = await query(`SELECT 1 FROM free_practice_student_blocks WHERE student_id = $1 LIMIT 1`, [studentId]);
+    return r.rows.length > 0;
+  },
+
+  async listFreePracticeStudentBlocks() {
+    const r = await query(
+      `SELECT b.*, s.name, s.email FROM free_practice_student_blocks b
+         LEFT JOIN students s ON s.id = b.student_id
+        ORDER BY b.blocked_at DESC`);
+    return r.rows;
+  },
+
+  async blockFreePracticeStudent(studentId, reason, by) {
+    await query(
+      `INSERT INTO free_practice_student_blocks (student_id, reason, blocked_by, blocked_at)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (student_id) DO UPDATE SET reason = EXCLUDED.reason,
+         blocked_by = EXCLUDED.blocked_by, blocked_at = EXCLUDED.blocked_at`,
+      [studentId, String(reason || '').slice(0, 200), String(by || '').slice(0, 64), Date.now()]);
+  },
+
+  async unblockFreePracticeStudent(studentId) {
+    await query(`DELETE FROM free_practice_student_blocks WHERE student_id = $1`, [studentId]);
+  },
+
+  // Leerlingen zoeken om te blokkeren (naam of e-mail).
+  async zoekLeerlingen(term, limit = 20) {
+    const t = '%' + String(term || '').trim().toLowerCase() + '%';
+    const r = await query(
+      `SELECT id, name, email FROM students
+        WHERE LOWER(name) LIKE $1 OR LOWER(COALESCE(email,'')) LIKE $1
+        ORDER BY name LIMIT $2`, [t, limit]);
+    return r.rows;
   },
 
   // ── Sprint 73: instellingen (sleutel/waarde) ───────────────────────────────

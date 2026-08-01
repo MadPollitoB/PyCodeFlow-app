@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Systeembeheer</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.49.15"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.49.17"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .mon-grid {
@@ -403,13 +403,22 @@
       blokkeer je dat, dan sluit je iedereen van die school buiten. De schakelaar hieronder is
       de veiligere noodrem. IP-adressen worden na 30 dagen automatisch gewist.
     </p>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+    <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
       <label class="checkbox-row" style="cursor:pointer;">
-        <input type="checkbox" id="vrij-oefenen-aan" onchange="zetVrijOefenen(this.checked)"/>
-        <strong>Vrij oefenen toestaan</strong>
+        <input type="checkbox" id="vrij-gasten" onchange="zetVrijOefenen('gasten', this.checked)"/>
+        <strong>Toestaan voor gasten</strong>
+        <span class="muted" style="font-size:0.8rem;">(zonder account, via het startscherm)</span>
+      </label>
+      <label class="checkbox-row" style="cursor:pointer;">
+        <input type="checkbox" id="vrij-accounts" onchange="zetVrijOefenen('accounts', this.checked)"/>
+        <strong>Toestaan voor ingelogde leerlingen</strong>
       </label>
       <button class="btn btn-muted small" onclick="laadVrijOefenen()">↻ Vernieuwen</button>
     </div>
+    <p class="muted" style="font-size:0.82rem;margin:-4px 0 12px;">
+      Zet je iets uit, dan worden lopende sessies meteen beëindigd en gaan die schermen terug
+      naar het startscherm — een openstaand tabblad kan dus niet blijven doorwerken.
+    </p>
     <div id="vrij-oefenen-inhoud"><p class="muted">Laden…</p></div>
 
     <h2>💾 Database backup</h2>
@@ -615,8 +624,8 @@
 
 <!-- 48b3: app.js zorgt voor het schoollogo in de topbalk (geen page-blok voor deze
      pagina, dus verder gebeurt er niets) -->
-<script src="/app.js?v=v2026.2.49.15"></script>
-<script src="/monitoring.js?v=v2026.2.49.15"></script>
+<script src="/app.js?v=v2026.2.49.17"></script>
+<script src="/monitoring.js?v=v2026.2.49.17"></script>
 
 
 

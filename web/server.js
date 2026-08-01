@@ -1059,6 +1059,55 @@ app.post('/api/student/logout', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Sprint 75: mag er vrij geoefend worden? Eén plek, drie niveaus ─────────
+// De schakelaars staan apart voor GASTEN en voor ACCOUNTS, want dat zijn verschillende
+// problemen: een gast is anoniem (enkel een IP als aanknopingspunt), een account is een
+// bekende leerling die je gericht kan aanpakken. Daarnaast kan je één leerling blokkeren.
+// Geeft { toegestaan, reden } — reden is de tekst die de leerling te zien krijgt.
+async function magVrijOefenen({ studentId = null, ip = '' } = {}) {
+  const ingelogd = !!studentId;
+  const sleutel = ingelogd ? 'vrij_oefenen_accounts' : 'vrij_oefenen_gasten';
+  try {
+    if ((await dbModule.getSetting(sleutel, 'aan')) === 'uit') {
+      return { toegestaan: false, reden: ingelogd
+        ? 'Vrij oefenen is momenteel uitgeschakeld door de beheerder.'
+        : 'Vrij oefenen zonder account is momenteel uitgeschakeld. Log in met je account.' };
+    }
+    if (ingelogd && await dbModule.isFreePracticeStudentBlocked(studentId)) {
+      return { toegestaan: false,
+        reden: 'Vrij oefenen is voor jouw account uitgeschakeld. Vraag je leerkracht om hulp.' };
+    }
+    // Een IP-blokkade treft enkel gasten: een school zit vaak achter één publiek IP en
+    // een ingelogde leerling is herkenbaar, dus die pakken we gericht aan (zie hierboven).
+    if (!ingelogd && await dbModule.isFreePracticeBlocked(ip)) {
+      return { toegestaan: false,
+        reden: 'Vrij oefenen is vanaf dit toestel niet beschikbaar. Log in met je account of vraag je leerkracht om hulp.' };
+    }
+  } catch (e) {
+    log.warn('[vrij oefenen] controle mislukt:', e.message);
+  }
+  return { toegestaan: true, reden: '' };
+}
+
+// Sprint 75: wie NU vrij aan het oefenen is en het niet meer mag, moet zijn scherm zien
+// sluiten. Anders houdt iemand die je net blokkeerde gewoon zijn tabblad open en werkt
+// hij vrolijk verder. Wordt aangeroepen na elke wijziging van een schakelaar of blokkade.
+async function verwijderVerbodenVrijeSessies(reden = 'De beheerder heeft vrij oefenen uitgeschakeld.') {
+  let weg = 0;
+  for (const [socketId, student] of freeStudents.entries()) {
+    const check = await magVrijOefenen({ studentId: student.dbStudentId || null, ip: student.ip || '' });
+    if (check.toegestaan) continue;
+    io.to(socketId).emit('free_practice_revoked', { reden: check.reden || reden });
+    freeStudents.delete(socketId);
+    weg++;
+  }
+  if (weg) {
+    io.emit('free_students_updated');
+    log.info(`[vrij oefenen] ${weg} lopende sessie(s) beëindigd na een wijziging`);
+  }
+  return weg;
+}
+
 // ── Sprint 73: waar kan deze ingelogde leerling naartoe? ────────────────────
 // Enkel open LESSEN van zijn eigen leerkrachten. Toetsen en taken staan er bewust niet
 // in: die gaan via de code, zodat de lijst niet verklapt dat er een toets klaarstaat.
@@ -1072,7 +1121,7 @@ app.get('/api/student/sessions', requireStudentAuth, async (req, res) => {
         className: r.class_name || '',
         startedAt: Number(r.created_at),
       })),
-      vrijOefenen: (await dbModule.getSetting('vrij_oefenen', 'aan')) !== 'uit',
+      vrijOefenen: (await magVrijOefenen({ studentId: req.student.id, ip: getClientIp(req) })).toegestaan,
     });
   } catch (e) {
     log.error('[student sessions] fout:', e.message);
@@ -1084,28 +1133,85 @@ app.get('/api/student/sessions', requireStudentAuth, async (req, res) => {
 // vóór het de knop toont, zodat een geblokkeerde bezoeker meteen weet waar hij aan toe is.
 app.get('/api/free-practice/status', async (req, res) => {
   try {
-    const aan = (await dbModule.getSetting('vrij_oefenen', 'aan')) !== 'uit';
-    const geblokkeerd = await dbModule.isFreePracticeBlocked(getClientIp(req));
-    res.json({ toegestaan: aan && !geblokkeerd, uitgeschakeld: !aan, geblokkeerd });
-  } catch (e) { res.json({ toegestaan: true, uitgeschakeld: false, geblokkeerd: false }); }
+    // Sprint 75: de leerling-sessie bepaalt of de gast- dan wel de account-regel geldt.
+    let studentId = null;
+    const cookies = parseCookieHeader(req.headers.cookie);
+    if (cookies.student_sid) {
+      const ls = await dbModule.getStudentSession(hashSessionToken(cookies.student_sid));
+      if (ls) studentId = ls.student_id;
+    }
+    const check = await magVrijOefenen({ studentId, ip: getClientIp(req) });
+    res.json({ toegestaan: check.toegestaan, reden: check.reden, ingelogd: !!studentId });
+  } catch (e) { res.json({ toegestaan: true, reden: '', ingelogd: false }); }
 });
 
 // ── Sprint 73: beheer van vrij oefenen (enkel de platformbeheerder) ─────────
 app.get('/api/admin/free-practice', requireTeacherAuth, requireBeheer, requireSysteem, async (req, res) => {
   try {
+    // Sprint 75: live overzicht van wie NU vrij oefent, met hoe lang al. Dat is wat je
+    // nodig hebt om te beslissen of je moet ingrijpen — een historiek per IP zegt dat niet.
+    const nu = Date.now();
+    const actief = Array.from(freeStudents.values()).map(st => ({
+      name: st.name,
+      ip: st.ip || '',
+      ingelogd: !!st.dbStudentId,
+      studentId: st.dbStudentId || null,
+      sinds: st.joinedAt,
+      duurMin: Math.max(0, Math.round((nu - st.joinedAt) / 60000)),
+    })).sort((a, b) => a.sinds - b.sinds);
+
     res.json({
-      aan: (await dbModule.getSetting('vrij_oefenen', 'aan')) !== 'uit',
+      gasten:   (await dbModule.getSetting('vrij_oefenen_gasten', 'aan')) !== 'uit',
+      accounts: (await dbModule.getSetting('vrij_oefenen_accounts', 'aan')) !== 'uit',
+      actief,
+      aantalGasten: actief.filter(a => !a.ingelogd).length,
+      aantalAccounts: actief.filter(a => a.ingelogd).length,
       recent: await dbModule.listFreePractice(100),
       blocks: await dbModule.listFreePracticeBlocks(),
+      studentBlocks: await dbModule.listFreePracticeStudentBlocks(),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Schakelaar per doelgroep: 'gasten' of 'accounts'.
+app.put('/api/admin/free-practice/toggle', requireTeacherAuth, requireBeheer, requireSysteem, requireCsrf, async (req, res) => {
+  const groep = req.body?.groep === 'accounts' ? 'accounts' : 'gasten';
+  const aan = req.body?.aan !== false;
+  await dbModule.setSetting('vrij_oefenen_' + groep, aan ? 'aan' : 'uit');
+  dbModule.auditLog(getActorFromReq(req), 'vrij_oefenen_' + groep + '_' + (aan ? 'aan' : 'uit'), '', {}, req.ip).catch(() => {});
+  const weg = await verwijderVerbodenVrijeSessies();   // open schermen meteen sluiten
+  res.json({ ok: true, groep, aan, beeindigd: weg });
+});
+
+// Eén leerling-account blokkeren of vrijgeven.
+app.post('/api/admin/free-practice/student-block', requireTeacherAuth, requireBeheer, requireSysteem, requireCsrf, async (req, res) => {
+  const studentId = String(req.body?.studentId || '').trim();
+  if (!studentId) return res.status(400).json({ error: 'studentId is verplicht.' });
+  await dbModule.blockFreePracticeStudent(studentId, req.body?.reason || '', req.teacher?.username || '');
+  dbModule.auditLog(getActorFromReq(req), 'vrij_oefenen_account_geblokkeerd', studentId, {}, req.ip).catch(() => {});
+  const weg = await verwijderVerbodenVrijeSessies();
+  res.json({ ok: true, beeindigd: weg });
+});
+
+app.delete('/api/admin/free-practice/student-block/:id', requireTeacherAuth, requireBeheer, requireSysteem, requireCsrf, async (req, res) => {
+  await dbModule.unblockFreePracticeStudent(req.params.id);
+  res.json({ ok: true });
+});
+
+// Leerlingen zoeken om te blokkeren.
+app.get('/api/admin/free-practice/zoek-leerling', requireTeacherAuth, requireBeheer, requireSysteem, async (req, res) => {
+  try { res.json(await dbModule.zoekLeerlingen(req.query.q || '', 20)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Oude endpoint (sprint 73) — zet nu BEIDE groepen tegelijk, zodat bestaande knoppen
+// blijven werken. Nieuwe UI gebruikt /toggle met een groep.
 app.put('/api/admin/free-practice/enabled', requireTeacherAuth, requireBeheer, requireSysteem, requireCsrf, async (req, res) => {
   const aan = req.body?.aan !== false;
-  await dbModule.setSetting('vrij_oefenen', aan ? 'aan' : 'uit');
-  dbModule.auditLog(getActorFromReq(req), aan ? 'vrij_oefenen_aan' : 'vrij_oefenen_uit', '', {}, req.ip).catch(() => {});
-  res.json({ ok: true, aan });
+  await dbModule.setSetting('vrij_oefenen_gasten', aan ? 'aan' : 'uit');
+  await dbModule.setSetting('vrij_oefenen_accounts', aan ? 'aan' : 'uit');
+  const weg = await verwijderVerbodenVrijeSessies();
+  res.json({ ok: true, aan, beeindigd: weg });
 });
 
 app.post('/api/admin/free-practice/block', requireTeacherAuth, requireBeheer, requireSysteem, requireCsrf, async (req, res) => {
@@ -1113,7 +1219,8 @@ app.post('/api/admin/free-practice/block', requireTeacherAuth, requireBeheer, re
   if (!ip) return res.status(400).json({ error: 'IP is verplicht.' });
   await dbModule.blockFreePractice(ip, req.body?.reason || '', req.teacher?.username || '');
   dbModule.auditLog(getActorFromReq(req), 'vrij_oefenen_ip_geblokkeerd', ip, {}, req.ip).catch(() => {});
-  res.json({ ok: true });
+  const weg = await verwijderVerbodenVrijeSessies();   // Sprint 75: open schermen sluiten
+  res.json({ ok: true, beeindigd: weg });
 });
 
 app.delete('/api/admin/free-practice/block/:ip', requireTeacherAuth, requireBeheer, requireSysteem, requireCsrf, async (req, res) => {
@@ -5759,18 +5866,14 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     let normalizedClass = String(className || "").trim();
     if (!normalizedClass) normalizedClass = ingelogd ? '' : 'Gast';
 
-    // Noodrem + IP-blokkade (enkel voor gasten; een ingelogde leerling is herkenbaar
-    // en hoort niet mee te vallen met een geblokkeerd school-IP).
+    // Sprint 75: één centrale regel (schakelaar per groep + IP- of accountblokkade).
     const ip = socket.handshake?.address || '';
-    try {
-      if ((await dbModule.getSetting('vrij_oefenen', 'aan')) === 'uit') {
-        return socket.emit("error_message", "Vrij oefenen is momenteel uitgeschakeld door de beheerder.");
-      }
-      if (!ingelogd && await dbModule.isFreePracticeBlocked(ip)) {
-        return socket.emit("error_message", "Vrij oefenen is vanaf dit toestel niet beschikbaar. Log in met je account of vraag je leerkracht om hulp.");
-      }
-      dbModule.logFreePractice({ ip, name: normalizedName, studentId: ingelogd?.id || null }).catch(() => {});
-    } catch (e) { log.warn('[vrij oefenen] controle mislukt:', e.message); }
+    const check = await magVrijOefenen({ studentId: ingelogd?.id || null, ip });
+    if (!check.toegestaan) {
+      socket.emit('free_practice_revoked', { reden: check.reden });
+      return socket.emit("error_message", check.reden);
+    }
+    dbModule.logFreePractice({ ip, name: normalizedName, studentId: ingelogd?.id || null }).catch(() => {});
 
     const id = crypto.randomUUID();
     const student = {
@@ -5780,6 +5883,10 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       joinedAt: Date.now(),
       socketId: socket.id,
       runId: null,
+      // Sprint 75: nodig om een lopende sessie gericht te kunnen beëindigen wanneer de
+      // beheerder een schakelaar omzet of dit IP/account blokkeert.
+      ip,
+      dbStudentId: ingelogd?.id || null,
     };
     freeStudents.set(socket.id, student);
     socketToUser.set(socket.id, { role: "free", freeId: id });

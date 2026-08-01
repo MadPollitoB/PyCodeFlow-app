@@ -63,6 +63,8 @@
 | **48c3** | 🔵 P9 | SEC | **Fase 3** — **Isolatie-testsuite** (`tests/isolatie.test.js`): integratietests tegen een échte PostgreSQL — klassen, leerlingen (erven school van klas), vragenbank, sessies, auditlog: A ziet **nul** rijen van B; Bibliotheek-publiek kruist als enige (en 53d-hidden wint); dekking-diagnose. Skipt zichzelf zonder `DATABASE_URL`. **Al bewezen groen (7/7, herhaald) tegen PostgreSQL 16.** *✅ AFGEROND.* | ~3 dagen |
 | **48c4** | 🔵 P9 | ARCH | **Fase 3** — **Super-admin** (rol `superadmin`, hosting-beheerder): leesscope zónder schoolfilter (ziet alle scholen), telt overal als beheerder, mag cross-school Bibliotheek-takedown; rol enkel toe te kennen door een super-admin (admin-bootstrap zolang er geen bestaat); rol-cyclus in de admin-UI. *✅ AFGEROND — daarmee is Fase 3 compleet.* | ~2 dagen |
 | **61** | 🟢 P3 | FEAT | **Facturatierapport** — per schooljaar/maand per school tellen hoeveel leerlingen geregistreerd zijn en hoe lang (actief/pending/geblokkeerd), als basis voor een fee per leerling. Automatisch maandelijks document (CSV/PDF) voor de platformbeheerder. Vereist een lichte historiek (bv. `student_school_periods` of tellingen-snapshot), want `students` bewaart nu enkel de huidige status. *✅ AFGEROND.* | ~2 dagen |
+| **75** | 🟠 P8 | SEC/UX | **Vrij oefenen: gescheiden schakelaars + live intrekken** — aparte schakelaar voor **gasten** en voor **ingelegde leerlingen**, plus blokkeren per **account**. Systeem toont wie er NU oefent (type, IP, duur). Bij elke wijziging worden lopende sessies **onmiddellijk beëindigd** en teruggestuurd naar het startscherm. Bevat ook een fix: de sprint-70-migratie stond vóór `CREATE TABLE quiz_answers`, waardoor een **verse installatie crashte**. *✅ AFGEROND.* | ~1 dag |
+| **74** | 🟡 P6 | BUG | **"Gast Gast" bij vrij oefenen na login** — het keuzescherm bewaarde de naam onder `student_name`, maar de free-editor las `freeStudentName`; bovendien stuurde een lege klas de leerling terug naar het startscherm. De editor haalt de identiteit nu bij de **server** op (`/api/student/me`). *✅ AFGEROND.* | ~0.25 dag |
 | **73** | 🟠 P8 | UX | **Leerling-instap opnieuw ingedeeld** — startscherm zonder klasveld (gast; de dropdown toonde bovendien klassen van álle scholen), vrij oefenen als gast zonder iets in te vullen, en een nieuw **keuzescherm na login** met de open lessen van je eigen klas, een codeveld voor toets/taak, en vrij oefenen onder je eigen naam. Plus IP-registratie, IP-blokkade en een noodrem-schakelaar voor vrij oefenen in Systeem. *✅ AFGEROND.* | ~1.5 dag |
 | **72** | 🔴 P10 | SEC | **Klasresultaten afgeschermd** — `/api/klasmatrix` en de Excel-export controleerden enkel dát je leerkracht was, niet **welke klas** je opvroeg: met een andere `classId` in de URL kon je de cijfers van een collega (of een andere school) ophalen. Nu: gekoppeld aan de klas, óf beheerder binnen de eigen school. *✅ AFGEROND.* | ~0.25 dag |
 | **71** | 🟠 P8 | FEAT | **Klasoverzicht + Excel** — matrix per klas (rijen leerlingen, kolommen toetsen/taken op datum) met cijfer of statusteken in kleur, filter op type, bevroren kop/kolom. Export via **ExcelJS** naar `.xlsx` met vier tabbladen (Alles, Toetsen, Taken, Legende), kleuren, autofilter en gemiddelde-kolom. *✅ AFGEROND.* | ~2 dagen |
@@ -974,6 +976,36 @@ Het antwoord was ja — de pagina staat achter gewone leerkracht-authenticatie e
 *Test: tegen een draaiende server ingelogd als studentA — de lijst gaf exact één les (TDLESA5 van klas 5A, met leerkracht en tijdstip) en geen toetsen. `/api/student/sessions` zonder login geeft 401. De noodrem uitzetten zet `toegestaan` meteen op false. Suite 315 groen.*
 
 *Bestanden: db/database.js, server.js, public/student-thuis.html (nieuw), public/student-start.html, public/student-login.html, public/app.js, public/monitoring.html, public/monitoring.js, testdocument-html/testpunten.js, sprintlog.md*
+
+---
+
+### Sprint 74 — "Gast Gast" bij vrij oefenen na login — ✅ AFGEROND
+
+**Cat:** BUG · Ingelogd als studentA, maar het vrij-oefenenscherm toonde **Gast Gast**.
+
+Twee fouten uit sprint 73, allebei van mij. Het keuzescherm bewaarde de naam onder `student_name`, terwijl de free-editor `freeStudentName` leest — de naam kwam dus nooit aan. En de editor eiste nog **naam én klas** uit localStorage en stuurde je anders terug naar het startscherm, terwijl de klas sinds 73 optioneel is.
+
+De oplossing is niet "de juiste sleutel gebruiken" maar de identiteit bij de **server** halen: de editor roept `/api/student/me` aan en gebruikt de accountnaam; localStorage blijft enkel de gast-terugval. Zo kan het scherm niet meer afwijken van de werkelijkheid. Bij een ingelogde leerling verdwijnt ook de klas-badge (die toonde anders "Gast"). De server deed het overigens al correct — de leerkracht zag wél de juiste naam; alleen het scherm van de leerling loog.
+
+*Bestanden: public/app.js, public/student-thuis.html, sprintlog.md*
+
+---
+
+### Sprint 75 — Vrij oefenen: gescheiden schakelaars en live intrekken — ✅ AFGEROND
+
+**Cat:** SEC/UX · Uit de testronde: één schakelaar volstaat niet, en een open tabblad bleef doorwerken.
+
+**Drie niveaus, één regel.** `magVrijOefenen({ studentId, ip })` beslist alles: een schakelaar voor **gasten** en een aparte voor **ingelogde leerlingen** (`vrij_oefenen_gasten` / `vrij_oefenen_accounts`), plus blokkeren per **account** en per **IP**. De twee schakelaars zijn volledig onafhankelijk: gasten uitzetten raakt ingelogde leerlingen niet, en omgekeerd. Een **IP-blokkade treft bewust enkel gasten** — een school zit vaak achter één publiek IP, en een ingelogde leerling pak je gericht aan via zijn account. De leerling krijgt telkens de **reden** te zien in plaats van een verdwenen knop.
+
+**Live intrekken — de kern van de opmerking.** Vroeger verborg een schakelaar enkel de knop; wie zijn tabblad open hield, werkte gewoon door. Nu loopt elke wijziging (schakelaar, IP-blokkade, accountblokkade) langs `verwijderVerbodenVrijeSessies()`: alle lopende sessies worden opnieuw getoetst, wie niet meer mag krijgt `free_practice_revoked` met de reden, wordt uit het overzicht gehaald, en zijn scherm keert terug — een ingelogde leerling naar het keuzescherm, een gast naar het startscherm. De beheerder krijgt te horen hoeveel sessies beëindigd zijn.
+
+**Zicht op wie er bezig is.** Systeem toont nu een blok **"Nu bezig"**: naam, type (gast of account), IP en **hoe lang al**, met tellers per groep. Naast elke rij staat meteen de juiste knop — bij een gast "IP blokkeren", bij een account "Account blokkeren". Daarnaast kan je via 🔎 een leerling opzoeken op naam of e-mail. Een geblokkeerde leerling kan nog gewoon deelnemen aan lessen, toetsen en taken; enkel vrij oefenen valt weg.
+
+**Meegevonden bug (belangrijk).** De sprint-70-migratie `ALTER TABLE quiz_answers ADD COLUMN submitted_by` stond **vóór** `CREATE TABLE quiz_answers`. Op een bestaande databank viel dat niet op, maar een **verse installatie crashte** met *"relation quiz_answers does not exist"*. De migratie staat nu ná het aanmaken van de tabel; een verse init is geverifieerd.
+
+*Test: de regel is voor alle negen combinaties (gast/account × schakelaars × blokkades) doorgerekend. Tegen een draaiende server met echte PostgreSQL: gasten uitzetten laat accounts ongemoeid en omgekeerd; een gast die vrij oefende verscheen in "Nu bezig" met IP en duur, en werd bij het omzetten van de schakelaar onmiddellijk weggestuurd (`beeindigd: 1`) met de juiste boodschap. Suites: 237 groen (de 5 overige testbestanden vragen `lib`-modules die niet in mijn incrementele werkkopie zitten).*
+
+*Bestanden: db/database.js, server.js, public/app.js, public/student-thuis.html, public/monitoring.html, public/monitoring.js, testdocument-html/testpunten.js, sprintlog.md*
 
 ---
 

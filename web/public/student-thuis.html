@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Waar wil je naartoe?</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.49.15"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.49.17"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .blok { border:1.5px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
@@ -81,8 +81,14 @@ async function laad() {
     const d = r.ok ? await r.json() : { sessions: [], vrijOefenen: true };
     toonLessen(d.sessions || []);
     if (d.vrijOefenen === false) {
+      // Sprint 75: haal de precieze reden op (accounts uitgeschakeld, of net jouw account).
+      let reden = 'Vrij oefenen is momenteel niet beschikbaar.';
+      try {
+        const st = await fetch('/api/free-practice/status');
+        if (st.ok) { const j = await st.json(); if (j.reden) reden = j.reden; }
+      } catch (e) { /* stil */ }
       document.getElementById('blok-oefenen').innerHTML =
-        '<p class="muted" style="margin:0;text-align:center;font-size:0.88rem;">Vrij oefenen is momenteel uitgeschakeld.</p>';
+        '<p class="muted" style="margin:0;text-align:center;font-size:0.88rem;">' + esc(reden) + '</p>';
     }
   } catch (e) { toonLessen([]); }
 }
@@ -123,9 +129,11 @@ function gaMetCode() {
 }
 
 function vrijOefenen() {
-  // Naam en klas komen uit het account; de server neemt ze over van de sessie.
+  // Sprint 74: schrijf naar de sleutels die de free-editor ÉCHT leest. De editor haalt
+  // de naam bovendien zelf op via /api/student/me, dus dit is enkel een snelle terugval.
   try {
-    localStorage.setItem('student_name', MIJ?.name || '');
+    localStorage.setItem('freeStudentName', MIJ?.name || '');
+    localStorage.setItem('freeStudentClass', '');
   } catch (e) { /* stil */ }
   location.href = '/free-editor.html';
 }

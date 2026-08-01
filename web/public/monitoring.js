@@ -763,7 +763,11 @@ async function fetchDbRows() {
   }
 }
 
-// ── Sprint 73: beheer van vrij oefenen (IP-log, blokkades, noodrem) ─────────
+// ── Sprint 73/75: beheer van vrij oefenen ──────────────────────────────────
+function _esc(t) { const x = document.createElement('div'); x.textContent = t == null ? '' : String(t); return x.innerHTML; }
+function _dt(ms) { return new Date(Number(ms)).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }); }
+function _tijd(ms) { return new Date(Number(ms)).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' }); }
+
 async function laadVrijOefenen() {
   const doel = document.getElementById('vrij-oefenen-inhoud');
   if (!doel) return;
@@ -771,51 +775,86 @@ async function laadVrijOefenen() {
     const r = await fetch('/api/admin/free-practice');
     if (!r.ok) { doel.innerHTML = '<p class="muted">Geen toegang tot deze gegevens.</p>'; return; }
     const d = await r.json();
-    const schakelaar = document.getElementById('vrij-oefenen-aan');
-    if (schakelaar) schakelaar.checked = d.aan !== false;
 
-    const esc = t => { const x = document.createElement('div'); x.textContent = t == null ? '' : String(t); return x.innerHTML; };
-    const dt = ms => new Date(Number(ms)).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' });
-    const geblokkeerd = new Set((d.blocks || []).map(b => b.ip));
+    const g = document.getElementById('vrij-gasten');
+    const a = document.getElementById('vrij-accounts');
+    if (g) g.checked = d.gasten !== false;
+    if (a) a.checked = d.accounts !== false;
 
-    const blokLijst = (d.blocks || []).length
-      ? `<h3 style="font-size:0.95rem;margin:14px 0 6px;">Geblokkeerde IP-adressen</h3>
+    const ipGeblokkeerd = new Set((d.blocks || []).map(b => b.ip));
+
+    // Sprint 75: wie is er NU bezig, en hoe lang al?
+    const actief = (d.actief || []).length
+      ? `<table class="admin-table"><thead><tr><th>Wie</th><th>Type</th><th>IP</th><th>Sinds</th><th>Duur</th><th></th></tr></thead>
+         <tbody>${d.actief.map(x => `<tr>
+           <td><strong>${_esc(x.name)}</strong></td>
+           <td>${x.ingelogd ? '✅ account' : '👤 gast'}</td>
+           <td><code>${_esc(x.ip || '—')}</code></td>
+           <td>${_tijd(x.sinds)}</td>
+           <td>${x.duurMin} min</td>
+           <td>${x.ingelogd
+             ? `<button class="btn btn-danger small" onclick="blokkeerAccount('${_esc(x.studentId)}','${_esc(x.name)}')">Account blokkeren</button>`
+             : (ipGeblokkeerd.has(x.ip) ? '<span class="badge">IP geblokkeerd</span>'
+                : `<button class="btn btn-danger small" onclick="blokkeerIp('${_esc(x.ip)}')">IP blokkeren</button>`)}</td>
+         </tr>`).join('')}</tbody></table>`
+      : '<p class="muted">Op dit moment oefent er niemand vrij.</p>';
+
+    const accountBlocks = (d.studentBlocks || []).length
+      ? `<h3 style="font-size:0.95rem;margin:16px 0 6px;">Geblokkeerde accounts</h3>
+         <table class="admin-table"><thead><tr><th>Leerling</th><th>E-mail</th><th>Reden</th><th>Sinds</th><th></th></tr></thead>
+         <tbody>${d.studentBlocks.map(b => `<tr>
+           <td>${_esc(b.name || b.student_id)}</td><td>${_esc(b.email || '—')}</td>
+           <td>${_esc(b.reason || '—')}</td><td>${_dt(b.blocked_at)}</td>
+           <td><button class="btn btn-muted small" onclick="deblokkeerAccount('${_esc(b.student_id)}')">Vrijgeven</button></td>
+         </tr>`).join('')}</tbody></table>`
+      : '';
+
+    const ipBlocks = (d.blocks || []).length
+      ? `<h3 style="font-size:0.95rem;margin:16px 0 6px;">Geblokkeerde IP-adressen</h3>
          <table class="admin-table"><thead><tr><th>IP</th><th>Reden</th><th>Door</th><th>Sinds</th><th></th></tr></thead>
          <tbody>${d.blocks.map(b => `<tr>
-           <td><code>${esc(b.ip)}</code></td><td>${esc(b.reason || '—')}</td>
-           <td>${esc(b.blocked_by || '—')}</td><td>${dt(b.blocked_at)}</td>
-           <td><button class="btn btn-muted small" onclick="deblokkeerIp('${esc(b.ip)}')">Deblokkeren</button></td>
+           <td><code>${_esc(b.ip)}</code></td><td>${_esc(b.reason || '—')}</td>
+           <td>${_esc(b.blocked_by || '—')}</td><td>${_dt(b.blocked_at)}</td>
+           <td><button class="btn btn-muted small" onclick="deblokkeerIp('${_esc(b.ip)}')">Deblokkeren</button></td>
          </tr>`).join('')}</tbody></table>`
       : '';
 
     const recent = (d.recent || []).length
-      ? `<h3 style="font-size:0.95rem;margin:14px 0 6px;">Recent vrij geoefend</h3>
-         <table class="admin-table"><thead><tr><th>IP</th><th>Laatste naam</th><th>Sessies</th><th>Laatst</th><th>Account</th><th></th></tr></thead>
+      ? `<h3 style="font-size:0.95rem;margin:16px 0 6px;">Recent vrij geoefend <span class="muted" style="font-weight:400;font-size:0.8rem;">(laatste 30 dagen, per IP)</span></h3>
+         <table class="admin-table"><thead><tr><th>IP</th><th>Laatste naam</th><th>Sessies</th><th>Laatst</th><th>Type</th><th></th></tr></thead>
          <tbody>${d.recent.map(x => `<tr>
-           <td><code>${esc(x.ip || '—')}</code></td><td>${esc(x.name || '—')}</td>
-           <td>${x.sessies}</td><td>${dt(x.laatst)}</td>
+           <td><code>${_esc(x.ip || '—')}</code></td><td>${_esc(x.name || '—')}</td>
+           <td>${x.sessies}</td><td>${_dt(x.laatst)}</td>
            <td>${x.met_account ? '✅ ingelogd' : '👤 gast'}</td>
-           <td>${geblokkeerd.has(x.ip) ? '<span class="badge">geblokkeerd</span>'
-             : `<button class="btn btn-danger small" onclick="blokkeerIp('${esc(x.ip)}')">Blokkeren</button>`}</td>
+           <td>${ipGeblokkeerd.has(x.ip) ? '<span class="badge">geblokkeerd</span>'
+             : `<button class="btn btn-muted small" onclick="blokkeerIp('${_esc(x.ip)}')">IP blokkeren</button>`}</td>
          </tr>`).join('')}</tbody></table>`
-      : '<p class="muted">Nog niemand heeft vrij geoefend.</p>';
+      : '';
 
-    doel.innerHTML = blokLijst + recent;
+    doel.innerHTML =
+      `<h3 style="font-size:0.95rem;margin:6px 0;">Nu bezig
+         <span class="muted" style="font-weight:400;font-size:0.82rem;">
+           (${d.aantalGasten || 0} gast(en) · ${d.aantalAccounts || 0} met account)</span></h3>`
+      + actief + accountBlocks + ipBlocks + recent
+      + `<div style="margin-top:14px;"><button class="btn btn-muted small" onclick="zoekAccountBlokkade()">🔎 Account zoeken en blokkeren…</button></div>`;
   } catch (e) {
     doel.innerHTML = '<p class="muted">Kon de gegevens niet laden.</p>';
   }
 }
 
-async function zetVrijOefenen(aan) {
-  const r = await apiFetch('/api/admin/free-practice/enabled', {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ aan }) });
+async function zetVrijOefenen(groep, aan) {
+  const r = await apiFetch('/api/admin/free-practice/toggle', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ groep, aan }) });
+  const d = await r.json().catch(() => ({}));
   if (!r.ok) await pyAlert('Wijzigen mislukt.', 'error');
+  else if (d.beeindigd) await pyAlert(d.beeindigd + ' lopende sessie(s) beëindigd.', 'success');
   laadVrijOefenen();
 }
 
 async function blokkeerIp(ip) {
   const reden = await pyPrompt({ title: 'IP blokkeren',
-    body: `Vrij oefenen blokkeren vanaf <code>${ip}</code>?<br/><span class="muted">Let op: een school zit vaak achter één IP — je blokkeert dan iedereen daar. Ingelogde leerlingen blijven wel doorkunnen.</span><br/>Reden (optioneel):`,
+    body: `Vrij oefenen blokkeren vanaf <code>${ip}</code>?<br/><span class="muted">Let op: een school zit vaak achter één IP — je blokkeert dan alle GASTEN daar. Ingelegde leerlingen blijven doorkunnen; blokkeer die via hun account.</span><br/>Reden (optioneel):`,
     confirmLabel: 'Blokkeren' });
   if (reden === null) return;
   const r = await apiFetch('/api/admin/free-practice/block', {
@@ -828,6 +867,52 @@ async function deblokkeerIp(ip) {
   const r = await apiFetch('/api/admin/free-practice/block/' + encodeURIComponent(ip), { method: 'DELETE' });
   if (!r.ok) await pyAlert('Deblokkeren mislukt.', 'error');
   laadVrijOefenen();
+}
+
+// ── Sprint 75: vrij oefenen blokkeren voor één leerling-account ─────────────
+async function blokkeerAccount(studentId, naam) {
+  const reden = await pyPrompt({ title: 'Account blokkeren',
+    body: `Vrij oefenen uitschakelen voor <strong>${naam}</strong>?<br/><span class="muted">Deze leerling kan nog wel gewoon deelnemen aan lessen, toetsen en taken.</span><br/>Reden (optioneel):`,
+    confirmLabel: 'Blokkeren' });
+  if (reden === null) return;
+  const r = await apiFetch('/api/admin/free-practice/student-block', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ studentId, reason: reden }) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) await pyAlert('Blokkeren mislukt: ' + (d.error || r.status), 'error');
+  else if (d.beeindigd) await pyAlert('Geblokkeerd. ' + d.beeindigd + ' lopende sessie(s) beëindigd.', 'success');
+  laadVrijOefenen();
+}
+
+async function deblokkeerAccount(studentId) {
+  const r = await apiFetch('/api/admin/free-practice/student-block/' + encodeURIComponent(studentId), { method: 'DELETE' });
+  if (!r.ok) await pyAlert('Vrijgeven mislukt.', 'error');
+  laadVrijOefenen();
+}
+
+async function zoekAccountBlokkade() {
+  const term = await pyPrompt({ title: 'Account zoeken',
+    body: 'Zoek op naam of e-mailadres:', confirmLabel: 'Zoeken' });
+  if (!term) return;
+  const r = await fetch('/api/admin/free-practice/zoek-leerling?q=' + encodeURIComponent(term));
+  const lijst = r.ok ? await r.json() : [];
+  if (!lijst.length) { await pyAlert('Geen leerling gevonden.', 'warn'); return; }
+
+  const oud = document.getElementById('py-modal-overlay');
+  if (oud) oud.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'py-modal-overlay';
+  overlay.innerHTML = `
+    <div id="py-modal-box" style="max-width:460px;">
+      <div id="py-modal-title">Kies de leerling</div>
+      <div id="py-modal-body" style="max-height:320px;overflow-y:auto;">
+        ${lijst.map(l => `<button class="btn btn-muted small" style="width:100%;justify-content:flex-start;margin-bottom:6px;"
+          onclick="document.getElementById('py-modal-overlay').remove();blokkeerAccount('${_esc(l.id)}','${_esc(l.name)}')">
+          ${_esc(l.name)} <span class="muted">${_esc(l.email || '')}</span></button>`).join('')}
+      </div>
+      <div id="py-modal-actions"><button class="btn btn-muted small" onclick="document.getElementById('py-modal-overlay').remove()">Sluiten</button></div>
+    </div>`;
+  document.body.appendChild(overlay);
 }
 
 document.addEventListener('DOMContentLoaded', laadVrijOefenen);

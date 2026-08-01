@@ -17,7 +17,7 @@
     dot.className = 'connection-dot connection-' + status;
     dot.title = { connected: 'Verbonden', disconnected: 'Verbinding verbroken', reconnecting: 'Herverbinden...' }[status] || status;
   }
-  socket.on('connect',      () => updateConnectionStatus('connected'));
+socket.on('connect',      () => updateConnectionStatus('connected'));
   socket.on('disconnect',   () => updateConnectionStatus('disconnected'));
   socket.on('reconnecting', () => updateConnectionStatus('reconnecting'));
   let selectedMode = 'class';
@@ -1586,12 +1586,12 @@
         if (r.ok) {
           const st = await r.json();
           if (!st.toegestaan) {
+            // Sprint 75: de server levert de reden aan (gasten uit / IP geblokkeerd / …),
+            // zodat de leerling weet waar hij aan toe is i.p.v. een verdwenen knop.
             const knop = document.getElementById('student-free-btn');
             const note = document.getElementById('vrij-oefenen-note');
             if (knop) knop.remove();
-            if (note) note.textContent = st.uitgeschakeld
-              ? 'Vrij oefenen is momenteel uitgeschakeld door de beheerder.'
-              : 'Vrij oefenen is vanaf dit toestel niet beschikbaar. Log in met je account.';
+            if (note) note.textContent = st.reden || 'Vrij oefenen is momenteel niet beschikbaar.';
           }
         }
       } catch (e) { /* stil: bij twijfel gewoon tonen, de server weigert desnoods */ }
@@ -1672,7 +1672,24 @@
       });
       go('/quiz-student.html?' + p.toString());
     });
-    socket.on('error_message', msg => {
+    // ── Sprint 75: vrij oefenen is zonet ingetrokken ──────────────────────────
+  // De beheerder zette de schakelaar om of blokkeerde dit IP/account. Een open tabblad
+  // moet dan écht dicht: anders blijft iemand die je net blokkeerde gewoon doorwerken.
+  socket.on('free_practice_revoked', async (data) => {
+    try {
+      localStorage.removeItem('freeStudentName');
+      localStorage.removeItem('freeStudentClass');
+    } catch (e) { /* stil */ }
+    const tekst = (data && data.reden) || 'Vrij oefenen is niet langer beschikbaar.';
+    try { await window.pyAlert(tekst, 'warn'); } catch (e) { alert(tekst); }
+    // Terug naar waar je hoort: ingelogde leerling → keuzescherm, gast → startscherm.
+    try {
+      const r = await fetch('/api/student/me');
+      window.location.replace(r.ok ? '/student-thuis.html' : '/student');
+    } catch (e) { window.location.replace('/student'); }
+  });
+
+  socket.on('error_message', msg => {
       const el = qs('student-start-error');
       if (el) el.textContent = msg;
     });
@@ -1694,20 +1711,41 @@
         if (code !== undefined) setLS('free_code', code);
       }, 5000);
     })();
-    const name = getLS('freeStudentName', '');
-    const className = getLS('freeStudentClass', '');
+    // Sprint 74: de identiteit komt bij voorkeur van de SERVER (de leerling-sessie), niet
+    // uit localStorage. Anders stond een ingelogde leerling hier als "Gast Gast", omdat
+    // het keuzescherm de naam onder een andere sleutel bewaarde. localStorage blijft de
+    // terugval voor een gast, en de klas is sinds sprint 73 optioneel.
+    (async () => {
+      let name = getLS('freeStudentName', '');
+      let className = getLS('freeStudentClass', '');
+      let ingelogd = false;
 
-    // Als er geen naam/klas in localStorage staat, terugsturen naar start
-    if (!name || !className) { go('/student-start.html'); return; }
+      try {
+        const r = await fetch('/api/student/me');
+        if (r.ok) {
+          const me = await r.json();
+          if (me && me.name) { name = me.name; className = ''; ingelogd = true; }
+        }
+      } catch (e) { /* stil: dan blijft de gast-terugval gelden */ }
 
-    // Badges invullen
-    const nameBadge = qs('free-name-badge');
-    const classBadge = qs('free-class-badge');
-    if (nameBadge) nameBadge.textContent = name;
-    if (classBadge) classBadge.textContent = className;
+      if (!name) name = 'Gast';
 
-    // Herverbinden of nieuw joinen
-    socket.emit('student_join_free', { name, className });
+      // Badges: bij een ingelogde leerling geen zinloze "Gast"-klas tonen.
+      const nameBadge = qs('free-name-badge');
+      const classBadge = qs('free-class-badge');
+      if (nameBadge) nameBadge.textContent = name;
+      if (classBadge) {
+        if (className) classBadge.textContent = className;
+        else if (ingelogd) classBadge.remove();
+        else classBadge.textContent = 'Gast';
+      }
+
+      setLS('freeStudentName', name);
+      setLS('freeStudentClass', className);
+
+      // Herverbinden of nieuw joinen
+      socket.emit('student_join_free', { name, className });
+    })();
 
     // Editor initialiseren zodra server bevestigt
     // Sprint 30-copy: contextuele kopieerknop (free-copy-btn) via inline onclick
