@@ -3285,16 +3285,30 @@ window.addEventListener('resize', () => window.pcfSyncTopbarHoogte());
     const groep = document.querySelector('.logo-group');
     if (document.getElementById('school-brand')) return;
     try {
-      // Sprint 58: op leerling-/publieke pagina's vragen we uitdrukkelijk de LEERLING-modus,
-      // zodat de branding niet uit een leerkracht-sessie in dezelfde browser komt.
-      const leerlingPaden = ['/', '/index.html', '/student', '/student-start.html',
-        '/student-app.html', '/student-login.html', '/student-register.html',
-        '/student-recover.html', '/quiz-student.html', '/free-editor.html'];
+      // ── Sprint 76: drie soorten pagina's, drie soorten branding ──────────────
+      // NEUTRAAL (de voordeur: "ben je leerling of leerkracht?", en het leerkracht-login-
+      // scherm): hier weet de app nog niet wie je bent, dus tonen we GEEN school. Vroeger
+      // stond /index.html in de leerlinglijst, waardoor iemand die in dezelfde browser als
+      // leerling was ingelogd op de voordeur ineens zijn schoolnaam zag staan.
+      const neutralePaden = ['/', '/index.html', '/teacher-login.html'];
+      if (neutralePaden.includes(location.pathname)) return;
+
+      // LEERLING: de school van de INGELOGDE leerling, anders de install-brede naam uit
+      // .env. Nooit uit een leerkracht-sessie in dezelfde browser (gedeelde computer).
+      const leerlingPaden = ['/student', '/student-start.html', '/student-app.html',
+        '/student-login.html', '/student-register.html', '/student-recover.html',
+        '/student-thuis.html', '/quiz-student.html', '/free-editor.html'];
       const isLeerlingPagina = leerlingPaden.includes(location.pathname);
+
+      // LEERKRACHT (al de rest): de actieve school van de sessie.
       const r = await fetch('/api/school-info' + (isLeerlingPagina ? '?rol=leerling' : ''));
       if (!r.ok) return;
       const info = await r.json();
-      if (!info.logoUrl && !info.schoolId) return;   // geen school bekend → niets tonen
+      // Toon iets zodra er een naam OF een logo is. (Vroeger was een naam zonder logo
+      // onzichtbaar, waardoor een install-brede SCHOOL_NAME nooit verscheen.)
+      const heeftBranding = !!(info.logoUrl || info.schoolId ||
+        (info.name && info.name !== 'PyCodeFlow'));
+      if (!heeftBranding) return;
 
       const wrap = document.createElement('span');
       wrap.id = 'school-brand';

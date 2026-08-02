@@ -63,6 +63,7 @@
 | **48c3** | 🔵 P9 | SEC | **Fase 3** — **Isolatie-testsuite** (`tests/isolatie.test.js`): integratietests tegen een échte PostgreSQL — klassen, leerlingen (erven school van klas), vragenbank, sessies, auditlog: A ziet **nul** rijen van B; Bibliotheek-publiek kruist als enige (en 53d-hidden wint); dekking-diagnose. Skipt zichzelf zonder `DATABASE_URL`. **Al bewezen groen (7/7, herhaald) tegen PostgreSQL 16.** *✅ AFGEROND.* | ~3 dagen |
 | **48c4** | 🔵 P9 | ARCH | **Fase 3** — **Super-admin** (rol `superadmin`, hosting-beheerder): leesscope zónder schoolfilter (ziet alle scholen), telt overal als beheerder, mag cross-school Bibliotheek-takedown; rol enkel toe te kennen door een super-admin (admin-bootstrap zolang er geen bestaat); rol-cyclus in de admin-UI. *✅ AFGEROND — daarmee is Fase 3 compleet.* | ~2 dagen |
 | **61** | 🟢 P3 | FEAT | **Facturatierapport** — per schooljaar/maand per school tellen hoeveel leerlingen geregistreerd zijn en hoe lang (actief/pending/geblokkeerd), als basis voor een fee per leerling. Automatisch maandelijks document (CSV/PDF) voor de platformbeheerder. Vereist een lichte historiek (bv. `student_school_periods` of tellingen-snapshot), want `students` bewaart nu enkel de huidige status. *✅ AFGEROND.* | ~2 dagen |
+| **76** | 🟡 P6 | BUG | **School op de neutrale voordeur** — `/index.html` stond in de leerlinglijst van de brandingregel (58), dus wie in dezelfde browser als leerling was ingelogd zag zijn schoolnaam op het "leerling of leerkracht?"-scherm. Voordeur en leerkracht-login zijn nu **neutraal**; daarnaast toont een install-brede `SCHOOL_NAME` zonder logo nu wél branding op leerlingpagina's. *✅ AFGEROND.* | ~0.25 dag |
 | **75** | 🟠 P8 | SEC/UX | **Vrij oefenen: gescheiden schakelaars + live intrekken** — aparte schakelaar voor **gasten** en voor **ingelegde leerlingen**, plus blokkeren per **account**. Systeem toont wie er NU oefent (type, IP, duur). Bij elke wijziging worden lopende sessies **onmiddellijk beëindigd** en teruggestuurd naar het startscherm. Bevat ook een fix: de sprint-70-migratie stond vóór `CREATE TABLE quiz_answers`, waardoor een **verse installatie crashte**. *✅ AFGEROND.* | ~1 dag |
 | **74** | 🟡 P6 | BUG | **"Gast Gast" bij vrij oefenen na login** — het keuzescherm bewaarde de naam onder `student_name`, maar de free-editor las `freeStudentName`; bovendien stuurde een lege klas de leerling terug naar het startscherm. De editor haalt de identiteit nu bij de **server** op (`/api/student/me`). *✅ AFGEROND.* | ~0.25 dag |
 | **73** | 🟠 P8 | UX | **Leerling-instap opnieuw ingedeeld** — startscherm zonder klasveld (gast; de dropdown toonde bovendien klassen van álle scholen), vrij oefenen als gast zonder iets in te vullen, en een nieuw **keuzescherm na login** met de open lessen van je eigen klas, een codeveld voor toets/taak, en vrij oefenen onder je eigen naam. Plus IP-registratie, IP-blokkade en een noodrem-schakelaar voor vrij oefenen in Systeem. *✅ AFGEROND.* | ~1.5 dag |
@@ -1006,6 +1007,24 @@ De oplossing is niet "de juiste sleutel gebruiken" maar de identiteit bij de **s
 *Test: de regel is voor alle negen combinaties (gast/account × schakelaars × blokkades) doorgerekend. Tegen een draaiende server met echte PostgreSQL: gasten uitzetten laat accounts ongemoeid en omgekeerd; een gast die vrij oefende verscheen in "Nu bezig" met IP en duur, en werd bij het omzetten van de schakelaar onmiddellijk weggestuurd (`beeindigd: 1`) met de juiste boodschap. Suites: 237 groen (de 5 overige testbestanden vragen `lib`-modules die niet in mijn incrementele werkkopie zitten).*
 
 *Bestanden: db/database.js, server.js, public/app.js, public/student-thuis.html, public/monitoring.html, public/monitoring.js, testdocument-html/testpunten.js, sprintlog.md*
+
+---
+
+### Sprint 76 — Schoolbranding op de neutrale voordeur — ✅ AFGEROND
+
+**Cat:** BUG · Uit de testronde: op het startscherm ("Ben je leerling of leerkracht?") stond ineens **TESTDATA School A**.
+
+**Waarom.** Sprint 58 loste terecht op dat leerlingpagina's de branding niet uit een *leerkracht*-sessie halen, en gaf ze de school van de **ingelogde leerling**. Maar `/index.html` en `/` stonden in die leerlinglijst — terwijl dat de **neutrale voordeur** is, het scherm waar je nog moet kiezen of je leerling of leerkracht bent. Wie in dezelfde browser als leerling was ingelogd (zoals tijdens het testen), kreeg daar dus zijn schoolnaam en -logo te zien. Niet fout gerekend, wél verwarrend: op dat moment weet de app nog niet in welke rol je komt.
+
+**Nu drie duidelijke soorten pagina's.** **Neutraal** (`/`, `/index.html`, `/teacher-login.html`): nooit een school. **Leerling** (deelnemen, login, keuzescherm, toets, vrij oefenen): de school van de ingelogde leerling, anders de install-brede naam uit `.env`. **Leerkracht** (al de rest): de actieve school van de sessie.
+
+**Meegenomen:** de client toonde alleen branding als er een **logo** of een school-id was. Een installatie met enkel `SCHOOL_NAME` in `.env` (zonder logo) zag dus nooit haar naam staan. De voorwaarde kijkt nu ook naar de naam.
+
+**Audit van alle hoofdingen.** Op vraag alle 24 pagina's nagekeken op topbar, logo-groep, actieknoppen, subnav en scripts. De opbouw is consistent; twee zaken genoteerd zonder ingreep: `teacher-app.html` gebruikt de klasse `.top-actions` ook voor een toolbar *in* de pagina (geen probleem — de identiteitsrij hangt sinds sprint 67 aan de unieke `.topbar-inner`, niet aan `.top-actions`), en `quiz-student.html`, `teacher-grid.html` en `teacher-login.html` hebben bewust geen topbar (toetsmodus en losstaande schermen).
+
+*Test: de regel doorgerekend voor zeven combinaties van pagina en situatie — voordeur toont nooit een school (ook niet met een ingelogde leerling), leerlingpagina's tonen de eigen school of de `.env`-naam, leerkrachtpagina's de actieve school.*
+
+*Bestanden: public/app.js, testdocument-html/testpunten.js, sprintlog.md*
 
 ---
 
