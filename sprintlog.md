@@ -63,6 +63,7 @@
 | **48c3** | 🔵 P9 | SEC | **Fase 3** — **Isolatie-testsuite** (`tests/isolatie.test.js`): integratietests tegen een échte PostgreSQL — klassen, leerlingen (erven school van klas), vragenbank, sessies, auditlog: A ziet **nul** rijen van B; Bibliotheek-publiek kruist als enige (en 53d-hidden wint); dekking-diagnose. Skipt zichzelf zonder `DATABASE_URL`. **Al bewezen groen (7/7, herhaald) tegen PostgreSQL 16.** *✅ AFGEROND.* | ~3 dagen |
 | **48c4** | 🔵 P9 | ARCH | **Fase 3** — **Super-admin** (rol `superadmin`, hosting-beheerder): leesscope zónder schoolfilter (ziet alle scholen), telt overal als beheerder, mag cross-school Bibliotheek-takedown; rol enkel toe te kennen door een super-admin (admin-bootstrap zolang er geen bestaat); rol-cyclus in de admin-UI. *✅ AFGEROND — daarmee is Fase 3 compleet.* | ~2 dagen |
 | **61** | 🟢 P3 | FEAT | **Facturatierapport** — per schooljaar/maand per school tellen hoeveel leerlingen geregistreerd zijn en hoe lang (actief/pending/geblokkeerd), als basis voor een fee per leerling. Automatisch maandelijks document (CSV/PDF) voor de platformbeheerder. Vereist een lichte historiek (bv. `student_school_periods` of tellingen-snapshot), want `students` bewaart nu enkel de huidige status. *✅ AFGEROND.* | ~2 dagen |
+| **77** | 🟠 P8 | BUG/SEC | **`.env`-schoolnaam lekte naar iedereen** — zonder ingelogde leerling viel `/api/school-info` terug op `SCHOOL_NAME` uit `.env`, en sprint 76 maakte die naam ook zichtbaar. Op een installatie met meerdere scholen kreeg elke bezoeker dus de naam van één school. Terugval geschrapt: zonder bekende school tonen we niets. Ook de **PDF-export** gebruikte `.env` — die neemt nu de school van de toets zelf. *✅ AFGEROND.* | ~0.5 dag |
 | **76** | 🟡 P6 | BUG | **School op de neutrale voordeur** — `/index.html` stond in de leerlinglijst van de brandingregel (58), dus wie in dezelfde browser als leerling was ingelogd zag zijn schoolnaam op het "leerling of leerkracht?"-scherm. Voordeur en leerkracht-login zijn nu **neutraal**; daarnaast toont een install-brede `SCHOOL_NAME` zonder logo nu wél branding op leerlingpagina's. *✅ AFGEROND.* | ~0.25 dag |
 | **75** | 🟠 P8 | SEC/UX | **Vrij oefenen: gescheiden schakelaars + live intrekken** — aparte schakelaar voor **gasten** en voor **ingelegde leerlingen**, plus blokkeren per **account**. Systeem toont wie er NU oefent (type, IP, duur). Bij elke wijziging worden lopende sessies **onmiddellijk beëindigd** en teruggestuurd naar het startscherm. Bevat ook een fix: de sprint-70-migratie stond vóór `CREATE TABLE quiz_answers`, waardoor een **verse installatie crashte**. *✅ AFGEROND.* | ~1 dag |
 | **74** | 🟡 P6 | BUG | **"Gast Gast" bij vrij oefenen na login** — het keuzescherm bewaarde de naam onder `student_name`, maar de free-editor las `freeStudentName`; bovendien stuurde een lege klas de leerling terug naar het startscherm. De editor haalt de identiteit nu bij de **server** op (`/api/student/me`). *✅ AFGEROND.* | ~0.25 dag |
@@ -1025,6 +1026,22 @@ De oplossing is niet "de juiste sleutel gebruiken" maar de identiteit bij de **s
 *Test: de regel doorgerekend voor zeven combinaties van pagina en situatie — voordeur toont nooit een school (ook niet met een ingelogde leerling), leerlingpagina's tonen de eigen school of de `.env`-naam, leerkrachtpagina's de actieve school.*
 
 *Bestanden: public/app.js, testdocument-html/testpunten.js, sprintlog.md*
+
+---
+
+### Sprint 77 — De `.env`-schoolnaam lekte naar alle bezoekers — ✅ AFGEROND
+
+**Cat:** BUG/SEC · Uit de testronde: op `/student` stond **Atheneum Hoboken**, terwijl er geen leerling was ingelogd.
+
+**Mijn fout van de vorige sprint.** `/api/school-info` viel in leerling-modus zonder sessie terug op `SCHOOL_NAME`/`SCHOOL_LOGO_PATH` uit `.env`. Die terugval bestond al langer, maar bleef onzichtbaar omdat de client enkel branding toonde bij een logo of school-id. In sprint 76 liet ik ook een **naam zonder logo** toe — precies dáárdoor werd de `.env`-naam ineens zichtbaar voor iedereen.
+
+**Waarom die terugval sowieso niet meer klopt.** `SCHOOL_NAME` stamt uit de tijd dat één installatie één school bediende. Sinds Fase 3 host dezelfde installatie **meerdere** scholen, dus krijgt elke bezoeker de naam van één willekeurige school te zien — ook wie tot een andere school behoort. Zonder leerling-sessie weten we simpelweg niet bij welke school iemand hoort; dan is **niets tonen** het enige juiste. De terugval is geschrapt en de strikte clientvoorwaarde (logo óf school-id) is hersteld.
+
+**Zelfde lek in de PDF-export.** `generateQuizPDF` zette `SCHOOL_NAME` uit `.env` in de kop van élke export. Een toets van school B kreeg dus "Atheneum Hoboken" op papier — bij een oudercontact of een klachtendossier bepaald ongelukkig. De kop haalt de naam nu uit de **school van die toets** (via `sessions.school_id`, sinds 48c2), met de `.env`-naam enkel nog als laatste terugval voor een echte single-school installatie.
+
+*Test: `/student` zonder leerling-sessie geeft nu `{name: "PyCodeFlow", logoUrl: null, schoolId: null}` → de client toont niets. Een testleerling van "School B" krijgt in leerling-modus "School B" te zien en niet de `.env`-naam. Suites 237 groen.*
+
+*Bestanden: server.js, public/app.js, testdocument-html/testpunten.js, sprintlog.md*
 
 ---
 

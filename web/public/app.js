@@ -3304,11 +3304,11 @@ window.addEventListener('resize', () => window.pcfSyncTopbarHoogte());
       const r = await fetch('/api/school-info' + (isLeerlingPagina ? '?rol=leerling' : ''));
       if (!r.ok) return;
       const info = await r.json();
-      // Toon iets zodra er een naam OF een logo is. (Vroeger was een naam zonder logo
-      // onzichtbaar, waardoor een install-brede SCHOOL_NAME nooit verscheen.)
-      const heeftBranding = !!(info.logoUrl || info.schoolId ||
-        (info.name && info.name !== 'PyCodeFlow'));
-      if (!heeftBranding) return;
+      // Sprint 77: enkel branding tonen wanneer we écht wéten om welke school het gaat
+      // (een school-id of een logo van die school). In 76 liet ik ook een naam-zonder-logo
+      // toe, waardoor de .env-naam van één school op ELKE leerlingpagina verscheen —
+      // ook voor bezoekers van een andere school. Terug naar de strikte voorwaarde.
+      if (!info.logoUrl && !info.schoolId) return;
 
       const wrap = document.createElement('span');
       wrap.id = 'school-brand';

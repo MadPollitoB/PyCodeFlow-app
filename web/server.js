@@ -1372,11 +1372,13 @@ app.get('/api/school-info', async (req, res) => {
           }
         }
       }
-      return res.json({
-        name: process.env.SCHOOL_NAME || 'PyCodeFlow',
-        logoUrl: process.env.SCHOOL_LOGO_PATH ? '/school-logo' : null,
-        schoolId: null,
-      });
+      // Sprint 77: GEEN terugval meer op SCHOOL_NAME/SCHOOL_LOGO_PATH uit .env. Die
+      // instelling stamt uit de tijd dat één installatie één school bediende. Sinds
+      // Fase 3 host dezelfde installatie meerdere scholen, dus zou elke bezoeker de
+      // naam van één willekeurige school te zien krijgen — ook wie daar niet hoort.
+      // Zonder leerling-sessie weten we simpelweg niet bij welke school iemand hoort,
+      // en dan tonen we niets.
+      return res.json({ name: 'PyCodeFlow', logoUrl: null, schoolId: null });
     }
 
     if (!cookies.teacher_sid) return res.json(geen);   // geen login = geen school
@@ -3525,7 +3527,21 @@ app.delete('/api/quiz/comment-templates/:id', requireTeacherAuth, requireCsrf, a
 
 // ── 16e: PDF export (pdfkit) ─────────────────────────────────────────────────
 
-function getSchoolName() { return process.env.SCHOOL_NAME || 'PyCodeFlow'; }
+// Sprint 77: de schoolnaam in een PDF-kop moet van de school van DIE toets komen.
+// Vroeger stond hier altijd SCHOOL_NAME uit .env — op een installatie met meerdere
+// scholen kreeg een toets van school B dus de naam van school A op zijn export.
+async function getSchoolNameVoorSessie(sessionCode) {
+  try {
+    const sessie = (await dbModule.loadActiveSessions()).find(s => s.code === sessionCode)
+                || (await dbModule.loadClosedSessions()).find(s => s.code === sessionCode);
+    if (sessie?.schoolId) {
+      const school = await dbModule.getSchool(sessie.schoolId);
+      if (school?.name) return school.name;
+    }
+  } catch (e) { log.warn('[pdf] schoolnaam bepalen mislukt:', e.message); }
+  // Terugval: install-brede naam (single-school installatie), anders neutraal.
+  return process.env.SCHOOL_NAME || 'PyCodeFlow';
+}
 
 async function generateQuizPDF(sessionCode, type, studentId = null, scored = false) {
   // pdfkit laden — bij ontbreken geeft duidelijke fout
@@ -3536,7 +3552,7 @@ async function generateQuizPDF(sessionCode, type, studentId = null, scored = fal
   }
 
   const doc = new PDFDocument({ margin: 50, size: 'A4' });
-  const school = getSchoolName();
+  const school = await getSchoolNameVoorSessie(sessionCode);
   const meta = await dbModule.getQuizMeta(sessionCode);
   const questions = await dbModule.getQuizQuestions(sessionCode);
   const sessionInfo = await dbModule.loadActiveSessions().then(ss => ss.find(s => s.code === sessionCode))
@@ -3840,7 +3856,7 @@ app.get('/api/quiz/:code/pdf/zip', requireTeacherAuth, requireSessionAccess, asy
       doc.on('data', chunk => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
 
-      const schoolName = process.env.SCHOOL_NAME || 'PyCodeFlow';
+      const schoolName = school;   // Sprint 77: school van deze toets, niet uit .env
       const studAnswers = answers.filter(a => a.student_id === stud.id);
       const totalScore = scored ? studAnswers.reduce((s, a) => s + (a.score || 0), 0) : null;
       const maxScore = questions.reduce((s, q) => s + (q.points || 0), 0);
