@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.2**
+**Huidige versie: v2026.2.51.3**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -224,6 +224,26 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 51d — UI-fixes + security (batch 1) — ✅ AFGEROND (v2026.2.51.3)
+
+- **Vragenbank:** verwijderknop rood (`btn-danger`).
+- **Toets/taakoverzicht:** status "⏹ gestopt" op de badge-plek bij een gestopte toets/taak
+  (dubbele pil weg); "Aanpassen" verdwijnt volledig bij gestopt/activiteit (i.p.v. uitgegrijsd).
+- **Verbeteren-export:** PyCodeFlow-modal met **meerkeuze** i.p.v. browser-prompt; download via
+  `<a download>` (fixt de popup-blocker die het "niets liet doen").
+- **Security:** DOMPurify (`3.0.6`) en marked (`9.1.6`) exact gepind en **lokaal** geserveerd via
+  `/vendor/…`; `cdnjs.cloudflare.com` uit de CSP. Sluit supply-chain-/MITM- en beschikbaarheids-
+  risico's (externe sanitizer zonder SRI). Live getest: `/vendor/*` geeft 200, CSP zonder cdnjs.
+
+**Batch 2 (gepland):** CSV-import met alle DB-velden · student-thuis 2de tab "Mijn resultaten"
+(commentaar altijd, volledige toets bij `review_mode`) · klasoverzicht type-filter + sticky kolom
++ scroll · echte klasverhuizing (leerling uit oude klas, historiek blijft).
+
+**Betrokken bestanden:** `web/public/quiz-bank.js` · `web/public/assignment-overview.js` ·
+`web/public/quiz-review.js` · `web/server.js` · `web/package.json` · 4× quiz-HTML.
+
+---
 
 ### Sprint 51c — Verbetermodule + realistische seeder — ✅ AFGEROND (v2026.2.51.2)
 

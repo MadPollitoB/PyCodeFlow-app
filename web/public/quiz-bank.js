@@ -130,7 +130,7 @@ function renderQuestions(qs) {
         <button class="btn btn-muted small q-btn-edit">✏️ Bewerken</button>
         ${!q.archived
           ? '<button class="btn btn-muted small q-btn-duplicate">⧉ Dupliceren</button>' +
-            '<button class="btn btn-muted small q-btn-delete">🗑 Verwijderen</button>'
+            '<button class="btn btn-danger small q-btn-delete">🗑 Verwijderen</button>'
           : '<button class="btn btn-muted small q-btn-restore">↩ Herstellen</button>' +
             '<button class="btn btn-danger small q-btn-destroy">🗑 Definitief verwijderen</button>'
         }

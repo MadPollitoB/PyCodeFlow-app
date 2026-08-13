@@ -518,34 +518,74 @@ async function toggleReviewMode() {
   }
 }
 
-function exportStudent(studentId, scored) {
-  window.open(`/api/quiz/${sessionCode}/pdf/answers/${studentId}?scored=${scored}`, '_blank');
+// ── Sprint 51d: export via een PyCodeFlow-modal met MEERKEUZE ────────────────
+// Vroeger: een browser-prompt() gevolgd door window.open() — die combinatie werd door de
+// popup-blocker geblokkeerd ("doet niets"). Nu: een eigen modal met checkboxes (meerdere
+// tegelijk mogelijk) en een betrouwbare download via een tijdelijke <a download>.
+function _triggerDownload(url) {
+  // Een echte gebruikersklik + <a> met target=_blank download het bestand zonder popup te openen.
+  const a = document.createElement('a');
+  a.href = url; a.target = '_blank'; a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => a.remove(), 0);
 }
 
+function exportStudent(studentId, scored) {
+  _triggerDownload(`/api/quiz/${sessionCode}/pdf/answers/${studentId}?scored=${scored}`);
+}
+
+const EXPORT_OPTIES = [
+  { id: '1', label: 'Vragenblad (PDF, om uit te delen)',            url: '/pdf/questions' },
+  { id: '2', label: 'Alle antwoorden — 1 PDF, zónder scores',        url: '/pdf/answers?scored=false' },
+  { id: '3', label: 'Alle antwoorden — 1 PDF, mét scores',           url: '/pdf/answers?scored=true' },
+  { id: '4', label: 'ZIP — aparte PDF per leerling, zónder scores',  url: '/pdf/zip?scored=false' },
+  { id: '5', label: 'ZIP — aparte PDF per leerling, mét scores  ★',  url: '/pdf/zip?scored=true' },
+  { id: '6', label: 'Klasoverzicht (PDF, scoreblad)',                url: '/pdf/overview' },
+  { id: '7', label: 'TXT-export (code per leerling, ZIP)',           url: '/export/zip' },
+  { id: '8', label: 'Scores naar Excel (CSV, puntenlijst)',          url: '/export/csv' },
+];
+
 function exportAll() {
-  const keuze = prompt(
-    'Welk export-type wil je?\n' +
-    '1 = Vragenblad PDF (uitdelen)\n' +
-    '2 = Alle antwoorden (1 PDF, zonder scores)\n' +
-    '3 = Alle antwoorden (1 PDF, met scores)\n' +
-    '4 = ZIP aparte PDF per leerling (zonder scores)\n' +
-    '5 = ZIP aparte PDF per leerling (met scores) ← AANBEVOLEN\n' +
-    '6 = Klasoverzicht PDF (scoreblad)\n' +
-    '7 = TXT export (code per leerling)\n' +
-    '8 = Scores naar Excel (CSV) ← puntenlijst'
-  );
-  const base = '/api/quiz/' + sessionCode;
-  const urls = {
-    '1': base + '/pdf/questions',
-    '2': base + '/pdf/answers?scored=false',
-    '3': base + '/pdf/answers?scored=true',
-    '4': base + '/pdf/zip?scored=false',
-    '5': base + '/pdf/zip?scored=true',
-    '6': base + '/pdf/overview',
-    '7': base + '/export/zip',
-    '8': base + '/export/csv',
-  };
-  if (urls[keuze]) window.open(urls[keuze], '_blank');
+  const old = document.getElementById('py-modal-overlay');
+  if (old) old.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'py-modal-overlay';
+  overlay.innerHTML =
+    '<div id="py-modal-box" style="max-width:520px;width:calc(100% - 40px);">' +
+      '<div id="py-modal-title">Exporteren</div>' +
+      '<div id="py-modal-body" style="margin-bottom:16px;">' +
+        '<p class="muted" style="margin:0 0 10px;font-size:0.85rem;">Vink aan wat je wil downloaden. Je kan meerdere exports tegelijk kiezen.</p>' +
+        '<div id="exp-list" style="display:flex;flex-direction:column;gap:2px;max-height:340px;overflow-y:auto;">' +
+          EXPORT_OPTIES.map(o =>
+            '<label style="display:flex;align-items:center;gap:9px;padding:7px 6px;cursor:pointer;border-radius:8px;">' +
+              '<input type="checkbox" class="exp-cb" value="' + o.id + '"/>' +
+              '<span style="font-size:0.9rem;">' + esc(o.label) + '</span>' +
+            '</label>').join('') +
+        '</div>' +
+      '</div>' +
+      '<div id="py-modal-actions">' +
+        '<button id="exp-cancel" class="btn btn-muted small">Annuleren</button>' +
+        '<button id="exp-go" class="btn btn-primary small">⬇ Download selectie</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+
+  const sluit = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) sluit(); });
+  document.getElementById('exp-cancel').addEventListener('click', sluit);
+  document.getElementById('exp-go').addEventListener('click', () => {
+    const gekozen = Array.from(overlay.querySelectorAll('.exp-cb:checked')).map(cb => cb.value);
+    if (!gekozen.length) { if (window.pyToast) pyToast('Kies eerst minstens één export.', 'warn'); return; }
+    const base = '/api/quiz/' + sessionCode;
+    // Meerdere downloads na elkaar, met een kleine tussenpauze zodat de browser ze allemaal start.
+    gekozen.forEach((id, i) => {
+      const opt = EXPORT_OPTIES.find(o => o.id === id);
+      if (opt) setTimeout(() => _triggerDownload(base + opt.url), i * 400);
+    });
+    sluit();
+    if (window.pyToast) pyToast(gekozen.length === 1 ? 'Download gestart.' : gekozen.length + ' downloads gestart.', 'success');
+  });
 }
 
 init();

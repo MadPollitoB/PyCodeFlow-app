@@ -15,6 +15,8 @@
 
   function statusBadge(a) {
     if (a.isPreview)                 return '<span class="badge" style="background:#fef3c7;color:#92400e;">👁 preview</span>';
+    // Sprint 51d: een door de leerkracht gestopte toets/taak is niet meer "Open".
+    if (a.stoppedAt)                 return '<span class="badge" style="background:#e2e8f0;color:#475569;">⏹ gestopt</span>';
     if (a.availability === 'closed') return '<span class="badge" style="background:#e2e8f0;color:#475569;">Gesloten</span>';
     if (a.availability === 'expired')return '<span class="badge" style="background:#fee2e2;color:#991b1b;">⛔ Venster voorbij</span>';
     if (a.availability === 'pending')return '<span class="badge" style="background:#dbeafe;color:#1e40af;">⏳ Nog niet open</span>';
@@ -85,22 +87,21 @@
     var live = a.isPreview ? '' :
       '<a class="btn btn-soft small" href="/teacher-grid.html?code=' + a.code + '" target="_blank">👁 Live</a>' +
       '<button class="btn btn-soft small" onclick="toggleQuizRoster(\'' + a.code + '\')">👥 Voortgang</button>' +
-      // Sprint 69: stoppen dient ook als "iedereen nu inleveren" — enkel zinvol zolang
-      // de toets nog niet gestopt is.
+      // Sprint 69: stoppen dient ook als "iedereen nu inleveren" — enkel zinvol zolang de
+      // toets nog niet gestopt is. Sprint 51d: is ze al gestopt, dan tonen we hier NIETS meer
+      // (de status "⏹ gestopt" staat nu bovenaan bij de badge, geen dubbele pil).
       (a.stoppedAt
-        ? '<span class="badge" style="background:#e2e8f0;color:#475569;" title="Gestopt op ' +
-            new Date(a.stoppedAt).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) +
-          '">⏹ gestopt</span>'
+        ? ''
         : '<button class="btn btn-muted small" onclick="stopQuiz(\'' + a.code + '\',\'' + esc(a.name || a.code) + '\')" ' +
           'title="Iedereen die bezig is meteen laten inleveren en de ' + LABEL + ' sluiten">⏹ Stoppen</button>');
-    // Sprint 50 (bug 2): "Aanpassen" — enkel op dit overzicht (niet in het live-/sessiescherm).
-    // De server bepaalt of het nog mag (a.editable): geen preview, niet gearchiveerd/gesloten/
-    // gestopt, en nog geen leerling gestart of resultaten. Anders: uitgeschakelde knop met uitleg.
-    var edit = a.isPreview ? '' : (a.editable
+    // Sprint 50/51d: "Aanpassen" — enkel op dit overzicht (niet in het live-/sessiescherm) én
+    // ENKEL zolang het nog mag (a.editable van de server: geen preview, niet gearchiveerd/
+    // gesloten/gestopt, en nog geen leerling gestart of resultaten). Kan het niet meer, dan
+    // verdwijnt de knop volledig (vroeger een uitgegrijsde knop). Leerkracht-preview telt niet mee.
+    var edit = (!a.isPreview && a.editable)
       ? '<a class="btn btn-muted small" href="/quiz-teacher.html?type=' + TYPE + '&edit=' + a.code + '" ' +
           'title="Pas deze ' + LABEL + ' aan (kan enkel zolang niemand gestart is)">✏️ Aanpassen</a>'
-      : '<button class="btn btn-muted small" disabled style="opacity:0.55;cursor:not-allowed;" ' +
-          'title="Aanpassen kan niet meer: een leerling is al gestart of er zijn resultaten.">✏️ Aanpassen</button>');
+      : '';
     var deadline = a.accessUntil
       ? '<span class="a-sub">⏰ Deadline: ' + new Date(a.accessUntil).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) + '</span>'
       : '';

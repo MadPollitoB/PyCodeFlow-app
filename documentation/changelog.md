@@ -1,3 +1,38 @@
+## v2026.2.51.3 — Sprint 51d: UI-fixes + security (lokale libs)
+
+Batch 1 van de gemelde punten: bevestigde UI-bugs en een security-verbetering.
+(Batch 2 volgt: CSV-volledig, student-resultaten-tab, klasoverzicht-scroll, klasverhuizing.)
+
+### Vragenbank
+- "🗑 Verwijderen" is nu **rood** (`btn-danger`), consistent met de rest van de app.
+
+### Toets-/taakoverzicht
+- Een door de leerkracht **gestopte** toets/taak toont nu de status **"⏹ gestopt"** op de
+  badge-plek (was misleidend "🟢 Open"). De dubbele "gestopt"-pil in de actierij is weg.
+- **"Aanpassen"** verdwijnt nu **volledig** zodra de toets/taak gestopt is óf er echte
+  activiteit is (leerling gestart/ingeleverd). Vroeger stond er een uitgegrijsde knop.
+  Een leerkracht-preview telt niet als activiteit.
+
+### Verbeteren — export
+- De export ging via een **browser-prompt + `window.open`**, wat de popup-blocker tegenhield
+  ("doet niets"). Nu een **PyCodeFlow-modal met checkboxes**: je kan **meerdere exports
+  tegelijk** aanvinken, en downloaden gebeurt via een betrouwbare `<a download>` (geen popup).
+
+### Security — DOMPurify & marked lokaal (geen CDN meer)
+- DOMPurify en marked werden van `cdnjs.cloudflare.com` geladen **zonder SRI**. Dat gaf een
+  supply-chain-/MITM-risico (externe JS die je XSS-sanitizer ís) én een beschikbaarheidsrisico
+  (viel de CDN weg, dan werd niet-gesaniteerde HTML ingespoten).
+- Beide libs zijn nu **exact gepind** (`dompurify@3.0.6`, `marked@9.1.6`) en worden **lokaal**
+  geserveerd via `/vendor/…` (zoals Monaco). `cdnjs.cloudflare.com` is **uit de CSP** gehaald →
+  kleiner aanvalsoppervlak, en de `purify.min.js.map`-CSP-melding is weg. Netto veiliger.
+
+**Betrokken bestanden:** `web/public/quiz-bank.js` · `web/public/assignment-overview.js` ·
+`web/public/quiz-review.js` · `web/server.js` (vendor-routes + CSP) · `web/package.json` ·
+`web/public/quiz-bank.html` · `web/public/quiz-review.html` · `web/public/quiz-student.html` ·
+`web/public/quiz-teacher.html` · `VERSION` · `.env` · overige `web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.2 — Sprint 51c: Verbetermodule + realistische seeder
 
 Drie echte fouten in de verbetermodule (toets/taak) opgelost, plus een realistischere

@@ -704,7 +704,9 @@ app.use((req, res, next) => {
   // unsafe-eval is al weg (Sprint 12a-D, Monaco workers via blob:).
   res.setHeader('Content-Security-Policy',
     "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; " +
+    // Sprint 51d: cdnjs.cloudflare.com verwijderd — DOMPurify/marked worden nu lokaal
+    // geserveerd (/vendor/…). Geen externe script-bron meer = kleiner aanvalsoppervlak.
+    "script-src 'self' 'unsafe-inline'; " +
     "style-src 'self' 'unsafe-inline'; " +
     "font-src 'self' data:; " +
     "img-src 'self' data:; " +
@@ -719,7 +721,7 @@ app.use((req, res, next) => {
   // Wordt verwijderd zodra de enforce-CSP (Optie C) live gaat.
   res.setHeader('Content-Security-Policy-Report-Only',
     "default-src 'self'; " +
-    "script-src 'self' https://cdnjs.cloudflare.com; " +
+    "script-src 'self'; " +
     "style-src 'self'; " +
     "font-src 'self' data:; " +
     "img-src 'self' data:; " +
@@ -4606,6 +4608,13 @@ app.use(express.static(path.join(__dirname, "public")));
 // verwijzen enkel naar het route-prefix /monaco/min/vs — dus nergens een los versienummer.
 // Eén Monaco-versie updaten = enkel package.json + rebuild.
 app.use("/monaco", express.static(path.join(__dirname, "node_modules", "monaco-editor")));
+
+// Sprint 51d (security): DOMPurify en marked worden nu LOKAAL geserveerd i.p.v. van
+// cdnjs.cloudflare.com. Dit sluit een supply-chain-/MITM-risico (externe JS zonder SRI) en
+// een beschikbaarheidsrisico (valt de CDN weg, dan werd niet-gesaniteerde HTML ingespoten).
+// De versies zijn exact gepind in package.json; cdnjs staat niet meer in de CSP.
+app.use("/vendor/dompurify", express.static(path.join(__dirname, "node_modules", "dompurify", "dist")));
+app.use("/vendor/marked",    express.static(path.join(__dirname, "node_modules", "marked")));
 
 
 const sessions = new Map();
