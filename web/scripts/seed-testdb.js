@@ -92,10 +92,11 @@ async function seed() {
     await db.query(`INSERT INTO teacher_classes (teacher_id, class_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [eigenaar, id]);
   }
 
-  console.log('— Leerlingen (studentA = actief account, A2 = pending, A3 = geblokkeerd, A4 = zonder account) …');
+  console.log('— Leerlingen (studentA/A5 = actief, A2 = pending, A3 = geblokkeerd, A4 = zonder account) …');
   const studenten = [
     // [id, gebruikers-/loginnaam, voor, achter, klas, school, status, metAccount]
     [P + 'st-a1', 'studentA',  'Sten',  'Testers',  K.a5, S.A, 'active',  true],
+    [P + 'st-a5', 'studentA5', 'Nina',  'Actief',   K.a5, S.A, 'active',  true],
     [P + 'st-a2', 'studentA2', 'Pia',   'Pending',  K.a5, S.A, 'pending', true],
     [P + 'st-a3', 'studentA3', 'Bo',    'Blocked',  K.a5, S.A, 'blocked', true],
     [P + 'st-a4', null,        'Gast',  'Zondermail', K.a5, S.A, 'active', false],
@@ -196,18 +197,81 @@ async function seed() {
   await maakToets(CODES.toetsA, NP + 'Toets: Python basis', 'toets', [P + 'q-a1', P + 'q-a2', P + 'q-a5']);
   await maakToets(CODES.taakA,  NP + 'Taak: Strings',       'taak',  [P + 'q-a3']);
 
-  console.log('— Resultaten: ingevulde antwoorden + scores op de toets …');
+  console.log('— Resultaten: realistische antwoorden + scores (enkel AANVAARDE leerlingen) …');
   const snaps = await db.query(
     `SELECT id, bank_question_id, points FROM quiz_question_snapshots WHERE session_code = $1 ORDER BY order_index`,
     [CODES.toetsA]);
+  // Belangrijk: enkel ACTIEVE leerlingen met een account nemen deel aan een toets/taak —
+  // net zoals de app afdwingt (pending/geblokkeerd/gast kunnen NIET deelnemen). Pia (pending)
+  // en Bo (blocked) blijven wél lid van de klas, maar krijgen bewust GEEN antwoorden, zodat
+  // het overzicht klopt met de regels.
+  //
+  // Per vraag geven we per leerling een ANDERE, realistische oplossing (geen dummy meer),
+  // met geldige timestamps, run-history en — voor keuzevragen — echte selected_choices +
+  // auto-score. Twee leerlingen krijgen op de for-lus-vraag een gelijkaardige oplossing,
+  // zodat de gelijkenis-detectie iets te tonen heeft.
+
+  // Vaste basistijd (recent, in het verleden) zodat alle timestamps geldig en oplopend zijn.
+  const T0 = now() - 45 * 60 * 1000; // 45 min geleden
+  const tOff = (min) => T0 + min * 60 * 1000;
+
+  // Realistische antwoorden per BANK-vraag-id. Voor keuzevragen: { choiceText } → we zoeken
+  // de bijhorende choice-id op in de snapshot. Voor codevragen: { code, runs }.
+  const OPL = {
+    // som(a, b)
+    [P + 'q-a1']: {
+      [P + 'st-a1']: { code: 'def som(a, b):\n    return a + b\n\nprint(som(3, 4))', runs: 2 },
+      [P + 'st-a5']: { code: 'def som(a, b):\n    resultaat = a + b\n    return resultaat', runs: 3 },
+    },
+    // for-lus 1 t/m 10 (bewust gelijkaardig → gelijkenis-demo)
+    [P + 'q-a2']: {
+      [P + 'st-a1']: { code: 'for i in range(1, 11):\n    print(i)', runs: 2 },
+      [P + 'st-a5']: { code: 'for getal in range(1, 11):\n    print(getal)', runs: 1 },
+    },
+    // single choice: "Wat print print(2 ** 3)?" — correct = "8"
+    [P + 'q-a5']: {
+      [P + 'st-a1']: { choiceText: '8' }, // correct
+      [P + 'st-a5']: { choiceText: '6' }, // fout (demo van een foute keuze)
+    },
+  };
+
+  // [id, naam, ingediend?, scoortMee? (leerkracht heeft codevragen al verbeterd)]
   const deelnemers = [
-    // [students.id (52i: echte id!), naam, af?]
-    [P + 'st-a1', NP + 'Sten Testers', true],
-    [P + 'st-a2', NP + 'Pia Pending',  false],
+    [P + 'st-a1', NP + 'Sten Testers', true,  true],   // ingediend + volledig verbeterd
+    [P + 'st-a5', NP + 'Nina Actief',  true,  false],  // ingediend, codevragen nog NIET verbeterd
   ];
-  for (const [sid, snaam, af] of deelnemers) {
+
+  for (const [sid, snaam, ingediend, verbeterd] of deelnemers) {
     let pos = 0;
     for (const snap of snaps.rows) {
+      const bankId = snap.bank_question_id;
+      const opl = (OPL[bankId] || {})[sid] || {};
+      // Keuzevraag? Zoek de gekozen choice-id in de snapshot en bepaal de auto-score.
+      let code = '', selectedChoices = '[]', score = null, autoScored = false, runCount = 0;
+      const snapMeta = await db.query(
+        `SELECT question_type, choices_json FROM quiz_question_snapshots WHERE id = $1`, [snap.id]);
+      const qType = snapMeta.rows[0]?.question_type || 'code';
+      if (qType === 'single' || qType === 'multiple') {
+        const choices = JSON.parse(snapMeta.rows[0]?.choices_json || '[]');
+        const gekozen = choices.find(c => c.text === opl.choiceText);
+        if (gekozen) {
+          selectedChoices = JSON.stringify([gekozen.id]);
+          // Auto-score bij inleveren: correct → volle punten, anders 0.
+          score = gekozen.correct ? snap.points : 0;
+          autoScored = true;
+        }
+      } else {
+        code = opl.code || '';
+        runCount = opl.runs || 0;
+        // Codevragen: enkel een score als de leerkracht al verbeterd heeft.
+        score = verbeterd ? snap.points : null;
+      }
+
+      const firstVisit = tOff(pos * 3);        // per vraag ~3 min later begonnen
+      const firstRun   = code ? tOff(pos * 3 + 1) : null;
+      const saved      = tOff(pos * 3 + 2);
+      const submitted  = ingediend ? tOff(snaps.rows.length * 3 + 2) : null;
+
       await db.query(
         `INSERT INTO quiz_student_order (session_code, student_id, question_id, personal_pos)
          VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
@@ -215,22 +279,57 @@ async function seed() {
       await db.query(
         `INSERT INTO quiz_answers (id, session_code, student_id, student_name, student_class,
            question_id, personal_order, code, run_count, first_visit_at, first_run_at,
-           saved_at, submitted_at, score, teacher_comment)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$10,$11,$12,$13)
+           saved_at, submitted_at, score, teacher_comment, selected_choices, auto_scored,
+           submitted_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
          ON CONFLICT (session_code, student_id, question_id) DO NOTHING`,
         [P + 'ans-' + sid.slice(-4) + '-' + pos, CODES.toetsA, sid, snaam, NP + 'Klas 5A',
-         snap.id, pos, `# antwoord van ${snaam}\nprint("test")`, 2, now(),
-         af ? now() : null,
-         af ? Math.max(1, snap.points - pos) : null,
-         af ? 'Prima gedaan (testcommentaar).' : '']);
+         snap.id, pos, code, runCount, firstVisit, firstRun, saved, submitted, score,
+         (verbeterd && qType === 'code') ? 'Netjes opgelost.' : '',
+         selectedChoices, autoScored, ingediend ? 'student' : null]);
+
+      // Run-history voor codevragen (voedt de "Run history" in de verbetermodule).
+      if (code && runCount > 0) {
+        for (let r = 0; r < runCount; r++) {
+          await db.query(
+            `INSERT INTO quiz_run_history (id, session_code, student_id, question_id, code, ran_at)
+             VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,
+            [P + 'run-' + sid.slice(-4) + '-' + pos + '-' + r, CODES.toetsA, sid, snap.id,
+             code, tOff(pos * 3 + 1) + r * 20 * 1000]);
+        }
+      }
       pos++;
     }
-    if (af) {
+    if (ingediend && verbeterd) {
       await db.query(
         `INSERT INTO quiz_general_comments (session_code, student_id, comment, updated_at)
          VALUES ($1,$2,$3,$4) ON CONFLICT (session_code, student_id) DO NOTHING`,
-        [CODES.toetsA, sid, 'Algemene feedback uit de seeder: mooi werk!', now()]);
+        [CODES.toetsA, sid, 'Mooi werk — nette, leesbare code!', now()]);
     }
+  }
+
+  // ── Taak (Strings): één ingeleverde, realistische oplossing van Sten ──────────
+  console.log('— Resultaten: realistisch antwoord op de taak …');
+  const taakSnaps = await db.query(
+    `SELECT id, bank_question_id, points FROM quiz_question_snapshots WHERE session_code = $1 ORDER BY order_index`,
+    [CODES.taakA]);
+  const taakCode = 'def keer_om(s):\n    resultaat = ""\n    for teken in s:\n        resultaat = teken + resultaat\n    return resultaat\n\nprint(keer_om("python"))';
+  let tpos = 0;
+  for (const snap of taakSnaps.rows) {
+    await db.query(
+      `INSERT INTO quiz_student_order (session_code, student_id, question_id, personal_pos)
+       VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+      [CODES.taakA, P + 'st-a1', snap.id, tpos]);
+    await db.query(
+      `INSERT INTO quiz_answers (id, session_code, student_id, student_name, student_class,
+         question_id, personal_order, code, run_count, first_visit_at, first_run_at,
+         saved_at, submitted_at, score, teacher_comment, selected_choices, auto_scored, submitted_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       ON CONFLICT (session_code, student_id, question_id) DO NOTHING`,
+      [P + 'ans-taak-a1-' + tpos, CODES.taakA, P + 'st-a1', NP + 'Sten Testers', NP + 'Klas 5A',
+       snap.id, tpos, taakCode, 3, tOff(0), tOff(1), tOff(3), tOff(4),
+       snap.points, 'Goede aanpak zonder [::-1].', '[]', false, 'student']);
+    tpos++;
   }
 
   console.log('');

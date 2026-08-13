@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Waar wil je naartoe?</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.49.19"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.2"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .blok { border:1.5px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
@@ -51,9 +51,47 @@
   </div>
 </div>
 
+<script src="/socket.io/socket.io.js"></script>
 <script>
 'use strict';
 let MIJ = null;
+
+// Sprint 50 (bug 4): het keuzescherm joint voortaan via dezelfde socket-flow als het
+// startscherm. Zo beslist de SERVER wat de code is: een gewone les → 'student_state'
+// (naar de leerling-app), een toets/taak → 'redirect_to_quiz' (naar de toets-flow, mét
+// login/aanvaarding-controle). Vroeger stuurde dit scherm ALTIJD naar /student-app.html,
+// ook voor een toetscode — dan gebeurde er niets bruikbaars.
+const socket = io();
+
+function _setLS(k, v) {
+  try { localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); } catch (e) { /* stil */ }
+}
+
+socket.on('student_state', function (data) {
+  _setLS('studentSessionCode', data.session.code);
+  _setLS('studentId', data.student.id);
+  _setLS('studentName', data.student.name);
+  _setLS('studentState', data);
+  location.href = '/student-app.html';
+});
+
+socket.on('redirect_to_quiz', function (data) {
+  const p = new URLSearchParams({
+    code: data.code || '', name: data.name || '', class: data.className || '',
+  });
+  location.href = '/quiz-student.html?' + p.toString();
+});
+
+socket.on('error_message', function (msg) {
+  _joinBezig(false);
+  const fout = document.getElementById('code-fout');
+  if (fout) fout.textContent = msg || 'Er ging iets mis. Probeer opnieuw.';
+  else if (window.pyAlert) window.pyAlert(msg || 'Er ging iets mis.', 'warn');
+});
+
+function _joinBezig(bezig) {
+  document.querySelectorAll('button').forEach(function (b) { b.disabled = !!bezig; });
+}
 
 function esc(x) { const d = document.createElement('div'); d.textContent = x == null ? '' : String(x); return d.innerHTML; }
 
@@ -111,20 +149,30 @@ function toonLessen(lessen) {
 }
 
 function naarSessie(code) {
-  const naam = encodeURIComponent(MIJ?.name || '');
-  location.href = '/student-app.html?code=' + encodeURIComponent(code) + '&name=' + naam;
+  // De server bepaalt op basis van de code of dit een les of een toets/taak is en
+  // stuurt ons daarna door via 'student_state' of 'redirect_to_quiz'.
+  const naam = (MIJ && MIJ.name) ? MIJ.name : '';
+  if (!naam) {
+    const fout = document.getElementById('code-fout');
+    if (fout) fout.textContent = 'Je bent niet (meer) ingelogd. Log opnieuw in.';
+    return;
+  }
+  _joinBezig(true);
+  socket.emit('student_join', { name: naam, code: code, className: '' });
 }
 
 function gaNaarLes() {
   const sel = document.getElementById('les-keuze');
+  const fout = document.getElementById('code-fout');
+  if (fout) fout.textContent = '';
   if (sel && sel.value) naarSessie(sel.value);
 }
 
 function gaMetCode() {
   const code = (document.getElementById('code').value || '').trim().toUpperCase();
   const fout = document.getElementById('code-fout');
-  if (!code) { fout.textContent = 'Vul eerst een sessiecode in.'; return; }
-  fout.textContent = '';
+  if (!code) { if (fout) fout.textContent = 'Vul eerst een sessiecode in.'; return; }
+  if (fout) fout.textContent = '';
   naarSessie(code);
 }
 

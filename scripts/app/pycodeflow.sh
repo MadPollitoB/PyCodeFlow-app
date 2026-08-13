@@ -7,6 +7,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 BASE="/volume3/docker/pycodeflow"
+[[ -d "$BASE" ]] || BASE="$(cd "$(dirname "$0")/../.." && pwd)"  # fallback: projectroot t.o.v. dit script
 ENV_FILE="$BASE/.env"
 # Naam van het Docker-named-volume voor de PostgreSQL-data.
 # Compose leidt de projectnaam af uit de basename van --project-directory,
@@ -527,14 +528,102 @@ actie_restart() {
   pauze
 }
 
+# ── Sprint 51: OLDIES-opruiming bij rebuild ──────────────────────────────────
+# Detecteert oude/dubbele/irrelevante bestanden (NIET het echte project) en geeft ze
+# terug als relatieve paden t.o.v. $BASE. Zelfde categorieën als scripts/general/oldies-check.sh.
+# Wordt gebruikt door de rebuild-flow om ze naar OLDIES/v<versie>/ te verplaatsen.
+_detecteer_oldies_kandidaten() {
+  local -a kandidaten=()
+  # 1. Verouderde dubbele web-boom (mag nooit naast web/ bestaan)
+  [[ -d "$BASE/scripts/web" ]] && kandidaten+=("scripts/web")
+  # 2. Verdwaalde dubbele docs/sprintlog in web/public (echte staat in documentation/)
+  [[ -f "$BASE/web/public/sprintlog.md" ]] && kandidaten+=("web/public/sprintlog.md")
+  # 3. Dubbele download-varianten in de root, bv. "(1).env.example", "(2)docker-compose.yml"
+  local f
+  while IFS= read -r f; do kandidaten+=("${f#"$BASE"/}"); done \
+    < <(find "$BASE" -maxdepth 1 -type f -regextype posix-extended -regex '.*/\([0-9]+\).*' 2>/dev/null)
+  # 4. Lege/achtergebleven upload-restanten (.ug-tmp) overal (behalve in OLDIES)
+  while IFS= read -r f; do kandidaten+=("${f#"$BASE"/}"); done \
+    < <(find "$BASE" -path "$BASE/OLDIES" -prune -o -name "*.ug-tmp" -type f -print 2>/dev/null)
+  # 5. OS-rommel (.DS_Store, Thumbs.db) overal (behalve in OLDIES)
+  while IFS= read -r f; do kandidaten+=("${f#"$BASE"/}"); done \
+    < <(find "$BASE" -path "$BASE/OLDIES" -prune -o \( -name ".DS_Store" -o -name "Thumbs.db" \) -type f -print 2>/dev/null)
+  # 6. Verdwaalde .md of .pdf in de HOOFDMAP (documentatie hoort in documentation/)
+  while IFS= read -r f; do kandidaten+=("${f#"$BASE"/}"); done \
+    < <(find "$BASE" -maxdepth 1 -type f \( -name "*.md" -o -name "*.pdf" \) 2>/dev/null)
+  # 7. Verdwaalde scripts in de HOOFDMAP (horen in scripts/…)
+  while IFS= read -r f; do kandidaten+=("${f#"$BASE"/}"); done \
+    < <(find "$BASE" -maxdepth 1 -type f \( -name "*.sh" -o -name "*.ps1" -o -name "*.py" \) 2>/dev/null)
+  # ontdubbelen en teruggeven
+  printf '%s\n' "${kandidaten[@]}" | awk 'NF' | sort -u
+}
+
+# Verplaatst één kandidaat naar OLDIES/v<versie>/ met behoud van de mapstructuur.
+_verplaats_naar_oldies() {
+  local rel="$1" versie="$2"
+  local src="$BASE/$rel"
+  [[ -e "$src" ]] || return 0
+  local dest="$BASE/OLDIES/v${versie}/$rel"
+  mkdir -p "$(dirname "$dest")"
+  if mv "$src" "$dest" 2>/dev/null; then
+    ok "verplaatst: $rel → OLDIES/v${versie}/$rel"
+  else
+    err "verplaatsen mislukt: $rel"
+  fi
+}
+
+# De volledige OLDIES-stap: (1) OLDIES leegmaken? (2) irrelevante files verplaatsen?
+# Elk met een eigen j/n-bevestiging. Roept de rebuild NIET aan.
+oldies_stap() {
+  local versie; versie=$(tr -d '[:space:]' < "$BASE/VERSION" 2>/dev/null)
+  [[ -z "$versie" ]] && versie="onbekend"
+  stap "Opruiming oude bestanden (OLDIES)"
+  echo ""
+
+  # (1) OLDIES leegmaken
+  if [[ -d "$BASE/OLDIES" ]] && [[ -n "$(ls -A "$BASE/OLDIES" 2>/dev/null)" ]]; then
+    info "De map OLDIES bevat nog bestanden van een vorige opruiming."
+    read -rp "  Wil je de oude OLDIES leegmaken? (j/n): " leeg
+    if [[ "$leeg" =~ ^[jJ]$ ]]; then
+      rm -rf "$BASE/OLDIES"/* "$BASE/OLDIES"/.[!.]* 2>/dev/null
+      ok "OLDIES leeggemaakt."
+    else
+      info "OLDIES niet leeggemaakt — nieuwe bestanden komen erbij onder v${versie}."
+    fi
+  else
+    mkdir -p "$BASE/OLDIES"
+    info "OLDIES is leeg (of nog niet aangemaakt)."
+  fi
+  echo ""
+
+  # (2) Controle + verplaatsing van oude/irrelevante bestanden
+  read -rp "  Wil je de controle op oude/irrelevante files doen (verplaatsen)? (j/n): " controle
+  if [[ "$controle" =~ ^[jJ]$ ]]; then
+    local -a kandidaten=()
+    mapfile -t kandidaten < <(_detecteer_oldies_kandidaten)
+    if [[ ${#kandidaten[@]} -eq 0 ]]; then
+      ok "Geen oude/irrelevante bestanden gevonden — niets te verplaatsen."
+    else
+      echo -e "  ${GEEL}De volgende ${#kandidaten[@]} item(s) worden naar OLDIES/v${versie}/ verplaatst:${RESET}"
+      local k; for k in "${kandidaten[@]}"; do echo "    • $k"; done
+      echo ""
+      local kk; for kk in "${kandidaten[@]}"; do _verplaats_naar_oldies "$kk" "$versie"; done
+      ok "Opruiming klaar — alles onder OLDIES/v${versie}/ (structuur behouden)."
+    fi
+  else
+    info "Controle overgeslagen."
+  fi
+  echo ""
+}
+
 actie_rebuild() {
   header
   stap "Rebuild & Herstart PyCodeFlow"
   echo ""
   # Sprint 34b: draai de testsuite vóór een rebuild — blokkeer deploy bij fouten
-  if [[ -f "$BASE/run-tests.sh" ]]; then
+  if [[ -f "$BASE/scripts/general/run-tests.sh" ]]; then
     echo -e "  ${GEEL}Testsuite draaien vóór rebuild...${RESET}"
-    if bash "$BASE/run-tests.sh" > /tmp/pycf_testrun.log 2>&1; then
+    if bash "$BASE/scripts/general/run-tests.sh" > /tmp/pycf_testrun.log 2>&1; then
       ok "Alle tests geslaagd"
     else
       err "Tests GEFAALD — zie /tmp/pycf_testrun.log"
@@ -546,20 +635,26 @@ actie_rebuild() {
     echo ""
   fi
   # Auto-sync versie uit VERSION-bestand vóór rebuild (deploy-automatisering)
-  if [[ -f "$BASE/VERSION" && -f "$BASE/sync-version.sh" ]]; then
+  if [[ -f "$BASE/VERSION" && -f "$BASE/scripts/general/sync-version.sh" ]]; then
     local file_ver; file_ver=$(tr -d '[:space:]' < "$BASE/VERSION")
     local env_ver;  env_ver=$(get_env APP_VERSION)
     if [[ "$file_ver" != "$env_ver" ]]; then
       echo -e "  ${GEEL}VERSION-bestand ($file_ver) wijkt af van .env ($env_ver) — synchroniseren...${RESET}"
-      bash "$BASE/sync-version.sh" >/dev/null 2>&1
+      bash "$BASE/scripts/general/sync-version.sh" >/dev/null 2>&1
       ok "Versie gesynchroniseerd naar $file_ver"
       echo ""
     fi
   fi
+  # Sprint 51: rebuild-bevestiging. Kiest de gebruiker 'n', dan stopt ALLES hier —
+  # ook de OLDIES-opruiming wordt dan overgeslagen (geen extra vragen).
   warn "Dit rebuildt alle Docker images (kan enkele minuten duren)."
   read -rp "  Doorgaan? (j/n): " bevestig
-  [[ ! "$bevestig" =~ ^[jJ]$ ]] && return
+  [[ ! "$bevestig" =~ ^[jJ]$ ]] && { warn "Rebuild geannuleerd."; echo ""; pauze; return; }
   echo ""
+  # Sprint 51: OLDIES-opruiming (met eigen j/n-bevestigingen) — pas ná de tests en
+  # de rebuild-bevestiging, en vóór de effectieve rebuild + install.
+  oldies_stap
+  # Effectieve rebuild + install
   $COMPOSE --project-directory "$BASE" up --build -d
   echo ""
   ok "Rebuild voltooid."
@@ -644,8 +739,8 @@ actie_check() {
   header
   stap "Verificatie"
   echo ""
-  if [[ -f "$BASE/check-deployment.sh" ]]; then
-    bash "$BASE/check-deployment.sh"
+  if [[ -f "$BASE/scripts/general/check-deployment.sh" ]]; then
+    bash "$BASE/scripts/general/check-deployment.sh"
   else
     err "check-deployment.sh niet gevonden in $BASE"
   fi
@@ -855,8 +950,8 @@ update_versie() {
   read -rp "  Bevestigen? (j/n): " bevestig
   if [[ "$bevestig" =~ ^[jJ]$ ]]; then
     # sync-version.sh werkt VERSION + .env + alle HTML cache-bust strings bij
-    if [[ -f "$BASE/sync-version.sh" ]]; then
-      bash "$BASE/sync-version.sh" "$nieuw"
+    if [[ -f "$BASE/scripts/general/sync-version.sh" ]]; then
+      bash "$BASE/scripts/general/sync-version.sh" "$nieuw"
     else
       # Fallback: enkel .env
       echo "$nieuw" > "$BASE/VERSION"
@@ -879,7 +974,7 @@ actie_backup() {
   stap "PostgreSQL backup (Sprint 19i)"
   echo ""
 
-  local backup_script="$BASE/scripts/backup-db.sh"
+  local backup_script="$BASE/scripts/general/backup-db.sh"
   local backup_dir="$BASE/backups"
 
   # Toon backup status
@@ -918,7 +1013,7 @@ actie_backup() {
   case "$bk" in
     1)
       if [[ ! -f "$backup_script" ]]; then
-        err "backup-db.sh niet gevonden. Kopieer scripts/backup-db.sh naar $BASE/scripts/"
+        err "backup-db.sh niet gevonden. Kopieer scripts/general/backup-db.sh naar $BASE/scripts/general/"
         pauze; return
       fi
       info "Backup maken..."
@@ -979,7 +1074,7 @@ actie_health_monitor() {
   stap "Health monitor instellen (Sprint 19e)"
   echo ""
 
-  local monitor_script="$BASE/health-monitor.sh"
+  local monitor_script="$BASE/scripts/general/health-monitor.sh"
 
   if [[ ! -f "$monitor_script" ]]; then
     err "health-monitor.sh niet gevonden in $BASE"
@@ -1223,8 +1318,8 @@ actie_tests() {
   header
   stap "Tests draaien"
   echo ""
-  if [[ -f "$BASE/run-tests.sh" ]]; then
-    bash "$BASE/run-tests.sh"
+  if [[ -f "$BASE/scripts/general/run-tests.sh" ]]; then
+    bash "$BASE/scripts/general/run-tests.sh"
   else
     warn "run-tests.sh niet gevonden."
   fi

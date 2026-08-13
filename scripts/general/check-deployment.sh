@@ -7,6 +7,7 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 
 BASE="/volume3/docker/pycodeflow"
+[[ -d "$BASE" ]] || BASE="$(cd "$(dirname "$0")/../.." && pwd)"  # fallback: projectroot t.o.v. dit script
 WEB="$BASE/web"
 PUB="$WEB/public"
 PASS=0; FAIL=0; WARN=0
@@ -92,7 +93,7 @@ if [[ -f "$BASE/VERSION" ]]; then
 else
   warn "VERSION-bestand niet gevonden — versie valt terug op .env"
 fi
-[[ -f "$BASE/sync-version.sh" ]] && ok "sync-version.sh aanwezig" || warn "sync-version.sh niet gevonden"
+[[ -f "$BASE/scripts/general/sync-version.sh" ]] && ok "sync-version.sh aanwezig" || warn "sync-version.sh niet gevonden"
 
 # ── 2. Docker ─────────────────────────────────────────────────────────────────
 header "2. Docker"
@@ -314,7 +315,7 @@ if grep -rq "<script>" "$PUB"/*.html; then
 else
   ok "Geen inline <script> blokken meer (sprint 30b-A)"
 fi
-[[ -f "$BASE/scripts/backup-db.sh" ]] && ok "scripts/backup-db.sh aanwezig (sprint 30d)" || fail "backup-db.sh ONTBREEKT (sprint 30d)"
+[[ -f "$BASE/scripts/general/backup-db.sh" ]] && ok "scripts/backup-db.sh aanwezig (sprint 30d)" || fail "backup-db.sh ONTBREEKT (sprint 30d)"
 check_contains "$WEB/db/database.js" "withTransaction" "database.js: transactie-helper (sprint 36a)"
 check_contains "$PUB/app.js" "_lsKey" "app.js: localStorage prefix-helper (sprint 31b)"
 check_contains "$PUB/app.js" "migrateLegacyKeys" "app.js: localStorage migratie (sprint 31b)"
@@ -453,17 +454,17 @@ info "Logbestanden: $LOG_COUNT totaal, $STALE_COUNT ouder dan 7 dagen"
 
 # ── 13. Beheertool & documentatie ─────────────────────────────────────────────
 header "13. Beheertool & documentatie"
-check_file "$BASE/pycodeflow.sh"         "pycodeflow.sh"          50
-check_contains "$BASE/pycodeflow.sh" "actie_opschonen"  "pycodeflow.sh: optie 18 opschonen"
-check_contains "$BASE/pycodeflow.sh" "actie_db_beheer"  "pycodeflow.sh: optie 19 DB-beheer (sprint 27n)"
-check_file "$BASE/check-deployment.sh"   "check-deployment.sh"   50
-check_file "$BASE/install.md"            "install.md"             5
-check_file "$BASE/changelog.md"          "changelog.md"           10
-check_file "$BASE/sprintlog.md"          "sprintlog.md"           10
-check_file "$BASE/technical-readme.md"   "technical-readme.md"    10
-check_file "$BASE/test-readme.md"        "test-readme.md"         10
-check_file "$BASE/security-testplan.md"  "security-testplan.md"   10
-[[ -f "$BASE/Opschonen-Lokaal.ps1" ]] && ok "Opschonen-Lokaal.ps1 aanwezig" \
+check_file "$BASE/scripts/app/pycodeflow.sh"         "pycodeflow.sh"          50
+check_contains "$BASE/scripts/app/pycodeflow.sh" "actie_opschonen"  "pycodeflow.sh: optie 18 opschonen"
+check_contains "$BASE/scripts/app/pycodeflow.sh" "actie_db_beheer"  "pycodeflow.sh: optie 19 DB-beheer (sprint 27n)"
+check_file "$BASE/scripts/general/check-deployment.sh"   "check-deployment.sh"   50
+check_file "$BASE/documentation/install.md"            "install.md"             5
+check_file "$BASE/documentation/changelog.md"          "changelog.md"           10
+check_file "$BASE/documentation/sprintlog.md"          "sprintlog.md"           10
+check_file "$BASE/documentation/technical-readme.md"   "technical-readme.md"    10
+check_file "$BASE/documentation/test-readme.md"        "test-readme.md"         10
+check_file "$BASE/documentation/security-testplan.md"  "security-testplan.md"   10
+[[ -f "$BASE/scripts/general/Opschonen-Lokaal.ps1" ]] && ok "Opschonen-Lokaal.ps1 aanwezig" \
   || warn "Opschonen-Lokaal.ps1 niet gevonden"
 
 # ── 14. Testbasis (sprint 34) ─────────────────────────────────────────────────
@@ -475,7 +476,7 @@ header "14. Testbasis (sprint 34)"
 [[ -f "$WEB/tests/scoring.test.js" ]]    && ok "tests/scoring.test.js aanwezig"    || fail "scoring tests ONTBREKEN"
 [[ -f "$WEB/tests/validation.test.js" ]] && ok "tests/validation.test.js aanwezig" || fail "validation tests ONTBREKEN"
 [[ -f "$BASE/runner/test_sandbox.py" ]]  && ok "runner sandbox-tests aanwezig"     || fail "sandbox tests ONTBREKEN"
-[[ -f "$BASE/run-tests.sh" ]]            && ok "run-tests.sh (CI) aanwezig"        || fail "run-tests.sh ONTBREEKT"
+[[ -f "$BASE/scripts/general/run-tests.sh" ]]            && ok "run-tests.sh (CI) aanwezig"        || fail "run-tests.sh ONTBREEKT"
 [[ -f "$BASE/.github/workflows/ci.yml" ]] && ok "GitHub Actions CI-workflow aanwezig" || warn "CI-workflow niet gevonden (optioneel)"
 check_contains "$WEB/package.json" '"test"' "package.json: test-script"
 # Draai de unit tests als node beschikbaar is

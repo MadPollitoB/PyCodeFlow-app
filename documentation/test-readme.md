@@ -1,6 +1,6 @@
 # PyCodeFlow — Volledig Testboek
 
-> **Versie:** v2026.2.48.12 · **Bijgewerkt:** 23 juli 2026 (sprints 51–54 + Fase 3 verwerkt)
+> **Versie:** v2026.2.50.0 · **Bijgewerkt:** 12 augustus 2026 (sprint 50 bugfixes verwerkt)
 > Volledig stappenplan voor alle functies, pagina's, layouts en PDF-exports.
 > Voer tests uit op: `https://app.pycodeflow.org` (productie) of `http://localhost:3000` (lokaal)
 
@@ -10,7 +10,7 @@
 
 ### 0.1 Testdata aanmaken (eenmalig)
 
-**Aanbevolen (sprint 54):** `pycodeflow.sh` → optie **21 🧬 Testdatabase** → `SEED` typen.
+**Aanbevolen (sprint 54):** `scripts/app/pycodeflow.sh` → optie **21 🧬 Testdatabase** → `SEED` typen.
 Dat bouwt in één keer een volledige testset (idempotent; wis met `WIS`):
 
 | Item | Waarde |
@@ -60,7 +60,7 @@ curl -s http://localhost:3000/api/version | python3 -m json.tool
 docker compose logs web --tail=20 | grep -iE "ERROR|FATAL|Cannot find"
 # ✅ Geen kritieke fouten
 
-bash check-deployment.sh
+bash scripts/general/check-deployment.sh
 # ✅ 0 gefaald
 ```
 
@@ -941,7 +941,7 @@ Test op quiz-bank.html archiveren:
 
 ## 17. pycodeflow.sh (beheertool)
 
-**Op de NAS uitvoeren via: `bash pycodeflow.sh`**
+**Op de NAS uitvoeren via: `bash scripts/app/pycodeflow.sh`**
 
 ```
 ✅ Menu toont 18 opties
@@ -1352,7 +1352,7 @@ Random volgorde:
 
 ### sync-version.sh
 ```bash
-bash sync-version.sh 2026.2.40.0
+bash scripts/general/sync-version.sh 2026.2.40.0
 # ✅ VERSION-bestand bevat nu 2026.2.40.0
 # ✅ .env APP_VERSION* velden bijgewerkt
 # ✅ Alle HTML app.js?v= strings tonen v2026.2.34.3
@@ -1424,7 +1424,7 @@ bash sync-version.sh 2026.2.40.0
 ### Testsuite draaien
 ```bash
 # Volledige CI (aanbevolen vóór elke deploy):
-bash run-tests.sh
+bash scripts/general/run-tests.sh
 
 # Enkel de unit tests:
 cd web && node --test
@@ -1525,8 +1525,8 @@ cd web && node --test
 
 ### 30d — Automatische DB-backup
 ```
-✅ scripts/backup-db.sh bestaat en is uitvoerbaar
-✅ bash scripts/backup-db.sh → maakt backups/pycodeflow-<timestamp>.sql.gz
+✅ scripts/general/backup-db.sh bestaat en is uitvoerbaar
+✅ bash scripts/general/backup-db.sh → maakt backups/pycodeflow-<timestamp>.sql.gz
 ✅ Lege/mislukte dump wordt gedetecteerd en verwijderd
 ✅ Backups ouder dan BACKUP_RETENTION_DAYS (7d) worden opgeruimd
 ✅ pycodeflow.sh optie 16 → 2: cronjob dagelijks 02:00
@@ -2771,3 +2771,103 @@ en herstart. Daarna:
 ✅ Na WIS opnieuw SEED → zelfde resultaat als eerste keer
 ⚠️ NOOIT op productie draaien — wachtwoord = gebruikersnaam
 ```
+
+---
+
+## 84. Sprint 50 — Bugfixes: toegang, aanpassen, logout & leerling-flow
+
+> Testdata: seed via `scripts/app/pycodeflow.sh` optie 21. Log in als `leerkrachtA` (admin, School A).
+> Handig: klas 5A/6A (School A) en 5B (School B).
+
+### 84.1 Bug 1 — toets/taak enkel voor eigen, niet-gearchiveerde klas
+- [ ] Nieuwe toets → klas-dropdown toont **enkel** klassen van je actieve school; **geen**
+      gearchiveerde klassen; **geen** klassen van een collega/andere school.
+- [ ] Als `leerkrachtA2` (niet gekoppeld aan 6A) een toets maakt: 6A staat **niet** in de lijst.
+- [ ] Server-grendel: een `POST /api/quiz` met een `targetClass` waartoe je geen toegang hebt
+      (bv. via de dev-console) geeft **403** met uitleg — er wordt niets aangemaakt.
+- [ ] Een gearchiveerde klas als doel → **403** ("gearchiveerd").
+
+### 84.2 Bug 2 — toets/taak aanpassen
+- [ ] Maak een **verse** toets (niemand ingelogd). Op het **toets-overzicht** staat
+      **✏️ Aanpassen**. (Controleer: de knop staat **niet** op het live-/sessiescherm.)
+- [ ] Klik Aanpassen → het aanmaakscherm opent voorgevuld (naam, timer, volgorde, tijdvenster,
+      vragen, punten, klas, leerlingselectie). De titel/badge zegt "aanpassen".
+- [ ] Het **type** kan niet gewijzigd worden (een taak blijft een taak, een toets een toets);
+      de preview-optie is verborgen.
+- [ ] Wijzig iets (bv. een vraag toevoegen + deadline) → **Wijzigingen opslaan** → terug op het
+      overzicht; open opnieuw → de wijziging is bewaard.
+- [ ] Laat één leerling de toets **starten** (of dien een antwoord in). Ververs het overzicht:
+      **✏️ Aanpassen** is nu **uitgeschakeld** met tooltip-uitleg.
+- [ ] Server-grendel: een `PUT /api/quiz/:code` op een toets met activiteit geeft **409**.
+- [ ] Een **preview**-toets toont geen Aanpassen-knop (activeer ze eerst).
+
+### 84.3 Bug 3 — afmelden
+- [ ] Op **Klasoverzicht** (`klasmatrix.html`) en **Mijn klassen**: klik **Afmelden** →
+      je wordt afgemeld en op de login-pagina gezet (géén "Cannot GET /logout").
+- [ ] Ga rechtstreeks naar `/logout` (oude bookmark) → zelfde: afgemeld + login-pagina.
+
+### 84.4 Bug 4 — leerlingcode & toegang tot toets/taak
+- [ ] Log in als **aanvaarde** leerling (`studentA`). Op het keuzescherm: geef de **toetscode**
+      in → je komt op het **toetsstartscherm** (niet in de les-editor).
+- [ ] Geef een **lescode** in (of kies een les uit de lijst) → je komt correct in de **les-app**.
+- [ ] Log in als **pending** leerling (`studentA2`) → toetscode ingeven geeft de melding
+      "nog niet aanvaard"; je kan **niet** starten. Een les/vrij oefenen werkt wél.
+- [ ] Niet-ingelogd (gast) die op de deelnemen-pagina een **toetscode** gebruikt → melding dat
+      inloggen vereist is; geen deelname.
+- [ ] Preview (leerkracht) blijft werken zonder leerling-account.
+
+### 84.5 Bug 5 — leerling-picker lay-out
+- [ ] Nieuwe toets → kies een klas → **👥 Leerlingen**. De picker toont **kolommen**
+      (meerdere per rij), een **zoekveld** en een **teller** ("x van y geselecteerd").
+- [ ] Typ in het zoekveld → de lijst filtert; **Alles aan/uit** werkt op de **zoekresultaten**.
+- [ ] Test met een klas met veel leerlingen (bv. tijdelijk ~40+): scrollt vlot, blijft leesbaar.
+- [ ] Iedereen aangevinkt = geen beperking (hele klas mag). Een deelselectie wordt bewaard en
+      is terug te zien bij **Aanpassen**.
+
+### 84.6 Opruiming
+- [ ] In de projectmap staat een map **`OLDIES/`** met de oude/dubbele bestanden
+      (`scripts/web/`, `pgdata/`, …) in hun oorspronkelijke structuur. Niets daaruit draait mee;
+      de app start en werkt normaal.
+
+---
+
+## 85. Sprint 51 — Mappenstructuur & OLDIES-opruiming
+
+### 85.1 Structuur
+- [ ] De hoofdmap bevat enkel `VERSION`, `.env(.example)`, `.gitignore` en de twee
+      `docker-compose*.yml`. Geen losse scripts of `.md`/`.pdf` meer.
+- [ ] `scripts/app/pycodeflow.sh` start normaal op; alle menu's werken.
+- [ ] `bash scripts/general/run-tests.sh` draait en slaagt (BASE correct afgeleid).
+- [ ] `bash scripts/general/check-deployment.sh` vindt alle bestanden op hun nieuwe plek.
+- [ ] Documentatie staat volledig in `documentation/`.
+
+### 85.2 OLDIES bij rebuild (menu 5)
+- [ ] Menu 5 → tests draaien → "Doorgaan? (j/n)". Kies **n** → alles stopt, géén OLDIES-vragen.
+- [ ] Menu 5 → "Doorgaan? (j/n): j" → daarna: "Wil je de oude OLDIES leegmaken? (j/n)".
+- [ ] "Wil je de controle op oude/irrelevante files doen (verplaatsen)? (j/n): j" → toont een
+      lijst en verplaatst naar `OLDIES/v<versie>/` met behoud van structuur.
+- [ ] Echte projectbestanden blijven staan; enkel rommel (`.ug-tmp`, `(1)`-dubbels,
+      stale `scripts/web`, verdwaalde root-`.md`/scripts, `.DS_Store`) verhuist.
+- [ ] Na afloop bevat OLDIES precies één versie-submap.
+- [ ] Standalone: `bash scripts/general/oldies-check.sh --dry-run` toont wat er zou gebeuren;
+      zonder `--dry-run` voert het uit; `--leeg` maakt OLDIES eerst leeg.
+
+---
+
+## 86. Sprint 51c — Verbetermodule & realistische seeder
+
+> Seed opnieuw via `pycodeflow.sh` (of `node scripts/seed-testdb.js seed`) na deze update.
+
+- [ ] Open de verbetering van **TESTDATA Toets: Python basis** (code TDTOETSA).
+- [ ] Selecteer **Sten Testers** → bij elke codevraag verschijnt nu de **echte code** in de
+      editor (som-functie, for-lus); de single-choice toont de gekozen optie + auto-score.
+- [ ] De regel "Ingediend …" toont een **geldige tijd** (geen "Invalid Date").
+- [ ] Wissel tussen V1/V2/V3: telkens laadt de juiste code (editor herbouwt correct).
+- [ ] **Nina Actief**: codevragen nog **niet gescoord** (?/punten), single auto-gescoord (fout → 0).
+- [ ] **Run history** toont meerdere runs per codevraag.
+- [ ] **Gelijkenis**: op de for-lus-vraag verschijnt een verdachte-gelijkenis-melding tussen
+      Sten en Nina.
+- [ ] **Pia Pending** en **Bo Blocked** staan **niet** als deelnemer bij de resultaten
+      (enkel aanvaarde leerlingen). In de klas-voortgang staan ze als "niets/geen activiteit".
+- [ ] De **taak** (TDTAAKA) heeft een ingeleverde, realistische oplossing van Sten.
+- [ ] Probeer als **pending** leerling (studentA2) de toetscode → wordt geweigerd (kan geen toets maken).

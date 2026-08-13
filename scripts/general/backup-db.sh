@@ -13,7 +13,7 @@ set -u
 
 # Bepaal de projectroot (script staat in scripts/)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE="$(cd "$SCRIPT_DIR/.." && pwd)"
+BASE="$(cd "$SCRIPT_DIR/../.." && pwd)"  # scripts/general → projectroot
 BACKUP_DIR="$BASE/backups"
 LOG="$BACKUP_DIR/backup.log"
 

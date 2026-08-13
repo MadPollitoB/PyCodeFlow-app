@@ -619,6 +619,23 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
     if (!host) return null;
     const monaco = await loadMonaco();
     ensureMonacoTheme(monaco);
+    // Sprint 51c: de verbeterpagina herbouwt #q-detail (en dus #quiz-editor) bij elke vraag.
+    // Daardoor raakt een eerder aangemaakte Monaco-instance losgekoppeld van de DOM en toont
+    // ze niets meer (de leerlingcode bleef onzichtbaar). Detecteer een losgekoppelde/verplaatste
+    // host, gooi de oude editor weg en herbouw op de nieuwe host. Voor stabiele editors
+    // (student/teacher/free) verandert er niets.
+    const bestaand = editorStore[owner];
+    if (bestaand) {
+      let losgekoppeld = false;
+      try {
+        const node = bestaand.getContainerDomNode ? bestaand.getContainerDomNode() : null;
+        losgekoppeld = !node || !document.body.contains(node) || !host.contains(node);
+      } catch { losgekoppeld = true; }
+      if (losgekoppeld) {
+        try { bestaand.dispose(); } catch { /* al weg */ }
+        delete editorStore[owner];
+      }
+    }
     if (!editorStore[owner]) {
       editorStore[owner] = monaco.editor.create(host, {
         value: initialValue,
@@ -1426,19 +1443,19 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
           <td style="padding:4px 8px;color:${info.kleur};white-space:nowrap;">${info.icoon} ${info.label}</td>
           <td style="padding:4px 8px;text-align:center;">${
             aanvinkbaar
-              ? `<label style="cursor:pointer;white-space:nowrap;"><input type="checkbox" ${st.status === 'gewettigd' ? 'checked' : ''}
-                   onchange="zetLeerlingStatus('${code}','${st.id}', this.checked)"/> gewettigd afwezig</label>`
+              ? `<label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:0.8rem;white-space:nowrap;"><input type="checkbox" ${st.status === 'gewettigd' ? 'checked' : ''}
+                   onchange="zetLeerlingStatus('${code}','${st.id}', this.checked)"/><span>gewettigd</span></label>`
               : '<span class="muted" style="font-size:0.78rem;">—</span>'}</td>
         </tr>`;
       };
 
       const tabel = d.students.length
-        ? `<table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+        ? `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
              <thead><tr style="background:var(--bg);">
                <th style="text-align:left;padding:4px 8px;">Leerling</th>
                <th style="text-align:left;padding:4px 8px;">Status</th>
-               <th style="padding:4px 8px;">Afwezigheid</th>
-             </tr></thead><tbody>${d.students.map(rij).join('')}</tbody></table>
+               <th style="padding:4px 8px;white-space:nowrap;">Afwezigheid</th>
+             </tr></thead><tbody>${d.students.map(rij).join('')}</tbody></table></div>
            <p class="muted" style="font-size:0.78rem;margin:6px 0 0;">
              Gewettigd afwezig telt niet mee voor het klasgemiddelde.</p>`
         : '<span class="muted" style="font-size:0.85rem;">Geen leerlingen in deze klas voor dit schooljaar.</span>';

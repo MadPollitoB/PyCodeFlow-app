@@ -25,7 +25,7 @@ Daarna volgde werk voor sprint 30 (config-fix) + de kopieerknop; dat werd *niet*
 in de lopende 34-reeks. Wanneer sprint 35/36 echt aan de beurt zijn, gaat het minor-nummer
 mee omhoog.
 
-De versie staat in het `VERSION`-bestand (single source of truth). `sync-version.sh`
+De versie staat in het `VERSION`-bestand (single source of truth). `scripts/general/sync-version.sh`
 propageert die naar `.env` en alle HTML cache-bust strings. De server leest `VERSION` bij
 opstart.
 

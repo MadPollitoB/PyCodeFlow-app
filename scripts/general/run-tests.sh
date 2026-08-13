@@ -7,7 +7,7 @@
 # Exit-code 0 = alles OK, ≠0 = er faalde iets (deploy niet doorzetten).
 # ═══════════════════════════════════════════════════════════════════════════════
 set -u
-BASE="$(cd "$(dirname "$0")" && pwd)"
+BASE="$(cd "$(dirname "$0")/../.." && pwd)"  # scripts/general → projectroot
 WEB="$BASE/web"
 RUNNER="$BASE/runner"
 
@@ -30,6 +30,7 @@ for f in "$WEB/server.js" "$WEB/public/app.js" \
          "$WEB/scripts/manage-teacher.js" \
          "$WEB"/public/monitoring.js "$WEB"/public/quiz-bank.js "$WEB"/public/quiz-student.js \
          "$WEB"/public/quiz-review.js "$WEB"/public/quiz-teacher.js "$WEB"/public/quiz-archive.js \
+         "$WEB"/public/assignment-overview.js \
          "$WEB"/public/admin.js "$WEB"/public/teacher-grid.js "$WEB"/public/teacher-login.js; do
   if [[ ! -f "$f" ]]; then
     fail "$(basename "$f") — bestand ONTBREEKT (niet gedeployed?)"

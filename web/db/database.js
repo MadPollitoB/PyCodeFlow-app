@@ -1536,6 +1536,16 @@ module.exports = {
     return r.rows.length > 0;
   },
 
+  // Sprint 50: heeft deze klas minstens één leerkracht-koppeling? (legacy-detectie)
+  // Geen enkele koppeling = "nog niemands eigendom" → in magKlasZien voor iedereen zichtbaar.
+  async classHasAnyTeacher(classId) {
+    if (!classId) return false;
+    const r = await query(
+      `SELECT 1 FROM teacher_classes WHERE class_id = $1 LIMIT 1`, [classId]
+    );
+    return r.rows.length > 0;
+  },
+
   async getClassById(id) {
     const r = await query(`SELECT * FROM classes WHERE id = $1`, [id]);
     return r.rows[0] || null;
@@ -2194,6 +2204,71 @@ module.exports = {
   async getQuizMeta(sessionCode) {
     const r = await query(`SELECT * FROM assignment_bank WHERE session_code = $1`, [sessionCode]);
     return r.rows[0] || null;
+  },
+
+  // ── Sprint 50 (bug 2): mag deze toets/taak nog bewerkt worden? ──────────────
+  // Bewerken is enkel toegestaan zolang er GEEN echte leerling-activiteit is: niemand
+  // heeft de toets gestart (quiz_student_order) én er zijn geen antwoorden/resultaten
+  // (quiz_answers). Een leerkracht-preview maakt géén van beide aan op een échte toets,
+  // dus die telt vanzelf niet mee.
+  async quizHasActivity(sessionCode) {
+    const r = await query(
+      `SELECT
+         EXISTS(SELECT 1 FROM quiz_answers       WHERE session_code = $1) AS heeft_antwoorden,
+         EXISTS(SELECT 1 FROM quiz_student_order  WHERE session_code = $1) AS heeft_gestart`,
+      [sessionCode]
+    );
+    const row = r.rows[0] || {};
+    return row.heeft_antwoorden === true || row.heeft_gestart === true;
+  },
+
+  // Batch-variant voor de lijstweergave: welke van deze codes hebben al activiteit?
+  async quizCodesWithActivity(codes) {
+    if (!Array.isArray(codes) || !codes.length) return [];
+    const r = await query(
+      `SELECT DISTINCT session_code FROM quiz_answers      WHERE session_code = ANY($1)
+       UNION
+       SELECT DISTINCT session_code FROM quiz_student_order WHERE session_code = ANY($1)`,
+      [codes]
+    );
+    return r.rows.map(x => x.session_code);
+  },
+
+  // Volledige update van een toets/taak (Sprint 50, bug 2). Wijzigt de instellingen én
+  // vervangt de vraag-snapshots. Het TYPE (toets/taak) en de preview-vlag blijven
+  // ONGEWIJZIGD — een taak blijft een taak en een toets een toets. De aanroeper (server)
+  // moet vooraf gecontroleerd hebben dat er nog geen activiteit is; we ruimen hier voor
+  // de zekerheid ook de (lege) persoonlijke vraagvolgordes op.
+  async updateQuizSessionFull({ sessionCode, questions, randomize, timerSeconds, noTimer,
+                                minRunsPerQ, hideQuestionOnScreen, schoolYear, targetClass,
+                                accessFrom, accessUntil, autoSubmitLate, noBack }) {
+    const effectiveTimer = noTimer ? null : (timerSeconds || 2700);
+    await withTransaction(async (client) => {
+      await client.query(
+        `UPDATE assignment_bank SET
+           randomize = $2, timer_seconds = $3, no_timer = $4, min_runs_per_q = $5,
+           hide_question_on_screen = $6, school_year = $7, target_class = $8,
+           access_from = $9, access_until = $10, auto_submit_late = $11, no_back = $12
+         WHERE session_code = $1`,
+        [sessionCode, randomize, effectiveTimer, noTimer || false, minRunsPerQ,
+         hideQuestionOnScreen, schoolYear || '', targetClass || '',
+         accessFrom || null, accessUntil || null, autoSubmitLate !== false, noBack === true]
+      );
+      // Vraag-snapshots volledig vervangen (volgorde + punten kunnen gewijzigd zijn).
+      await client.query(`DELETE FROM quiz_question_snapshots WHERE session_code = $1`, [sessionCode]);
+      for (const q of questions) {
+        await client.query(
+          `INSERT INTO quiz_question_snapshots
+             (id, session_code, bank_question_id, order_index, text_snapshot, subject, points,
+              question_type, choices_json, model_answer)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [crypto.randomUUID(), sessionCode, q.bankId, q.orderIndex, q.text, q.subject, q.points,
+           q.questionType || 'code', q.choicesJson || '[]', q.modelAnswer || '']
+        );
+      }
+      // Geen activiteit ⇒ geen echte volgordes, maar opruimen is veilig en houdt alles net.
+      await client.query(`DELETE FROM quiz_student_order WHERE session_code = $1`, [sessionCode]);
+    });
   },
 
   async getQuizQuestions(sessionCode) {

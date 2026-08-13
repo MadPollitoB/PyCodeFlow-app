@@ -37,19 +37,26 @@ const QUIZ_TYPE = (function resolveQuizType() {
   return null;
 })();
 
+// ── Sprint 50 (bug 2): bewerkmodus ───────────────────────────────────────────
+// ?edit=CODE opent dit scherm om een BESTAANDE toets/taak aan te passen. Het type
+// verandert nooit (een taak blijft een taak, een toets een toets). De data wordt
+// ingeladen via loadForEdit() zodra QUIZ_TYPE bekend is.
+const EDIT_CODE = new URLSearchParams(location.search).get('edit') || '';
+const IS_EDIT = !!EDIT_CODE;
+
 if (QUIZ_TYPE) {
   const meta = QUIZ_TYPE_META[QUIZ_TYPE];
-  document.title = 'PyCodeFlow — ' + meta.title;
+  document.title = 'PyCodeFlow — ' + (IS_EDIT ? meta.noun.charAt(0).toUpperCase() + meta.noun.slice(1) + ' aanpassen' : meta.title);
   const setText = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
-  setText('type-badge', meta.badge);
-  setText('page-h1', meta.title);
-  setText('page-sub', meta.sub);
+  setText('type-badge', IS_EDIT ? meta.noun.charAt(0).toUpperCase() + meta.noun.slice(1) + ' aanpassen' : meta.badge);
+  setText('page-h1', IS_EDIT ? meta.noun.charAt(0).toUpperCase() + meta.noun.slice(1) + ' aanpassen' : meta.title);
+  setText('page-sub', IS_EDIT ? 'Pas de instellingen en vragen aan. Kan enkel zolang niemand gestart is.' : meta.sub);
   setText('name-label', meta.nameLabel);
   setText('preview-noun', meta.previewNoun);
   const nameInput = document.getElementById('quiz-name');
   if (nameInput) nameInput.placeholder = meta.namePlaceholder;
   const createBtn = document.getElementById('create-btn');
-  if (createBtn) createBtn.textContent = '✅ ' + meta.createLabel;
+  if (createBtn) createBtn.textContent = IS_EDIT ? '💾 Wijzigingen opslaan' : '✅ ' + meta.createLabel;
   const timerRadio = document.querySelector('[name=quiz-timer-type][value="' + meta.defaultTimer + '"]');
   if (timerRadio) {
     timerRadio.checked = true;
@@ -58,6 +65,12 @@ if (QUIZ_TYPE) {
   }
   const root = document.getElementById('wizard-root');
   if (root) root.style.display = 'block';
+  // In bewerkmodus is "Test als leerkracht (preview)" niet zinvol: je bewerkt een echte,
+  // bestaande toets/taak. We verbergen die optie om verwarring te vermijden.
+  if (IS_EDIT) {
+    const prevRow = document.getElementById('quiz-is-preview');
+    if (prevRow && prevRow.closest('label')) prevRow.closest('label').style.display = 'none';
+  }
 }
 
 let _bank = [];
@@ -334,42 +347,63 @@ async function createQuiz() {
   createBtn.textContent = '⏳ Bezig…';
   statusEl.style.display = 'inline';
 
+  // Sprint 50 (bug 2): in bewerkmodus sturen we een PUT naar de bestaande code i.p.v. een
+  // nieuwe toets aan te maken. Preview bestaat niet in bewerkmodus. We gebruiken de globale
+  // apiFetch (voegt het CSRF-token toe) — een PUT vereist dat, een POST /api/quiz niet.
+  const doFetch = window.apiFetch || fetch;
   try {
-    const r = await fetch('/api/quiz', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ name, questions, randomize, timerSeconds, noTimer, minRunsPerQ,
-                             hideQuestionOnScreen, isTeacherPreview, schoolYear, targetClass,
-                             accessFrom, accessUntil, autoSubmitLate, noBack,
-                             // Sprint 43.14: type komt van de link (?type=), staat al vast bij
-                             // het openen van dit scherm — niet meer afgeleid uit de timerkeuze.
-                             type: QUIZ_TYPE,
-                             // Sprint 43.4: enkel meesturen als de leerkracht een selectie maakte
-                             studentIds: (window._selectedStudentIds && window._selectedStudentIds.length)
-                                         ? window._selectedStudentIds : undefined }),
-    });
+    const payload = { name, questions, randomize, timerSeconds, noTimer, minRunsPerQ,
+                      hideQuestionOnScreen, schoolYear, targetClass,
+                      accessFrom, accessUntil, autoSubmitLate, noBack,
+                      // Leerling-selectie: in bewerkmodus ALTIJD meesturen (ook leeg =
+                      // beperking opheffen). Bij aanmaken enkel als er een selectie is.
+                      studentIds: IS_EDIT
+                        ? (window._selectedStudentIds || [])
+                        : ((window._selectedStudentIds && window._selectedStudentIds.length)
+                            ? window._selectedStudentIds : undefined) };
+    let r;
+    if (IS_EDIT) {
+      r = await doFetch('/api/quiz/' + encodeURIComponent(EDIT_CODE), {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+      });
+    } else {
+      payload.isTeacherPreview = isTeacherPreview;
+      // Sprint 43.14: type komt van de link (?type=), staat al vast bij het openen.
+      payload.type = QUIZ_TYPE;
+      r = await doFetch('/api/quiz', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+      });
+    }
     const data = await r.json();
     if (data.ok) {
-      const previewUrl = `/quiz-student.html?code=${data.code}&name=${encodeURIComponent('Leerkracht Test')}&class=${encodeURIComponent('Preview')}`;
-      if (isTeacherPreview) {
-        const gaNaar = await pyConfirm({
-          title: `${meta.createdLabel} (PREVIEW)`,
-          body: `Code: ${data.code}\n\nWil je de preview openen als leerling?`,
-          confirmLabel: 'Open preview'
-        });
-        if (gaNaar) window.open(previewUrl, '_blank');
+      if (IS_EDIT) {
+        pyToast('Wijzigingen opgeslagen!', 'success', 5000);
+        setTimeout(() => { location.href = '/' + (QUIZ_TYPE === 'taak' ? 'taak' : 'toets') + '-overzicht.html'; }, 1000);
       } else {
-        pyToast(`${meta.createdLabel}! Sessiecode: ${data.code}`, 'success', 6000);
-        setTimeout(() => { location.href = '/teacher-sessions.html'; }, 1200);
+        const previewUrl = `/quiz-student.html?code=${data.code}&name=${encodeURIComponent('Leerkracht Test')}&class=${encodeURIComponent('Preview')}`;
+        if (isTeacherPreview) {
+          const gaNaar = await pyConfirm({
+            title: `${meta.createdLabel} (PREVIEW)`,
+            body: `Code: ${data.code}\n\nWil je de preview openen als leerling?`,
+            confirmLabel: 'Open preview'
+          });
+          if (gaNaar) window.open(previewUrl, '_blank');
+        } else {
+          pyToast(`${meta.createdLabel}! Sessiecode: ${data.code}`, 'success', 6000);
+          setTimeout(() => { location.href = '/teacher-sessions.html'; }, 1200);
+        }
       }
     } else {
-      await pyAlert('Fout bij aanmaken: ' + (data.error || 'Onbekende fout'), "error");
+      await pyAlert('Fout bij ' + (IS_EDIT ? 'opslaan' : 'aanmaken') + ': ' + (data.error || 'Onbekende fout'), "error");
     }
   } catch(e) {
     await pyAlert('Netwerkfout: ' + e.message, "error");
   } finally {
     createBtn.disabled    = false;
     backBtn.disabled      = false;
-    createBtn.textContent = '✅ ' + meta.createLabel;
+    createBtn.textContent = IS_EDIT ? '💾 Wijzigingen opslaan' : '✅ ' + meta.createLabel;
     statusEl.style.display = 'none';
   }
 }
@@ -388,8 +422,9 @@ function toggleTimer(val) {
   el.value = y + '-' + (y + 1);
 })();
 
-// Klassen laden
-(async function() {
+// Klassen laden — als promise, zodat de bewerkmodus kan wachten tot de opties bestaan
+// vóór hij de opgeslagen klas selecteert.
+const _classesReady = (async function() {
   try {
     const r = await fetch('/api/classes');
     const classes = await r.json();
@@ -402,6 +437,79 @@ function toggleTimer(val) {
     });
   } catch (e) { console.warn('[quiz-teacher] fout:', e.message); }
 })();
+
+// ── Sprint 50 (bug 2): bestaande toets/taak inladen om te bewerken ───────────
+async function loadForEdit() {
+  if (!IS_EDIT) return;
+  try {
+    const r = await fetch('/api/quiz/' + encodeURIComponent(EDIT_CODE) + '/edit');
+    const data = await r.json();
+    if (!r.ok) { await pyAlert(data.error || 'Kon de gegevens niet laden.', 'error'); location.href = '/' + (QUIZ_TYPE === 'taak' ? 'taak' : 'toets') + '-overzicht.html'; return; }
+    if (!data.editable) {
+      await pyAlert(data.reason || 'Deze toets/taak kan niet meer bewerkt worden.', 'warn');
+      location.href = '/' + (data.type === 'taak' ? 'taak' : 'toets') + '-overzicht.html';
+      return;
+    }
+
+    // Naam + basisinstellingen
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el != null && v != null) el.value = v; };
+    setVal('quiz-name', data.name || '');
+    const m = data.meta || {};
+    // Timer
+    const timerType = m.noTimer ? 'notimer' : 'timed';
+    const tRadio = document.querySelector('[name=quiz-timer-type][value="' + timerType + '"]');
+    if (tRadio) { tRadio.checked = true; }
+    const tMin = document.getElementById('quiz-timer-min');
+    if (tMin) { tMin.disabled = m.noTimer; if (!m.noTimer && m.timerSeconds) tMin.value = Math.round(m.timerSeconds / 60); }
+    // Volgorde
+    const ordRadio = document.querySelector('[name=quiz-order][value="' + (m.randomize ? 'random' : 'fixed') + '"]');
+    if (ordRadio) ordRadio.checked = true;
+    // Overige vlaggen
+    const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+    setChk('quiz-hide-question', m.hideQuestionOnScreen);
+    setChk('quiz-no-back', m.noBack);
+    setChk('quiz-min-runs', m.minRunsPerQ);
+    setChk('quiz-auto-submit', m.autoSubmitLate);
+    setVal('quiz-school-year', m.schoolYear || '');
+    // Tijdvenster (datetime-local verwacht 'YYYY-MM-DDTHH:mm' in LOKALE tijd)
+    const toLocalInput = (ms) => {
+      if (!ms) return '';
+      const d = new Date(Number(ms));
+      const p = (n) => String(n).padStart(2, '0');
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+    };
+    setVal('quiz-access-from', toLocalInput(m.accessFrom));
+    setVal('quiz-access-until', toLocalInput(m.accessUntil));
+
+    // Klas selecteren (wacht tot de opties geladen zijn)
+    await _classesReady;
+    const clsSel = document.getElementById('quiz-target-class');
+    if (clsSel && m.targetClass) clsSel.value = m.targetClass;
+    // Leerling-selectie herstellen
+    window._selectedStudentIds = Array.isArray(data.studentIds) ? data.studentIds.slice() : [];
+    _updateStudentsInfo();
+
+    // Vragen herstellen. We hebben de vraagteksten/punten uit de snapshot; de bank wordt
+    // apart geladen voor stap 2. We vullen _selected met de huidige selectie zodat de
+    // wizard, preview en bevestiging meteen kloppen.
+    _selected = {};
+    (data.questions || []).forEach(function (q) {
+      _selected[q.id] = {
+        id: q.id, text: q.text, subject: q.subject,
+        max_points: q.points, points: q.points,
+        question_type: q.question_type, choices_json: q.choices_json,
+        text_snapshot: q.text,
+      };
+    });
+    renderSelectedList();
+  } catch (e) {
+    await pyAlert('Laden mislukt: ' + e.message, 'error');
+  }
+}
+if (IS_EDIT) {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', loadForEdit);
+  else loadForEdit();
+}
 
 /* ── Sprint 43.4: leerling-selectie binnen de gekozen klas ─────────────────────
    Standaard doen ALLE leerlingen van de klas mee. Pas als de leerkracht iemand
@@ -445,19 +553,29 @@ window.openStudentPicker = async function () {
 
   const old = document.getElementById('py-modal-overlay');
   if (old) old.remove();
+
+  // Sprint 50 (bug 5): de picker moet ook met ~100 leerlingen werkbaar blijven. Daarom:
+  // een zoekveld, een teller, knoppen die op de ZICHTBARE (gefilterde) selectie werken,
+  // en een rasterweergave met meerdere kolommen (auto-fill) i.p.v. één lange kolom.
+  const many = _pickerRoster.length;
   const overlay = document.createElement('div');
   overlay.id = 'py-modal-overlay';
   overlay.innerHTML =
-    '<div id="py-modal-box" style="max-width:520px;">' +
+    '<div id="py-modal-box" style="max-width:680px;width:calc(100% - 40px);">' +
       '<div id="py-modal-title">Leerlingen voor deze toets/taak</div>' +
-      '<div id="py-modal-body">' +
-        '<p class="muted" style="margin:0 0 8px;font-size:0.85rem;">Vink aan wie deze toets/taak mag maken. Standaard doet iedereen mee.</p>' +
-        '<div style="display:flex;gap:6px;margin-bottom:8px;">' +
+      '<div id="py-modal-body" style="margin-bottom:16px;">' +
+        '<p class="muted" style="margin:0 0 10px;font-size:0.85rem;">Vink aan wie deze toets/taak mag maken. Standaard doet iedereen mee.</p>' +
+        '<input id="sp-search" type="text" placeholder="🔎 Zoek een leerling…" autocomplete="off" ' +
+          'style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:0.9rem;margin-bottom:8px;background:var(--surface);color:var(--text);"/>' +
+        '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">' +
           '<button type="button" class="btn btn-muted small" id="sp-all">Alles aan</button>' +
           '<button type="button" class="btn btn-muted small" id="sp-none">Alles uit</button>' +
-          '<span class="muted" id="sp-count" style="margin-left:auto;font-size:0.8rem;"></span>' +
+          '<span class="muted" id="sp-hint" style="font-size:0.75rem;"></span>' +
+          '<span class="muted" id="sp-count" style="margin-left:auto;font-size:0.8rem;font-weight:700;"></span>' +
         '</div>' +
-        '<div id="sp-list" style="max-height:320px;overflow-y:auto;border:1.5px solid var(--border);border-radius:10px;padding:8px;"></div>' +
+        '<div id="sp-list" style="max-height:360px;overflow-y:auto;border:1.5px solid var(--border);border-radius:10px;padding:8px;' +
+          'display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:2px 10px;align-content:start;"></div>' +
+        '<p class="muted" id="sp-empty" style="display:none;font-size:0.85rem;margin:10px 4px 0;">Geen leerling gevonden voor deze zoekterm.</p>' +
       '</div>' +
       '<div id="py-modal-actions">' +
         '<button id="sp-cancel" class="btn btn-muted small">Annuleren</button>' +
@@ -466,22 +584,49 @@ window.openStudentPicker = async function () {
     '</div>';
   document.body.appendChild(overlay);
 
+  const esc2 = (s) => (window.escapeHtml ? escapeHtml(String(s == null ? '' : s)) : String(s == null ? '' : s));
+  let _filter = '';
+
+  function zichtbareRoster() {
+    if (!_filter) return _pickerRoster;
+    const f = _filter.toLowerCase();
+    return _pickerRoster.filter(s => String(s.name || '').toLowerCase().indexOf(f) !== -1);
+  }
+
+  function updateCount() {
+    const cnt = document.getElementById('sp-count');
+    if (cnt) cnt.textContent = chosen.size + ' van ' + many + ' geselecteerd';
+    const hint = document.getElementById('sp-hint');
+    if (hint) hint.textContent = _filter ? '(knoppen werken op de zoekresultaten)' : '';
+  }
+
   function paint() {
-    document.getElementById('sp-list').innerHTML = _pickerRoster.map(s =>
-      '<label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;">' +
-        '<input type="checkbox" class="sp-cb" value="' + s.id + '"' + (chosen.has(s.id) ? ' checked' : '') + '/>' +
-        '<span>' + (window.escapeHtml ? escapeHtml(s.name) : s.name) + '</span>' +
+    const zichtbaar = zichtbareRoster();
+    const list = document.getElementById('sp-list');
+    const leeg = document.getElementById('sp-empty');
+    list.style.display = zichtbaar.length ? 'grid' : 'none';
+    if (leeg) leeg.style.display = zichtbaar.length ? 'none' : 'block';
+    list.innerHTML = zichtbaar.map(s =>
+      '<label style="display:flex;align-items:center;gap:8px;padding:6px 6px;cursor:pointer;border-radius:8px;min-width:0;">' +
+        '<input type="checkbox" class="sp-cb" value="' + esc2(s.id) + '"' + (chosen.has(s.id) ? ' checked' : '') +
+          ' style="width:16px;height:16px;flex-shrink:0;"/>' +
+        '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc2(s.name) + '</span>' +
       '</label>').join('');
-    document.getElementById('sp-count').textContent = chosen.size + ' van ' + _pickerRoster.length;
-    document.querySelectorAll('.sp-cb').forEach(cb => cb.addEventListener('change', () => {
+    list.querySelectorAll('.sp-cb').forEach(cb => cb.addEventListener('change', () => {
       if (cb.checked) chosen.add(cb.value); else chosen.delete(cb.value);
-      document.getElementById('sp-count').textContent = chosen.size + ' van ' + _pickerRoster.length;
+      updateCount();
     }));
+    updateCount();
   }
   paint();
 
-  document.getElementById('sp-all').addEventListener('click', () => { _pickerRoster.forEach(s => chosen.add(s.id)); paint(); });
-  document.getElementById('sp-none').addEventListener('click', () => { chosen.clear(); paint(); });
+  const searchEl = document.getElementById('sp-search');
+  if (searchEl) searchEl.addEventListener('input', () => { _filter = searchEl.value.trim(); paint(); });
+
+  // "Alles aan/uit" werkt op de ZICHTBARE (gefilterde) leerlingen, zodat je snel een
+  // subgroep kan selecteren (bv. zoek "6A" → alles aan) zonder de rest te verstoren.
+  document.getElementById('sp-all').addEventListener('click', () => { zichtbareRoster().forEach(s => chosen.add(s.id)); paint(); });
+  document.getElementById('sp-none').addEventListener('click', () => { zichtbareRoster().forEach(s => chosen.delete(s.id)); paint(); });
   document.getElementById('sp-cancel').addEventListener('click', () => overlay.remove());
   document.getElementById('sp-save').addEventListener('click', () => {
     // Iedereen aangevinkt → geen beperking bewaren (dan telt automatisch de hele klas).
@@ -490,4 +635,5 @@ window.openStudentPicker = async function () {
     _updateStudentsInfo();
   });
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  if (searchEl) searchEl.focus();
 };

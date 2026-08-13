@@ -5,10 +5,11 @@
 #  Installeert via: bash pycodeflow.sh → optie 15
 #
 #  Cron entry (automatisch ingesteld via pycodeflow.sh):
-#  */5 * * * * /volume3/docker/pycodeflow/health-monitor.sh >> /volume3/docker/pycodeflow/logs/health-monitor.log 2>&1
+#  */5 * * * * /volume3/docker/pycodeflow/scripts/general/health-monitor.sh >> /volume3/docker/pycodeflow/logs/health-monitor.log 2>&1
 # ═══════════════════════════════════════════════════════════════════════════════
 
 BASE="/volume3/docker/pycodeflow"
+[[ -d "$BASE" ]] || BASE="$(cd "$(dirname "$0")/../.." && pwd)"  # fallback: projectroot t.o.v. dit script
 LOG="$BASE/logs/health.log"
 ENV_FILE="$BASE/.env"
 

@@ -93,6 +93,14 @@
           '">⏹ gestopt</span>'
         : '<button class="btn btn-muted small" onclick="stopQuiz(\'' + a.code + '\',\'' + esc(a.name || a.code) + '\')" ' +
           'title="Iedereen die bezig is meteen laten inleveren en de ' + LABEL + ' sluiten">⏹ Stoppen</button>');
+    // Sprint 50 (bug 2): "Aanpassen" — enkel op dit overzicht (niet in het live-/sessiescherm).
+    // De server bepaalt of het nog mag (a.editable): geen preview, niet gearchiveerd/gesloten/
+    // gestopt, en nog geen leerling gestart of resultaten. Anders: uitgeschakelde knop met uitleg.
+    var edit = a.isPreview ? '' : (a.editable
+      ? '<a class="btn btn-muted small" href="/quiz-teacher.html?type=' + TYPE + '&edit=' + a.code + '" ' +
+          'title="Pas deze ' + LABEL + ' aan (kan enkel zolang niemand gestart is)">✏️ Aanpassen</a>'
+      : '<button class="btn btn-muted small" disabled style="opacity:0.55;cursor:not-allowed;" ' +
+          'title="Aanpassen kan niet meer: een leerling is al gestart of er zijn resultaten.">✏️ Aanpassen</button>');
     var deadline = a.accessUntil
       ? '<span class="a-sub">⏰ Deadline: ' + new Date(a.accessUntil).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) + '</span>'
       : '';
@@ -106,6 +114,10 @@
         ' · ' + new Date(a.createdAt).toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
       '</div>' + deadline +
       '<div class="a-actions">' + activate + walk + live +
+        // Sprint 50 (bug 2): bewerken is enkel mogelijk zolang niemand gestart is en er geen
+        // resultaten zijn (a.editable komt van de server). Anders tonen we een uitgeschakelde
+        // knop met uitleg, zodat de leerkracht weet waaróm het niet meer kan.
+        edit +
         '<a class="btn btn-muted small" href="/quiz-review.html?code=' + a.code + '">✏️ Verbeteren</a>' +
         '<button class="btn btn-muted small" onclick="duplicateQuiz(\'' + a.code + '\')">📋 Dupliceren</button>' +
         '<button class="btn btn-muted small" onclick="saveAsTemplate(\'' + a.code + '\')" title="Zet deze ' + LABEL + ' als herbruikbaar sjabloon in de bibliotheek">💾 Bewaar als sjabloon</button>' +

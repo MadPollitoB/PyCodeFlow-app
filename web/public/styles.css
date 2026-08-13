@@ -124,7 +124,10 @@ button { cursor: pointer; }
   background:var(--surface); border:1px solid var(--border);
   border-radius:var(--radius); box-shadow:var(--shadow);
 }
-.grid-2 { display:grid; grid-template-columns:1.1fr .9fr; gap:22px; }
+/* Sprint 51b: sessiepagina — linkerkolom (Nieuwe sessie) smaller, rechterkolom
+   (Lopende sessies / toetsen / taken) breder → ~35/65. minmax(0,…) voorkomt dat brede
+   tabelinhoud (bv. de voortgangstabel) de kolom laat overlopen op smalle schermen. */
+.grid-2 { display:grid; grid-template-columns:minmax(0,35fr) minmax(0,65fr); gap:22px; }
 .panel { border:1px solid var(--border); border-radius:22px; padding:22px; background:var(--surface-soft); }
 .sidebar { display:flex; flex-direction:column; gap:18px; }
 .hidden { display:none !important; }
@@ -176,6 +179,14 @@ label { display:block; margin-bottom:8px; font-weight:800; }
 input, textarea {
   width:100%; min-height:48px; padding:12px 14px;
   border:1px solid var(--border); border-radius:12px; background:white; outline:none;
+}
+/* Sprint 51b: checkboxes en radio's mogen de algemene input-regel hierboven (100% breed,
+   48px hoog, padding) NIET erven — anders worden het reuzevierkanten (o.a. in de toets/taak-
+   voortgang op een Chromebook). Class-specifieke regels verderop (.checkbox-row,
+   .config-toggle-label) hebben hogere specificiteit en blijven dus gewoon gelden. */
+input[type="checkbox"], input[type="radio"] {
+  width:16px; height:16px; min-height:0; padding:0; margin:0;
+  flex-shrink:0; accent-color:var(--primary); vertical-align:middle; cursor:pointer;
 }
 textarea.code-area {
   min-height:520px; resize:vertical; border:none; padding:18px;

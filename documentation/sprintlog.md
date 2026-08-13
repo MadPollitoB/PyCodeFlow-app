@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.48.12**
+**Huidige versie: v2026.2.51.2**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -213,12 +213,129 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 82 | **56** | **Mijn klassen** — eigen scherm voor élke leerkracht: startcode in bord-formaat, wachtende leerlingen aanvaarden, blokkeren, wachtwoordreset en leerling toevoegen — enkel voor eigen gekoppelde klassen (`magLeerlingBeheren`) | v2026.2.49.0 |
 | 83 | **57** | **Klas ↔ leerkracht koppelen** — de endpoints bestonden maar hadden geen UI; Beheer → Klassen toont nu de gekoppelde leerkrachten met een 🧑‍🏫-modal, gescoped per school | v2026.2.49.0 |
 | 84 | **58** | **Brandingfix** — `/api/school-info` las de leerkracht-cookie, waardoor een leerling op een gedeelde computer de school van de leerkracht zag; leerling-modus kijkt enkel naar de leerling-sessie | v2026.2.49.0 |
+| 85 | **50** | **5 bugfixes** — (1) toets/taak enkel voor eigen, niet-gearchiveerde klassen (`/api/classes` + server-validatie); (2) toets/taak **aanpassen** (nieuw, enkel zolang niemand gestart is, type onveranderlijk); (3) `/logout`-fout hersteld; (4) leerlingcode stuurt correct door + toets/taak enkel voor ingelogde, aanvaarde leerlingen; (5) schaalbare leerling-picker met zoek/kolommen. Projectmap opgeruimd naar `OLDIES/`. | v2026.2.50.0 |
+| 86 | **51** | **Propere mappenstructuur** — alle scripts → `scripts/app` + `scripts/general`; alle docs → `documentation/`; hoofdmap enkel nog config+Docker. **OLDIES-opruiming** ingebouwd in de rebuild (menu 5) met 2 extra j/n-vragen; rommel gaat naar `OLDIES/v<versie>/` met structuur. | v2026.2.51.0 |
+
+> **Nummering:** Sprint 50 is qua nummer ouder dan 51-58 maar werd later uitgevoerd
+> (bugfix-sprint). Het staat daarom onderaan de uitvoeringsvolgorde.
 
 > Gedetailleerde beschrijvingen van de recentste sprints staan verderop onder "Detailbeschrijvingen".
 
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 51c — Verbetermodule + realistische seeder — ✅ AFGEROND (v2026.2.51.2)
+
+**Toegangsregel (geverifieerd).** Enkel aanvaarde (`active`) leerlingen met account kunnen een
+toets/taak maken; pending/blocked/gast worden geweigerd in `quiz_start` (vóór de deelname-context),
+en `quiz_save_answer`/`quiz_submit_all` vereisen die context. Geen codewijziging nodig — de
+schijnbare uitzondering kwam door de seeder.
+
+**Bug A — code onzichtbaar in de review.** De 'quiz'-editor werd nooit gemount (host bestond nog
+niet bij `init`), en werd bij elke vraag opnieuw losgekoppeld doordat `#q-detail` herbouwt.
+`ensureEditor` (app.js) herkent nu een losgekoppelde host en herbouwt; `quiz-review.js` mount per
+vraag mét de code. Kernmechanisme in de browser getest (detach-detectie: voor=false, na=true).
+
+**Bug B — "Invalid Date".** `Number()` rond `submitted_at`/`saved_at`/`ran_at` (BIGINT komt als
+string uit pg).
+
+**Seeder realistischer.** Enkel aanvaarde deelnemers (Sten + Nina), realistische per-vraag code,
+keuzevraag met auto-score, geldige timestamps, run-history, ingeleverde taak, gelijkenis-demo.
+Geverifieerd tegen een embedded PostgreSQL: 0 niet-actieve deelnemers, geldige datums, run-history
+en taak aanwezig.
+
+**Betrokken bestanden:** `web/public/app.js` · `web/public/quiz-review.js` · `web/scripts/seed-testdb.js`.
+
+---
+
+### Sprint 51b — Layoutfixes sessie-overzicht (Chromebook) — ✅ AFGEROND (v2026.2.51.1)
+
+Kleine layout-patch op `teacher-sessions.html`, afgestemd op een 13" Chromebook (1366×768).
+
+- **Checkbox-reset.** De globale `input, textarea`-regel (100% breed, 48px hoog) trof ook
+  kale checkboxes/radio's → reuzevierkanten (o.a. "gewettigd afwezig" in de toets/taak-
+  voortgang). Nieuwe regel `input[type="checkbox"], input[type="radio"]` (16×16, geen
+  padding) normaliseert dit app-breed; class-specifieke regels behouden hun eigen maat.
+- **Voortgangstabel.** Het label is compacter ("gewettigd") en de tabel zit in een
+  `overflow-x:auto`-wrapper, zodat niets meer buiten de kaart valt.
+- **35/65-kolommen.** `.grid-2` → `minmax(0,35fr) minmax(0,65fr)`: linkerkolom smaller,
+  rechterkolom breder; `minmax(0,…)` voorkomt overflow door brede inhoud.
+
+**Betrokken bestanden:** `web/public/styles.css` · `web/public/app.js` · `web/public/*.html`
+(cache-bust).
+
+---
+
+### Sprint 51 — Propere mappenstructuur + OLDIES-opruiming bij rebuild — ✅ AFGEROND (v2026.2.51.0)
+
+Structurele opkuis, geen functionele wijziging aan de app.
+
+**Hoofdmap.** Enkel nog `VERSION`, `.env`, `.env.example`, `.gitignore`,
+`docker-compose.yml`, `docker-compose.prod.yml`. Alle scripts staan onder `scripts/`
+(`app/pycodeflow.sh` + `general/…`), alle documentatie onder `documentation/`.
+`BASE`-berekeningen aangepast: `sync-version.sh`/`run-tests.sh`/`backup-db.sh` leiden de
+projectroot nu af als twee niveaus boven het script; `pycodeflow.sh`/`check-deployment.sh`/
+`health-monitor.sh` houden hun vaste NAS-pad met een fallback naar de scriptlocatie. Alle
+onderlinge verwijzingen, `.github/workflows/ci.yml` en de health-monitor-cron zijn mee bijgewerkt.
+
+**OLDIES bij rebuild (menu 5).** Na de tests en de "Doorgaan? (j/n)"-bevestiging (n = alles
+annuleren) volgen twee j/n-vragen: OLDIES leegmaken, en de controle/verplaatsing van
+oude/irrelevante bestanden. Die gaan naar `OLDIES/v<versie>/` met behoud van structuur.
+Detectiecategorieën: stale dubbele `scripts/web`, verdwaalde `web/public/sprintlog.md`,
+`(N)`-downloaddubbels in de root, `*.ug-tmp`, OS-rommel (`.DS_Store`/`Thumbs.db`), en
+verdwaalde `*.md`/`*.pdf`/`*.sh`/`*.ps1`/`*.py` in de hoofdmap. Zelfde logica staat
+standalone in `scripts/general/oldies-check.sh` (met `--dry-run` en `--leeg`).
+
+**Betrokken bestanden:** `VERSION` · `.github/workflows/ci.yml` · `scripts/app/pycodeflow.sh` ·
+`scripts/general/*` · `documentation/*` · `web/public/*.html` (cache-bust).
+
+---
+
+### Sprint 50 — Toegang, bewerken, logout & leerling-flow *(5 bugfixes)* — ✅ AFGEROND (v2026.2.50.0)
+
+Vijf gemelde bugs rond het beheer van toetsen/taken en de leerling-instap.
+
+**Bug 1 — klas zonder toegang.** `GET /api/classes` was publiek en gaf via `listClasses(false)`
+álle klassen (alle scholen) terug; `POST /api/quiz` valideerde de klas niet. Nu: het endpoint
+vereist auth en filtert via `listClassesVisibleTo` (zichtbaar + niet-gearchiveerd + eigen school).
+De nieuwe helper `klasBruikbaarVoorToets(teacher, classId)` (server.js) herbruikt exact de
+zichtbaarheidsregel (`magKlasZien`) plus een archief- en school-check, en wordt afgedwongen in
+`POST /api/quiz` én `PUT /api/quiz/:code`. Nieuwe DB-helper `classHasAnyTeacher` (legacy-detectie).
+
+**Bug 2 — aanpassen.** Nieuw: `GET /api/quiz/:code/edit` (levert alle velden + `editable`-vlag)
+en `PUT /api/quiz/:code` (schrijft de wijziging weg via `updateQuizSessionFull`, die de
+vraag-snapshots volledig vervangt). Bewerkbaarheid = geen preview, niet gearchiveerd/gesloten/
+gestopt én geen activiteit. "Activiteit" = een rij in `quiz_answers` **of** `quiz_student_order`
+(`quizHasActivity`); een preview raakt geen van beide aan en telt dus nooit mee. Het overzicht
+(`/api/quiz-sessions`) berekent de activiteit in één query (`quizCodesWithActivity`) en zet
+`row.editable`. Frontend: knop **"✏️ Aanpassen"** enkel op het toets-/taakoverzicht
+(`assignment-overview.js`); het aanmaakscherm draait in bewerkmodus via `?edit=CODE`
+(`quiz-teacher.js`) met vergrendeld type en `PUT` i.p.v. `POST`.
+
+**Bug 3 — logout.** `klasmatrix.html`/`mijn-klassen.html` linkten naar het onbestaande `/logout`.
+Links → `/api/teacher-logout`, plus een `/logout`-alias (sessie intrekken + cookies wissen) als
+vangnet voor oude bookmarks.
+
+**Bug 4 — leerlingcode.** `student-thuis.html` gebruikt nu de socket-`student_join`-flow, zodat de
+server beslist: les → `student_state` (leerling-app), toets/taak → `redirect_to_quiz`. Server
+dwingt af dat een toets/taak enkel voor een **ingelogd, aanvaard** account is (grendel in
+`student_join` én `quiz_start`; het oude "naam-only gast"-gat is dicht). Preview blijft vrijgesteld.
+
+**Bug 5 — picker-lay-out.** `openStudentPicker` (`quiz-teacher.js`) kreeg een zoekveld, een teller,
+"alles aan/uit" op de zoekresultaten, en een responsief kolom-raster (`auto-fill`) voor ~100 leerlingen.
+
+**Opruiming.** Verouderde/dubbele bestanden → `OLDIES/` (structuur behouden): `scripts/web/`,
+`web/public/sprintlog.md`, `(1).env.example`, `pgdata/`, `.ug-tmp`-restanten, oude testdoc-PDF.
+
+**Tests:** `tests/sprint50.test.js` (17 nieuwe tests voor de beslissingslogica van bug 1, 2 en 4).
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/public/quiz-teacher.js` ·
+`web/public/quiz-teacher.html` · `web/public/assignment-overview.js` · `web/public/student-thuis.html` ·
+`web/public/klasmatrix.html` · `web/public/mijn-klassen.html` · `web/tests/sprint50.test.js` ·
+`run-tests.sh` · `VERSION` · `.env`
+
+---
 
 ### 📐 Specificatie — E-maildomeinen per school (sprint 48a3)
 

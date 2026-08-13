@@ -9,14 +9,38 @@
 ```
 /volume3/docker/pycodeflow/
 │
-├── pycodeflow.sh                  ← Beheertool (start/stop/setup/logs/opschonen)
-├── Opschonen-Lokaal.ps1           ← Windows: lokale map opschonen (PowerShell)
+│   ── HOOFDMAP: enkel configuratie + Docker (Sprint 51: proper opgeruimd) ──
+├── VERSION                        ← Enige bron van waarheid voor het versienummer
 ├── .env                           ← Geheimen — NOOIT in git!
 ├── .env.example                   ← Template voor .env
 ├── .gitignore                     ← Wat niet in git mag
 ├── docker-compose.yml             ← Basis Docker configuratie
 ├── docker-compose.prod.yml        ← Productie-overrides (poorten, volumes)
-├── check-deployment.sh            ← Verificatiescript
+│
+├── scripts/                       ← ALLE scripts (Sprint 51: weg uit de hoofdmap)
+│   ├── app/
+│   │   └── pycodeflow.sh          ← Beheertool (start/stop/setup/logs/rebuild/opschonen)
+│   ├── general/
+│   │   ├── sync-version.sh        ← Versienummer synchroniseren (VERSION → .env + HTML)
+│   │   ├── run-tests.sh           ← Lokale CI (syntax + unit + sandbox)
+│   │   ├── check-deployment.sh    ← Verificatiescript
+│   │   ├── backup-db.sh           ← PostgreSQL-backup
+│   │   ├── health-monitor.sh      ← Cron-gezondheidscheck
+│   │   ├── diagnose-html.sh       ← HTML-diagnose
+│   │   ├── oldies-check.sh        ← Opruiming → OLDIES/v<versie>/ (standalone)
+│   │   └── Opschonen-Lokaal.ps1   ← Windows: lokale map opschonen (PowerShell)
+│   └── (evt. verdere submappen per domein, bv. testdoc/)
+│
+├── documentation/                 ← ALLE .md/.pdf (Sprint 51: weg uit de hoofdmap)
+│   ├── changelog.md               ← Wat is er per versie gewijzigd
+│   ├── sprintlog.md               ← Sprintoverzicht + detailbeschrijvingen
+│   ├── install.md                 ← Installatiegids
+│   ├── project-structure.md       ← Dit bestand
+│   ├── technical-readme.md        ← Technische referentie
+│   ├── test-readme.md             ← Testplan / seed-instructies
+│   ├── security-testplan.md       ← Security-testplan
+│   ├── user-manual.md             ← Handleiding voor leerkrachten
+│   └── uitvoeringsplan-openstaande-sprints.md
 │
 ├── pgdata/                        ← PostgreSQL databestanden (auto-aangemaakt)
 │   └── (beheerd door PostgreSQL)
@@ -27,6 +51,14 @@
 │
 ├── data/                          ← Legacy SQLite (enkel als backup na migratie)
 │   └── pycodeflow.db.backup-20260626
+│
+├── OLDIES/                        ← Opruiming van oude/dubbele/irrelevante bestanden.
+│   │                                Sprint 51: één versie-submap per opruiming, met de
+│   │                                ORIGINELE mapstructuur erin — makkelijk terugzetten.
+│   │                                Bij een rebuild wordt OLDIES leeggemaakt (op vraag) en
+│   │                                komt er één nieuwe versie-map voor in de plaats.
+│   └── v2026.2.51.0/              ← Alles wat bij deze opruiming irrelevant bleek
+│       └── … (structuur van de oorspronkelijke locatie behouden)
 │
 ├── web/                           ← Node.js webserver
 │   ├── server.js                  ← Express + Socket.IO server (MAIN)
@@ -60,7 +92,7 @@
 │       ├── admin.html             ← Gebruikersbeheer (leerkrachten/klassen/leerlingen)
 │       │
 │       ├── quiz-bank.html         ← Vragenbank beheren
-│       ├── quiz-teacher.html      ← Toets aanmaken (wizard)
+│       ├── quiz-teacher.html      ← Toets/taak aanmaken én aanpassen (wizard; ?edit=CODE)
 │       ├── quiz-student.html      ← Leerling quizscherm
 │       ├── quiz-review.html       ← Verbetermodule + PDF export
 │       └── quiz-archive.html      ← Archief + statistieken per jaar/klas

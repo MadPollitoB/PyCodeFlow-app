@@ -258,7 +258,7 @@ async function selectQuestion(idx) {
       <strong>Vraag ${idx+1}:</strong><div class="md-preview" style="margin:4px 0 8px;">${renderMarkdown(q.text_snapshot || q.text || '')}</div>
       <span class="muted" style="font-size:0.82rem;">
         ${esc(q.subject || '')} · Max ${q.points} punten
-        ${ans ? ` · Ingediend ${new Date(ans.submitted_at||ans.saved_at).toLocaleTimeString('nl-BE',{hour:'2-digit',minute:'2-digit'})}
+        ${ans ? ` · Ingediend ${new Date(Number(ans.submitted_at||ans.saved_at)).toLocaleTimeString('nl-BE',{hour:'2-digit',minute:'2-digit'})}
           ${ans.auto_submitted ? '(timer)' : '(handmatig)'}
           ${qType==='code'?` · ${ans.run_count} run${ans.run_count!==1?'s':''}`:''}` : ' · Niet beantwoord'}
       </span>
@@ -293,7 +293,7 @@ async function selectQuestion(idx) {
       <div class="run-history-list">
         ${history.map((h, i) => `
           <div class="run-history-item" onclick="loadHistoryRun('${escJs(h.code)}')">
-            Run ${i+1} — ${new Date(h.ran_at).toLocaleTimeString('nl-BE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+            Run ${i+1} — ${new Date(Number(h.ran_at)).toLocaleTimeString('nl-BE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
           </div>`).join('')}
       </div>
     </details>` : ''}
@@ -331,8 +331,11 @@ async function selectQuestion(idx) {
   // Laad code in editor (enkel bij code-vragen)
   _originalCode = code;
   if (qType === 'code') {
-    // Sprint 43.11: via window.setEditorValue (editorStore zit binnen de IIFE van app.js).
-    if (window.setEditorValue) window.setEditorValue('quiz', code || '// Geen antwoord ingediend', true);
+    // Sprint 51c: #q-detail (en dus #quiz-editor) is zonet opnieuw opgebouwd. We (her)mounten
+    // de Monaco-editor op de verse host mét de leerlingcode; ensureEditor gooit een eventuele
+    // losgekoppelde instance weg en bouwt opnieuw. Vroeger deed setEditorValue niets omdat de
+    // editor nooit gemount was → de code bleef onzichtbaar.
+    await ensureEditor('quiz', code || '// Geen antwoord ingediend', false, true);
     setQuizEditorReadOnly(true);
   }
   const out = document.getElementById('review-output');

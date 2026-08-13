@@ -311,7 +311,7 @@ docker compose ps
 docker compose exec web node scripts/manage-teacher.js add admin JOUWWACHTWOORD
 
 # Verificatie
-bash check-deployment.sh
+bash scripts/general/check-deployment.sh
 ```
 
 ### Stap 7 — Migratescript (alleen bij migratie van SQLite)

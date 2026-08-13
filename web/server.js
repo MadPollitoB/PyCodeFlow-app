@@ -199,6 +199,7 @@ const magBibliotheekModereren = authLib.magBibliotheekModereren;
 // Sprint 48c4: super-admin (hosting) — leesscope zonder schoolfilter
 const isBeheerder = authLib.isBeheerder;
 const leesScopeVoor = authLib.leesScopeVoor;
+const magKlasZien = authLib.magKlasZien;   // Sprint 50: klaszichtbaarheid (toets/taak-doel)
 // Sprint 55: beheer-RBAC (wie ziet Beheer/Systeem, wie kent rollen toe)
 const magBeheerZien = authLib.magBeheerZien;
 const magSysteemZien = authLib.magSysteemZien;
@@ -815,6 +816,29 @@ app.get('/api/teacher-logout', async (req, res) => {
   }
   // Beide cookies wissen. Enkel teacher_sid zou niet volstaan: de terugval op het
   // oude teacher_auth-cookie (50b) zou je meteen weer binnenlaten.
+  res.setHeader('Set-Cookie', [
+    'teacher_auth=; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=0',
+    'teacher_sid=; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=0',
+  ]);
+  res.redirect('/teacher-login.html');
+});
+
+// ── Sprint 50 (bug 3): /logout-alias ─────────────────────────────────────────
+// Enkele pagina's (klasmatrix, mijn-klassen) linkten historisch naar /logout, dat niet
+// bestond → "Cannot GET /logout". Die links wijzen nu naar /api/teacher-logout, maar we
+// houden deze alias als vangnet voor oude bookmarks/links. We voeren dezelfde afmelding uit
+// (sessie intrekken + cookies wissen) i.p.v. enkel te redirecten, zodat afmelden ook via de
+// oude URL écht afmeldt.
+app.get('/logout', async (req, res) => {
+  try {
+    const cookies = parseCookieHeader(req.headers.cookie);
+    if (cookies.teacher_sid) {
+      await dbModule.deleteTeacherSession(hashSessionToken(cookies.teacher_sid));
+      log.info('[auth] sessie ingetrokken (afmelden via /logout)');
+    }
+  } catch (e) {
+    log.warn('[auth] sessie intrekken via /logout mislukt:', e.message);
+  }
   res.setHeader('Set-Cookie', [
     'teacher_auth=; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=0',
     'teacher_sid=; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=0',
@@ -1892,9 +1916,20 @@ app.get('/api/admin/school-years', requireTeacherAuth, async (req, res) => {
 });
 
 // Publiek endpoint voor leerling dropdown (enkel namen)
-app.get('/api/classes', async (req, res) => {
+// ── Sprint 50: klassenkeuze voor toets/taak — enkel eigen, niet-gearchiveerde klassen ──
+// Vroeger was dit endpoint PUBLIEK én gaf het via listClasses(false) ÁLLE klassen terug
+// (ook van collega's/andere scholen). Daardoor kon je een toets/taak maken voor een klas
+// waartoe je geen toegang hebt. Nu: auth verplicht + exact dezelfde zichtbaarheidsregel
+// als "Mijn klassen"/klasbeheer (listClassesVisibleTo), zodat de dropdown enkel klassen
+// toont die deze leerkracht ook echt mag gebruiken. Gearchiveerde klassen vallen weg.
+app.get('/api/classes', requireTeacherAuth, async (req, res) => {
   try {
-    const classes = await dbModule.listClasses(false);
+    const classes = await dbModule.listClassesVisibleTo({
+      teacherId: req.teacher?.id || null,
+      isAdmin: isBeheerder(req.teacher),          // admin/superadmin ziet alle klassen (48c4)
+      includeArchived: false,                     // een gearchiveerde klas mag geen doel meer zijn
+      actieveSchoolId: req.teacher?.activeSchoolId || null,
+    });
     res.json(classes.map(c => ({ id: c.id, name: c.name, school_year: c.school_year })));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2187,6 +2222,46 @@ async function magKlasBeheren(teacher, classId) {
   if (teacher.role === 'admin') return true;
   if (!teacher.id) return true; // open modus
   return dbModule.isTeacherLinkedToClass(teacher.id, classId);
+}
+
+// ── Sprint 50: mag deze leerkracht DEZE klas als doel van een toets/taak kiezen? ──
+// Gebruikt bij het AANMAKEN én BEWERKEN van een toets/taak. De server mag nooit iets
+// toelaten wat de dropdown (/api/classes) niet aanbiedt, dus we spiegelen exact die
+// zichtbaarheidsregel: admin/open → alles; leerkracht → gekoppelde of nog-niet-toegewezen
+// klassen binnen zijn actieve school. Bovendien moet de klas BESTAAN en NIET gearchiveerd
+// zijn. Een lege targetClass ('' = "niet gekoppeld / alle klassen") is altijd toegestaan.
+// Retourneert { ok:boolean, reason?:string }.
+async function klasBruikbaarVoorToets(teacher, classId) {
+  if (!classId) return { ok: true };                       // niet gekoppeld → toegestaan
+  let klas;
+  try { klas = await dbModule.getClassById(classId); }
+  catch { return { ok: false, reason: 'De gekozen klas kon niet gecontroleerd worden.' }; }
+  if (!klas) return { ok: false, reason: 'De gekozen klas bestaat niet (meer).' };
+  if (klas.archived) return { ok: false, reason: 'De gekozen klas is gearchiveerd en kan geen toets/taak meer krijgen.' };
+
+  // Admin/open modus: enkel de school-grens bewaken (super-admin overstijgt scholen).
+  if (!teacher?.id || authLib.isSuperAdmin(teacher)) return { ok: true, klas };
+  if (isBeheerder(teacher)) {
+    if (klas.school_id && teacher.activeSchoolId && klas.school_id !== teacher.activeSchoolId) {
+      return { ok: false, reason: 'De gekozen klas hoort bij een andere school.' };
+    }
+    return { ok: true, klas };
+  }
+
+  // Gewone leerkracht: gekoppeld óf nog niet toegewezen (legacy) — net als magKlasZien.
+  let isLinked = false, heeftEigenaar = true;
+  try {
+    isLinked = await dbModule.isTeacherLinkedToClass(teacher.id, classId);
+    heeftEigenaar = await dbModule.classHasAnyTeacher(classId);
+  } catch { /* fail-safe: onderstaande beslissing geldt met de defaults */ }
+  if (!magKlasZien(teacher, { isLinked, heeftEigenaar })) {
+    return { ok: false, reason: 'Je hebt geen toegang tot de gekozen klas.' };
+  }
+  // Zit de klas in een andere school dan je actieve school? Dan mag je ze niet gebruiken.
+  if (klas.school_id && teacher.activeSchoolId && klas.school_id !== teacher.activeSchoolId) {
+    return { ok: false, reason: 'De gekozen klas hoort bij een andere school.' };
+  }
+  return { ok: true, klas };
 }
 
 // Nieuwe code genereren (en meteen actief zetten). Botsingen worden hertest.
@@ -2726,6 +2801,14 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
   if (accessUntil && accessFrom && Number(accessUntil) <= Number(accessFrom)) {
     return res.status(400).json({ error: 'De deadline moet ná de startdatum liggen.' });
   }
+  // Sprint 50 (bug 1): een leerkracht mag enkel een toets/taak maken voor een klas
+  // waartoe hij toegang heeft en die niet gearchiveerd is. Een lege klas ('') = niet
+  // gekoppeld en blijft toegestaan. Dit sluit het gat waarbij de dropdown (nu gefilterd)
+  // omzeild kon worden door de request rechtstreeks te versturen.
+  {
+    const klasCheck = await klasBruikbaarVoorToets(req.teacher, targetClass || '');
+    if (!klasCheck.ok) return res.status(403).json({ error: klasCheck.reason });
+  }
 
   const code = makeCode();
   const session = {
@@ -2798,6 +2881,134 @@ app.get('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, async (req,
   const meta = await dbModule.getQuizMeta(code);
   const questions = await dbModule.getQuizQuestions(code);
   res.json({ session: session ? { code, name: session.name, mode: session.mode } : null, meta, questions });
+});
+
+// ── Sprint 50 (bug 2): een toets/taak bewerken ───────────────────────────────
+// Bewerken mag ENKEL zolang niemand de toets/taak gestart heeft en er geen resultaten
+// zijn (quizHasActivity). Het TYPE blijft ongewijzigd. Twee endpoints:
+//   • GET  /api/quiz/:code/edit  → alle velden om het aanmaakscherm voor te vullen
+//   • PUT  /api/quiz/:code       → de wijzigingen wegschrijven
+async function toetsIsBewerkbaar(code, meta) {
+  // Preview-toetsen zijn geen "echte" opdracht en worden apart beheerd (Activeren).
+  if (!meta) return { ok: false, reason: 'Toets/taak niet gevonden.' };
+  if (meta.is_teacher_preview) return { ok: false, reason: 'Een preview kan niet bewerkt worden. Activeer ze eerst.' };
+  if (meta.archived) return { ok: false, reason: 'Deze toets/taak is gearchiveerd en kan niet meer bewerkt worden.' };
+  if (meta.stopped_at) return { ok: false, reason: 'Deze toets/taak is gestopt en kan niet meer bewerkt worden.' };
+  let heeftActiviteit = false;
+  try { heeftActiviteit = await dbModule.quizHasActivity(code); }
+  catch (e) { return { ok: false, reason: 'Kon de status niet controleren. Probeer later opnieuw.' }; }
+  if (heeftActiviteit) {
+    return { ok: false, reason: 'Er is al een leerling gestart of er zijn resultaten. Bewerken kan niet meer.' };
+  }
+  return { ok: true };
+}
+
+app.get('/api/quiz/:code/edit', requireTeacherAuth, requireSessionAccess, async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  try {
+    const meta = await dbModule.getQuizMeta(code);
+    if (!meta) return res.status(404).json({ error: 'Toets/taak niet gevonden.' });
+    const bewerkbaar = await toetsIsBewerkbaar(code, meta);
+    const session = sessions.get(code)
+      || (await dbModule.query(`SELECT name FROM sessions WHERE code = $1`, [code])).rows[0] || null;
+    const snaps = await dbModule.getQuizQuestions(code);
+    const studentIds = await dbModule.listAssignmentStudents(code);
+    res.json({
+      code,
+      editable: bewerkbaar.ok,
+      reason: bewerkbaar.ok ? null : bewerkbaar.reason,
+      name: session ? session.name : code,
+      type: meta.type || (meta.no_timer ? 'taak' : 'toets'),
+      meta: {
+        randomize: meta.randomize !== false,
+        noTimer: meta.no_timer === true,
+        timerSeconds: meta.timer_seconds || null,
+        minRunsPerQ: meta.min_runs_per_q || 0,
+        hideQuestionOnScreen: meta.hide_question_on_screen === true,
+        noBack: meta.no_back === true,
+        autoSubmitLate: meta.auto_submit_late !== false,
+        accessFrom: meta.access_from != null ? Number(meta.access_from) : null,
+        accessUntil: meta.access_until != null ? Number(meta.access_until) : null,
+        schoolYear: meta.school_year || '',
+        targetClass: meta.target_class || '',
+      },
+      // Vragen zoals ze nu in de toets zitten (met bank-id zodat het aanmaakscherm ze
+      // terugvindt en er nieuwe bij kan selecteren of ze kan verwijderen).
+      questions: snaps.map(q => ({
+        id: q.bank_question_id, text: q.text_snapshot, subject: q.subject || '',
+        points: q.points, question_type: q.question_type, choices_json: q.choices_json,
+      })),
+      studentIds,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  try {
+    const meta = await dbModule.getQuizMeta(code);
+    if (!meta) return res.status(404).json({ error: 'Toets/taak niet gevonden.' });
+    // Grendel: opnieuw controleren op de server (niet vertrouwen op de knop in de UI).
+    const bewerkbaar = await toetsIsBewerkbaar(code, meta);
+    if (!bewerkbaar.ok) return res.status(409).json({ error: bewerkbaar.reason });
+
+    const { name, questions, randomize, timerSeconds, noTimer, minRunsPerQ,
+            hideQuestionOnScreen, noBack, accessFrom, accessUntil, autoSubmitLate,
+            schoolYear, targetClass, studentIds } = req.body || {};
+
+    if (!name?.trim()) return res.status(400).json({ error: 'Naam is verplicht.' });
+    if (!questions?.length) return res.status(400).json({ error: 'Selecteer minstens 1 vraag.' });
+    if (questions.length > 50) return res.status(400).json({ error: 'Max 50 vragen.' });
+    // Deadline blijft verplicht (het type blijft hetzelfde als bij aanmaken).
+    if (!accessUntil) return res.status(400).json({ error: 'Een einddatum en uur (deadline) is verplicht.' });
+    if (accessUntil && accessFrom && Number(accessUntil) <= Number(accessFrom)) {
+      return res.status(400).json({ error: 'De deadline moet ná de startdatum liggen.' });
+    }
+    // Klas-toegang valideren (zelfde regel als bij aanmaken, bug 1).
+    const klasCheck = await klasBruikbaarVoorToets(req.teacher, targetClass || '');
+    if (!klasCheck.ok) return res.status(403).json({ error: klasCheck.reason });
+
+    // Vraag-snapshots opnieuw opbouwen uit de bank (net als bij aanmaken).
+    const bankById = await dbModule.getQuizBankByIds(questions.map(q => q.id));
+    await dbModule.updateQuizSessionFull({
+      sessionCode: code,
+      questions: questions.map((q, i) => {
+        const bank = bankById.get ? bankById.get(q.id) : null;
+        return {
+          bankId: q.id, orderIndex: i,
+          text: q.text, subject: q.subject || '',
+          points: parseInt(q.points) || parseInt(q.max_points) || 4,
+          questionType: bank?.question_type || q.question_type || 'code',
+          choicesJson: bank?.choices_json || q.choices_json || '[]',
+          modelAnswer: bank?.model_answer || '',
+        };
+      }),
+      randomize: randomize !== false,
+      noTimer: noTimer === true,
+      timerSeconds: noTimer ? null : Math.max(60, Math.min(7200, parseInt(timerSeconds) || 2700)),
+      accessFrom: accessFrom ? Number(accessFrom) : null,
+      accessUntil: accessUntil ? Number(accessUntil) : null,
+      autoSubmitLate: autoSubmitLate !== false,
+      noBack: noBack === true,
+      minRunsPerQ: parseInt(minRunsPerQ) || 0,
+      hideQuestionOnScreen: hideQuestionOnScreen === true,
+      schoolYear: schoolYear || '',
+      targetClass: targetClass || '',
+    });
+
+    // Naam bijwerken (sessies-tabel + in-memory sessie).
+    try { await dbModule.query(`UPDATE sessions SET name = $2 WHERE code = $1`, [code, name.trim()]); }
+    catch (e) { log.warn('[quiz-edit] naam bijwerken mislukt:', e.message); }
+    const mem = sessions.get(code);
+    if (mem) mem.name = name.trim();
+
+    // Leerling-selectie: lege/afwezige lijst = beperking opheffen (hele klas mag).
+    try { await dbModule.setAssignmentStudents(code, Array.isArray(studentIds) ? studentIds : []); }
+    catch (e) { log.warn('[quiz-edit] leerling-selectie opslaan mislukt:', e.message); }
+
+    dbModule.auditLog(getActorFromReq(req), 'quiz_edited', code, { vragen: questions.length }, req.ip).catch(() => {});
+    res.json({ ok: true, code });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
@@ -4670,6 +4881,14 @@ app.get("/api/quiz-sessions", requireTeacherAuth, async (req, res) => {
     metas = (await dbModule.query(`SELECT * FROM assignment_bank ${where}`)).rows || [];
   } catch (e) { log.warn('[quiz-sessions] assignment_bank lezen mislukt:', e.message); }
 
+  // Sprint 50 (bug 2): welke toetsen/taken hebben al activiteit? Die zijn niet meer
+  // bewerkbaar. In één query i.p.v. per rij, zodat het overzicht snel blijft.
+  let activiteitSet = new Set();
+  try {
+    const codes = metas.map(m => m.session_code);
+    activiteitSet = new Set(await dbModule.quizCodesWithActivity(codes));
+  } catch (e) { log.warn('[quiz-sessions] activiteit-check mislukt:', e.message); }
+
   for (const meta of metas) {
     const code = meta.session_code;
     const mem = sessions.get(code);
@@ -4697,6 +4916,11 @@ app.get("/api/quiz-sessions", requireTeacherAuth, async (req, res) => {
     const onlineCount = students.filter(st => st.online).length;
     const row = quizSummaryRow(code, name || code, createdAt || 0, closed, meta, onlineCount, students.length, now);
     row.className = classMap[row.targetClass] || '';
+    // Sprint 50 (bug 2): bewerkbaar zolang geen preview, niet gearchiveerd/gesloten/gestopt
+    // en er nog geen leerling gestart is of resultaten zijn.
+    const heeftActiviteit = activiteitSet.has(code);
+    row.hasActivity = heeftActiviteit;
+    row.editable = !row.isPreview && !row.archived && !closed && !row.stoppedAt && !heeftActiviteit;
     out.push(row);
   }
 
@@ -5784,6 +6008,28 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     // op de generieke "Deelnemen"-pagina binnenkomt, wordt naar de toets-flow gestuurd
     // i.p.v. in de editor-sessie te belanden.
     if (session.mode === 'quiz' || session.mode === 'task') {
+      // Sprint 50 (bug 4): aan een toets/taak kan je ENKEL deelnemen als je ingelogd bent
+      // met een aanvaard account. Een preview-toets is de uitzondering: die dient net om
+      // als leerkracht (zonder leerling-account) zelf te testen.
+      let meta = null;
+      try { meta = await dbModule.getQuizMeta(normalizedCode); } catch (e) { /* val terug op de grendel hieronder */ }
+      if (!meta || !meta.is_teacher_preview) {
+        const account = socket.data.student || null;
+        if (!account) {
+          return socket.emit('error_message',
+            'Voor een toets of taak moet je eerst inloggen met je eigen account. Als gast kan je niet deelnemen — log in of maak een account aan.');
+        }
+        if (!magLeerlingActiviteit(account, 'toets')) {
+          return socket.emit('error_message', account.status === 'blocked'
+            ? 'Je account is geblokkeerd. Vraag je leerkracht om hulp.'
+            : 'Je account is nog niet aanvaard door je leerkracht. Je kan al vrij oefenen en aan een klassessie meedoen, maar nog niet aan een toets of taak.');
+        }
+        // Gebruik de geverifieerde accountnaam (niet een zelf-ingetypte naam).
+        return socket.emit('redirect_to_quiz', {
+          code: normalizedCode, name: account.name || normalizedName, className: normalizedClass,
+        });
+      }
+      // Preview: laat de bestaande (naam-gebaseerde) doorstuur ongemoeid.
       return socket.emit('redirect_to_quiz', {
         code: normalizedCode, name: normalizedName, className: normalizedClass,
       });
@@ -6918,20 +7164,22 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     // is die er niet, dan zoeken we op naam binnen de gekoppelde klas. Preview-toetsen zijn
     // vrijgesteld (de leerkracht test zelf). Vinden we geen account, dan laten we de
     // bestaande (naam-gebaseerde) flow ongemoeid — dit voegt enkel een grendel toe.
-    try {
-      if (!meta.is_teacher_preview) {
-        let account = socket.data.student || null;
-        if (!account && meta.target_class) {
-          account = await dbModule.getStudentByName(studentName, meta.target_class);
-        }
-        if (account && !magLeerlingActiviteit(account, 'toets')) {
-          const reden = account.status === 'blocked'
-            ? 'Je account is geblokkeerd. Vraag je leerkracht om hulp.'
-            : 'Je account is nog niet aanvaard door je leerkracht. Je kan al vrij oefenen en aan een klassessie meedoen, maar nog niet aan een toets of taak.';
-          return socket.emit('error_message', reden);
-        }
+    // Sprint 50 (bug 4): login + aanvaarding is nu VERPLICHT om een toets/taak te starten.
+    // Vroeger liet de "naam-only"-terugval een gast (zonder account) alsnog starten wanneer
+    // zijn naam niet als account gevonden werd — dat gat is nu dicht. Preview blijft
+    // vrijgesteld (de leerkracht test zelf, zonder leerling-account).
+    if (!meta.is_teacher_preview) {
+      const account = socket.data.student || null;
+      if (!account) {
+        return socket.emit('error_message',
+          'Voor een toets of taak moet je eerst inloggen met je eigen account. Als gast kan je niet deelnemen — log in of maak een account aan.');
       }
-    } catch (e) { log.warn('[quiz_start] statuscheck mislukt:', e.message); }
+      if (!magLeerlingActiviteit(account, 'toets')) {
+        return socket.emit('error_message', account.status === 'blocked'
+          ? 'Je account is geblokkeerd. Vraag je leerkracht om hulp.'
+          : 'Je account is nog niet aanvaard door je leerkracht. Je kan al vrij oefenen en aan een klassessie meedoen, maar nog niet aan een toets of taak.');
+      }
+    }
 
     // Herstarten: bestaande leerling
     let student = Object.values(session.students).find(
