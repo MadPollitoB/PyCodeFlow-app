@@ -1243,6 +1243,8 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
   }
   function quizStatusBadge(q) {
     const fmt = ts => new Date(ts).toLocaleString('nl-BE', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+    // Sprint 51e: een gestopte toets/taak toont "gestopt" i.p.v. "Open".
+    if (q.stoppedAt) return '<span class="badge" style="background:#e2e8f0;color:#475569;margin-left:4px;">⏹ gestopt</span>';
     switch (q.availability) {
       case 'closed':  return '<span class="badge" style="background:#fee2e2;color:#991b1b;margin-left:4px;">Gesloten</span>';
       case 'pending': return `<span class="badge" style="background:#fef3c7;color:#92400e;margin-left:4px;" title="Opent op ${q.accessFrom ? fmt(q.accessFrom) : ''}">⏳ Nog niet open</span>`;

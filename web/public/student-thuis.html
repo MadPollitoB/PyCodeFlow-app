@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Waar wil je naartoe?</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.3"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.4"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .blok { border:1.5px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
@@ -14,6 +14,18 @@
   .banner.pending { background:#fef3c7; color:#92400e; }
   .code-rij { display:flex; gap:8px; }
   .code-rij input { flex:1; text-transform:uppercase; letter-spacing:1px; }
+  /* Sprint 51e: tabs + resultaten */
+  .tabs { display:flex; gap:6px; margin-bottom:16px; border-bottom:2px solid var(--border); }
+  .tabs button { flex:1; background:none; border:none; padding:10px 6px; font-size:0.92rem; font-weight:700;
+    color:var(--muted); cursor:pointer; border-bottom:3px solid transparent; margin-bottom:-2px; }
+  .tabs button.actief { color:var(--primary); border-bottom-color:var(--primary); }
+  .res-kaart { border:1.5px solid var(--border); border-radius:12px; padding:13px 15px; margin-bottom:10px; cursor:pointer; }
+  .res-kaart:hover { border-color:var(--primary); }
+  .res-kaart .titel { font-weight:700; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .res-score { margin-left:auto; font-weight:800; }
+  .res-detail { margin-top:10px; border-top:1px solid var(--border); padding-top:10px; }
+  .vraag-blok { padding:10px 0; border-bottom:1px solid var(--border); }
+  .vraag-blok:last-child { border-bottom:none; }
 </style>
 </head><body>
 <div class="topbar"><div class="topbar-inner">
@@ -26,27 +38,40 @@
     <h1 style="margin:0;">Waar wil je naartoe?</h1>
     <div class="banner" id="banner">Laden…</div>
 
-    <div class="blok" id="blok-lessen">
-      <label class="kop">🟢 Open lessen van jouw klas</label>
-      <div id="lessen-inhoud"><p class="muted" style="margin:0;font-size:0.88rem;">Laden…</p></div>
+    <div class="tabs">
+      <button id="tab-btn-deelnemen" class="actief" onclick="toonTab('deelnemen')">🚀 Deelnemen</button>
+      <button id="tab-btn-resultaten" onclick="toonTab('resultaten')">📊 Mijn resultaten</button>
     </div>
 
-    <div class="blok">
-      <label class="kop">🔢 Ik heb een sessiecode</label>
-      <p class="muted" style="font-size:0.8rem;margin:0 0 8px;">
-        Voor een <strong>toets of taak</strong>, of een les die hierboven niet staat.</p>
-      <div class="code-rij">
-        <input id="code" placeholder="vb.: AB12CD" autocomplete="off"
-               onkeydown="if(event.key==='Enter')gaMetCode()"/>
-        <button class="btn btn-muted" onclick="gaMetCode()">Ga</button>
+    <div id="tab-deelnemen">
+      <div class="blok" id="blok-lessen">
+        <label class="kop">🟢 Open lessen van jouw klas</label>
+        <div id="lessen-inhoud"><p class="muted" style="margin:0;font-size:0.88rem;">Laden…</p></div>
       </div>
-      <div id="code-fout" class="muted" style="font-size:0.82rem;margin-top:8px;color:#991b1b;"></div>
+
+      <div class="blok">
+        <label class="kop">🔢 Ik heb een sessiecode</label>
+        <p class="muted" style="font-size:0.8rem;margin:0 0 8px;">
+          Voor een <strong>toets of taak</strong>, of een les die hierboven niet staat.</p>
+        <div class="code-rij">
+          <input id="code" placeholder="vb.: AB12CD" autocomplete="off"
+                 onkeydown="if(event.key==='Enter')gaMetCode()"/>
+          <button class="btn btn-muted" onclick="gaMetCode()">Ga</button>
+        </div>
+        <div id="code-fout" class="muted" style="font-size:0.82rem;margin-top:8px;color:#991b1b;"></div>
+      </div>
+
+      <div class="blok" id="blok-oefenen" style="border-style:dashed;">
+        <button class="btn btn-soft" style="width:100%;justify-content:center;" onclick="vrijOefenen()">🐍 Vrij oefenen</button>
+        <p class="muted" style="font-size:0.8rem;margin:8px 0 0;text-align:center;">
+          Onder je eigen naam — je leerkracht ziet je in het overzicht.</p>
+      </div>
     </div>
 
-    <div class="blok" id="blok-oefenen" style="border-style:dashed;">
-      <button class="btn btn-soft" style="width:100%;justify-content:center;" onclick="vrijOefenen()">🐍 Vrij oefenen</button>
-      <p class="muted" style="font-size:0.8rem;margin:8px 0 0;text-align:center;">
-        Onder je eigen naam — je leerkracht ziet je in het overzicht.</p>
+    <div id="tab-resultaten" style="display:none;">
+      <p class="muted" style="font-size:0.85rem;margin:0 0 12px;">
+        Je vrijgegeven toetsen en taken van je huidige klas. Klik een resultaat open voor de details.</p>
+      <div id="resultaten-inhoud"><p class="muted" style="margin:0;font-size:0.88rem;">Laden…</p></div>
     </div>
   </div>
 </div>
@@ -184,6 +209,83 @@ function vrijOefenen() {
     localStorage.setItem('freeStudentClass', '');
   } catch (e) { /* stil */ }
   location.href = '/free-editor.html';
+}
+
+// ── Sprint 51e: tabs + "Mijn resultaten" ─────────────────────────────────────
+let _resultatenGeladen = false;
+function toonTab(naam) {
+  const isRes = naam === 'resultaten';
+  document.getElementById('tab-deelnemen').style.display = isRes ? 'none' : 'block';
+  document.getElementById('tab-resultaten').style.display = isRes ? 'block' : 'none';
+  document.getElementById('tab-btn-deelnemen').classList.toggle('actief', !isRes);
+  document.getElementById('tab-btn-resultaten').classList.toggle('actief', isRes);
+  if (isRes && !_resultatenGeladen) { _resultatenGeladen = true; laadResultaten(); }
+}
+
+function escR(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function laadResultaten() {
+  const doel = document.getElementById('resultaten-inhoud');
+  try {
+    const r = await fetch('/api/student/my-results');
+    const d = await r.json();
+    const lijst = d.results || [];
+    if (!lijst.length) {
+      doel.innerHTML = '<p class="muted" style="margin:0;font-size:0.88rem;">Je hebt nog geen vrijgegeven resultaten. Zodra je leerkracht een toets of taak vrijgeeft, verschijnt ze hier.</p>';
+      return;
+    }
+    doel.innerHTML = lijst.map(res => {
+      const icoon = res.type === 'taak' ? '📝' : '🧪';
+      const score = res.volledigVerbeterd
+        ? `<span class="res-score">${res.behaald}/${res.maximum}</span>`
+        : '<span class="res-score muted" style="font-weight:600;">nog niet volledig verbeterd</span>';
+      const kanOpenen = res.reviewMode ? '<span class="muted" style="font-size:0.75rem;">· volledige toets inzien</span>' : '';
+      return `<div class="res-kaart" onclick="toggleResultaat('${escR(res.code)}', this)">
+        <div class="titel">${icoon} ${escR(res.name)} ${score}</div>
+        <div class="muted" style="font-size:0.78rem;margin-top:3px;">${escR(res.className)} ${kanOpenen}</div>
+        <div class="res-detail" style="display:none;"></div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    doel.innerHTML = '<p class="muted" style="color:#991b1b;">Kon je resultaten niet laden.</p>';
+  }
+}
+
+async function toggleResultaat(code, kaart) {
+  const detail = kaart.querySelector('.res-detail');
+  if (detail.style.display === 'block') { detail.style.display = 'none'; return; }
+  detail.style.display = 'block';
+  detail.innerHTML = '<p class="muted" style="font-size:0.85rem;">Laden…</p>';
+  try {
+    const r = await fetch('/api/student/my-results/' + encodeURIComponent(code));
+    const d = await r.json();
+    if (!r.ok) { detail.innerHTML = '<p class="muted" style="color:#991b1b;">' + escR(d.error || 'Geen toegang.') + '</p>'; return; }
+    let html = '';
+    if (d.generalComment) {
+      html += `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:0.85rem;">
+        <strong>Commentaar leerkracht:</strong><br>${escR(d.generalComment)}</div>`;
+    }
+    html += d.questions.map((q, i) => {
+      const sc = q.score != null ? `${q.score}/${q.points}` : `?/${q.points}`;
+      let body = '';
+      // Volledige toets enkel bij review_mode (code != null).
+      if (q.code !== null && q.questionType === 'code') {
+        body = `<pre style="background:#071737;color:#f9fbff;padding:10px;border-radius:8px;overflow:auto;font-size:0.8rem;margin:6px 0;">${escR(q.code || '(geen antwoord)')}</pre>`;
+      }
+      const comm = q.comment ? `<div style="font-size:0.82rem;color:#334155;margin-top:4px;">💬 ${escR(q.comment)}</div>` : '';
+      return `<div class="vraag-blok">
+        <div style="display:flex;gap:8px;align-items:baseline;">
+          <strong>Vraag ${i + 1}</strong><span class="muted" style="font-size:0.8rem;">${escR((q.text||'').slice(0,80))}</span>
+          <span style="margin-left:auto;font-weight:700;">${sc}</span>
+        </div>${body}${comm}</div>`;
+    }).join('');
+    if (!d.reviewMode) {
+      html += '<p class="muted" style="font-size:0.78rem;margin-top:8px;">De volledige toets is niet opengesteld. Je ziet je scores en de feedback van je leerkracht.</p>';
+    }
+    detail.innerHTML = html;
+  } catch (e) {
+    detail.innerHTML = '<p class="muted" style="color:#991b1b;">Kon dit resultaat niet laden.</p>';
+  }
 }
 
 laad();

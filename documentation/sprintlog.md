@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.3**
+**Huidige versie: v2026.2.51.4**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -224,6 +224,31 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 51e — Security-visibility, bugfixes & batch-2 features — ✅ AFGEROND (v2026.2.51.4)
+
+**Security:** `/api/quiz-sessions` toont nu enkel je eigen toetsen/taken of die van een klas
+waaraan je gekoppeld bent (nieuwe `magToetsZien`); geen admin-alziend-oog en geen
+null-eigenaar-uitzondering meer. ClaesAdmin/bootstrap-account is voortaan **superadmin**
+(bestaande install promoveert automatisch).
+
+**Bugfixes:** stop-refresh (roept nu `reloadAssignments`; badge "⏹ gestopt") · ZIP 502
+(`school` gedefinieerd in `/pdf/zip`) · algemene commentaar (opslaan via `apiFetch`/CSRF +
+`LEFT JOIN quiz_general_comments` bij laden) · vrijgave-badges in het overzicht.
+
+**Features:** echte klasverhuizing (uit klas van hetzelfde jaar, historiek blijft) · CSV-import
+met alle velden (type/keuzes/juiste/modelantwoord/tags/delen, header-mapping, `;`/`,`) ·
+student "Mijn resultaten"-tab (vrijgegeven, actieve klas/jaar; commentaar altijd, volledige
+toets bij `review_mode`).
+
+Getest tegen embedded PostgreSQL: visibility (superadmin/andere school zien niets), general_comment
+join, klasverhuizing met behoud van 4 quiz_answers.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/public/assignment-overview.js`
+· `web/public/quiz-bank.js` · `web/public/quiz-review.js` · `web/public/app.js` ·
+`web/public/student-thuis.html` · `web/public/quiz-bank.html` · `web/scripts/seed-testdb.js`.
+
+---
 
 ### Sprint 51d — UI-fixes + security (batch 1) — ✅ AFGEROND (v2026.2.51.3)
 

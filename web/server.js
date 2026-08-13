@@ -27,14 +27,31 @@ dbModule.init().then(async () => {
       : (BASIC_AUTH_LEGACY_PASS ? createPasswordHash(BASIC_AUTH_LEGACY_PASS) : '');
     if (teachers.length === 0 && BASIC_AUTH_USER && bootstrapHash
         && BASIC_AUTH_USER !== 'CHANGE_ME') {
-      await dbModule.createTeacher(BASIC_AUTH_USER, bootstrapHash, BASIC_AUTH_USER, 'admin');
+      // Sprint 51e: het allereerste (bootstrap) account is de platformbeheerder → superadmin,
+      // niet zomaar een school-admin. Zo ziet de installateur meteen alles (systeem/beheer) en
+      // valt hij niet onder de school-scoping die voor gewone admins geldt.
+      await dbModule.createTeacher(BASIC_AUTH_USER, bootstrapHash, BASIC_AUTH_USER, 'superadmin');
       console.log('╔════════════════════════════════════════════════════════════╗');
-      console.log('║  [bootstrap] Admin-account automatisch aangemaakt          ║');
+      console.log('║  [bootstrap] Superadmin-account automatisch aangemaakt    ║');
       console.log(`║  Inlognaam (username): ${BASIC_AUTH_USER.padEnd(36)}║`);
       console.log('║  Wachtwoord: de waarde van POC_BASIC_PASS uit .env         ║');
       console.log('║  → Log in met de INLOGNAAM, niet de weergavenaam.         ║');
       console.log('╚════════════════════════════════════════════════════════════╝');
     } else if (teachers.length > 0) {
+      // Sprint 51e: bestaande install — promoveer het bootstrap-account (BASIC_AUTH_USER)
+      // eenmalig naar superadmin als het nog 'admin' is. Zo wordt ClaesAdmin de platform-
+      // beheerder zonder handmatige ingreep. Idempotent: doet niets als het al superadmin is.
+      try {
+        if (BASIC_AUTH_USER && BASIC_AUTH_USER !== 'CHANGE_ME') {
+          const bu = teachers.find(t => t.username === BASIC_AUTH_USER);
+          if (bu && bu.role === 'admin') {
+            await dbModule.query(
+              `UPDATE teachers SET role = 'superadmin' WHERE username = $1 AND role = 'admin'`,
+              [BASIC_AUTH_USER]);
+            log.info(`[bootstrap] ${BASIC_AUTH_USER} gepromoveerd naar superadmin.`);
+          }
+        }
+      } catch (e) { log.warn('[bootstrap] promotie naar superadmin mislukt:', e.message); }
       // Log de bestaande inlognaam/-namen zodat duidelijk is waarmee in te loggen
       const names = teachers.map(t => t.username).join(', ');
       log.info(`[auth] ${teachers.length} leerkracht(en) in DB. Inlognaam/-namen: ${names}`);
@@ -1152,6 +1169,31 @@ app.get('/api/student/sessions', requireStudentAuth, async (req, res) => {
   } catch (e) {
     log.error('[student sessions] fout:', e.message);
     res.status(500).json({ error: 'Kon je lessen niet ophalen.' });
+  }
+});
+
+// ── Sprint 51e: leerling ziet zijn eigen VRIJGEGEVEN toetsen/taken ───────────
+// Lijst: enkel opdrachten waaraan de leerling deelnam, van zijn actieve klas/jaar, en
+// die de leerkracht heeft vrijgegeven (results_released). Score + commentaar zijn altijd
+// zichtbaar; de volledige toets read-only enkel wanneer review_mode aanstaat.
+app.get('/api/student/my-results', requireStudentAuth, async (req, res) => {
+  try {
+    const lijst = await dbModule.listReleasedResultsForStudent(req.student.id);
+    res.json({ results: lijst });
+  } catch (e) {
+    log.error('[my-results] fout:', e.message);
+    res.status(500).json({ error: 'Kon je resultaten niet ophalen.' });
+  }
+});
+
+app.get('/api/student/my-results/:code', requireStudentAuth, async (req, res) => {
+  try {
+    const detail = await dbModule.getReleasedResultDetail(req.student.id, req.params.code.toUpperCase());
+    if (!detail.ok) return res.status(403).json({ error: detail.reason || 'Geen toegang.' });
+    res.json(detail);
+  } catch (e) {
+    log.error('[my-results detail] fout:', e.message);
+    res.status(500).json({ error: 'Kon dit resultaat niet ophalen.' });
   }
 });
 
@@ -2370,8 +2412,14 @@ app.put('/api/admin/students/:id/class', requireTeacherAuth, requireCsrf, async 
     if (archived) return res.status(403).json({
       error: 'Deze klas hoort bij een gearchiveerd schooljaar en is alleen-lezen.',
     });
+    // Sprint 51e: echte verhuizing — uit de oude klas van hetzelfde jaar, in de nieuwe.
+    // Historische toetsdata blijft (hangt aan student_id + toets, niet aan het lidmaatschap).
+    const r = await dbModule.moveStudentToClass(req.params.id, classId);
+    if (!r.ok) return res.status(400).json({ error: r.reason || 'Verplaatsen mislukt.' });
+    dbModule.auditLog(getActorFromReq(req), 'student_moved_class', req.params.id, { classId }, req.ip).catch(() => {});
+    return res.json({ ok: true });
   }
-  await dbModule.updateStudentClass(req.params.id, classId || null);
+  // Geen klas opgegeven → niets te doen (verwijderen uit klas gebeurt elders).
   res.json({ ok: true });
 });
 
@@ -2761,20 +2809,48 @@ app.post('/api/quiz/bank/import-csv', requireTeacherAuth, requireCsrf, async (re
   const { csv } = req.body || {};
   if (!csv) return res.status(400).json({ error: 'CSV-data is verplicht.' });
   if (csv.length > 500 * 1024) return res.status(400).json({ error: 'CSV te groot (max 500KB).' });
-  const lines = csv.split('\n').map(l => l.trim()).filter(Boolean);
-  // Verwijder header-rij als aanwezig
-  const hasHeader = lines[0]?.toLowerCase().includes('onderwerp') || lines[0]?.toLowerCase().includes('vraag');
-  const dataLines = hasHeader ? lines.slice(1) : lines;
-  const rows = dataLines.map(line => {
-    // CSV-parsing: ondersteuning voor aanhalingstekens
-    const parts = line.match(/(".*?"|[^,]+)(?=,|$)/g)?.map(s => s.replace(/^"|"$/g, '').trim()) || [];
-    return { onderwerp: parts[0], moeilijkheid: parts[1], max_punten: parts[2], vraag: parts[3] };
+
+  // Sprint 51e: volledige velden. Kolomvolgorde (met of zonder header):
+  //   onderwerp ; niveau ; type ; punten ; vraag ; keuzes ; juiste ; modelantwoord ; tags ; delen
+  // Scheidingsteken ';' of ',' — automatisch bepaald op basis van de eerste regel.
+  const alleRegels = csv.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (!alleRegels.length) return res.status(400).json({ error: 'CSV bevat geen regels.' });
+  const sep = (alleRegels[0].match(/;/g) || []).length >= (alleRegels[0].match(/,/g) || []).length ? ';' : ',';
+
+  // Eén CSV-regel splitsen met respect voor "quotes" (en "" als ontsnapt aanhalingsteken).
+  function splitLine(line) {
+    const out = []; let cur = ''; let inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
+        else inQ = !inQ;
+      } else if (ch === sep && !inQ) { out.push(cur); cur = ''; }
+      else cur += ch;
+    }
+    out.push(cur);
+    return out.map(s => s.trim());
+  }
+
+  const eerste = alleRegels[0].toLowerCase();
+  const hasHeader = eerste.includes('vraag') || eerste.includes('onderwerp');
+  const dataRegels = hasHeader ? alleRegels.slice(1) : alleRegels;
+  const rows = dataRegels.map(line => {
+    const p = splitLine(line);
+    return {
+      onderwerp: p[0], niveau: p[1], type: p[2], punten: p[3], vraag: p[4],
+      keuzes: p[5], juiste: p[6], modelantwoord: p[7], tags: p[8], delen: p[9],
+      // Compat met de oude 4-koloms-vorm (onderwerp, niveau, punten, vraag):
+      moeilijkheid: p[1], max_punten: p[3],
+    };
   }).filter(r => r.vraag);
+
   try {
     const teacher = await dbModule.getTeacherByUsername(
       parseBasicAuthHeader(req.headers.authorization)?.username || ''
-    );
-    const result = await dbModule.importQuizQuestionsCSV(rows, teacher?.id || null);
+    ) || req.teacher;
+    const schoolId = leesScopeVoor(req.teacher) || null;
+    const result = await dbModule.importQuizQuestionsCSV(rows, teacher?.id || null, schoolId);
     res.json({ ok: true, ...result });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -4038,6 +4114,9 @@ app.get('/api/quiz/:code/pdf/zip', requireTeacherAuth, requireSessionAccess, asy
     .map(a => ({ id: a.student_id, name: a.student_name, class: a.student_class }));
 
   if (!students.length) return res.status(404).json({ error: 'Geen leerlingen gevonden.' });
+  // Sprint 51e (fix): 'school' werd hieronder gebruikt maar nooit gedefinieerd → ReferenceError
+  // binnen new Promise(async…) zonder reject → de request hing → 502 Bad Gateway bij de ZIP-export.
+  const school = await getSchoolNameVoorSessie(code);
 
   // Genereer een eenvoudige ZIP met PDF-bestanden
   // Echte ZIP-formaat via handmatige buffer (CRC32 + local file headers)
@@ -4877,6 +4956,26 @@ app.get("/api/quiz-sessions", requireTeacherAuth, async (req, res) => {
   // zodat niets onbereikbaar "zweeft". Zonder bank blijven previews verborgen.
   const bank = req.query.bank === '1' || req.query.bank === 'true';
 
+  // Sprint 51e (security): het toets-/taakoverzicht toont ENKEL toetsen/taken die van jou
+  // zijn — je eigen (maker) OF van een klas waaraan je gekoppeld bent (co-leerkracht).
+  // Géén admin-alziend-oog en géén "null-eigenaar voor iedereen zichtbaar" meer; dat liet
+  // o.a. een (super)admin zonder school toetsen van collega's zien. Systeemtoezicht loopt via
+  // Beheer/monitoring, niet via deze persoonlijke lijst.
+  let linkedClassIds = new Set();
+  try {
+    if (req.teacher?.id) {
+      const eigenKlassen = await dbModule.getClassesForTeacher(req.teacher.id);
+      linkedClassIds = new Set(eigenKlassen.map(c => c.id));
+    }
+  } catch { /* zonder koppelingen valt alles terug op eigenaarschap */ }
+  const magToetsZien = (ownerId, targetClass) => {
+    if (!req.teacher) return false;
+    if (!req.teacher.id) return true;                 // open modus / single-user
+    if (ownerId && req.teacher.id === ownerId) return true;   // eigenaar
+    if (targetClass && linkedClassIds.has(targetClass)) return true; // co-leerkracht van de klas
+    return false;
+  };
+
   // Klas-id → naam, zodat de bank de klasnaam kan tonen/filteren.
   let classMap = {};
   try {
@@ -4919,8 +5018,8 @@ app.get("/api/quiz-sessions", requireTeacherAuth, async (req, res) => {
       } catch { /* sessie-info optioneel */ }
     }
     if (deleted) continue;
-    // Sprint 51b: enkel eigen toetsen/taken (admin ziet alle).
-    if (!magSessieBeheren(req.teacher, ownerId)) continue;
+    // Sprint 51e: enkel eigen toetsen/taken of die van een klas waaraan je gekoppeld bent.
+    if (!magToetsZien(ownerId, meta.target_class || '')) continue;
     const students = mem ? Object.values(mem.students || {}).filter(st => !st.removed) : [];
     const onlineCount = students.filter(st => st.online).length;
     const row = quizSummaryRow(code, name || code, createdAt || 0, closed, meta, onlineCount, students.length, now);
@@ -4930,6 +5029,11 @@ app.get("/api/quiz-sessions", requireTeacherAuth, async (req, res) => {
     const heeftActiviteit = activiteitSet.has(code);
     row.hasActivity = heeftActiviteit;
     row.editable = !row.isPreview && !row.archived && !closed && !row.stoppedAt && !heeftActiviteit;
+    // Sprint 51e: vrijgave-status tonen in het overzicht, zodat de leerkracht niet nodeloos
+    // opnieuw vrijgeeft. resultsReleased = scores/feedback vrijgegeven; reviewMode = leerling
+    // mag zijn volledige toets nakijken.
+    row.resultsReleased = !!(meta && meta.results_released);
+    row.reviewMode      = !!(meta && meta.review_mode);
     out.push(row);
   }
 

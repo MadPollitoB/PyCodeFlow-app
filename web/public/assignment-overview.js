@@ -23,6 +23,14 @@
     return '<span class="badge" style="background:#dcfce7;color:#166534;">🟢 Open</span>';
   }
 
+  // Sprint 51e: extra badges voor vrijgave-status, zodat je niet nodeloos opnieuw vrijgeeft.
+  function releaseBadges(a) {
+    var out = '';
+    if (a.resultsReleased) out += '<span class="badge" style="background:#dcfce7;color:#166534;" title="Scores en feedback zijn vrijgegeven aan de leerlingen">✅ scores vrijgegeven</span>';
+    if (a.reviewMode)      out += '<span class="badge" style="background:#e0e7ff;color:#3730a3;" title="Leerlingen kunnen hun volledige toets nakijken">🔍 nazicht open</span>';
+    return out;
+  }
+
   function group(a) {
     if (a.isPreview) return 'preview';
     if (a.availability === 'closed' || a.availability === 'expired') return 'done';
@@ -106,7 +114,7 @@
       ? '<span class="a-sub">⏰ Deadline: ' + new Date(a.accessUntil).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) + '</span>'
       : '';
     return '<div class="' + cls + '">' +
-      '<div class="a-meta"><strong>' + esc(a.name || a.code) + '</strong>' + statusBadge(a) +
+      '<div class="a-meta"><strong>' + esc(a.name || a.code) + '</strong>' + statusBadge(a) + releaseBadges(a) +
         (a.onlineCount ? '<span class="badge" style="background:#dcfce7;color:#166534;">👥 ' + a.onlineCount + ' online</span>' : '') +
       '</div>' +
       '<div class="a-sub">Code: <strong>' + esc(a.code) + '</strong>' +
@@ -219,7 +227,9 @@ window.stopQuiz = async function (code, naam) {
   var d = await r.json().catch(function () { return {}; });
   if (r.ok && d.ok) {
     await window.pyAlert(d.ingediend + ' deelname(s) ingeleverd. De ' + LABEL + ' is gesloten.', 'success');
-    if (typeof loadAssignments === 'function') loadAssignments();
+    // Sprint 51e: het overzicht meteen verversen (vroeger werd het onbestaande
+    // loadAssignments() aangeroepen → geen refresh, de kaart leek nog "Open").
+    if (typeof window.reloadAssignments === 'function') await window.reloadAssignments();
     else location.reload();
   } else {
     await window.pyAlert('Stoppen mislukt: ' + (d.error || r.status), 'error');

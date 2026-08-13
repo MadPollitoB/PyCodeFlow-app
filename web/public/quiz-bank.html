@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Vragenbank</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.3"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.4"/>
   <style>
     .qb-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px; }
     @media(max-width:900px){ .qb-grid { grid-template-columns:1fr; } }
@@ -397,12 +397,18 @@
     <div class="form-panel">
       <h3 style="margin:0 0 8px;">CSV bulk-import</h3>
       <p style="font-size:0.85rem;color:var(--muted);margin:0 0 12px;">
-        Formaat: <code>onderwerp,moeilijkheid,max_punten,vraag</code> — één vraag per regel.<br/>
+        Volledige kolomvolgorde (header-rij mag, scheidingsteken <code>;</code> of <code>,</code>):<br/>
+        <code>onderwerp ; niveau ; type ; punten ; vraag ; keuzes ; juiste ; modelantwoord ; tags ; delen</code><br/>
+        • <b>niveau</b>: makkelijk / gemiddeld / moeilijk &nbsp;•&nbsp; <b>type</b>: code / single / multiple<br/>
+        • <b>keuzes</b>: opties gescheiden met <code>|</code> (enkel bij single/multiple)<br/>
+        • <b>juiste</b>: de juiste optie(s) — tekst of 1-gebaseerd nummer, meerdere met <code>|</code><br/>
+        • <b>delen</b>: private / school / public &nbsp;•&nbsp; enkel <b>vraag</b> is verplicht<br/>
         Duplicaten (zelfde vraagtekst) worden automatisch overgeslagen.
       </p>
-      <pre style="background:var(--surface);padding:10px;border-radius:8px;font-size:0.78rem;overflow:auto;">Functies,gemiddeld,4,"Schrijf een functie die twee getallen optelt."
-Lijsten,moeilijk,4,"Sorteer een lijst zonder .sort() te gebruiken."
-Lussen,makkelijk,2,"Druk de getallen 1 tot 10 af met een lus."</pre>
+      <pre style="background:var(--surface);padding:10px;border-radius:8px;font-size:0.78rem;overflow:auto;">onderwerp;niveau;type;punten;vraag;keuzes;juiste;modelantwoord;tags;delen
+Functies;gemiddeld;code;4;"Schrijf een functie die twee getallen optelt.";;;"def som(a,b): return a+b";hoofdstuk1;school
+Lussen;makkelijk;code;2;"Druk de getallen 1 tot 10 af met een lus.";;;;lussen;private
+Operatoren;gemiddeld;single;2;"Wat print print(2 ** 3)?";6|8|9;8;;machten;public</pre>
       <textarea class="csv-area" id="csv-input" placeholder="Plak je CSV hier..." onkeydown="event.stopPropagation()"></textarea>
       <button class="btn btn-soft small" style="margin-top:10px;" onclick="importCSV()">📥 Importeren</button>
       <div id="import-result"></div>
@@ -410,11 +416,11 @@ Lussen,makkelijk,2,"Druk de getallen 1 tot 10 af met een lus."</pre>
   </div>
 </div>
 
-<script src="/app.js?v=v2026.2.51.3"></script>
+<script src="/app.js?v=v2026.2.51.4"></script>
 <!-- 22d: marked.js voor Markdown preview — geladen VOOR inline script -->
 <script src="/vendor/marked/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.3"></script>
+<script src="/code-highlight.js?v=v2026.2.51.4"></script>
 <script src="/vendor/dompurify/purify.min.js"></script>
-<script src="/quiz-bank.js?v=v2026.2.51.3"></script>
+<script src="/quiz-bank.js?v=v2026.2.51.4"></script>
 <script src="/nav-rechten.js"></script></body>
 </html>

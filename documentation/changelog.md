@@ -1,3 +1,51 @@
+## v2026.2.51.4 — Sprint 51e: Security-visibility, bugfixes & batch-2 features
+
+Groot pakket: het zichtbaarheidslek gedicht, meerdere bugs uit de vorige batch opgelost,
+en de resterende batch-2 features afgewerkt.
+
+### Security — toetsen/taken van anderen zichtbaar (gedicht)
+- `/api/quiz-sessions` gebruikte `magSessieBeheren` (admin ziet **álles** + toetsen zonder
+  eigenaar zichtbaar voor iedereen) én had **geen school-scope**. Daardoor zag o.a. ClaesAdmin
+  (superadmin zonder school) toetsen van collega's. Nu strikt: je ziet **enkel je eigen
+  toetsen/taken óf die van een klas waaraan je gekoppeld bent** (co-leerkracht). Geen
+  admin-alziend-oog en geen null-eigenaar-uitzondering meer. Getest: superadmin en een
+  leerkracht van een andere school zien de toets niet meer.
+
+### ClaesAdmin = superadmin
+- Het bootstrap-account wordt voortaan als **superadmin** aangemaakt. Bestaande installaties
+  promoveren het bootstrap-account (`BASIC_AUTH_USER`) éénmalig automatisch bij de herstart.
+
+### Bugfixes
+- **Geen refresh na "Stoppen":** `stopQuiz` riep een onbestaande functie aan → geen refresh.
+  Nu ververst het overzicht meteen; de badge toont **"⏹ gestopt"** (op toets-overzicht én
+  op de Sessies-pagina) i.p.v. "Open".
+- **ZIP-export gaf 502 (Bad Gateway):** `/pdf/zip` gebruikte een niet-gedefinieerde
+  `school`-variabele → crash in een `Promise` zonder reject → de request hing → 502. Gefixt.
+- **Algemene commentaar niet opgeslagen/getoond:** opslaan faalde (raw `fetch` zonder
+  CSRF-token → 403) en laden miste de join. Nu via `apiFetch` (CSRF) én met een
+  `LEFT JOIN quiz_general_comments`, zodat de commentaar bij heropenen verschijnt. Meteen
+  alle mutaties op de verbeterpagina (score, release, nazicht, modelantwoord) op `apiFetch` gezet.
+- **Vrijgave-status onzichtbaar:** het overzicht toont nu **"✅ scores vrijgegeven"** en
+  **"🔍 nazicht open"**, zodat je niet nodeloos opnieuw vrijgeeft.
+
+### Features (batch 2)
+- **Klasverhuizing (echt):** een leerling wordt uit zijn klas van hetzelfde schooljaar
+  gehaald en aan de nieuwe klas gekoppeld. Historische toetsdata (ook van het huidige jaar)
+  blijft, want die hangt aan `student_id` + de toets. Getest: 5A → 6A, resultaten behouden.
+- **CSV-import met alle velden:** onderwerp, niveau, type (code/single/multiple), punten,
+  vraag, keuzes, juiste antwoord(en), modelantwoord, tags, delen — met header-mapping en
+  `;`/`,`-detectie. Volledig gedocumenteerd in de CSV-tab.
+- **Student "Mijn resultaten"-tab:** een leerling ziet zijn **vrijgegeven** toetsen/taken van
+  zijn **actieve klas/jaar**. Commentaar is altijd zichtbaar; de **volledige toets** enkel als
+  de leerkracht **nazicht (`review_mode`)** heeft opengezet.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/public/assignment-overview.js`
+· `web/public/quiz-bank.js` · `web/public/quiz-review.js` · `web/public/app.js` ·
+`web/public/student-thuis.html` · `web/public/quiz-bank.html` · `web/scripts/seed-testdb.js` ·
+`VERSION` · `.env` · overige `web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.3 — Sprint 51d: UI-fixes + security (lokale libs)
 
 Batch 1 van de gemelde punten: bevestigde UI-bugs en een security-verbetering.

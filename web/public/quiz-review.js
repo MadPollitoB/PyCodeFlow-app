@@ -345,7 +345,7 @@ async function selectQuestion(idx) {
 async function saveModelAnswer(questionId) {
   const val = document.getElementById('model-input')?.value || '';
   try {
-    const r = await fetch(`/api/quiz/${sessionCode}/question/${questionId}/model`, {
+    const r = await (window.apiFetch||fetch)(`/api/quiz/${sessionCode}/question/${questionId}/model`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ modelAnswer: val }),
@@ -416,7 +416,7 @@ async function saveScore(answerId, qIdx) {
   const score = document.getElementById('score-input').value;
   const comment = document.getElementById('comment-input').value;
   if (!answerId) return;
-  await fetch(`/api/quiz/${sessionCode}/answers/${answerId}/score`, {
+  await (window.apiFetch||fetch)(`/api/quiz/${sessionCode}/answers/${answerId}/score`, {
     method:'PUT', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ score: score !== '' ? parseInt(score) : null, teacherComment: comment }),
   });
@@ -435,7 +435,7 @@ async function saveAndNext(answerId, qIdx) {
 
 async function saveGeneralComment() {
   const comment = document.getElementById('general-comment')?.value || '';
-  await fetch(`/api/quiz/${sessionCode}/general-comment/${_currentStudent.id}`, {
+  await (window.apiFetch||fetch)(`/api/quiz/${sessionCode}/general-comment/${_currentStudent.id}`, {
     method:'PUT', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ comment }),
   });
@@ -474,7 +474,7 @@ async function loadSimilarityWarnings() {
 
 async function releaseResults() {
   if (!await pyConfirm({ title: 'Resultaten vrijgeven', body: 'Leerlingen kunnen dan hun score en commentaar bekijken.', confirmLabel: 'Vrijgeven' })) return;
-  await fetch(`/api/quiz/${sessionCode}/release`, { method:'POST' });
+  await (window.apiFetch||fetch)(`/api/quiz/${sessionCode}/release`, { method:'POST' });
   pyToast('Resultaten vrijgegeven. Leerlingen kunnen ze bekijken via de sessiecode.', 'success', 5000);
 }
 
@@ -502,7 +502,7 @@ async function toggleReviewMode() {
     if (!ok) return;
   }
   try {
-    const r = await fetch(`/api/quiz/${sessionCode}/review-mode`, {
+    const r = await (window.apiFetch||fetch)(`/api/quiz/${sessionCode}/review-mode`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled: aanzetten }),

@@ -1852,7 +1852,55 @@ module.exports = {
   // nu per jaar geldt, betekent dit: koppel aan de nieuwe klas (voor haar jaar).
   // Oude lidmaatschappen blijven staan → historiek behouden.
   async updateStudentClass(id, classId) {
-    if (classId) await this.addStudentToClass(id, classId);
+    // Sprint 51e: ECHTE verhuizing. De leerling wordt uit zijn huidige klas van HETZELFDE
+    // schooljaar gehaald en aan de nieuwe klas gekoppeld. Historische toetsdata blijft altijd
+    // bestaan: quiz_answers hangen aan student_id + de specifieke toets (niet aan de live
+    // klas-koppeling), dus resultaten — ook van het huidige jaar — gaan nooit verloren.
+    if (!classId) return;
+    const cls = await query(`SELECT school_year FROM classes WHERE id = $1`, [classId]);
+    if (!cls.rows.length) return false;
+    const schoolYear = cls.rows[0].school_year;
+    await withTransaction(async (client) => {
+      // Bestaande lidmaatschappen van DIT schooljaar verwijderen (leerling zit maar in één
+      // klas per jaar). Andere schooljaren blijven staan → historiek van vorige jaren intact.
+      await client.query(
+        `DELETE FROM class_memberships WHERE student_id = $1 AND school_year = $2`,
+        [id, schoolYear]);
+      await client.query(
+        `INSERT INTO class_memberships (student_id, class_id, school_year, status, created_at)
+         VALUES ($1, $2, $3, 'active', $4)
+         ON CONFLICT (student_id, class_id, school_year) DO NOTHING`,
+        [id, classId, schoolYear, Date.now()]);
+    });
+    return true;
+  },
+
+  // ── Sprint 51e: échte klasverhuizing (behoud van historiek) ─────────────────
+  // Haalt de leerling uit zijn huidige klas van HETZELFDE schooljaar (status → 'left')
+  // en zet hem actief in de nieuwe klas. De historische toetsdata (quiz_answers) hangt
+  // aan student_id + de toets, niet aan het lidmaatschap — die blijft dus altijd bestaan,
+  // ook van het huidige jaar. Een eerdere 'left'-rij voor de nieuwe klas wordt heractiveerd.
+  async moveStudentToClass(studentId, newClassId) {
+    const cls = await query(`SELECT school_year FROM classes WHERE id = $1`, [newClassId]);
+    if (!cls.rows.length) return { ok: false, reason: 'Klas niet gevonden.' };
+    const schoolYear = cls.rows[0].school_year;
+    await withTransaction(async (client) => {
+      // 1. Verlaat de andere klas(sen) van hetzelfde schooljaar (historiek blijft als 'left').
+      await client.query(
+        `UPDATE class_memberships SET status = 'left'
+         WHERE student_id = $1 AND school_year = $2 AND class_id <> $3 AND status = 'active'`,
+        [studentId, schoolYear, newClassId]
+      );
+      // 2. Word actief lid van de nieuwe klas (heractiveer een eventuele oude 'left'-rij).
+      await client.query(
+        `INSERT INTO class_memberships (student_id, class_id, school_year, status, created_at)
+         VALUES ($1, $2, $3, 'active', $4)
+         ON CONFLICT (student_id, class_id, school_year)
+         DO UPDATE SET status = 'active'`,
+        [studentId, newClassId, schoolYear, Date.now()]
+      );
+    });
+    return { ok: true, schoolYear };
   },
 
   async updateStudentLastSeen(id) {
@@ -1968,15 +2016,17 @@ module.exports = {
 
   async createQuizQuestion({ text, subject = '', difficulty = 'gemiddeld', maxPoints = 4,
                                questionType = 'code', choicesJson = '[]', tags = '',
-                               modelAnswer = '', createdBy = null, schoolId = null }) {
+                               modelAnswer = '', createdBy = null, schoolId = null,
+                               shareScope = 'private' }) {
     const id = crypto.randomUUID();
     const now = Date.now();
+    const scope = ['private', 'school', 'public'].includes(shareScope) ? shareScope : 'private';
     await query(
       `INSERT INTO question_bank (id, text, subject, difficulty, max_points,
-         question_type, choices_json, tags, model_answer, created_by, school_id, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+         question_type, choices_json, tags, model_answer, share_scope, created_by, school_id, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
       [id, text.trim(), subject.trim(), difficulty, maxPoints,
-       questionType, choicesJson, (tags || '').trim(), String(modelAnswer || ''), createdBy, schoolId, now, now]
+       questionType, choicesJson, (tags || '').trim(), String(modelAnswer || ''), scope, createdBy, schoolId, now, now]
     );
     return id;
   },
@@ -2103,7 +2153,7 @@ module.exports = {
     return { ok: true };
   },
 
-  async importQuizQuestionsCSV(rows, teacherId) {
+  async importQuizQuestionsCSV(rows, teacherId, schoolId = null) {
     let added = 0, skipped = 0, errors = [];
     for (const row of rows) {
       try {
@@ -2112,12 +2162,44 @@ module.exports = {
         // Duplicaat check op exacte vraagtekst
         const exists = await query(`SELECT 1 FROM question_bank WHERE text = $1 LIMIT 1`, [text]);
         if (exists.rows.length > 0) { skipped++; continue; }
+
+        // Sprint 51e: volledige velden. type/keuzes/juiste → question_type + choices_json.
+        let questionType = String(row.type || 'code').trim().toLowerCase();
+        if (!['code', 'single', 'multiple'].includes(questionType)) questionType = 'code';
+        let choicesJson = '[]';
+        if (questionType === 'single' || questionType === 'multiple') {
+          const opties = String(row.keuzes || '').split('|').map(s => s.trim()).filter(Boolean);
+          // 'juiste' mag tekst(en) of 1-gebaseerde index(en) zijn, meerdere gescheiden met |.
+          const juisteRuw = String(row.juiste || '').split('|').map(s => s.trim()).filter(Boolean);
+          const choices = opties.map((tekst, i) => {
+            const correct = juisteRuw.some(j =>
+              j === tekst || (/^\d+$/.test(j) && parseInt(j) === i + 1));
+            return { id: crypto.randomUUID().slice(0, 8), text: tekst, correct };
+          });
+          choicesJson = JSON.stringify(choices);
+          if (!opties.length) errors.push(`"${text.slice(0, 30)}…": keuzevraag zonder keuzes → als 'code' geïmporteerd`);
+          if (!opties.length) questionType = 'code';
+        }
+
+        let scope = String(row.delen || 'private').trim().toLowerCase();
+        const scopeMap = { prive: 'private', privé: 'private', school: 'school', publiek: 'public', public: 'public', private: 'private' };
+        scope = scopeMap[scope] || 'private';
+
+        let niveau = String(row.moeilijkheid || row.niveau || 'gemiddeld').trim().toLowerCase();
+        if (!['makkelijk', 'gemiddeld', 'moeilijk'].includes(niveau)) niveau = 'gemiddeld';
+
         await this.createQuizQuestion({
           text,
           subject: row.onderwerp || '',
-          difficulty: row.moeilijkheid || 'gemiddeld',
-          maxPoints: parseInt(row.max_punten) || 4,
+          difficulty: niveau,
+          maxPoints: parseInt(row.max_punten || row.punten) || 4,
+          questionType,
+          choicesJson,
+          tags: row.tags || '',
+          modelAnswer: row.modelantwoord || '',
+          shareScope: scope,
           createdBy: teacherId,
+          schoolId: scope === 'school' ? schoolId : null,
         });
         added++;
       } catch (e) { errors.push(`Fout bij rij: ${e.message}`); }
@@ -2523,6 +2605,95 @@ module.exports = {
     await query(`UPDATE assignment_bank SET results_released = true WHERE session_code = $1`, [sessionCode]);
   },
 
+  // ── Sprint 51e: leerling ziet zijn eigen VRIJGEGEVEN toetsen/taken ───────────
+  // Enkel opdrachten (a) waaraan deze leerling deelnam, (b) van een klas waar de leerling
+  // NU actief lid van is (huidig jaar), en (c) waarvan de leerkracht de resultaten vrijgaf.
+  // 'review_mode' bepaalt of de leerling de VOLLEDIGE toets read-only mag inzien (anders
+  // enkel score + commentaar).
+  async listReleasedResultsForStudent(studentId) {
+    const r = await query(
+      `SELECT DISTINCT s.code, s.name AS session_name, ab.type, ab.review_mode,
+              ab.access_until, ab.target_class, c.name AS class_name, c.school_year
+       FROM quiz_answers qa
+       JOIN sessions s          ON s.code = qa.session_code
+       JOIN assignment_bank ab  ON ab.session_code = s.code
+       LEFT JOIN classes c      ON c.id = ab.target_class
+       JOIN class_memberships m ON m.student_id = qa.student_id
+                                AND m.class_id  = ab.target_class
+                                AND m.status = 'active'
+       WHERE qa.student_id = $1
+         AND ab.results_released = true
+         AND ab.is_teacher_preview = false
+       ORDER BY ab.access_until DESC NULLS LAST`,
+      [studentId]
+    );
+    // Score-totaal per opdracht meegeven.
+    const out = [];
+    for (const row of r.rows) {
+      const tot = await query(
+        `SELECT COALESCE(SUM(a.score),0) AS behaald,
+                COALESCE(SUM(q.points),0) AS maximum,
+                BOOL_AND(a.score IS NOT NULL) AS volledig_verbeterd
+         FROM quiz_answers a
+         JOIN quiz_question_snapshots q ON q.id = a.question_id
+         WHERE a.session_code = $1 AND a.student_id = $2`,
+        [row.code, studentId]);
+      out.push({
+        code: row.code, name: row.session_name, type: row.type || 'toets',
+        reviewMode: row.review_mode === true,
+        className: row.class_name || '', schoolYear: row.school_year || '',
+        deadline: row.access_until != null ? Number(row.access_until) : null,
+        behaald: Number(tot.rows[0].behaald), maximum: Number(tot.rows[0].maximum),
+        volledigVerbeterd: tot.rows[0].volledig_verbeterd === true,
+      });
+    }
+    return out;
+  },
+
+  // Detail van één vrijgegeven resultaat voor deze leerling (met grendel op deelname +
+  // release + actief lidmaatschap). Geeft per vraag score/commentaar (altijd) en de eigen
+  // code enkel wanneer review_mode aanstaat.
+  async getReleasedResultDetail(studentId, sessionCode) {
+    const meta = await query(
+      `SELECT ab.review_mode, ab.results_released, ab.is_teacher_preview, ab.type,
+              s.name AS session_name, ab.target_class
+       FROM assignment_bank ab JOIN sessions s ON s.code = ab.session_code
+       WHERE ab.session_code = $1`, [sessionCode]);
+    if (!meta.rows.length) return { ok: false, reason: 'Niet gevonden.' };
+    const m = meta.rows[0];
+    if (m.is_teacher_preview || m.results_released !== true) return { ok: false, reason: 'Nog niet vrijgegeven.' };
+    const lid = await query(
+      `SELECT 1 FROM class_memberships
+       WHERE student_id = $1 AND class_id = $2 AND status = 'active' LIMIT 1`,
+      [studentId, m.target_class]);
+    if (!lid.rows.length) return { ok: false, reason: 'Geen toegang.' };
+    const reviewMode = m.review_mode === true;
+    const rows = await query(
+      `SELECT q.order_index, q.text_snapshot, q.points, q.question_type,
+              a.score, a.teacher_comment, a.code, a.selected_choices, q.choices_json
+       FROM quiz_answers a
+       JOIN quiz_question_snapshots q ON q.id = a.question_id
+       WHERE a.session_code = $1 AND a.student_id = $2
+       ORDER BY q.order_index`, [sessionCode, studentId]);
+    const gen = await query(
+      `SELECT comment FROM quiz_general_comments WHERE session_code = $1 AND student_id = $2`,
+      [sessionCode, studentId]);
+    return {
+      ok: true, name: m.session_name, type: m.type || 'toets', reviewMode,
+      generalComment: gen.rows[0]?.comment || '',
+      questions: rows.rows.map(q => ({
+        orderIndex: q.order_index, text: q.text_snapshot, points: q.points,
+        questionType: q.question_type,
+        score: q.score != null ? Number(q.score) : null,
+        comment: q.teacher_comment || '',
+        // Volledige toets (eigen code + keuzes) enkel bij review_mode:
+        code: reviewMode ? (q.code || '') : null,
+        selectedChoices: reviewMode ? q.selected_choices : null,
+        choicesJson: reviewMode ? q.choices_json : null,
+      })),
+    };
+  },
+
   // 37d: nakijk-modus aan/uit. Los van results_released — de leerkracht stelt
   // expliciet open wanneer leerlingen hun toets mogen inzien.
   async setReviewMode(sessionCode, enabled) {
@@ -2803,10 +2974,16 @@ module.exports = {
   // ── Quiz Verbetering (Sprint 16d) ─────────────────────────────────────────────
 
   async getQuizAnswers(sessionCode) {
+    // Sprint 51e: algemene commentaar per leerling mee terugstuwen (LEFT JOIN op
+    // quiz_general_comments). Vroeger stond ze in een aparte tabel maar werd ze niet in
+    // deze lijst opgenomen, waardoor de verbeterpagina de commentaar niet toonde bij heropenen.
     const r = await query(
-      `SELECT a.*, q.text_snapshot, q.subject, q.points, q.order_index
+      `SELECT a.*, q.text_snapshot, q.subject, q.points, q.order_index,
+              gc.comment AS general_comment
        FROM quiz_answers a
        JOIN quiz_question_snapshots q ON q.id = a.question_id
+       LEFT JOIN quiz_general_comments gc
+              ON gc.session_code = a.session_code AND gc.student_id = a.student_id
        WHERE a.session_code = $1
        ORDER BY a.student_name, q.order_index`,
       [sessionCode]
