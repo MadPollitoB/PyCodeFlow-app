@@ -2813,30 +2813,44 @@ app.post('/api/quiz/bank/import-csv', requireTeacherAuth, requireCsrf, async (re
   // Sprint 51e: volledige velden. Kolomvolgorde (met of zonder header):
   //   onderwerp ; niveau ; type ; punten ; vraag ; keuzes ; juiste ; modelantwoord ; tags ; delen
   // Scheidingsteken ';' of ',' — automatisch bepaald op basis van de eerste regel.
-  const alleRegels = csv.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  if (!alleRegels.length) return res.status(400).json({ error: 'CSV bevat geen regels.' });
-  const sep = (alleRegels[0].match(/;/g) || []).length >= (alleRegels[0].match(/,/g) || []).length ? ';' : ',';
+  // Sprint 51f: échte CSV-parser die geciteerde velden mét newlines aankan, zodat een
+  // vraag een markdown code-blok over meerdere regels mag bevatten. We tokenizen de HELE
+  // tekst i.p.v. eerst op regeleindes te splitsen (dat brak meerregelige velden).
+  // Scheidingsteken ';' of ',' — bepaald op de eerste NIET-geciteerde regel.
+  const eersteRegel = (csv.split(/\r?\n/).find(l => l.trim()) || '');
+  const sep = (eersteRegel.match(/;/g) || []).length >= (eersteRegel.match(/,/g) || []).length ? ';' : ',';
 
-  // Eén CSV-regel splitsen met respect voor "quotes" (en "" als ontsnapt aanhalingsteken).
-  function splitLine(line) {
-    const out = []; let cur = ''; let inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
-        else inQ = !inQ;
-      } else if (ch === sep && !inQ) { out.push(cur); cur = ''; }
-      else cur += ch;
+  function parseCSV(text) {
+    const records = []; let veld = ''; let record = []; let inQ = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (inQ) {
+        if (ch === '"') {
+          if (text[i + 1] === '"') { veld += '"'; i++; }   // "" = ontsnapt aanhalingsteken
+          else inQ = false;
+        } else veld += ch;                                  // newline binnen quotes = deel van het veld
+      } else if (ch === '"') {
+        inQ = true;
+      } else if (ch === sep) {
+        record.push(veld); veld = '';
+      } else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i + 1] === '\n') i++;       // \r\n als één regeleinde
+        record.push(veld); veld = '';
+        if (record.length > 1 || record[0].trim() !== '') records.push(record);
+        record = [];
+      } else veld += ch;
     }
-    out.push(cur);
-    return out.map(s => s.trim());
+    record.push(veld);
+    if (record.length > 1 || record[0].trim() !== '') records.push(record);
+    return records.map(r => r.map(c => c.trim()));
   }
 
-  const eerste = alleRegels[0].toLowerCase();
+  const alleRecords = parseCSV(csv);
+  if (!alleRecords.length) return res.status(400).json({ error: 'CSV bevat geen regels.' });
+  const eerste = (alleRecords[0].join(sep)).toLowerCase();
   const hasHeader = eerste.includes('vraag') || eerste.includes('onderwerp');
-  const dataRegels = hasHeader ? alleRegels.slice(1) : alleRegels;
-  const rows = dataRegels.map(line => {
-    const p = splitLine(line);
+  const dataRecords = hasHeader ? alleRecords.slice(1) : alleRecords;
+  const rows = dataRecords.map(p => {
     return {
       onderwerp: p[0], niveau: p[1], type: p[2], punten: p[3], vraag: p[4],
       keuzes: p[5], juiste: p[6], modelantwoord: p[7], tags: p[8], delen: p[9],

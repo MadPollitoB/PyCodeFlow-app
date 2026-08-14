@@ -2163,9 +2163,9 @@ module.exports = {
         const exists = await query(`SELECT 1 FROM question_bank WHERE text = $1 LIMIT 1`, [text]);
         if (exists.rows.length > 0) { skipped++; continue; }
 
-        // Sprint 51e: volledige velden. type/keuzes/juiste → question_type + choices_json.
+        // Sprint 51f: volledige velden. type/keuzes/juiste → question_type + choices_json.
         let questionType = String(row.type || 'code').trim().toLowerCase();
-        if (!['code', 'single', 'multiple'].includes(questionType)) questionType = 'code';
+        if (!['code', 'open', 'single', 'multiple'].includes(questionType)) questionType = 'code';
         let choicesJson = '[]';
         if (questionType === 'single' || questionType === 'multiple') {
           const opties = String(row.keuzes || '').split('|').map(s => s.trim()).filter(Boolean);

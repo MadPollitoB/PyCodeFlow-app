@@ -1,3 +1,21 @@
+## v2026.2.51.5 — Sprint 51f: CSV meerregelig + 'open'-type
+
+- **CSV-parser** verwerkt nu geciteerde velden **met newlines**, zodat een vraag een
+  markdown **code-blok over meerdere regels** mag bevatten (```` ```python … ``` ````).
+  Vroeger werd eerst op regeleindes gesplitst → meerregelige velden braken.
+- **'open'-vraagtype** wordt nu ook door de CSV-import herkend (naast code/single/multiple).
+- **Privacyverklaring als popup:** een "Privacy"-link in de footer (op elke pagina) opent een
+  modal met een beknopte privacyverklaring (welke gegevens, waarvoor, enkel noodzakelijke
+  sessiecookies — geen tracking, bewaartermijn, rechten). Geen aparte pagina; één bron
+  (`web/public/privacy.js`) die op alle pagina's werkt, ook zonder app.js.
+
+Getest tegen embedded PostgreSQL: een voorbeeld-CSV met 10 vragen (open/single/multiple/code,
+markdown + code-blokken) → 10/10 geïmporteerd, keuzes en juiste antwoorden correct.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/public/privacy.js` (nieuw) · alle `web/public/*.html` (privacy.js + cache-bust) · `VERSION` · `.env`
+
+---
+
 ## v2026.2.51.4 — Sprint 51e: Security-visibility, bugfixes & batch-2 features
 
 Groot pakket: het zichtbaarheidslek gedicht, meerdere bugs uit de vorige batch opgelost,
