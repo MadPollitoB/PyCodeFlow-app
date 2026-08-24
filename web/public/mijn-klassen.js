@@ -147,11 +147,18 @@ async function voegToe(klasId) {
   const veld = document.getElementById('nieuw-' + klasId);
   const naam = (veld.value || '').trim();
   if (!naam) return;
-  const r = await window.apiFetch('/api/admin/students', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: naam, classId: klasId, source: 'manual', status: 'active' }) });
-  const d = await r.json().catch(() => ({}));
-  if (r.ok && (d.ok || d.id)) { veld.value = ''; laadKlassen(); } else foutmelding(d, r);
+  // Sprint 51x (defensief, zelfde patroon als de delete-bug uit sprint 51v): zonder
+  // try/catch crasht een netwerk-/CSRF-fout deze functie STIL — de gebruiker ziet dan
+  // helemaal niets ("de knop werkt niet"). Nu wordt elke mogelijke fout zichtbaar gemaakt.
+  try {
+    const r = await window.apiFetch('/api/admin/students', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: naam, classId: klasId, source: 'manual', status: 'active' }) });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && (d.ok || d.id)) { veld.value = ''; laadKlassen(); } else foutmelding(d, r);
+  } catch (e) {
+    await window.pyAlert('Leerling toevoegen is mislukt: ' + e.message, 'error');
+  }
 }
 
 async function foutmelding(d, r) {

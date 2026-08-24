@@ -413,14 +413,88 @@ function toggleTimer(val) {
   if (timerInput) timerInput.disabled = val === 'notimer';
 }
 
-// Schooljaar standaard
-(function() {
+// Sprint 51s (bugfix): het schooljaar van een toets werd altijd blind berekend uit de
+// HUIDIGE systeemdatum (augustus = nieuw jaar) — nooit uit de gekozen klas. Werd een toets
+// aangemaakt ná de jaarwissel voor een klas die zelf nog het vorige schooljaar draagt, dan
+// kreeg de toets een ander schooljaar dan de klas. Gevolg: de toets viel stilzwijgend uit het
+// Klasoverzicht (dat filtert op exact dat schooljaar). Nu: een dropdown met de bestaande,
+// actieve schooljaren, die automatisch meeschuift met de gekozen klas (klas is de bron van
+// waarheid) en enkel vrij instelbaar is zolang er geen klas gekozen is.
+const _schoolYearReady = (async function() {
   const el = document.getElementById('quiz-school-year');
-  if (!el) return;
-  const now = new Date();
-  const y = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
-  el.value = y + '-' + (y + 1);
+  if (!el) return [];
+  let jaren = [];
+  try {
+    const r = await fetch('/api/admin/school-years');
+    const data = await r.json();
+    jaren = (Array.isArray(data) ? data : []).filter(j => !j.allArchived).map(j => j.schoolYear);
+  } catch (e) { console.warn('[quiz-teacher] schooljaren laden mislukt:', e.message); }
+
+  // Sprint 51x (bugfix): de default gebruikte hier nog de kale kalenderberekening
+  // (augustus = nieuw jaar), niet het ECHTE actieve schooljaar van de leerkracht (sprint
+  // 51u) — na een jaarwissel toonde deze dropdown dus het verkeerde jaar als default. De
+  // kalenderberekening blijft enkel de allerlaatste terugval (bv. niet ingelogd/preview).
+  let huidigLabel;
+  try {
+    const r = await fetch('/api/teacher/active-school-year');
+    const data = await r.json();
+    huidigLabel = data.schoolYear || null;
+  } catch (e) { /* val terug op kalenderberekening hieronder */ }
+  if (!huidigLabel) {
+    const now = new Date();
+    const huidig = (now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1);
+    huidigLabel = huidig + '-' + (huidig + 1);
+  }
+  if (!jaren.includes(huidigLabel)) jaren.unshift(huidigLabel); // altijd minstens het actieve jaar als optie
+
+  jaren.forEach(function(j) {
+    const opt = document.createElement('option');
+    opt.value = j; opt.textContent = j;
+    el.appendChild(opt);
+  });
+  el.value = huidigLabel;
+  return jaren;
 })();
+
+// Wanneer de klas verandert: schooljaar automatisch overnemen van die klas (klas = bron van
+// waarheid, voorkomt de mismatch die het Klasoverzicht liet haperen). Geen klas gekozen?
+// Dan blijft het schooljaar vrij instelbaar door de leerkracht. Dit hangt enkel aan een
+// ECHTE klaswijziging (het 'change'-event) — bij het laden van een bestaande toets (bewerken)
+// blijft het opgeslagen schooljaar zichtbaar tot de leerkracht de klas zelf aanraakt; zie
+// applyClassYearLock() voor de louter-visuele (niet-waarde-wijzigende) staat bij het laden.
+function syncSchoolYearWithClass() {
+  const clsSel = document.getElementById('quiz-target-class');
+  const yearSel = document.getElementById('quiz-school-year');
+  const hint = document.getElementById('quiz-school-year-hint');
+  if (!clsSel || !yearSel) return;
+  const klasJaar = clsSel.options[clsSel.selectedIndex]?.dataset?.schoolYear;
+  if (clsSel.value && klasJaar) {
+    if (![...yearSel.options].some(o => o.value === klasJaar)) {
+      const opt = document.createElement('option');
+      opt.value = klasJaar; opt.textContent = klasJaar;
+      yearSel.appendChild(opt);
+    }
+    yearSel.value = klasJaar;
+    yearSel.disabled = true;
+    if (hint) hint.style.display = '';
+  } else {
+    yearSel.disabled = false;
+    if (hint) hint.style.display = 'none';
+  }
+}
+
+// Enkel de visuele (uitgeschakeld/hint) staat toepassen, zonder de huidige waarde te
+// overschrijven — gebruikt bij het laden van een bestaande toets (bewerken), zodat het
+// opgeslagen schooljaar zichtbaar blijft ook als het toevallig niet overeenkomt met de klas.
+function applyClassYearLock() {
+  const clsSel = document.getElementById('quiz-target-class');
+  const yearSel = document.getElementById('quiz-school-year');
+  const hint = document.getElementById('quiz-school-year-hint');
+  if (!clsSel || !yearSel) return;
+  const heeftKlas = !!clsSel.value;
+  yearSel.disabled = heeftKlas;
+  if (hint) hint.style.display = heeftKlas ? '' : 'none';
+}
 
 // Klassen laden — als promise, zodat de bewerkmodus kan wachten tot de opties bestaan
 // vóór hij de opgeslagen klas selecteert.
@@ -433,8 +507,15 @@ const _classesReady = (async function() {
     classes.forEach(function(cl) {
       const opt = document.createElement('option');
       opt.value = cl.id; opt.textContent = cl.name;
+      opt.dataset.schoolYear = cl.school_year || '';
       sel.appendChild(opt);
     });
+    // Sprint 51s: bij een NIEUWE toets (geen klas voorgeselecteerd) heeft de klaskeuze een
+    // 'change'-listener die het schooljaar meesynchroniseert. Bij het laden zelf enkel de
+    // visuele lock toepassen (zie loadForEdit voor hoe het bewerkscherm dit verder afhandelt).
+    await _schoolYearReady;
+    sel.addEventListener('change', syncSchoolYearWithClass);
+    applyClassYearLock();
   } catch (e) { console.warn('[quiz-teacher] fout:', e.message); }
 })();
 
@@ -470,6 +551,18 @@ async function loadForEdit() {
     setChk('quiz-no-back', m.noBack);
     setChk('quiz-min-runs', m.minRunsPerQ);
     setChk('quiz-auto-submit', m.autoSubmitLate);
+    // Sprint 51s: wacht tot de schooljaar-dropdown zijn opties heeft, en voeg het opgeslagen
+    // jaar toe als het er nog niet bij staat (bv. een ouder/gearchiveerd jaar) — zo blijft
+    // zichtbaar wat er nu echt geconfigureerd staat, ook al is dat een mismatch met de klas.
+    await _schoolYearReady;
+    if (m.schoolYear) {
+      const yearSel = document.getElementById('quiz-school-year');
+      if (yearSel && ![...yearSel.options].some(o => o.value === m.schoolYear)) {
+        const opt = document.createElement('option');
+        opt.value = m.schoolYear; opt.textContent = m.schoolYear + ' (opgeslagen waarde)';
+        yearSel.appendChild(opt);
+      }
+    }
     setVal('quiz-school-year', m.schoolYear || '');
     // Tijdvenster (datetime-local verwacht 'YYYY-MM-DDTHH:mm' in LOKALE tijd)
     const toLocalInput = (ms) => {
@@ -485,6 +578,11 @@ async function loadForEdit() {
     await _classesReady;
     const clsSel = document.getElementById('quiz-target-class');
     if (clsSel && m.targetClass) clsSel.value = m.targetClass;
+    // Sprint 51s: enkel de visuele lock toepassen (uitgeschakeld + hint) — NIET
+    // syncSchoolYearWithClass(), want dat zou het net herstelde opgeslagen schooljaar
+    // overschrijven. Wijzigt de leerkracht de klas zelf, dan synchroniseert het wél (de
+    // 'change'-listener is al gekoppeld in _classesReady).
+    applyClassYearLock();
     // Leerling-selectie herstellen
     window._selectedStudentIds = Array.isArray(data.studentIds) ? data.studentIds.slice() : [];
     _updateStudentsInfo();

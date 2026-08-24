@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.20**
+**Huidige versie: v2026.2.51.21**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -224,6 +224,27 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 51x — Vier meldingen na jaarwissel-feedback — ✅ AFGEROND (v2026.2.51.21)
+
+1) Leerling-toevoegen: defensieve try/catch (kon origineel niet reproduceren, wel een
+structurele stille-crash-kwetsbaarheid gevonden en gefixt, zelfde patroon als 51v).
+2) Schooljaar-dropdown gebruikte de kale kalenderberekening i.p.v. het echte actieve jaar
+(51u) — nu via `/api/teacher/active-school-year`, getest na een echte jaarwissel.
+3) Modelantwoord-veld kreeg `spellcheck="false"` (rode kronkels onder NL-woorden in
+Python-code) — bewust een gewoon tekstveld, geen uitvoerbare editor.
+4) Layout-bug composite-onderdelen: `.choice-row` (3-koloms grid voor single/multiple-choice)
+werd hergebruikt met 2 elementen, waardoor Grid alles in de 24px-kolom perste. Nieuwe
+`.part-row`-klasse (2 kolommen) lost dit op — getest: 24px → 957px breedte, screenshot
+bevestigd.
+
+Bewust NIET meegenomen: single/multiple-choice als onderdeel-type — te grote, meerlagige
+uitbreiding (datamodel + editor + leerlingscherm + scoren + verbeterpagina), volgt apart.
+
+**Betrokken bestanden:** `web/public/mijn-klassen.js` · `web/public/quiz-teacher.js` ·
+`web/public/quiz-bank.html` · `web/public/quiz-bank.js`.
+
+---
 
 ### Sprint 51w — Onduidelijke actieve tab op het sessiescherm — ✅ AFGEROND (v2026.2.51.20)
 

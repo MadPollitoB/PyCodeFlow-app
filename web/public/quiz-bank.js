@@ -531,8 +531,8 @@ function renderParts() {
   const heeftCode = _parts.some(p => p.type === 'code');
   const list = document.getElementById('parts-list');
   list.innerHTML = _parts.map((p, i) => `
-    <div class="choice-row" style="align-items:flex-start;">
-      <div class="choice-body" style="width:100%;">
+    <div class="part-row">
+      <div class="choice-body">
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap;">
           <span style="font-size:0.8rem;color:var(--muted);min-width:70px;">Onderdeel ${i + 1}</span>
           <select onchange="setPartType('${p.id}', this.value)" style="width:auto;padding:4px 8px;">
@@ -550,6 +550,7 @@ function renderParts() {
           : `<p style="font-size:0.78rem;color:var(--muted);margin:2px 0;">Geen label — dit wordt de gewone, uitvoerbare code-editor bij de leerling.</p>`
         }
         <input type="text" value="${esc(p.modelAnswer)}" placeholder="Modelantwoord voor dit onderdeel (optioneel)"
+          spellcheck="false" autocapitalize="off" autocorrect="off"
           style="margin-top:6px;font-family:${p.type === 'code' ? 'monospace' : 'inherit'};"
           oninput="setPartField('${p.id}', 'modelAnswer', this.value)" onkeydown="event.stopPropagation()"/>
       </div>

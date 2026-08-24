@@ -1,3 +1,50 @@
+## v2026.2.51.21 — Sprint 51x: Vier meldingen na de jaarwissel-feedback
+
+Vier van de vijf gemelde punten opgelost en getest. Het vijfde (single/multiple-choice als
+onderdeel-type bij een samengestelde vraag) is een grotere, meerlagige uitbreiding die apart
+zorgvuldig gebouwd wordt — zie onderaan.
+
+### 1. "Leerling toevoegen" gaf geen feedback bij een fout
+Kon niet reproduceren met verse testdata (zowel als admin- als als gewone leerkracht werkte
+het correct), maar wél een structurele kwetsbaarheid gevonden: zonder try/catch rond de
+fetch-aanroep zou een netwerk- of CSRF-fout de hele functie **stil** laten crashen — precies
+het "de knop werkt niet, zonder melding"-patroon van eerdere sprints. Nu altijd een duidelijke
+foutmelding, ongeacht wat er precies misgaat.
+
+### 2. Schooljaar-dropdown toonde het verkeerde jaar na een jaarwissel
+De dropdown op het toets-aanmaakscherm gebruikte nog de oude, kale kalenderberekening
+(augustus = nieuw jaar) als standaardwaarde, niet het echte actieve schooljaar van de
+leerkracht (sprint 51u). Na een jaarwissel bleef de dropdown dus het oude jaar tonen. Nu haalt
+hij het echte actieve jaar op via `/api/teacher/active-school-year`.
+**Getest:** na een jaarwissel toont de dropdown correct het nieuwe jaar.
+
+### 3. Modelantwoord bij een code-vraag toonde rode spellingskronkels
+Het modelantwoord-veld had al een monospace-lettertype, maar geen `spellcheck="false"` —
+Nederlandse woorden binnen Python-strings werden dus als spelfouten onderstreept. Simpele fix:
+spellcheck/autocorrect uitgeschakeld op zowel het hoofdvraag- als het onderdeel-modelantwoord-
+veld. Dit blijft bewust een gewoon tekstveld — geen uitvoerbare editor, zoals gevraagd.
+
+### 4. Layout-bug bij samengestelde-vraag-onderdelen (het rode kader in de screenshots)
+Root cause gevonden: de onderdelen-editor hergebruikte de CSS-klasse `.choice-row` (een
+3-koloms grid, ontworpen voor de radio-knop + tekst + verwijderknop van een
+single/multiple-choice-optie) maar met slechts 2 elementen — CSS Grid perste daardoor de hele
+onderdeel-inhoud in de eerste, 24px-brede kolom. Vandaar de woord-voor-woord-afgebroken tekst
+en de "lege pil-vormige vakjes" (dat waren gewoon de tekstvelden, samengeperst tot een paar
+pixels breed). Nieuwe, eigen CSS-klasse (`.part-row`, correcte 2-koloms-indeling) lost dit op.
+**Getest:** kolombreedte ging van ~24px naar 957px, tekst blijft nu op één regel — visueel
+bevestigd met een screenshot.
+
+### Nog te doen (bewust apart gehouden)
+Single- en multiple-choice toestaan als onderdeel-type bij een samengestelde vraag raakt het
+datamodel, de vragenbank-editor, het leerlingscherm, het scoren én de verbeterpagina — een
+te grote, meerlagige uitbreiding om ongetest bij deze fixes te proppen. Wordt apart gebouwd.
+
+**Betrokken bestanden:** `web/public/mijn-klassen.js` · `web/public/quiz-teacher.js` ·
+`web/public/quiz-bank.html` · `web/public/quiz-bank.js` · `VERSION` · overige
+`web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.20 — Sprint 51w: Onduidelijke actieve tab op het sessiescherm
 
 Op het sessiescherm (Sessies/Toetsen/Taken-knoppen boven "Lopende sessies") was niet te zien
