@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Waar wil je naartoe?</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.5"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.16"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .blok { border:1.5px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
@@ -89,7 +89,10 @@ let MIJ = null;
 const socket = io();
 
 function _setLS(k, v) {
-  try { localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); } catch (e) { /* stil */ }
+  // Sprint 51i (bugfix): app.js leest deze sleutels MÉT prefix ('pycodeflow_') én JSON-geparsed.
+  // Zonder die prefix vond student-app.html de studentState niet → terug naar home. We schrijven
+  // nu exact zoals app.js' setLS: geprefixte sleutel + JSON.stringify.
+  try { localStorage.setItem('pycodeflow_' + k, JSON.stringify(v)); } catch (e) { /* stil */ }
 }
 
 socket.on('student_state', function (data) {
@@ -290,4 +293,4 @@ async function toggleResultaat(code, kaart) {
 
 laad();
 </script>
-<script src="/privacy.js?v=v2026.2.51.5"></script></body></html>
+<script src="/privacy.js?v=v2026.2.51.16"></script></body></html>

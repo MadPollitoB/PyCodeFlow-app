@@ -72,10 +72,10 @@ async function seed() {
       [id, user, naam, hash(user), rol, now()]);
     if (school) {
       await db.query(`INSERT INTO teacher_schools (teacher_id, school_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [id, school]);
-    } else {
-      // superadmin: aan beide scholen gekoppeld (mag overal inloggen; leesscope is toch alziend)
-      await db.query(`INSERT INTO teacher_schools (teacher_id, school_id) VALUES ($1,$2),($1,$3) ON CONFLICT DO NOTHING`, [id, S.A, S.B]);
     }
+    // Sprint 51h: de superadmin (school === null) wordt bewust NIET aan een school gekoppeld —
+    // hij beheert het volledige platform en hangt nooit aan een school. Zijn leesscope is toch
+    // alziend, dus koppeling is niet nodig én zou de regel schenden.
   }
 
   console.log('— Klassen (startcodes actief) …');
@@ -128,17 +128,25 @@ async function seed() {
     [P + 'q-a5', T.a1, S.A, 'school',  false, 'single', 'Wat print print(2 ** 3)?', 2],
     [P + 'q-b1', T.b1, S.B, 'private', false, 'code',   'Bereken de faculteit van n (recursief).', 6],
     [P + 'q-b2', T.b1, S.B, 'public',  false, 'code',   'Tel de klinkers in een string.', 4],
+    // Sprint 51j: samengestelde vraag — 2 open-onderdelen (x, y) + 1 code-onderdeel.
+    [P + 'q-a6', T.a1, S.A, 'school',  false, 'composite', 'Gegeven onderstaande code:\n\n```python\nx = 3\ny = 0\nfor i in range(1, 4):\n    y += x\n    x -= 1\n```\n\nWat is op het einde de waarde van `x` en `y`? Schrijf ook zelf code die dit bevestigt.', 8],
   ];
   for (const [id, eigenaar, school, scope, hidden, type, tekst, ptn] of vragen) {
     const choices = type === 'single'
       ? JSON.stringify([{ id: id + '-c1', text: '6', correct: false }, { id: id + '-c2', text: '8', correct: true }, { id: id + '-c3', text: '9', correct: false }])
       : '[]';
+    const answerParts = type === 'composite' ? JSON.stringify([
+      { id: id + '-p1', type: 'open', label: 'Waarde van x', points: 2, modelAnswer: '0' },
+      { id: id + '-p2', type: 'open', label: 'Waarde van y', points: 2, modelAnswer: '6' },
+      { id: id + '-p3', type: 'code', label: '', points: 4, modelAnswer: 'x = 3\ny = 0\nfor i in range(1, 4):\n    y += x\n    x -= 1\nprint(x, y)' },
+    ]) : '[]';
+    const dbType = ['single', 'composite'].includes(type) ? type : 'code';
     await db.query(
       `INSERT INTO question_bank (id, text, subject, difficulty, max_points, question_type,
-         choices_json, tags, model_answer, created_by, school_id, share_scope, hidden, created_at, updated_at)
-       VALUES ($1,$2,'Python','gemiddeld',$3,$4,$5,'testdata','',$6,$7,$8,$9,$10,$10)
+         choices_json, tags, model_answer, created_by, school_id, share_scope, hidden, created_at, updated_at, answer_parts)
+       VALUES ($1,$2,'Python','gemiddeld',$3,$4,$5,'testdata','',$6,$7,$8,$9,$10,$10,$11)
        ON CONFLICT (id) DO NOTHING`,
-      [id, NP + tekst, ptn, type === 'single' ? 'single' : 'code', choices, eigenaar, school, scope, hidden, now()]);
+      [id, NP + tekst, ptn, dbType, choices, eigenaar, school, scope, hidden, now(), answerParts]);
   }
 
   console.log('— Sjablonen (school + publiek, met gekoppelde vragen) …');
@@ -187,6 +195,7 @@ async function seed() {
       questions: opVolgorde.map((q, i) => ({
         bankId: q.id, orderIndex: i, text: q.text, subject: q.subject, points: q.max_points,
         questionType: q.question_type, choicesJson: q.choices_json, modelAnswer: q.model_answer,
+        answerParts: q.answer_parts || '[]',
       })),
       randomize: false, timerSeconds: type === 'toets' ? 1800 : null,
       noTimer: type === 'taak', minRunsPerQ: 0, hideQuestionOnScreen: false,
@@ -194,7 +203,7 @@ async function seed() {
       accessFrom: null, accessUntil: null, autoSubmitLate: true, type,
     });
   }
-  await maakToets(CODES.toetsA, NP + 'Toets: Python basis', 'toets', [P + 'q-a1', P + 'q-a2', P + 'q-a5']);
+  await maakToets(CODES.toetsA, NP + 'Toets: Python basis', 'toets', [P + 'q-a1', P + 'q-a2', P + 'q-a5', P + 'q-a6']);
   await maakToets(CODES.taakA,  NP + 'Taak: Strings',       'taak',  [P + 'q-a3']);
 
   console.log('— Resultaten: realistische antwoorden + scores (enkel AANVAARDE leerlingen) …');
@@ -233,6 +242,12 @@ async function seed() {
       [P + 'st-a1']: { choiceText: '8' }, // correct
       [P + 'st-a5']: { choiceText: '6' }, // fout (demo van een foute keuze)
     },
+    // Sprint 51j: samengestelde vraag (x/y-onderdelen + code-onderdeel).
+    // Correcte uitwerking: x loopt 3→2→1→0, y wordt 3+2+1=6.
+    [P + 'q-a6']: {
+      [P + 'st-a1']: { parts: { x: '0', y: '6', code: 'x = 3\ny = 0\nfor i in range(1, 4):\n    y += x\n    x -= 1\nprint(x, y)' } },
+      [P + 'st-a5']: { parts: { x: '0', y: '5', code: 'x = 3\ny = 0\nfor i in range(3):\n    y += x' } }, // y fout
+    },
   };
 
   // [id, naam, ingediend?, scoortMee? (leerkracht heeft codevragen al verbeterd)]
@@ -248,8 +263,9 @@ async function seed() {
       const opl = (OPL[bankId] || {})[sid] || {};
       // Keuzevraag? Zoek de gekozen choice-id in de snapshot en bepaal de auto-score.
       let code = '', selectedChoices = '[]', score = null, autoScored = false, runCount = 0;
+      let partAnswers = '{}', partScores = '{}';
       const snapMeta = await db.query(
-        `SELECT question_type, choices_json FROM quiz_question_snapshots WHERE id = $1`, [snap.id]);
+        `SELECT question_type, choices_json, answer_parts FROM quiz_question_snapshots WHERE id = $1`, [snap.id]);
       const qType = snapMeta.rows[0]?.question_type || 'code';
       if (qType === 'single' || qType === 'multiple') {
         const choices = JSON.parse(snapMeta.rows[0]?.choices_json || '[]');
@@ -260,6 +276,22 @@ async function seed() {
           score = gekozen.correct ? snap.points : 0;
           autoScored = true;
         }
+      } else if (qType === 'composite') {
+        // Sprint 51j: onderdelen op volgorde — open-onderdelen krijgen x, y (in die volgorde),
+        // het code-onderdeel krijgt 'code'. Enkel bij een reeds verbeterde inzending (Sten)
+        // vullen we ook part_scores; bij Nina blijft die leeg (nog te verbeteren, net als code).
+        const parts = JSON.parse(snapMeta.rows[0]?.answer_parts || '[]');
+        const openParts = parts.filter(p => p.type === 'open');
+        const codePart = parts.find(p => p.type === 'code');
+        const antwoorden = {}, scores = {};
+        if (opl.parts) {
+          if (openParts[0]) { antwoorden[openParts[0].id] = opl.parts.x; if (verbeterd) scores[openParts[0].id] = opl.parts.x === '0' ? openParts[0].points : 0; }
+          if (openParts[1]) { antwoorden[openParts[1].id] = opl.parts.y; if (verbeterd) scores[openParts[1].id] = opl.parts.y === '6' ? openParts[1].points : 0; }
+          if (codePart) { antwoorden[codePart.id] = opl.parts.code; code = opl.parts.code; runCount = 2; if (verbeterd) scores[codePart.id] = codePart.points; }
+        }
+        partAnswers = JSON.stringify(antwoorden);
+        partScores = JSON.stringify(scores);
+        score = verbeterd && Object.keys(scores).length ? Object.values(scores).reduce((s, v) => s + (v || 0), 0) : null;
       } else {
         code = opl.code || '';
         runCount = opl.runs || 0;
@@ -280,13 +312,13 @@ async function seed() {
         `INSERT INTO quiz_answers (id, session_code, student_id, student_name, student_class,
            question_id, personal_order, code, run_count, first_visit_at, first_run_at,
            saved_at, submitted_at, score, teacher_comment, selected_choices, auto_scored,
-           submitted_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+           submitted_by, part_answers, part_scores)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
          ON CONFLICT (session_code, student_id, question_id) DO NOTHING`,
         [P + 'ans-' + sid.slice(-4) + '-' + pos, CODES.toetsA, sid, snaam, NP + 'Klas 5A',
          snap.id, pos, code, runCount, firstVisit, firstRun, saved, submitted, score,
          (verbeterd && qType === 'code') ? 'Netjes opgelost.' : '',
-         selectedChoices, autoScored, ingediend ? 'student' : null]);
+         selectedChoices, autoScored, ingediend ? 'student' : null, partAnswers, partScores]);
 
       // Run-history voor codevragen (voedt de "Run history" in de verbetermodule).
       if (code && runCount > 0) {

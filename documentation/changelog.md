@@ -1,3 +1,364 @@
+## v2026.2.51.16 — Sprint 51r: Bevestiging bij opslaan algemene commentaar
+
+`saveGeneralComment()` gaf geen enkele feedback — geen bevestiging bij succes, en bij een
+mislukte opslag (bv. een netwerkfout) merkte de leerkracht dat niet eens. Nu, consistent met
+het scoren van een vraag: een groene toast **"✅ Algemene commentaar opgeslagen."** bij succes,
+en bij een fout **"❌ Opslaan van de commentaar is mislukt."** in plaats van stil niets doen.
+
+**Getest** in een browser (Playwright): beide toasts verschijnen met de juiste tekst in
+respectievelijk het succes- en het foutscenario.
+
+**Betrokken bestanden:** `web/public/quiz-review.js` · `VERSION` · overige `web/public/*.html`
+(cache-bust)
+
+---
+
+## v2026.2.51.15 — Sprint 51q: Vrijgegeven resultaten onzichtbaar + score opslaan faalde stil
+
+Twee losstaande bugs gemeld met screenshots, allebei onderzocht en end-to-end opgelost.
+
+### Leerling zag vrijgegeven resultaten niet
+`listReleasedResultsForStudent`/`getReleasedResultDetail` vereisten een **actief
+class_membership bij precies de doelklas** van de toets. Maar `quiz_start` staat elke actieve
+leerling toe deel te nemen — ook van een andere klas — zodra er geen expliciete
+leerlingselectie is ingesteld. Bovendien verdwijnt een class_membership bewust na een
+klasverhuizing (sprint 51e), terwijl de resultaten juist moesten blijven bestaan. Gevolg: een
+leerling die zelf een toets aflegde, zag zijn eigen vrijgegeven resultaat soms nooit.
+
+**Fix:** de klaslidmaatschap-eis vervangen door de juiste, eenvoudigere grens — "heeft deze
+leerling zelf deelgenomen" (er bestaat een `quiz_answers`-rij met zijn `student_id`). Dat sluit
+nooit iemand anders in (elke leerling ziet nog steeds enkel zijn eigen resultaten), maar sluit
+niet langer terecht-deelgenomen leerlingen buiten.
+
+### Score opslaan bij de laatste vraag deed niets
+Als de leerling een vraag **nooit bekeek/beantwoordde** (typisch de laatste vraag bij een
+onvolledige inlevering), bestond er geen `quiz_answers`-rij en dus geen `answerId`. De
+verbeterpagina deed dan `if (!answerId) return;` — "Opslaan" klikken had zichtbaar geen effect.
+
+**Fix:** nieuw upsert-endpoint (`PUT /api/quiz/:code/students/:studentId/questions/:questionId/score`)
+dat de rij aanmaakt als ze nog niet bestaat, i.p.v. enkel een bestaande rij te kunnen
+bijwerken. De verbeterpagina gebruikt dit automatisch wanneer er nog geen `answerId` is.
+
+**Getest** tegen een echte database: score opslaan voor een expres verwijderde (niet-bestaande)
+antwoordrij lukt nu correct; een leerling van een andere klas dan de doelklas ziet zijn
+vrijgegeven resultaat (4/4, `ok:true` op het detail-endpoint) waar hij eerder niets zag.
+Regressie-check bevestigt: wie **niet** deelnam, blijft terecht zonder toegang — geen nieuw lek.
+
+**Betrokken bestanden:** `web/db/database.js` · `web/server.js` · `web/public/quiz-review.js` ·
+`VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.14 — Sprint 51p: Herhalende output bij code uitvoeren in een toets
+
+Regressie uit sprint 51n (`quiz_run_request`): de code-output in een toets/taak toonde een
+kwadratisch groeiend, herhalend patroon — bv. bij `for i in range(1,11): print(i)` verscheen
+`1, 1, 2, 1, 2, 3, 1, 2, 3, 4, …` in plaats van gewoon `1, 2, 3, … 10`.
+
+### Oorzaak
+De server stuurt bij elke nieuwe regel output de **volledige, al cumulatief opgebouwde**
+tekst (`student._outputAccum`), niet enkel het nieuwe stukje — dat is bewust zo (zelfde patroon
+als bij "vrij oefenen"). De listener in `quiz-student.js` deed echter `panel.textContent +=
+output`, waardoor de al-cumulatieve serverstring **telkens opnieuw bovenop** de al-opgebouwde
+clientstring kwam. `app.js` (vrij oefenen) doet dit al langer correct met `=` (vervangen);
+`quiz-student.js` had per ongeluk `+=`.
+
+### Fix
+`panel.textContent += output` → `panel.textContent = output`, exact zoals bij vrij oefenen.
+
+**Getest:** de oude logica gesimuleerd bevestigt het exacte, gemelde screenshot-patroon
+(`1, 1, 2, 1, 2, 3, …`). Met de fix, tegen een echte server + de echte Python-runner-service,
+geeft precies dezelfde code (`for i in range(1,11): print(i)`) nu de correcte output:
+`1, 2, 3, 4, 5, 6, 7, 8, 9, 10` — elk getal exact één keer.
+
+**Betrokken bestanden:** `web/public/quiz-student.js` · `VERSION` · overige `web/public/*.html`
+(cache-bust)
+
+---
+
+## v2026.2.51.13 — Sprint 51o: Niet-deelgenomen leerlingen in de verbeterzone
+
+Bij het stoppen van een toets/taak (handmatig door de leerkracht, of automatisch bij het
+verstrijken van het toegangsvenster) bleven leerlingen die **nooit gestart** waren volledig
+onzichtbaar in de verbeterzone. Oorzaak: de verbeterpagina (en het klasoverzicht) bouwen hun
+leerlingenlijst uitsluitend uit bestaande `quiz_answers`-rijen — een leerling die nooit een
+vraag bekeek, heeft daar geen enkele rij, dus verscheen nergens.
+
+### Wat er nu gebeurt bij het stoppen (beide triggers)
+Voor elke **actieve** leerling van de doelklas zonder één enkele inzending wordt nu een
+duidelijk gemarkeerde, lege "geen deelname"-inlevering aangemaakt (één placeholder-rij per
+vraag: `code=''`, `score=NULL`, `submitted_by='geen_deelname'`). Resultaat:
+- **Verbeterzone:** de leerling verschijnt nu in de lijst met een expliciete **"❌ niet
+  deelgenomen"**-badge (i.p.v. een misleidende score of gewoon afwezig zijn).
+- **Klasoverzicht:** toont automatisch **"⬜ Niets ingeleverd"** — geen aparte aanpassing
+  nodig, want dat volgt al uit de bestaande `heeft_inhoud`-logica (lege code/keuzes/runs).
+
+Leerlingen die wél gestart zijn maar niet alle vragen bekeken (halve inlevering) hoefden geen
+fix — die tonen al correct "(geen antwoord)" per vraag, want de verbeterpagina loopt over de
+volledige vragenlijst, niet enkel de aanwezige antwoorden.
+
+**Idempotent:** meermaals stoppen (of een herhaalde deadline-check) voegt nooit duplicaten toe.
+Enkel leerlingen met account-status `active` worden aangevuld — wie sowieso nooit mocht
+deelnemen (pending/geblokkeerd) krijgt terecht geen "niet deelgenomen"-vermelding in de
+verbeterzone (die staat al gewoon in het klasoverzicht via de normale klas-ledenlijst).
+
+**Getest** tegen een echte database + de echte HTTP-endpoint: `fillMissingQuizParticipants`
+vult correct aan (1 leerling, 4 placeholder-rijen), idempotent bij een tweede aanroep, en de
+volledige `/stop`-flow toont nadien alle klasleden in `/api/quiz/:code/answers`
+(`nietDeelgenomen: 2` in de response, 3 leerlingen zichtbaar waar er eerst maar 1 was).
+
+**Betrokken bestanden:** `web/db/database.js` · `web/server.js` · `web/public/quiz-review.js` ·
+`VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.12 — Sprint 51n: Code uitvoeren in toets/taak + monitoring-widget
+
+Twee losstaande bugs gemeld en opgelost, allebei end-to-end getest tegen een echte server +
+runner-service.
+
+### Code uitvoeren in een toets/taak deed niets
+Een leerling in een toets/taak heeft socket-rol `quiz_student`, maar de "Run"-knop stuurde
+de code naar `free_run_request` — een handler die enkel rol `free` accepteert en bij een
+mismatch **stilzwijgend** niets deed (geen foutmelding). Resultaat: het output-tabblad opende
+netjes, maar er verscheen nooit iets. Twee nieuwe, parallelle handlers toegevoegd
+(`quiz_run_request` en `quiz_runtime_input` voor stdin), met de juiste databron voor een
+quiz-leerling. Getest: code uitvoeren + een `input()`-programma werken beide volledig,
+inclusief de echo van de ingevoerde waarde.
+
+### Systeem-grid op het sessiescherm gaf 403
+Het runner-belasting-balkje op het sessiescherm (bedoeld voor élke leerkracht) riep
+`/api/monitoring` aan — een endpoint dat naast onschadelijke capaciteitscijfers ook gevoelige
+info teruggeeft (namen/codes van alle actieve sessies van alle leerkrachten, OS-geheugen,
+server-heap), en dus terecht superadmin-only staat. Nieuw, minimaal endpoint
+`/api/runner-health`: wél een ingelogde leerkracht vereist, geen systeembeheer-rechten, geeft
+uitsluitend de vier onschadelijke capaciteitscijfers terug. Het widget gebruikt nu dat
+endpoint. Getest met 4 scenario's: gewone leerkracht krijgt de cijfers (200), `/api/monitoring`
+blijft voor haar 403, superadmin behoudt volledige toegang tot beide.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/quiz-student.js` · `web/public/app.js` ·
+`VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.11 — Sprint 51m: Secrets interactief (opnieuw) instellen in pycodeflow.sh
+
+Bij "Eerste-start opnieuw" (menu 13) — het scherm dat je na een "Volledige reset" (menu 14)
+draait — kon je de beveiligingsgeheimen nooit herzien: het PostgreSQL-wachtwoord werd bij een
+leeg volume stilzwijgend hergebruikt, en het cookie-secret en het Cloudflare Tunnel-token
+werden nergens gevraagd. Nu kan alles interactief (opnieuw) ingegeven worden, vlak vóór het
+effectief gebruikt wordt.
+
+### Wat er nu gebeurt in "Eerste-start opnieuw"
+- **PostgreSQL-wachtwoord**: staat er al een in `.env` en is het volume (nog) leeg — bv. net na
+  een reset — dan wordt nu expliciet gevraagd of je een nieuw wachtwoord wil ingeven, in plaats
+  van het oude stilzwijgend te hergebruiken.
+- **Cookie-secret**: nieuwe stap. Staat er al een, dan kan je een nieuwe willekeurige waarde
+  laten genereren (`openssl rand -base64 32`, met een terugval als openssl ontbreekt). Bestaat
+  er nog geen, dan wordt er automatisch één aangemaakt.
+- **Cloudflare Tunnel-token**: nieuwe stap. Kan (opnieuw) geplakt worden — bv. na rotatie in het
+  Cloudflare-dashboard — en wordt meteen naar `.env` weggeschreven.
+- **Leerkrachtaccount (ClaesAdmin)**: kan ook herzien worden als er al één ingesteld staat, met
+  een duidelijke waarschuwing dat dit alleen effect heeft zolang het account nog niet écht in de
+  database staat (dus typisch net na een reset) — bestaat het account al, dan gebeurt een
+  wachtwoordwijziging via de app zelf (Beheer → Leerkrachten).
+- **Tikfout-bescherming**: elk wachtwoord/geheim dat je zelf intypt wordt nu twee keer gevraagd
+  (nieuwe helper `lees_geheim_met_herhaling`), met duidelijke foutmelding bij een mismatch of
+  een te korte waarde — zelfde bescherming overal consistent toegepast.
+
+Bij elke stap: **Enter (of "n") laat de bestaande waarde ongewijzigd** — je hoeft dus niets in
+te typen als je gewoon verder wil met wat er al staat.
+
+**Getest:** vier scenario's met gesimuleerde interactieve invoer — (1) alle geheimen vervangen
+op een bestaande `.env`, (2) alles behouden (enter/n), (3) een volledig verse, lege `.env`,
+(4) een opzettelijke tikfout bij de herhaling wordt correct geweigerd. Alle vier gaven het
+verwachte resultaat, met de juiste waarden in `.env` en geen duplicaten/beschadigde regels.
+
+**Betrokken bestanden:** `scripts/app/pycodeflow.sh` · `VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.10 — Sprint 51l: Security-audit Fase 3 & 4 (verharding + proces)
+
+Afronding van de security-audit: verharding van bestaande beveiliging en procesmaatregelen
+om herhaling te voorkomen. Geen van deze punten was acuut exploiteerbaar (in tegenstelling
+tot Fase 1/2), maar sluiten samen het aanvalsoppervlak verder af.
+
+### Dependency-updates
+- **DOMPurify: 3.0.6 → 3.4.13.** Dicht **alle 13** bekende hoge-severity CVE's in de vorige
+  versie (o.a. XSS-bypasses, prototype pollution, mutation-XSS). Getest: lokaal geserveerd via
+  `/vendor/dompurify` (pad ongewijzigd), en live in de browser bevestigd — sanitisatie werkt
+  nog correct (XSS-poging verwijderd, normale markdown blijft intact).
+- **marked: bewust NIET geüpdatet.** Onderzocht: marked heeft géén enkele CVE in de huidige
+  versie (npm audit bevestigt — alle 13 kwetsbaarheden kwamen van dompurify). Een upgrade naar
+  een recente major (13+/18) brengt wél reëel regressierisico: de UMD-bundel `marked.min.js`
+  bestaat sinds v18 niet meer in de packageroot (enkel nog `lib/marked.umd.js`), en de
+  renderer-API wijzigde van `(code, lang)` naar een token-object. Zonder securitywinst weegt
+  dat risico niet op — blijft op 9.1.6.
+- **npm audit**: van 13 naar **12** kwetsbaarheden (de dompurify-groep is weg). De resterende
+  12 zitten allemaal in transitieve dependencies van express/socket.io/exceljs en vereisen
+  stuk voor stuk een breaking major-upgrade (`npm audit fix --force`) — bewust niet doorgevoerd
+  in deze hardening-ronde; verdient een apart, grondig geteste sprint.
+
+### Kleinere verharding
+- **`initials(naam)`** in teacher-grid.js gaat nu door `esc()` vóór het in `innerHTML`
+  terechtkomt (was een theoretisch, laag-risico gat: max 2 tekens, geen praktische XSS, maar
+  onnodig ongesaneerd).
+- **Lengtelimiet op het `announcement`-bericht** (max 1000 tekens) — voorkomt dat een
+  onbegrensd bericht naar alle actieve leerlingen tegelijk uitgezonden wordt.
+
+### Proces (voorkomt herhaling van de secrets-lekken uit Fase 1)
+- Voortaan wordt **nooit meer het volledige `.env`-bestand** in een leverbare zip meegestuurd.
+  Nodige env-wijzigingen (bv. een versienummer) worden als aparte, expliciete instructie
+  gegeven, zonder de geheimen zelf te tonen.
+
+### Getest
+Volledige testsuite (324/324) + syntax-checks + een live browsertest (marked + DOMPurify samen,
+via de echte lokale vendor-routes) die bevestigt dat markdown-rendering en XSS-sanitisatie
+beide correct blijven werken na de dompurify-upgrade.
+
+**Betrokken bestanden:** `web/package.json` · `web/server.js` · `web/public/teacher-grid.js` ·
+`VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.9 — Sprint 51k: Security-audit Fase 1 & 2 (kritiek + hoog)
+
+Volledige, kritische audit van de applicatie (auth, autorisatie, XSS, injectie, secrets).
+Alle kritieke en hoge-risico bevindingen uit die audit zijn hier gefixt en end-to-end getest
+(8 scenario's tegen een echte server, plus de volledige testsuite: 324/324 groen).
+
+### 🔴 Kritiek
+- **Privilege escalation:** `POST`/`DELETE /api/admin/teachers/:id/schools` hadden **geen**
+  autorisatiecheck — elke ingelogde leerkracht (niet enkel admins) kon zichzelf aan een
+  willekeurige school koppelen en zo toegang krijgen tot een andere school. Nu: enkel
+  beheerders, en een school-admin enkel binnen zijn **eigen** school(en) (`magSchoolBeheren`).
+- **IDOR in `/api/quiz/:code/stop`:** de eigendomscheck gebeurde enkel als de toets toevallig
+  in het servergeheugen zat; ontbrak die (bv. na een herstart), dan kon elke leerkracht
+  andermans toets stoppen. Nu via `requireSessionAccess` (DB-eigenaar, faalt dicht).
+- **Cross-school toegang via `requireSessionAccess`:** dieper liggende bug, tijdens het testen
+  ontdekt — elke `admin`-rol kreeg via `magSessieBeheren` toegang tot **elke** toets/taak van
+  **elke** school. Geraakt: alle 15+ mutatie-endpoints op een toets/taak (bewerken, scores,
+  vrijgeven, verwijderen…). Nu: een gewone admin enkel binnen zijn eigen school(en)
+  (`dbModule.delenSchool`); de eigenaar en de super-admin blijven ongewijzigd overal bij kunnen.
+- **Bugfix gevonden tijdens het testen van bovenstaande:** `magSessieBeheren` gaf een
+  **super-admin** géén toegang tot andermans sessies (checkte enkel `role === 'admin'`, niet
+  `'superadmin'`) — een pre-existing bug, los van deze sprint. Nu via `isBeheerder()` (dekt
+  beide rollen). Regressietest toegevoegd.
+
+### 🟠 Hoog
+- **Zwakke CSRF-validatie:** `origin.includes(host)` was een substring-check, te omzeilen met
+  een domein dat de host-string toevallig bevat (bv. `app.pycodeflow.org.evil.com`). Nu een
+  exacte host-vergelijking (`new URL(...).host === host`); bovendien wordt een mutatie nu
+  geweigerd als zowel `Origin` als `Referer` ontbreken (voorheen stilzwijgend toegestaan).
+- **`X-Forwarded-For` ongevalideerd vertrouwd:** rate-limiting/audit-IP's gebruikten de
+  client-spoofbare header rechtstreeks, zonder `trust proxy`. Nu: `app.set('trust proxy', …)`
+  (env-configureerbaar via `TRUST_PROXY_HOPS`) en één centrale `getClientIp()`/`getSocketIp()`
+  die `CF-Connecting-IP` prioriteert (door Cloudflare's edge zelf gezet, niet client-spoofbaar).
+- **CSV-formule-injectie:** in de scores-export (`/export/csv`) kon een leerlingnaam die begint
+  met `=`, `+`, `-` of `@` als Excel-formule uitgevoerd worden bij het openen. Nu voorkomen
+  (OWASP-aanbevolen aanpak: onschuldig aanhalingsteken vooraan bij zo'n cel).
+
+### Getest
+Volledige testsuite (324/324, incl. een nieuwe regressietest voor de superadmin-bug) +
+8 end-to-end scenario's tegen een draaiende server (embedded PostgreSQL): elke aanval correct
+geblokkeerd, elk legitiem gebruikspatroon (eigenaar, superadmin, eigen-school-admin, dev-poorten)
+bevestigd nog werkend. Een socket.io-rooktest bevestigt dat de gewone leerling-join-flow intact is.
+
+**Nog open (Fase 3, gepland):** gelekte secrets roteren (actie bij jou), DOMPurify/marked naar
+laatste patch, `initials()` escapen, announcement-lengtelimiet, npm audit fix.
+
+**Betrokken bestanden:** `web/server.js` · `web/lib/auth.js` · `web/tests/auth.test.js` ·
+`VERSION` · `.env` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.8 — Sprint 51j: Samengestelde vragen (composite)
+
+Nieuw vraagtype **"🧩 Samengesteld"**: een vraag met meerdere antwoordonderdelen (bv.
+"waarde van x" + "waarde van y", of een open verklaring + een uitvoerbare code-check).
+
+### Regels (zoals afgesproken)
+- Score **per onderdeel**; het totaal van de vraag is de **som** van de onderdeel-punten.
+- Enkel **open** en **code** onderdelen zijn combineerbaar — geen single/multiple in een
+  samengestelde vraag.
+- **Max 6 onderdelen**, waarvan **max 1 code-onderdeel**. Een code-onderdeel heeft **nooit**
+  een voorafgaand label (het is altijd de gewone, **altijd uitvoerbare** code-editor — net als
+  een normale code-vraag, met Run-knop en output).
+
+### Vragenbank
+Nieuwe radio-optie "🧩 Samengesteld" met een onderdelen-editor: per onderdeel het type
+(open/code), label, punten en modelantwoord; toevoegen/verwijderen met de regels hierboven
+bewaakt. Het puntenveld van de vraag wordt automatisch de som en is read-only.
+
+### Leerlingscherm
+Per open-onderdeel een apart tekstveld met label; het code-onderdeel gebruikt de bestaande,
+altijd uitvoerbare Monaco-editor. Antwoorden worden per onderdeel opgeslagen en overleven een
+paginawissel/reconnect net als de andere types.
+
+### Verbeteren
+Per onderdeel: het leerlingantwoord, het modelantwoord (indien ingevuld), en een eigen
+scoreveld. Het totaal wordt automatisch herberekend als som van de onderdeel-scores — de rest
+van de app (klasoverzicht, PDF, gemiddeldes) blijft gewoon met de totaalscore werken.
+
+### PDF-export
+Vragenblad, antwoordformulier (los + ZIP per leerling) tonen elk onderdeel apart, met score
+per onderdeel indien gescoord.
+
+### CSV-import
+Extra kolom `onderdelen` (labels, `|`-gescheiden); de bestaande `keuzes`- en `punten`-kolommen
+worden bij `type=composite` hergebruikt als `[type1;type2]` resp. `[score1;score2]`
+(dezelfde volgorde als de labels). Velden met een `;` moeten tussen aanhalingstekens staan.
+
+**Getest tegen embedded PostgreSQL:** bank-vraag met 3 onderdelen (8 punten), snapshot-kopie
+naar de toets, realistische seed-antwoorden (Sten volledig gescoord = 8/8, Nina nog niet
+gescoord), en het scoren-per-onderdeel-endpoint (totaal na scoren = som, exact geverifieerd).
+CSV-import met een composite-voorbeeldregel: 2/2 correct geïmporteerd met juiste punten/types.
+
+**Betrokken bestanden:** `web/db/database.js` · `web/server.js` · `web/public/quiz-bank.js` ·
+`web/public/quiz-bank.html` · `web/public/quiz-student.js` · `web/public/quiz-student.html` ·
+`web/public/quiz-review.js` · `web/scripts/seed-testdb.js` · `VERSION` · `.env` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.7 — Sprint 51i: Bugfix leerling → klassessie
+
+- **Leerling kaatste terug naar home bij het kiezen van een (klas)sessie.** Het keuzescherm
+  (`student-thuis`) schreef de sessie-status naar localStorage zónder de prefix (`pycodeflow_`)
+  en niet JSON-geëncodeerd, terwijl `app.js` op `student-app.html` net die geprefixte,
+  JSON-geparste sleutels leest. Daardoor vond de leerling-app geen `studentState` → meteen
+  terug naar het startscherm (home). Nu schrijft `student-thuis` exact zoals `app.js` (prefix +
+  JSON), en `student-app.html` stopt netjes (`return`) als er echt geen state is.
+  Getest: de server-flow (join → reconnect) blijft correct, en de localStorage-sleutels komen
+  nu overeen tussen beide schermen.
+
+**Betrokken bestanden:** `web/public/student-thuis.html` · `web/public/app.js` · `VERSION` · `.env` · `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.6 — Sprint 51h: Rollenregels superadmin
+
+Een **super-admin** is beheerder van het volledige platform en hangt daarom **nooit** aan een
+school. Deze invariant wordt nu overal afgedwongen:
+
+- Een super-admin **kan niet aan een school gekoppeld** worden (`POST /api/admin/teachers/:id/schools`
+  weigert dit).
+- Iemand die nog **aan een school hangt**, kan **niet** tot super-admin gepromoveerd worden —
+  ook niet door een super-admin. Ontkoppel de persoon eerst van alle scholen. (`PUT
+  /api/admin/teachers/:username/role`).
+- Het **bootstrap-account** (ClaesAdmin) dat automatisch superadmin wordt, wordt bij die
+  promotie meteen van alle scholen **losgekoppeld**.
+- De **seeder** koppelt de superadmin niet langer aan scholen.
+
+Getest tegen embedded PostgreSQL: superadmin heeft 0 schoollinks; een school-gebonden admin
+kan niet gepromoveerd worden.
+
+**Betrokken bestanden:** `web/server.js` · `web/scripts/seed-testdb.js` · `VERSION` · `.env` ·
+`web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.5 — Sprint 51f: CSV meerregelig + 'open'-type
 
 - **CSV-parser** verwerkt nu geciteerde velden **met newlines**, zodat een vraag een

@@ -72,6 +72,44 @@ async function withTransaction(fn) {
   }
 }
 
+// Sprint 51j: normaliseert de antwoordonderdelen van een 'composite'-vraag.
+// Input mag een JSON-string, een array, of leeg zijn. Regels (zoals afgesproken):
+//   - max 6 onderdelen; extra onderdelen worden afgekapt.
+//   - max 1 code-onderdeel; een tweede/verdere code-onderdeel wordt naar 'open' omgezet
+//     (we verliezen liever niets dan een onderdeel stilzwijgend te laten vallen).
+//   - een code-onderdeel heeft NOOIT een label (het is altijd de uitvoerbare code-editor,
+//     zoals een gewone code-vraag — geen voorafgaand label nodig of gewenst).
+//   - elk onderdeel krijgt een stabiel id (blijft bestaan bij een update) en een geheel
+//     aantal punten (>= 0).
+function normalizeAnswerParts(input) {
+  let arr = input;
+  if (typeof arr === 'string') {
+    try { arr = JSON.parse(arr || '[]'); } catch { arr = []; }
+  }
+  if (!Array.isArray(arr)) arr = [];
+  let codeGezien = false;
+  const out = [];
+  for (const ruw of arr.slice(0, 6)) {
+    if (!ruw || typeof ruw !== 'object') continue;
+    let type = ruw.type === 'code' ? 'code' : 'open';
+    if (type === 'code') {
+      if (codeGezien) type = 'open';   // max 1 code-onderdeel
+      else codeGezien = true;
+    }
+    const id = (typeof ruw.id === 'string' && ruw.id) ? ruw.id : crypto.randomUUID();
+    const points = Math.max(0, parseInt(ruw.points, 10) || 0);
+    out.push({
+      id,
+      type,
+      // Een code-onderdeel heeft nooit een label.
+      label: type === 'code' ? '' : String(ruw.label || '').trim().slice(0, 200),
+      points,
+      modelAnswer: String(ruw.modelAnswer || '').slice(0, 10000),
+    });
+  }
+  return out;
+}
+
 // ── Schema initialisatie ───────────────────────────────────────────────────────
 async function initSchema() {
   await query(`
@@ -510,6 +548,10 @@ async function initSchema() {
       -- 'school' = collega's van dezelfde school, 'public' = elke leerkracht. Bestaande
       -- vragen worden bewust privé: delen is een expliciete keuze, geen automatisme.
       BEGIN ALTER TABLE question_bank ADD COLUMN share_scope TEXT NOT NULL DEFAULT 'private'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 51j: samengestelde ('composite') vraag — meerdere antwoordonderdelen.
+      -- JSON-array: [{"id","type":"open|code","label","points","modelAnswer"}]. Max 6 onderdelen,
+      -- max 1 code-onderdeel; een code-onderdeel heeft geen label. Leeg ('[]') voor gewone types.
+      BEGIN ALTER TABLE question_bank ADD COLUMN answer_parts TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
       -- Sprint 53d: moderatie-vlag. Los van share_scope (dat is de keuze van de eigenaar);
       -- 'hidden' is een admin-takedown die een publiek/gedeeld item onzichtbaar maakt voor
       -- anderen zónder dat de eigenaar het meteen opnieuw kan delen.
@@ -583,6 +625,8 @@ async function initSchema() {
       BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN choices_json TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
       -- 37b: modelantwoord bevroren bij de toets (kan per toets afwijken van de bankvraag)
       BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN model_answer TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 51j: snapshot van de antwoordonderdelen bij een composite-vraag.
+      BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN answer_parts TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
     CREATE INDEX IF NOT EXISTS idx_quiz_snapshots_session
       ON quiz_question_snapshots(session_code);
@@ -682,6 +726,11 @@ async function initSchema() {
     DO $$ BEGIN
       BEGIN ALTER TABLE quiz_answers ADD COLUMN selected_choices TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE quiz_answers ADD COLUMN auto_scored BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 51j: antwoorden + scores per onderdeel bij een composite-vraag.
+      -- part_answers: JSON {partId: waarde}. part_scores: JSON {partId: score}. De code-onderdeel-
+      -- waarde wordt ook in 'code' gespiegeld zodat runnen/gelijkenis/PDF blijven werken.
+      BEGIN ALTER TABLE quiz_answers ADD COLUMN part_answers TEXT NOT NULL DEFAULT '{}'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE quiz_answers ADD COLUMN part_scores TEXT NOT NULL DEFAULT '{}'; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
     CREATE INDEX IF NOT EXISTS idx_quiz_answers_session
       ON quiz_answers(session_code);
@@ -1270,6 +1319,61 @@ module.exports = {
       `UPDATE assignment_bank SET stopped_at = COALESCE(stopped_at, $2) WHERE session_code = $1
        RETURNING stopped_at`, [sessionCode, Date.now()]);
     return r.rows[0]?.stopped_at || null;
+  },
+
+  // Sprint 51o (bugfix): bij het stoppen (handmatig of automatisch bij het verstrijken van het
+  // toegangsvenster) moeten ALLE leerlingen van de doelklas in de verbeterzone verschijnen —
+  // ook wie NOOIT is ingelogd/gestart voor deze toets. Zonder dit blijven zulke leerlingen
+  // volledig onzichtbaar: er bestaat geen enkele quiz_answers-rij voor hen, en de
+  // verbeterpagina/klasoverzicht/CSV-export bouwen hun leerlingenlijst uitsluitend uit
+  // bestaande quiz_answers-rijen. Leerlingen die WEL start(t)en maar niet alle vragen
+  // bekeken, hoeven geen fix — die tonen al correct "(geen antwoord)" per vraag, want de
+  // verbeterpagina loopt over de volledige vragenlijst, niet enkel de aanwezige antwoorden.
+  //
+  // Maakt per ontbrekende vraag een lege, "ingediende" answer-rij aan (code='', score=null,
+  // submitted_by='geen_deelname' als duidelijke marker — dat is geen score van 0, het is
+  // "nooit deelgenomen"). Enkel voor leerlingen met status 'active' (enige status die sowieso
+  // mocht deelnemen) en zonder ENKELE bestaande quiz_answers-rij voor deze toets.
+  async fillMissingQuizParticipants(sessionCode) {
+    const meta = await query(`SELECT target_class FROM assignment_bank WHERE session_code = $1`, [sessionCode]);
+    const targetClass = meta.rows[0]?.target_class;
+    if (!targetClass) return 0;
+
+    const vragen = await query(
+      `SELECT id, order_index FROM quiz_question_snapshots WHERE session_code = $1 ORDER BY order_index`,
+      [sessionCode]);
+    if (!vragen.rows.length) return 0;
+
+    const klasNaam = await query(`SELECT name FROM classes WHERE id = $1`, [targetClass]);
+    const klasNaamStr = klasNaam.rows[0]?.name || '';
+
+    const leerlingen = await query(
+      `SELECT s.id, s.name FROM class_memberships m
+         JOIN students s ON s.id = m.student_id
+        WHERE m.class_id = $1 AND s.status = 'active'
+          AND NOT EXISTS (
+            SELECT 1 FROM quiz_answers a WHERE a.session_code = $2 AND a.student_id = s.id
+          )`,
+      [targetClass, sessionCode]);
+    if (!leerlingen.rows.length) return 0;
+
+    const now = Date.now();
+    let aangemaakt = 0;
+    for (const leerling of leerlingen.rows) {
+      let pos = 0;
+      for (const vraag of vragen.rows) {
+        await query(
+          `INSERT INTO quiz_answers (id, session_code, student_id, student_name, student_class,
+             question_id, personal_order, code, run_count, saved_at, submitted_at,
+             score, selected_choices, submitted_by)
+           VALUES ($1,$2,$3,$4,$8,$5,$6,'',0,$7,$7,NULL,'[]','geen_deelname')
+           ON CONFLICT (session_code, student_id, question_id) DO NOTHING`,
+          [crypto.randomUUID(), sessionCode, leerling.id, leerling.name, vraag.id, pos, now, klasNaamStr]);
+        pos++;
+      }
+      aangemaakt++;
+    }
+    return aangemaakt;
   },
 
   // Alle leerlingen die begonnen zijn maar nog niet indienden (ook wie offline is).
@@ -2017,29 +2121,37 @@ module.exports = {
   async createQuizQuestion({ text, subject = '', difficulty = 'gemiddeld', maxPoints = 4,
                                questionType = 'code', choicesJson = '[]', tags = '',
                                modelAnswer = '', createdBy = null, schoolId = null,
-                               shareScope = 'private' }) {
+                               shareScope = 'private', answerParts = '[]' }) {
     const id = crypto.randomUUID();
     const now = Date.now();
     const scope = ['private', 'school', 'public'].includes(shareScope) ? shareScope : 'private';
+    const parts = normalizeAnswerParts(answerParts);
+    // Bij een composite-vraag = de som van de onderdeel-punten het totaal van de vraag.
+    const punten = questionType === 'composite' && parts.length
+      ? parts.reduce((s, p) => s + (p.points || 0), 0) : maxPoints;
     await query(
       `INSERT INTO question_bank (id, text, subject, difficulty, max_points,
-         question_type, choices_json, tags, model_answer, share_scope, created_by, school_id, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-      [id, text.trim(), subject.trim(), difficulty, maxPoints,
-       questionType, choicesJson, (tags || '').trim(), String(modelAnswer || ''), scope, createdBy, schoolId, now, now]
+         question_type, choices_json, tags, model_answer, share_scope, created_by, school_id, created_at, updated_at, answer_parts)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+      [id, text.trim(), subject.trim(), difficulty, punten,
+       questionType, choicesJson, (tags || '').trim(), String(modelAnswer || ''), scope, createdBy, schoolId, now, now,
+       JSON.stringify(parts)]
     );
     return id;
   },
 
   async updateQuizQuestion(id, { text, subject, difficulty, maxPoints, questionType,
-                                 choicesJson, tags, modelAnswer }) {
+                                 choicesJson, tags, modelAnswer, answerParts }) {
+    const parts = normalizeAnswerParts(answerParts);
+    const punten = questionType === 'composite' && parts.length
+      ? parts.reduce((s, p) => s + (p.points || 0), 0) : maxPoints;
     const r = await query(
       `UPDATE question_bank SET text=$1, subject=$2, difficulty=$3, max_points=$4,
-         question_type=$5, choices_json=$6, tags=$7, model_answer=$8, updated_at=$9
+         question_type=$5, choices_json=$6, tags=$7, model_answer=$8, updated_at=$9, answer_parts=$11
        WHERE id=$10`,
-      [text.trim(), subject.trim(), difficulty, maxPoints,
+      [text.trim(), subject.trim(), difficulty, punten,
        questionType || 'code', choicesJson || '[]', (tags || '').trim(),
-       String(modelAnswer || ''), Date.now(), id]
+       String(modelAnswer || ''), Date.now(), id, JSON.stringify(parts)]
     );
     return r.rowCount > 0;
   },
@@ -2165,7 +2277,7 @@ module.exports = {
 
         // Sprint 51f: volledige velden. type/keuzes/juiste → question_type + choices_json.
         let questionType = String(row.type || 'code').trim().toLowerCase();
-        if (!['code', 'open', 'single', 'multiple'].includes(questionType)) questionType = 'code';
+        if (!['code', 'open', 'single', 'multiple', 'composite'].includes(questionType)) questionType = 'code';
         let choicesJson = '[]';
         if (questionType === 'single' || questionType === 'multiple') {
           const opties = String(row.keuzes || '').split('|').map(s => s.trim()).filter(Boolean);
@@ -2179,6 +2291,37 @@ module.exports = {
           choicesJson = JSON.stringify(choices);
           if (!opties.length) errors.push(`"${text.slice(0, 30)}…": keuzevraag zonder keuzes → als 'code' geïmporteerd`);
           if (!opties.length) questionType = 'code';
+        }
+
+        // Sprint 51j: 'composite' — kolom 'onderdelen' bevat de labels gescheiden met '|'.
+        // Het TYPE-veld per onderdeel hergebruikt de (bij composite anders ongebruikte)
+        // 'keuzes'-kolom als "[type1;type2]", en het SCORE-veld de 'punten'-kolom als
+        // "[score1;score2]" — beide in dezelfde volgorde als de labels. Een code-onderdeel
+        // heeft geen label op zijn positie (leeg tussen de |'s).
+        let answerParts = [];
+        if (questionType === 'composite') {
+          const labels = String(row.onderdelen || '').split('|').map(s => s.trim());
+          const puntenRaw = String(row.punten || row.max_punten || '').trim();
+          const scoreMatch = puntenRaw.match(/^\[(.*)\]$/);
+          const typeMatch = String(row.keuzes || '').match(/^\[(.*)\]$/);
+          const scores = scoreMatch ? scoreMatch[1].split(';').map(s => parseInt(s.trim(), 10) || 0) : [];
+          const types  = typeMatch ? typeMatch[1].split(';').map(s => s.trim().toLowerCase()) : [];
+          let codeGezien = false;
+          answerParts = labels.map((label, i) => {
+            let t = types[i] === 'code' ? 'code' : 'open';
+            if (t === 'code') { if (codeGezien) t = 'open'; else codeGezien = true; }
+            return {
+              id: crypto.randomUUID(),
+              type: t,
+              label: t === 'code' ? '' : label,
+              points: scores[i] !== undefined ? Math.max(0, scores[i]) : 3,
+              modelAnswer: '',
+            };
+          }).filter(p => p.type === 'code' || p.label);
+          if (!answerParts.length) {
+            errors.push(`"${text.slice(0, 30)}…": samengestelde vraag zonder onderdelen → als 'open' geïmporteerd`);
+            questionType = 'open';
+          }
         }
 
         let scope = String(row.delen || 'private').trim().toLowerCase();
@@ -2200,6 +2343,7 @@ module.exports = {
           shareScope: scope,
           createdBy: teacherId,
           schoolId: scope === 'school' ? schoolId : null,
+          answerParts: JSON.stringify(answerParts),
         });
         added++;
       } catch (e) { errors.push(`Fout bij rij: ${e.message}`); }
@@ -2274,10 +2418,10 @@ module.exports = {
         await client.query(
           `INSERT INTO quiz_question_snapshots
              (id, session_code, bank_question_id, order_index, text_snapshot, subject, points,
-              question_type, choices_json, model_answer)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+              question_type, choices_json, model_answer, answer_parts)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
           [crypto.randomUUID(), sessionCode, q.bankId, q.orderIndex, q.text, q.subject, q.points,
-           q.questionType || 'code', q.choicesJson || '[]', q.modelAnswer || '']
+           q.questionType || 'code', q.choicesJson || '[]', q.modelAnswer || '', q.answerParts || '[]']
         );
       }
     });
@@ -2342,10 +2486,10 @@ module.exports = {
         await client.query(
           `INSERT INTO quiz_question_snapshots
              (id, session_code, bank_question_id, order_index, text_snapshot, subject, points,
-              question_type, choices_json, model_answer)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+              question_type, choices_json, model_answer, answer_parts)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
           [crypto.randomUUID(), sessionCode, q.bankId, q.orderIndex, q.text, q.subject, q.points,
-           q.questionType || 'code', q.choicesJson || '[]', q.modelAnswer || '']
+           q.questionType || 'code', q.choicesJson || '[]', q.modelAnswer || '', q.answerParts || '[]']
         );
       }
       // Geen activiteit ⇒ geen echte volgordes, maar opruimen is veilig en houdt alles net.
@@ -2725,24 +2869,25 @@ module.exports = {
 
   async saveQuizAnswer({ sessionCode, studentId, studentName, studentClass,
                           questionId, personalOrder, code, runCount,
-                          firstVisitAt, firstRunAt, selectedChoices = '[]' }) {
+                          firstVisitAt, firstRunAt, selectedChoices = '[]', partAnswers }) {
     const now = Date.now();
     await query(
       `INSERT INTO quiz_answers
          (id, session_code, student_id, student_name, student_class,
           question_id, personal_order, code, run_count,
-          first_visit_at, first_run_at, saved_at, selected_choices)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+          first_visit_at, first_run_at, saved_at, selected_choices, part_answers)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        ON CONFLICT (session_code, student_id, question_id) DO UPDATE SET
          code             = EXCLUDED.code,
          run_count        = EXCLUDED.run_count,
          selected_choices = EXCLUDED.selected_choices,
+         part_answers     = COALESCE(EXCLUDED.part_answers, quiz_answers.part_answers),
          first_run_at     = COALESCE(quiz_answers.first_run_at, EXCLUDED.first_run_at),
          first_visit_at   = COALESCE(quiz_answers.first_visit_at, EXCLUDED.first_visit_at),
          saved_at         = EXCLUDED.saved_at`,
       [crypto.randomUUID(), sessionCode, studentId, studentName, studentClass,
        questionId, personalOrder, code, runCount, firstVisitAt, firstRunAt, now,
-       selectedChoices]
+       selectedChoices, partAnswers || '{}']
     );
   },
 
@@ -3040,6 +3185,28 @@ module.exports = {
       `UPDATE quiz_answers SET score=$1, teacher_comment=$2 WHERE id=$3`,
       [score, teacherComment, answerId]
     );
+  },
+
+  // Sprint 51j: score van ÉÉN onderdeel van een composite-vraag opslaan. Het totaal
+  // (kolom 'score') wordt meteen herberekend als de som van alle part_scores — zo blijft
+  // de rest van de app (klasoverzicht, PDF, gemiddeldes) gewoon 'score' lezen.
+  async scoreQuizAnswerPart(answerId, partId, score, teacherComment) {
+    const r = await query(`SELECT part_scores FROM quiz_answers WHERE id = $1`, [answerId]);
+    if (!r.rows.length) return false;
+    let scores = {};
+    try { scores = JSON.parse(r.rows[0].part_scores || '{}'); } catch { scores = {}; }
+    if (score === null || score === undefined || Number.isNaN(score)) {
+      delete scores[partId];
+    } else {
+      scores[partId] = Math.max(0, parseInt(score, 10) || 0);
+    }
+    const totaal = Object.values(scores).reduce((s, v) => s + (v || 0), 0);
+    const heeftScores = Object.keys(scores).length > 0;
+    await query(
+      `UPDATE quiz_answers SET part_scores=$1, score=$2, teacher_comment=COALESCE($3, teacher_comment) WHERE id=$4`,
+      [JSON.stringify(scores), heeftScores ? totaal : null, teacherComment ?? null, answerId]
+    );
+    return true;
   },
 
   async saveQuizGeneralComment(sessionCode, studentId, comment) {

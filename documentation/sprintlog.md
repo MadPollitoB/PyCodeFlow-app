@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.5**
+**Huidige versie: v2026.2.51.16**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -224,6 +224,168 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 51r — Bevestiging bij opslaan algemene commentaar — ✅ AFGEROND (v2026.2.51.16)
+
+`saveGeneralComment()` gaf geen feedback bij succes of falen. Nu consistent met de score-opslag
+(sprint 51q): groene toast bij succes, rode toast bij een mislukte opslag (response niet ok of
+een netwerkfout), i.p.v. stil niets doen. Getest in de browser: beide toast-varianten
+verschijnen met de juiste tekst.
+
+**Betrokken bestanden:** `web/public/quiz-review.js`.
+
+---
+
+### Sprint 51q — Vrijgegeven resultaten + score-opslaan (laatste vraag) — ✅ AFGEROND (v2026.2.51.15)
+
+**Resultaten onzichtbaar:** de class_membership-eis bij de doelklas was te strikt — deelname
+is niet aan de doelklas gebonden (`quiz_start`) en verdwijnt na een klasverhuizing. Vervangen
+door "heeft zelf deelgenomen" (`quiz_answers.student_id`) als grens, in beide functies
+(`listReleasedResultsForStudent`, `getReleasedResultDetail`).
+
+**Score opslaan faalde stil:** zonder `answerId` (vraag nooit bekeken) deed `saveScore` niets.
+Nieuw upsert-endpoint + DB-functie `scoreQuizAnswerByQuestion` (op studentId+questionId,
+maakt de rij aan indien nodig); de verbeterpagina valt hier automatisch op terug.
+
+Getest tegen een echte database: beide fixes bevestigd werkend, plus een regressie-check dat
+wie niet deelnam nog steeds geen toegang krijgt (geen nieuw privacylek).
+
+**Betrokken bestanden:** `web/db/database.js` · `web/server.js` · `web/public/quiz-review.js`.
+
+---
+
+### Sprint 51p — Herhalende output bij code uitvoeren in een toets — ✅ AFGEROND (v2026.2.51.14)
+
+Regressie uit 51n. De server stuurt bij elke stdout-chunk de volledige, al cumulatief
+opgebouwde tekst; de `free_run_output`-listener in quiz-student.js deed echter `+=` i.p.v.
+`=`, wat een kwadratisch groeiend herhalingspatroon gaf (`1, 1,2, 1,2,3, …`). app.js (vrij
+oefenen) deed dit al correct met `=`. Fix: dezelfde `=`-toewijzing in quiz-student.js.
+
+Getest: de oude logica gesimuleerd bevestigt het exacte gemelde patroon; met de fix geeft
+`for i in range(1,11): print(i)` tegen een echte server+runner nu correct `1..10` zonder
+herhaling.
+
+**Betrokken bestanden:** `web/public/quiz-student.js`.
+
+---
+
+### Sprint 51o — Niet-deelgenomen leerlingen in de verbeterzone — ✅ AFGEROND (v2026.2.51.13)
+
+Bij het stoppen (handmatig/deadline) bleven leerlingen zonder enkele `quiz_answers`-rij
+volledig onzichtbaar in de verbeterzone/klasoverzicht. Nieuwe DB-functie
+`fillMissingQuizParticipants(sessionCode)`: voor elke actieve leerling van de doelklas zonder
+inzending, één lege placeholder-rij per vraag (`submitted_by='geen_deelname'`). Gekoppeld aan
+zowel `/api/quiz/:code/stop` als de automatische deadline-cronjob. Verbeterpagina toont nu
+"❌ niet deelgenomen"; klasoverzicht toont automatisch "Niets ingeleverd" via de bestaande
+`heeft_inhoud`-logica (geen aparte aanpassing nodig). Idempotent; enkel `status='active'`
+leerlingen (pending/blocked mochten toch nooit deelnemen).
+
+Getest tegen een echte database + de echte HTTP-flow: correcte aanvulling, idempotentie,
+en de volledige `/stop`-respons/verbeterlijst geverifieerd.
+
+**Betrokken bestanden:** `web/db/database.js` · `web/server.js` · `web/public/quiz-review.js`.
+
+---
+
+### Sprint 51n — Code uitvoeren in toets/taak + monitoring-widget — ✅ AFGEROND (v2026.2.51.12)
+
+**Run-knop deed niets in een toets/taak.** `role: 'quiz_student'` matchte niet met de
+`free_run_request`-handler (enkel `role: 'free'`), die stil (zonder foutmelding) niets deed.
+Nieuwe parallelle handlers `quiz_run_request`/`quiz_runtime_input` met `session.students[...]`
+als databron i.p.v. de aparte `freeStudents`-map. Getest end-to-end (echte server + Python-
+runner-service): code uitvoeren én een `input()`-programma werken volledig, incl. input-echo.
+
+**Systeem-grid gaf 403.** Het runner-belasting-widget (voor elke leerkracht) riep
+`/api/monitoring` aan, dat terecht superadmin-only is (geeft ook gevoelige info van alle
+sessies/leerkrachten vrij). Nieuw endpoint `/api/runner-health`: ingelogde leerkracht
+volstaat, geen systeembeheer nodig, geeft enkel de 4 onschadelijke capaciteitscijfers.
+Getest: 4 scenario's (gewone leerkracht/superadmin × beide endpoints) allemaal correct.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/quiz-student.js` · `web/public/app.js`.
+
+---
+
+### Sprint 51m — Secrets interactief instellen in pycodeflow.sh — ✅ AFGEROND (v2026.2.51.11)
+
+"Eerste-start opnieuw" (menu 13, typisch na "Volledige reset" — menu 14) kon de
+beveiligingsgeheimen nooit herzien. Nu: PostgreSQL-wachtwoord vraagt expliciet om te
+wijzigen als het volume leeg is; cookie-secret en Cloudflare Tunnel-token zijn nieuwe,
+interactieve stappen; het leerkrachtaccount kan herzien worden (met waarschuwing over het
+effect). Nieuwe helper `lees_geheim_met_herhaling` vraagt elk handmatig ingetypt geheim twee
+keer (tikfout-bescherming), consistent op alle drie de wachtwoord-plekken. Enter/n = bestaande
+waarde behouden.
+
+Getest met 4 gesimuleerde interactieve scenario's (alles vervangen / alles behouden / verse
+install / tikfout-detectie) — telkens het juiste resultaat in `.env`, geen duplicaten.
+
+**Betrokken bestanden:** `scripts/app/pycodeflow.sh`.
+
+---
+
+### Sprint 51l — Security-audit Fase 3 & 4 (verharding + proces) — ✅ AFGEROND (v2026.2.51.10)
+
+DOMPurify 3.0.6 → 3.4.13 (dicht alle 13 CVE's uit de vorige versie); marked bewust
+ongewijzigd gelaten na onderzoek (geen CVE aanwezig, wél breaking-change-risico bij een
+major-upgrade — marked.min.js verdween sinds v18 uit de packageroot, renderer-API wijzigde).
+npm audit: 13 → 12 kwetsbaarheden; de resterende 12 vereisen stuk voor stuk een breaking
+major-upgrade van express/socket.io/exceljs, bewust niet doorgevoerd in deze ronde.
+
+Kleinere verharding: `initials()` op teacher-grid.js door `esc()`; lengtelimiet (1000) op het
+announcement-bericht. Procesmaatregel: nooit meer `.env` in een leverbare zip.
+
+Getest: 324/324 unit tests + een live browsertest (marked+DOMPurify samen via de echte lokale
+vendor-routes) die bevestigt dat markdown-rendering en XSS-sanitisatie beide blijven werken.
+
+**Betrokken bestanden:** `web/package.json` · `web/server.js` · `web/public/teacher-grid.js`.
+
+---
+
+### Sprint 51k — Security-audit Fase 1 & 2 — ✅ AFGEROND (v2026.2.51.9)
+
+Kritieke audit + fixes. Zie changelog voor het volledige overzicht. Kernpunten: privilege
+escalation in teachers/schools gedicht (requireBeheer + magSchoolBeheren), IDOR in
+`/stop` gefixt (requireSessionAccess), een bredere cross-school-bug in requireSessionAccess
+zelf ontdekt en gefixt (delenSchool-check voor gewone admins), en en passant een pre-existing
+bug gevonden waarbij superadmin geen toegang had tot andermans sessies (magSessieBeheren
+gebruikte isBeheerder i.p.v. enkel role==='admin'). Daarnaast: CSRF exacte host-match,
+gecentraliseerde/betrouwbaardere IP-detectie (CF-Connecting-IP + trust proxy), en
+CSV-formule-injectie voorkomen in de scores-export.
+
+Getest: 324/324 unit tests + 8 end-to-end scenario's tegen een draaiende server (elke aanval
+geblokkeerd, elk legitiem gebruikspatroon bevestigd werkend) + socket.io-rooktest.
+
+**Betrokken bestanden:** `web/server.js` · `web/lib/auth.js` · `web/tests/auth.test.js`.
+
+---
+
+### Sprint 51j — Samengestelde vragen (composite) — ✅ AFGEROND (v2026.2.51.8)
+
+Nieuw vraagtype met meerdere antwoordonderdelen. Regels: score per onderdeel (som = totaal);
+enkel open+code combineerbaar; max 6 onderdelen, max 1 code-onderdeel zonder label; het
+code-onderdeel is altijd uitvoerbaar.
+
+**Datamodel:** `answer_parts` (question_bank + snapshots), `part_answers`/`part_scores`
+(quiz_answers) — alle vier via idempotente ALTER-migraties. `normalizeAnswerParts()` bewaakt
+de regels centraal. `scoreQuizAnswerPart()` herberekent het totaal als som.
+
+**API:** `POST`/`PUT /api/quiz/bank` accepteren `composite` + `answerParts`; nieuw
+`PUT /api/quiz/:code/answers/:answerId/part-score`. Snapshot-kopiëring (aanmaken/updaten/
+dupliceren/sjabloon, 5 plekken) geeft `answer_parts` nu overal door.
+
+**UI:** vragenbank-editor met onderdelen-beheer; leerlingscherm met per-onderdeel velden +
+hergebruikte code-editor; verbeterpagina met per-onderdeel score; PDF (hoofd + ZIP) met
+per-onderdeel weergave; CSV-import (`onderdelen`-kolom + hergebruikte `keuzes`/`punten` als
+arrays).
+
+**Getest tegen embedded PostgreSQL:** volledige keten bank → snapshot → seed-antwoorden →
+part-score-endpoint, inclusief automatische totaal-herberekening (geverifieerd: 0+1+3=4).
+CSV-import van een composite-voorbeeldregel geslaagd.
+
+**Betrokken bestanden:** `web/db/database.js` · `web/server.js` · `web/public/quiz-bank.js` ·
+`web/public/quiz-bank.html` · `web/public/quiz-student.js` · `web/public/quiz-student.html` ·
+`web/public/quiz-review.js` · `web/scripts/seed-testdb.js`.
+
+---
 
 ### Sprint 51e — Security-visibility, bugfixes & batch-2 features — ✅ AFGEROND (v2026.2.51.4)
 

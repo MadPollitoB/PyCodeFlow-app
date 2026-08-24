@@ -2871,3 +2871,25 @@ en herstart. Daarna:
       (enkel aanvaarde leerlingen). In de klas-voortgang staan ze als "niets/geen activiteit".
 - [ ] De **taak** (TDTAAKA) heeft een ingeleverde, realistische oplossing van Sten.
 - [ ] Probeer als **pending** leerling (studentA2) de toetscode → wordt geweigerd (kan geen toets maken).
+
+---
+
+## 87. Sprint 51j — Samengestelde vragen (composite)
+
+> Seed opnieuw (`node scripts/seed-testdb.js seed`) na deze update voor de composite-testdata.
+
+- [ ] **Vragenbank** → Nieuwe vraag → kies "🧩 Samengesteld". Voeg onderdelen toe: open-onderdeel
+      vereist een label; probeer een 2de code-onderdeel toe te voegen → geweigerd (max 1).
+      Voeg 7 onderdelen toe → 7de wordt geweigerd (max 6). Punten-veld is read-only en toont de som.
+- [ ] Sla op, bewerk de vraag opnieuw → onderdelen komen correct terug.
+- [ ] Maak een toets/taak met deze vraag → controleer dat de vraag correct in de lijst staat.
+- [ ] **Leerlingscherm**: elk open-onderdeel heeft een eigen tekstveld met label; het
+      code-onderdeel is de gewone, uitvoerbare editor (Run-knop werkt). Antwoorden blijven
+      staan na paginawissel.
+- [ ] **Verbeteren** (toets TDTOETSA, vraag "Gegeven onderstaande code…"): Sten Testers toont
+      score 8/8 (alle onderdelen correct); Nina Actief toont nog geen score. Vul bij Nina de
+      onderdeelscores in en klik "Onderdeelscores opslaan" → het totaal verschijnt correct.
+- [ ] **PDF**: exporteer het vragenblad en de antwoorden (met en zonder scores) → de
+      samengestelde vraag toont elk onderdeel apart, code-onderdeel als codeblok.
+- [ ] **CSV-import**: importeer de voorbeeldregel uit de CSV-tab (composite) → 1 vraag met
+      2 onderdelen en de juiste punten (som) verschijnt in de bank.

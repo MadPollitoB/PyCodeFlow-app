@@ -100,7 +100,7 @@
 
       return `<div class="student-card ${cardClass}" onclick="focusStudent('${esc(s.id)}')">
         <div class="card-header">
-          <div class="card-avatar">${initials(s.name)}</div>
+          <div class="card-avatar">${esc(initials(s.name))}</div>
           <div style="flex:1;min-width:0;">
             <div class="card-name" title="${esc(s.name)}">${esc(s.name)}</div>
             <div class="card-class">${esc(s.className || '')}</div>

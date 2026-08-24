@@ -85,10 +85,16 @@ function renderStudentList() {
     const totalScore = studentAnswers.reduce((sum, a) => sum + (a.score || 0), 0);
     const maxScore = _questions.reduce((sum, q) => sum + (q.points || 0), 0);
     const isActive = _currentStudent?.id === s.id;
+    // Sprint 51o: leerlingen die nooit gestart zijn (aangevuld bij het stoppen/deadline)
+    // krijgen een duidelijke "niet deelgenomen"-badge i.p.v. een misleidende score.
+    const nietDeelgenomen = studentAnswers.length > 0 && studentAnswers.every(a => a.submitted_by === 'geen_deelname');
+    const scoreChip = nietDeelgenomen
+      ? `<span style="color:var(--error-fg,#b91c1c);">❌ niet deelgenomen</span>`
+      : `${scored}/${total} ✓ ${scored === total ? `· ${totalScore}/${maxScore}pt` : ''}`;
     return `<div class="student-row ${isActive ? 'active' : ''}" onclick="selectStudent('${s.id}')">
       <div><strong>${esc(s.name)}</strong></div>
       <div style="font-size:0.78rem;color:${isActive?'rgba(255,255,255,0.7)':'var(--muted)'};">${esc(s.class || '')}</div>
-      <div class="score-chip">${scored}/${total} ✓ ${scored === total ? `· ${totalScore}/${maxScore}pt` : ''}</div>
+      <div class="score-chip">${scoreChip}</div>
     </div>`;
   }).join('');
 }
@@ -250,6 +256,24 @@ async function selectQuestion(idx) {
         </div>
       </div>`;
     } catch { answerHtml = '<p class="muted">Keuzes konden niet worden geladen.</p>'; }
+  } else if (qType === 'composite') {
+    // Sprint 51j: samengestelde vraag — per onderdeel het label, het leerlingantwoord en
+    // (indien aanwezig) het modelantwoord. Het code-onderdeel wordt hieronder in het gewone,
+    // uitvoerbare code-paneel getoond (dezelfde editor als bij een normale code-vraag).
+    let partAnswers = {};
+    try { partAnswers = JSON.parse(ans?.part_answers || '{}'); } catch { partAnswers = {}; }
+    const parts = parseAnswerPartsReview(q.answer_parts);
+    const openParts = parts.filter(p => p.type === 'open');
+    answerHtml = openParts.map(p => `
+      <div class="card" style="padding:14px;margin-bottom:10px;">
+        <div style="font-size:0.78rem;color:var(--muted);margin-bottom:6px;">✏️ ${esc(p.label)}</div>
+        <div style="font-size:0.93rem;line-height:1.6;white-space:pre-wrap;padding:10px;
+          background:var(--surface-soft);border-radius:8px;min-height:44px;">
+          ${partAnswers[p.id] ? esc(partAnswers[p.id]) : '<span style="color:var(--muted);font-style:italic;">(geen antwoord)</span>'}
+        </div>
+        ${p.modelAnswer ? `<div style="margin-top:8px;font-size:0.8rem;color:var(--muted);">
+          ✅ Modelantwoord: <span style="color:inherit;">${esc(p.modelAnswer)}</span></div>` : ''}
+      </div>`).join('');
   }
 
   document.getElementById('q-detail').innerHTML = `
@@ -264,7 +288,14 @@ async function selectQuestion(idx) {
       </span>
     </div>
     ${answerHtml}
-    ${qType !== 'code' ? '' : `<div class="editor-shell card" style="margin-bottom:12px;">
+    ${(() => {
+      if (qType === 'code') return true;
+      if (qType === 'composite') {
+        const parts = parseAnswerPartsReview(q.answer_parts);
+        return parts.some(p => p.type === 'code');
+      }
+      return false;
+    })() ? `<div class="editor-shell card" style="margin-bottom:12px;">
       <div class="editor-toolbar">
         <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
         <div class="toolbar-spacer"></div>
@@ -278,7 +309,7 @@ async function selectQuestion(idx) {
           <div id="quiz-editor" class="monaco-editor-host"></div>
         </div>
       </div>
-    </div>`}
+    </div>` : ''}
     <div class="card" style="padding:12px;min-height:60px;margin-bottom:14px;">
       <div style="font-size:0.78rem;color:var(--muted);margin-bottom:4px;">Output:</div>
       <div id="review-output" class="output-panel output-dark"
@@ -297,6 +328,32 @@ async function selectQuestion(idx) {
           </div>`).join('')}
       </div>
     </details>` : ''}
+    ${qType === 'composite' ? (() => {
+      const parts = parseAnswerPartsReview(q.answer_parts);
+      let partScores = {};
+      try { partScores = JSON.parse(ans?.part_scores || '{}'); } catch { partScores = {}; }
+      const totaal = Object.values(partScores).reduce((s, v) => s + (v || 0), 0);
+      return `<div class="card" style="padding:12px;margin-bottom:14px;">
+        <div style="font-size:0.82rem;color:var(--muted);margin-bottom:8px;">Score per onderdeel</div>
+        ${parts.map((p, pi) => {
+          const label = p.type === 'code' ? '🐍 Code' : esc(p.label || ('Onderdeel ' + (pi + 1)));
+          const s = partScores[p.id] !== undefined ? partScores[p.id] : '';
+          return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+            <span style="flex:1;font-size:0.88rem;">${label}</span>
+            <input type="number" class="part-score-input" data-part-id="${p.id}" value="${s}" min="0" max="${p.points}" placeholder="—" style="width:70px;"/>
+            <span class="muted" style="font-size:0.82rem;">/ ${p.points}</span>
+          </div>`;
+        }).join('')}
+        <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:0.88rem;font-weight:700;">
+          Totaal: ${totaal} / ${q.points}
+        </div>
+        <button class="btn btn-soft small" style="margin-top:8px;" onclick="savePartScores('${ans?.id||''}', ${idx})">💾 Onderdeelscores opslaan</button>
+      </div>
+      <div class="card" style="padding:12px;margin-bottom:14px;">
+        <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Algemene opmerking</label>
+        <textarea id="comment-input" placeholder="Opmerking...">${esc(comment)}</textarea>
+      </div>`;
+    })() : `
     <div class="score-row">
       <div>
         <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Score</label>
@@ -313,7 +370,7 @@ async function selectQuestion(idx) {
           <div class="template-chip" style="color:var(--muted);" onclick="addTemplate()">+ Eigen template</div>
         </div>` : `<div style="margin-top:4px;"><button class="btn btn-muted small" onclick="addTemplate()" style="font-size:0.78rem;">+ Commentaar template toevoegen</button></div>`}
       </div>
-    </div>
+    </div>`}
     <details style="margin-top:10px;" ${q.model_answer ? 'open' : ''}>
       <summary style="cursor:pointer;font-size:0.85rem;color:var(--muted);">
         ✅ Modelantwoord ${q.model_answer ? '(ingevuld)' : '(nog leeg)'}
@@ -323,12 +380,12 @@ async function selectQuestion(idx) {
       <button class="btn btn-muted small" style="margin-top:6px;"
         onclick="saveModelAnswer('${esc(q.id)}')">💾 Modelantwoord opslaan</button>
     </details>
-    <div style="margin-top:10px;display:flex;gap:8px;">
-      <button class="btn btn-soft small" onclick="saveScore('${ans?.id||''}', ${idx})">💾 Opslaan</button>
-      ${idx < _questions.length - 1 ? `<button class="btn btn-muted small" onclick="saveAndNext('${ans?.id||''}',${idx})">💾 Opslaan & volgende →</button>` : ''}
-    </div>`;
+    ${qType === 'composite' ? '' : `<div style="margin-top:10px;display:flex;gap:8px;">
+      <button class="btn btn-soft small" onclick="saveScore('${ans?.id||''}', ${idx}, '${q.id}')">💾 Opslaan</button>
+      ${idx < _questions.length - 1 ? `<button class="btn btn-muted small" onclick="saveAndNext('${ans?.id||''}',${idx}, '${q.id}')">💾 Opslaan & volgende →</button>` : ''}
+    </div>`}`;
 
-  // Laad code in editor (enkel bij code-vragen)
+  // Laad code in editor (code-vragen, en composite-vragen met een code-onderdeel)
   _originalCode = code;
   if (qType === 'code') {
     // Sprint 51c: #q-detail (en dus #quiz-editor) is zonet opnieuw opgebouwd. We (her)mounten
@@ -337,9 +394,29 @@ async function selectQuestion(idx) {
     // editor nooit gemount was → de code bleef onzichtbaar.
     await ensureEditor('quiz', code || '// Geen antwoord ingediend', false, true);
     setQuizEditorReadOnly(true);
+  } else if (qType === 'composite') {
+    // Sprint 51j: het code-onderdeel (indien aanwezig) gebruikt dezelfde, altijd uitvoerbare
+    // editor. De code staat in part_answers[codePart.id], niet in de 'code'-kolom van ans.
+    const parts = parseAnswerPartsReview(q.answer_parts);
+    const codePart = parts.find(p => p.type === 'code');
+    if (codePart) {
+      let partAnswers = {};
+      try { partAnswers = JSON.parse(ans?.part_answers || '{}'); } catch { partAnswers = {}; }
+      const codeVal = partAnswers[codePart.id] || '';
+      _originalCode = codeVal;
+      await ensureEditor('quiz', codeVal || '// Geen antwoord ingediend', false, true);
+      setQuizEditorReadOnly(true);
+    }
   }
   const out = document.getElementById('review-output');
   if (out) out.textContent = '';
+}
+
+// Sprint 51j: parseert answer_parts veilig (JSON-string of array) — lokale helper voor de
+// verbeterpagina, los van de gelijknamige helper op het leerlingscherm.
+function parseAnswerPartsReview(raw) {
+  if (Array.isArray(raw)) return raw;
+  try { const p = JSON.parse(raw || '[]'); return Array.isArray(p) ? p : []; } catch { return []; }
 }
 
 async function saveModelAnswer(questionId) {
@@ -412,33 +489,97 @@ function loadHistoryRun(code) {
 
 function escJs(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n'); }
 
-async function saveScore(answerId, qIdx) {
+async function saveScore(answerId, qIdx, questionId) {
   const score = document.getElementById('score-input').value;
   const comment = document.getElementById('comment-input').value;
-  if (!answerId) return;
-  await (window.apiFetch||fetch)(`/api/quiz/${sessionCode}/answers/${answerId}/score`, {
-    method:'PUT', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ score: score !== '' ? parseInt(score) : null, teacherComment: comment }),
-  });
-  // Update lokale data
-  const ans = _answers.find(a => a.id === answerId);
-  if (ans) { ans.score = score !== '' ? parseInt(score) : null; ans.teacher_comment = comment; }
+  const scoreWaarde = score !== '' ? parseInt(score) : null;
+
+  if (!answerId) {
+    // Sprint 51q (bugfix): de leerling bekeek/beantwoordde deze vraag nooit, dus er bestaat
+    // geen quiz_answers-rij (geen answerId) om naar te PUTten — voorheen deed de functie
+    // hier stil niets ("Opslaan" leek niet te werken). Gebruik het upsert-endpoint dat de
+    // rij aanmaakt op basis van de leerling + vraag.
+    if (!_currentStudent?.id || !questionId) return;
+    const r = await (window.apiFetch||fetch)(
+      `/api/quiz/${sessionCode}/students/${_currentStudent.id}/questions/${questionId}/score`, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ score: scoreWaarde, teacherComment: comment }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (data.answerId) {
+      // Nieuwe lokale rij toevoegen zodat een volgende wijziging via het normale pad kan.
+      _answers.push({
+        id: data.answerId, student_id: _currentStudent.id, question_id: questionId,
+        score: scoreWaarde, teacher_comment: comment, code: '', selected_choices: '[]',
+        student_name: _currentStudent.name, student_class: _currentStudent.class,
+      });
+    }
+  } else {
+    await (window.apiFetch||fetch)(`/api/quiz/${sessionCode}/answers/${answerId}/score`, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ score: scoreWaarde, teacherComment: comment }),
+    });
+    // Update lokale data
+    const ans = _answers.find(a => a.id === answerId);
+    if (ans) { ans.score = scoreWaarde; ans.teacher_comment = comment; }
+  }
   renderStudentList();
   // Update tab
   document.querySelectorAll('.q-tab')[qIdx]?.classList.add('scored');
+  if (window.pyToast) pyToast('Score opgeslagen.', 'success');
 }
 
-async function saveAndNext(answerId, qIdx) {
-  await saveScore(answerId, qIdx);
+async function saveAndNext(answerId, qIdx, questionId) {
+  await saveScore(answerId, qIdx, questionId);
   if (qIdx < _questions.length - 1) selectQuestion(qIdx + 1);
+}
+
+// Sprint 51j: alle onderdeel-scores van een composite-vraag in één keer opslaan (één
+// PUT-call per onderdeel naar het part-score endpoint; de server herberekent het totaal).
+async function savePartScores(answerId, qIdx) {
+  if (!answerId) { if (window.pyToast) pyToast('Nog geen antwoord om te scoren.', 'warn'); return; }
+  const comment = document.getElementById('comment-input')?.value ?? undefined;
+  const inputs = document.querySelectorAll('.part-score-input');
+  let partScores = {};
+  for (const el of inputs) {
+    const partId = el.dataset.partId;
+    const val = el.value;
+    await (window.apiFetch||fetch)(`/api/quiz/${sessionCode}/answers/${answerId}/part-score`, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ partId, score: val !== '' ? parseInt(val, 10) : null, teacherComment: comment }),
+    });
+    partScores[partId] = val !== '' ? parseInt(val, 10) : undefined;
+  }
+  // Lokale data + totaal bijwerken zonder alles opnieuw te laden.
+  const ans = _answers.find(a => a.id === answerId);
+  if (ans) {
+    let bestaande = {};
+    try { bestaande = JSON.parse(ans.part_scores || '{}'); } catch { bestaande = {}; }
+    for (const [pid, v] of Object.entries(partScores)) {
+      if (v === undefined) delete bestaande[pid]; else bestaande[pid] = v;
+    }
+    ans.part_scores = JSON.stringify(bestaande);
+    ans.score = Object.keys(bestaande).length ? Object.values(bestaande).reduce((s, v) => s + (v || 0), 0) : null;
+    if (comment !== undefined) ans.teacher_comment = comment;
+  }
+  renderStudentList();
+  document.querySelectorAll('.q-tab')[qIdx]?.classList.add('scored');
+  selectQuestion(qIdx);   // herteken zodat het nieuwe totaal meteen zichtbaar is
+  if (window.pyToast) pyToast('Onderdeelscores opgeslagen.', 'success');
 }
 
 async function saveGeneralComment() {
   const comment = document.getElementById('general-comment')?.value || '';
-  await (window.apiFetch||fetch)(`/api/quiz/${sessionCode}/general-comment/${_currentStudent.id}`, {
-    method:'PUT', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ comment }),
-  });
+  try {
+    const r = await (window.apiFetch||fetch)(`/api/quiz/${sessionCode}/general-comment/${_currentStudent.id}`, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ comment }),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (window.pyToast) pyToast('Algemene commentaar opgeslagen.', 'success');
+  } catch (e) {
+    if (window.pyToast) pyToast('Opslaan van de commentaar is mislukt.', 'error');
+  }
 }
 
 function useTemplate(text) {

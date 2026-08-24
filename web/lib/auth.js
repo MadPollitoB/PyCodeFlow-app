@@ -169,9 +169,12 @@ function bepaalSessieEigenaar(teacher) {
 //  4. Anders: enkel de eigenaar zelf.
 function magSessieBeheren(teacher, sessionOwnerId) {
   if (!teacher) return false;                       // 1
-  if (teacher.role === 'admin') return true;        // 2
-  if (sessionOwnerId == null) return true;          // 3 (null én undefined)
-  return teacher.id === sessionOwnerId;             // 4
+  // Sprint 51k (bugfix): dit checkte enkel role === 'admin' — een super-admin (role
+  // 'superadmin') viel daar NIET onder en kreeg dus 403 op andermans sessies/toetsen,
+  // ook al hoort de super-admin overal bij te kunnen. isBeheerder() dekt beide rollen.
+  if (isBeheerder(teacher)) return true;             // 2
+  if (sessionOwnerId == null) return true;           // 3 (null én undefined)
+  return teacher.id === sessionOwnerId;              // 4
 }
 
 // ── Sprint 51d — zichtbaarheid van een GEWONE sessie (mode 'class'/'exam') ────

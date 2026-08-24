@@ -50,6 +50,44 @@ set_env() {
   fi
 }
 
+# ── Sprint 51m: interactieve secret-invoer met herhaling (tikfout-check) ──────
+# Vraagt een verborgen waarde twee keer op en controleert dat ze overeenkomen.
+# $1 = label getoond in de prompt, $2 = minimale lengte (0 = geen minimum).
+# Resultaat komt in de globale variabele REPLY_SECRET.
+lees_geheim_met_herhaling() {
+  local label="$1" minlen="${2:-0}"
+  local w1 w2
+  while true; do
+    read -rsp "  ${label}: " w1; echo ""
+    if [[ ${#w1} -lt $minlen ]]; then
+      err "Te kort — minimaal ${minlen} tekens."
+      continue
+    fi
+    if [[ "$w1" == *"!"* ]]; then
+      warn "Uitroepteken (!) gevonden — dit kan problemen geven in bash-commando's."
+      read -rp "  Toch gebruiken? (j/n) [n]: " gebruik_uitroep
+      [[ ! "${gebruik_uitroep:-n}" =~ ^[jJ]$ ]] && continue
+    fi
+    read -rsp "  Herhaal ter controle: " w2; echo ""
+    if [[ "$w1" != "$w2" ]]; then
+      err "Komen niet overeen — probeer opnieuw."
+      continue
+    fi
+    break
+  done
+  REPLY_SECRET="$w1"
+}
+
+# Genereert een sterke willekeurige waarde (voor het cookie-secret), met een
+# terugval als 'openssl' niet beschikbaar is op dit systeem.
+genereer_willekeurige_waarde() {
+  if command -v openssl > /dev/null 2>&1; then
+    openssl rand -base64 32 | tr -d '\n'
+  else
+    head -c 32 /dev/urandom | base64 | tr -d '\n'
+  fi
+}
+
 versie_display() {
   local j m n b
   j=$(get_env APP_VERSION_YEAR); m=$(get_env APP_VERSION_MAJOR)
@@ -185,19 +223,12 @@ setup_eerste_start() {
         echo ""
         echo -e "  Kies een nieuw PostgreSQL wachtwoord."
         echo -e "  ${DIM}Tip: vermijd uitroeptekens (!) in het wachtwoord.${RESET}"
-        local pw1 pw2
-        while true; do
-          read -rsp "  Nieuw wachtwoord (min. 8 tekens): " pw1; echo ""
-          [[ ${#pw1} -lt 8 ]] && { err "Te kort."; continue; }
-          read -rsp "  Bevestig: " pw2; echo ""
-          [[ "$pw1" != "$pw2" ]] && { err "Komen niet overeen."; continue; }
-          break
-        done
+        lees_geheim_met_herhaling "Nieuw wachtwoord (min. 8 tekens)" 8
         docker compose --project-directory "$BASE" stop postgres 2>/dev/null
         info "database-volume wissen via Docker..."
         pgvolume_wissen
         ok "database-volume geleegd"
-        POSTGRES_PW="$pw1"
+        POSTGRES_PW="$REPLY_SECRET"
         set_env "POSTGRES_PASSWORD" "$POSTGRES_PW"
         ok "Nieuw wachtwoord ingesteld in .env"
       else
@@ -212,35 +243,98 @@ setup_eerste_start() {
     echo ""
 
   elif [[ -n "$bestaand_pw" ]]; then
-    # Wachtwoord in .env maar nog geen database-volume — normaal bij eerste keer
-    POSTGRES_PW="$bestaand_pw"
-    ok "Wachtwoord gevonden in .env: (niet getoond)"
+    # Sprint 51m: wachtwoord staat al in .env, maar het database-volume is nog leeg
+    # (typisch net na een 'Volledige reset') — dit is hét moment om het wachtwoord
+    # te wijzigen, want de nieuwe waarde wordt zo dadelijk gewoon de eerste keer
+    # ingesteld door Postgres zelf. Vroeger werd het bestaande wachtwoord hier
+    # stilzwijgend hergebruikt, zonder de kans te geven het te wijzigen.
+    echo ""
+    info "Er staat al een PostgreSQL-wachtwoord in .env (database-volume is leeg)."
+    read -rp "  Nieuw wachtwoord ingeven? (j/n) [n]: " pw_wijzig
+    if [[ "${pw_wijzig:-n}" =~ ^[jJ]$ ]]; then
+      echo ""
+      echo -e "  ${DIM}Minimum 8 tekens. Vermijd uitroeptekens (!) in wachtwoorden.${RESET}"
+      lees_geheim_met_herhaling "Nieuw PostgreSQL-wachtwoord" 8
+      POSTGRES_PW="$REPLY_SECRET"
+      set_env "POSTGRES_PASSWORD" "$POSTGRES_PW"
+      ok "Nieuw wachtwoord ingesteld in .env"
+    else
+      POSTGRES_PW="$bestaand_pw"
+      ok "Bestaand wachtwoord behouden"
+    fi
 
   else
     # Geen wachtwoord — nieuw instellen
     echo -e "  Kies een wachtwoord voor de PostgreSQL database."
     echo -e "  ${DIM}Minimum 8 tekens. Vermijd uitroeptekens (!) in wachtwoorden — dit geeft problemen in bash.${RESET}"
     echo ""
-    local pw1 pw2
-    while true; do
-      read -rsp "  Wachtwoord: " pw1; echo ""
-      [[ ${#pw1} -lt 8 ]] && { err "Te kort — minimaal 8 tekens."; continue; }
-      if [[ "$pw1" == *"!"* ]]; then
-        warn "Uitroepteken (!) gevonden — dit kan problemen geven in bash-commando's."
-        read -rp "  Toch gebruiken? (j/n) [n]: " gebruik_uitroep
-        [[ ! "${gebruik_uitroep:-n}" =~ ^[jJ]$ ]] && continue
-      fi
-      read -rsp "  Bevestig wachtwoord: " pw2; echo ""
-      [[ "$pw1" != "$pw2" ]] && { err "Komen niet overeen."; continue; }
-      break
-    done
-    POSTGRES_PW="$pw1"
+    lees_geheim_met_herhaling "Wachtwoord" 8
+    POSTGRES_PW="$REPLY_SECRET"
     set_env "POSTGRES_PASSWORD" "$POSTGRES_PW"
     ok "PostgreSQL wachtwoord ingesteld"
   fi
   echo 
 
-  # ── Stap 3: Basisinstellingen .env ───────────────────────────────────────
+  # ── Sprint 51m: cookie-secret en Cloudflare-token (opnieuw) instellen ────
+  stap "Stap 2b: Beveiligingsgeheimen (cookie-secret & Cloudflare-token)"
+  echo ""
+
+  # Cookie-secret — ondertekent/beveiligt review-tokens (leerling-nakijklinks).
+  local bestaand_cookie
+  bestaand_cookie=$(get_env POC_BASIC_COOKIE_SECRET)
+  if [[ -n "$bestaand_cookie" ]]; then
+    info "Er staat al een cookie-secret in .env."
+    read -rp "  Nieuw (willekeurig) cookie-secret genereren? (j/n) [n]: " cs_wijzig
+    if [[ "${cs_wijzig:-n}" =~ ^[jJ]$ ]]; then
+      local nieuw_secret
+      nieuw_secret="$(genereer_willekeurige_waarde)"
+      set_env "POC_BASIC_COOKIE_SECRET" "$nieuw_secret"
+      ok "Nieuw cookie-secret gegenereerd en opgeslagen in .env"
+      info "Actieve leerling-nakijklinks worden hierdoor ongeldig — normale login blijft werken."
+    else
+      ok "Bestaand cookie-secret behouden"
+    fi
+  else
+    local nieuw_secret
+    nieuw_secret="$(genereer_willekeurige_waarde)"
+    set_env "POC_BASIC_COOKIE_SECRET" "$nieuw_secret"
+    ok "Cookie-secret gegenereerd en opgeslagen in .env"
+  fi
+  echo ""
+
+  # Cloudflare Tunnel-token — enkel relevant als er een cloudflared-service is.
+  local bestaand_token
+  bestaand_token=$(get_env CLOUDFLARE_TUNNEL_TOKEN)
+  if [[ -n "$bestaand_token" ]]; then
+    info "Er staat al een Cloudflare Tunnel-token in .env."
+    read -rp "  Nieuw token ingeven (bv. na rotatie in het Cloudflare-dashboard)? (j/n) [n]: " ct_wijzig
+    if [[ "${ct_wijzig:-n}" =~ ^[jJ]$ ]]; then
+      read -rsp "  Nieuw Cloudflare Tunnel-token (plak en druk Enter): " nieuw_token; echo ""
+      if [[ -n "$nieuw_token" ]]; then
+        set_env "CLOUDFLARE_TUNNEL_TOKEN" "$nieuw_token"
+        ok "Nieuw Cloudflare Tunnel-token opgeslagen in .env"
+        info "Herstart de cloudflared-container om het nieuwe token actief te maken."
+      else
+        warn "Leeg gelaten — bestaand token behouden."
+      fi
+    else
+      ok "Bestaand token behouden"
+    fi
+  else
+    read -rp "  Cloudflare Tunnel-token instellen? (j/n) [n]: " ct_instellen
+    if [[ "${ct_instellen:-n}" =~ ^[jJ]$ ]]; then
+      read -rsp "  Cloudflare Tunnel-token (plak en druk Enter): " nieuw_token; echo ""
+      if [[ -n "$nieuw_token" ]]; then
+        set_env "CLOUDFLARE_TUNNEL_TOKEN" "$nieuw_token"
+        ok "Cloudflare Tunnel-token opgeslagen in .env"
+      else
+        info "Overgeslagen — kan later via deze stap of handmatig in .env."
+      fi
+    else
+      info "Overgeslagen — kan later via deze stap of handmatig in .env."
+    fi
+  fi
+  echo ""
   stap "Stap 3: Basisinstellingen"
   echo ""
 
@@ -262,19 +356,33 @@ setup_eerste_start() {
     echo ""
     echo -e "  ${BOLD}Eerste leerkrachtsaccount:${RESET}"
     info "Dit is de fallback login. Je kan later accounts aanmaken via admin.html"
-    local lk_user lk_pw
+    local lk_user
     read -rp "  Gebruikersnaam [admin]: " lk_user
     lk_user="${lk_user:-admin}"
-    read -rsp "  Wachtwoord (min. 8 tekens): " lk_pw; echo ""
-    while [[ ${#lk_pw} -lt 8 ]]; do
-      err "Wachtwoord te kort."
-      read -rsp "  Wachtwoord (min. 8 tekens): " lk_pw; echo ""
-    done
+    lees_geheim_met_herhaling "Wachtwoord (min. 8 tekens)" 8
     set_env "POC_BASIC_USER" "$lk_user"
-    set_env "POC_BASIC_PASS" "$lk_pw"
+    set_env "POC_BASIC_PASS" "$REPLY_SECRET"
     ok "Leerkrachtsaccount ingesteld: $lk_user"
   else
     ok "Leerkrachtsaccount: $huidig_user (reeds ingesteld)"
+    # Sprint 51m: hiermee opnieuw ingeven — enkel zinvol vlak vóór het account effectief
+    # in een (nog) lege database gezaaid wordt (bv. net na een 'Volledige reset').
+    # Bestaat het account al écht in de database, dan wijzigt dit .env-wachtwoord dat
+    # bestaande account NIET; dat wijzig je dan via de app zelf (Beheer → wachtwoord).
+    read -rp "  Gebruikersnaam/wachtwoord hier opnieuw ingeven? (j/n) [n]: " lk_wijzig
+    if [[ "${lk_wijzig:-n}" =~ ^[jJ]$ ]]; then
+      warn "Dit wijzigt enkel .env — heeft alleen effect als dit account nog gezaaid moet"
+      warn "worden in een (nog) lege database. Bestaat het account al, wijzig het dan via"
+      warn "de app zelf: Beheer → Leerkrachten → wachtwoord wijzigen."
+      echo ""
+      local lk_user
+      read -rp "  Gebruikersnaam [${huidig_user}]: " lk_user
+      lk_user="${lk_user:-$huidig_user}"
+      lees_geheim_met_herhaling "Wachtwoord (min. 8 tekens)" 8
+      set_env "POC_BASIC_USER" "$lk_user"
+      set_env "POC_BASIC_PASS" "$REPLY_SECRET"
+      ok "Leerkrachtsaccount bijgewerkt in .env: $lk_user"
+    fi
   fi
 
   # Versie defaults

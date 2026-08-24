@@ -22,6 +22,7 @@ async function apiFetch(url, options = {}) {
 
 let _questions = [];
 let _choices   = [];   // huidige antwoordopties
+let _parts     = [];   // Sprint 51j: onderdelen van een samengestelde ('composite') vraag
 let _previewOpen = false;
 
 // ── Tab navigatie ──────────────────────────────────────────────────────────────
@@ -96,7 +97,7 @@ function renderQuestions(qs) {
     el.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">Geen vragen gevonden.</div>';
     return;
   }
-  const typeLabel = { code:'🐍 Code', open:'✏️ Open', single:'◉ Single', multiple:'☑ Keuze' };
+  const typeLabel = { code:'🐍 Code', open:'✏️ Open', single:'◉ Single', multiple:'☑ Keuze', composite:'🧩 Samengesteld' };
   el.innerHTML = qs.map((q, idx) => {
     // 24b: render vraagstelling als Markdown zodat code-snippets als blok verschijnen
     const renderedText = window.marked
@@ -187,6 +188,9 @@ function editQuestion(id) {
     ];
   }
   renderChoices();
+  // Sprint 51j: onderdelen laden bij een samengestelde vraag.
+  try { _parts = JSON.parse(q.answer_parts || '[]'); } catch { _parts = []; }
+  if (q.question_type === 'composite') renderParts();
   // Reset preview als die open stond
   if (_previewOpen) toggleMarkdownPreview();
   switchTab('add');
@@ -205,6 +209,10 @@ function cancelEdit() {
   if (codeRadio) { codeRadio.checked = true; onTypeChange('code'); }
   _choices = [];
   document.getElementById('choices-panel').style.display = 'none';
+  _parts = [];
+  document.getElementById('parts-panel').style.display = 'none';
+  document.getElementById('q-points').readOnly = false;
+  document.getElementById('q-points-auto-hint').style.display = 'none';
   if (_previewOpen) toggleMarkdownPreview();
   switchTab('browse');
 }
@@ -391,6 +399,22 @@ function onTypeChange(type) {
     // 24d: altijd opnieuw renderen bij type-wissel zodat radio↔checkbox correct wisselt
     renderChoices();
   }
+  // Sprint 51j: samengestelde vraag — onderdelenpaneel + punten worden automatisch (som).
+  const partsPanel = document.getElementById('parts-panel');
+  const pointsInput = document.getElementById('q-points');
+  const pointsHint = document.getElementById('q-points-auto-hint');
+  partsPanel.style.display = type === 'composite' ? 'block' : 'none';
+  pointsInput.readOnly = type === 'composite';
+  pointsHint.style.display = type === 'composite' ? '' : 'none';
+  if (type === 'composite') {
+    if (_parts.length === 0) {
+      _parts = [
+        { id: crypto.randomUUID(), type:'open', label:'', points:3, modelAnswer:'' },
+        { id: crypto.randomUUID(), type:'open', label:'', points:3, modelAnswer:'' },
+      ];
+    }
+    renderParts();
+  }
 }
 
 function addChoice() {
@@ -462,6 +486,80 @@ function renderChoices() {
   }).join('');
 }
 
+// ── Sprint 51j: onderdelen van een samengestelde ('composite') vraag ──────────
+// Regels: max 6 onderdelen; max 1 code-onderdeel; een code-onderdeel heeft nooit een label
+// (het is altijd de gewone, uitvoerbare code-editor bij de leerling — geen voorafgaand label).
+function addPart() {
+  if (_parts.length >= 6) { pyAlert('Maximaal 6 onderdelen per vraag.', 'warn'); return; }
+  _parts.push({ id: crypto.randomUUID(), type: 'open', label: '', points: 3, modelAnswer: '' });
+  renderParts();
+  updatePartsPointsTotal();
+}
+
+function removePart(id) {
+  _parts = _parts.filter(p => p.id !== id);
+  renderParts();
+  updatePartsPointsTotal();
+}
+
+function setPartField(id, field, value) {
+  const p = _parts.find(x => x.id === id);
+  if (!p) return;
+  if (field === 'points') { p.points = Math.max(0, parseInt(value, 10) || 0); updatePartsPointsTotal(); return; }
+  p[field] = value;
+}
+
+function setPartType(id, type) {
+  const p = _parts.find(x => x.id === id);
+  if (!p) return;
+  if (type === 'code' && _parts.some(x => x.id !== id && x.type === 'code')) {
+    pyAlert('Er kan maar 1 code-onderdeel per vraag zijn.', 'warn');
+    return;
+  }
+  p.type = type;
+  if (type === 'code') p.label = '';   // een code-onderdeel heeft nooit een label
+  renderParts();
+}
+
+function updatePartsPointsTotal() {
+  const totaal = _parts.reduce((s, p) => s + (p.points || 0), 0);
+  const input = document.getElementById('q-points');
+  if (input) input.value = totaal || 1;
+}
+
+function renderParts() {
+  const heeftCode = _parts.some(p => p.type === 'code');
+  const list = document.getElementById('parts-list');
+  list.innerHTML = _parts.map((p, i) => `
+    <div class="choice-row" style="align-items:flex-start;">
+      <div class="choice-body" style="width:100%;">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap;">
+          <span style="font-size:0.8rem;color:var(--muted);min-width:70px;">Onderdeel ${i + 1}</span>
+          <select onchange="setPartType('${p.id}', this.value)" style="width:auto;padding:4px 8px;">
+            <option value="open" ${p.type === 'open' ? 'selected' : ''}>✏️ Open</option>
+            <option value="code" ${p.type === 'code' ? 'selected' : ''} ${(heeftCode && p.type !== 'code') ? 'disabled' : ''}>🐍 Code (uitvoerbaar)</option>
+          </select>
+          <label style="font-size:0.8rem;color:var(--muted);margin-left:auto;">Punten:
+            <input type="number" min="0" max="100" value="${p.points}" style="width:64px;padding:4px 6px;"
+              oninput="setPartField('${p.id}', 'points', this.value)"/>
+          </label>
+        </div>
+        ${p.type === 'open'
+          ? `<input type="text" value="${esc(p.label)}" placeholder="Label, bv. Waarde van x"
+               oninput="setPartField('${p.id}', 'label', this.value)" onkeydown="event.stopPropagation()"/>`
+          : `<p style="font-size:0.78rem;color:var(--muted);margin:2px 0;">Geen label — dit wordt de gewone, uitvoerbare code-editor bij de leerling.</p>`
+        }
+        <input type="text" value="${esc(p.modelAnswer)}" placeholder="Modelantwoord voor dit onderdeel (optioneel)"
+          style="margin-top:6px;font-family:${p.type === 'code' ? 'monospace' : 'inherit'};"
+          oninput="setPartField('${p.id}', 'modelAnswer', this.value)" onkeydown="event.stopPropagation()"/>
+      </div>
+      <button type="button" class="choice-remove" onclick="removePart('${p.id}')" title="Onderdeel verwijderen">✕</button>
+    </div>`).join('');
+  const addBtn = document.getElementById('add-part-btn');
+  if (addBtn) addBtn.disabled = _parts.length >= 6;
+}
+
+
 // ── Opslaan ────────────────────────────────────────────────────────────────────
 async function saveQuestion() {
   const id   = document.getElementById('edit-id').value;
@@ -474,6 +572,12 @@ async function saveQuestion() {
     if (filled.length < 2) return void await pyAlert('Vul minstens 2 opties in.', "warn");
     if (!_choices.some(ch => ch.correct)) return void await pyAlert('Selecteer minstens 1 juist antwoord.', "warn");
   }
+  if (type === 'composite') {
+    if (_parts.length < 1) return void await pyAlert('Voeg minstens 1 antwoordonderdeel toe.', "warn");
+    const openZonderLabel = _parts.find(p => p.type === 'open' && !p.label.trim());
+    if (openZonderLabel) return void await pyAlert('Elk open-onderdeel heeft een label nodig.', "warn");
+    if (_parts.some(p => p.points <= 0)) return void await pyAlert('Elk onderdeel heeft minstens 1 punt nodig.', "warn");
+  }
 
   const body = {
     text,
@@ -484,6 +588,7 @@ async function saveQuestion() {
     maxPoints:    parseInt(document.getElementById('q-points').value) || 4,
     questionType: type,
     choices:      ['single','multiple'].includes(type) ? _choices : [],
+    answerParts:  type === 'composite' ? _parts : [],
   };
 
   try {

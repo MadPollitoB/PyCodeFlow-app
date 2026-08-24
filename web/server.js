@@ -48,7 +48,10 @@ dbModule.init().then(async () => {
             await dbModule.query(
               `UPDATE teachers SET role = 'superadmin' WHERE username = $1 AND role = 'admin'`,
               [BASIC_AUTH_USER]);
-            log.info(`[bootstrap] ${BASIC_AUTH_USER} gepromoveerd naar superadmin.`);
+            // Sprint 51h: een super-admin hangt nooit aan een school → eventuele links weg.
+            await dbModule.query(
+              `DELETE FROM teacher_schools WHERE teacher_id = $1`, [bu.id]).catch(() => {});
+            log.info(`[bootstrap] ${BASIC_AUTH_USER} gepromoveerd naar superadmin (en losgekoppeld van scholen).`);
           }
         }
       } catch (e) { log.warn('[bootstrap] promotie naar superadmin mislukt:', e.message); }
@@ -109,11 +112,27 @@ function validateCsrf(req) {
   const origin  = req.headers['origin']  || '';
   const referer = req.headers['referer'] || '';
   const headerToken = req.headers['x-csrf-token'] || '';
-
-  // Sta toe als Origin of Referer van dezelfde host is
   const host = req.headers['host'] || '';
-  if (origin && !origin.includes(host)) return false;
-  if (referer && !referer.includes(host) && origin === '') return false;
+
+  // Sprint 51k (security-fix): dit gebruikte '.includes(host)' — een SUBSTRING-check die
+  // te omzeilen was met een aanvallers-domein dat de host-string toevallig bevat (bv.
+  // "https://app.pycodeflow.org.evil.com".includes("app.pycodeflow.org") === true). Nu een
+  // EXACTE vergelijking van de host-component (via URL-parsing, inclusief poort).
+  function hostMatcht(headerWaarde) {
+    if (!headerWaarde) return null;   // header ontbreekt — geen uitspraak
+    try { return new URL(headerWaarde).host === host; }
+    catch { return false; }           // onparseerbare/malformed header → nooit vertrouwen
+  }
+
+  const originOk  = hostMatcht(origin);
+  const refererOk = hostMatcht(referer);
+
+  // Sprint 51k (security-fix): ontbraken beide headers, dan werd de check vroeger stilzwijgend
+  // overgeslagen (true). Browsers sturen bij een muterende cross-site-gevoelige request
+  // vrijwel altijd minstens Origin of Referer mee — ontbreken ze allebei, dan weigeren we nu.
+  if (origin === '' && referer === '') return false;
+  if (origin  && originOk  === false) return false;
+  if (referer && refererOk === false) return false;
 
   // Als X-CSRF-Token aanwezig is, valideer die
   if (headerToken && headerToken !== CSRF_TOKEN) return false;
@@ -320,8 +339,27 @@ function sleep(ms) {
 const PASSWORD_HASH = BASIC_AUTH_PASS_HASH || (BASIC_AUTH_LEGACY_PASS ? createPasswordHash(BASIC_AUTH_LEGACY_PASS) : "");
 const passwordConfigUsesLegacyPlaintext = !BASIC_AUTH_PASS_HASH && !!BASIC_AUTH_LEGACY_PASS;
 
+// Sprint 51k (security-fix): gecentraliseerde IP-bepaling — was voorheen op 3 plekken los
+// geïmplementeerd (elk met hun eigen 'x-forwarded-for'-parsing). Prioriteit:
+//   1) CF-Connecting-IP — door Cloudflare's edge zelf gezet op basis van de echte TCP-
+//      verbinding met de eindgebruiker; verkeer dat niet via Cloudflare binnenkomt kan deze
+//      header niet zelf origineel injecteren (Cloudflare overschrijft 'm op de edge).
+//   2) req.ip — met 'trust proxy' hierboven correct ingesteld, is dit het adres dat Express
+//      als de dichtstbijzijnde vertrouwde proxy-hop beschouwt.
+//   3) req.socket.remoteAddress — de daadwerkelijke TCP-peer, als laatste terugval.
+// Draait de app NIET achter Cloudflare (bv. lokaal), dan is (2)/(3) gewoon het echte adres.
 function getClientIp(req) {
-  return req.ip || req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown";
+  const cf = req.headers['cf-connecting-ip'];
+  if (cf && typeof cf === 'string') return cf.trim();
+  return req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
+// Sprint 51k: hetzelfde IP-bepalingspatroon, maar voor een socket.io-handshake (geen Express
+// 'req', dus geen 'trust proxy'-ondersteuning) — ook hier CF-Connecting-IP prioriteren.
+function getSocketIp(socket) {
+  const cf = socket.handshake.headers['cf-connecting-ip'];
+  if (cf && typeof cf === 'string') return cf.trim();
+  return socket.handshake.address || 'unknown';
 }
 
 const authFailures = new Map();
@@ -471,6 +509,13 @@ if (passwordConfigUsesLegacyPlaintext) {
 }
 
 const app = express();
+// Sprint 51k (security-fix): zonder 'trust proxy' behandelt Express req.ip als het directe
+// TCP-peer-adres — achter een reverse proxy/tunnel (bv. cloudflared) is dat het adres van de
+// proxy zelf, niet de echte cliënt, én blijft de client-controleerbare 'X-Forwarded-For'-header
+// ongevalideerd bruikbaar om rate-limiting/audit-IP's te spoofen. TRUST_PROXY_HOPS (env,
+// standaard 1 = "achter precies één reverse proxy") vertelt Express hoeveel hops vanaf de
+// rand te vertrouwen zijn. Pas dit aan als de opstelling meer/minder proxy-lagen heeft.
+app.set('trust proxy', Math.max(0, parseInt(process.env.TRUST_PROXY_HOPS, 10) || 1));
 const server = http.createServer(app);
 const io = new Server(server, {
   // Fix SEC-4: maximale payload 64KB — voldoende voor schoolcode
@@ -651,6 +696,23 @@ async function requireSessionAccess(req, res, next) {
   if (!magSessieBeheren(req.teacher, eigenaar.teacherId)) {
     log.warn(`[auth] ${req.teacher?.username || '?'} probeerde sessie ${code} te beheren zonder eigenaar te zijn`);
     return res.status(403).json({ error: 'Je hebt geen toegang tot deze sessie. Ze is van een andere leerkracht.' });
+  }
+  // Sprint 51k (security-fix): magSessieBeheren geeft ELKE 'admin'-rol toegang, ongeacht
+  // school — dat liet een admin van school B toetsen/sessies van school A beheren (stoppen,
+  // bewerken, verwijderen, scores wijzigen…). Een gewone admin is schoolgebonden (enkel de
+  // super-admin is platformbreed); die verfijning zit hier, ná de bestaande magSessieBeheren-
+  // check, zodat elk endpoint dat requireSessionAccess gebruikt in één keer mee gefixed is.
+  if (req.teacher?.id
+      && req.teacher.role === 'admin'
+      && eigenaar.teacherId
+      && eigenaar.teacherId !== req.teacher.id) {
+    let gedeeld = false;
+    try { gedeeld = await dbModule.delenSchool(req.teacher.id, eigenaar.teacherId); }
+    catch (e) { log.error('[auth] school-scoping check mislukt:', e.message); }
+    if (!gedeeld) {
+      log.warn(`[auth] ${req.teacher.username} (admin, andere school) probeerde sessie ${code} te beheren`);
+      return res.status(403).json({ error: 'Je hebt geen toegang tot deze sessie. Ze is van een andere school.' });
+    }
   }
   return next();
 }
@@ -1816,18 +1878,35 @@ app.post('/api/admin/schools/:id/domains/test', requireTeacherAuth, requireBehee
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/admin/teachers/:id/schools', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.post('/api/admin/teachers/:id/schools', requireTeacherAuth, requireBeheer, requireCsrf, async (req, res) => {
   const { schoolId } = req.body || {};
   if (!schoolId) return res.status(400).json({ error: 'schoolId vereist' });
   try {
+    // Sprint 51k (security-fix): dit endpoint had GEEN autorisatiecheck — elke ingelogde
+    // leerkracht kon zichzelf (of eender wie) aan een willekeurige school koppelen. Nu:
+    // enkel beheerders (requireBeheer), en een school-admin mag enkel binnen zijn EIGEN
+    // school(en) koppelen (magSchoolBeheren) — enkel de super-admin mag overal koppelen.
+    if (!(await magSchoolBeheren(req, schoolId))) {
+      return res.status(403).json({ error: 'Dit is niet jouw school.' });
+    }
+    // Sprint 51h: een super-admin is beheerder van het VOLLEDIGE platform en hangt daarom
+    // NOOIT aan een school. Koppelen aan een school wordt geweigerd.
+    const doel = (await dbModule.query(`SELECT role FROM teachers WHERE id = $1`, [req.params.id])).rows[0];
+    if (doel && doel.role === 'superadmin') {
+      return res.status(403).json({ error: 'Een super-admin beheert het volledige platform en kan niet aan een school gekoppeld worden.' });
+    }
     await dbModule.linkTeacherSchool(req.params.id, schoolId);
     dbModule.auditLog(getActorFromReq(req), 'teacher_school_linked', req.params.id, { schoolId }, req.ip).catch(() => {});
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.delete('/api/admin/teachers/:id/schools/:schoolId', requireTeacherAuth, requireCsrf, async (req, res) => {
+app.delete('/api/admin/teachers/:id/schools/:schoolId', requireTeacherAuth, requireBeheer, requireCsrf, async (req, res) => {
   try {
+    // Sprint 51k (security-fix): zelfde autorisatiecheck als hierboven — zie die commentaar.
+    if (!(await magSchoolBeheren(req, req.params.schoolId))) {
+      return res.status(403).json({ error: 'Dit is niet jouw school.' });
+    }
     await dbModule.unlinkTeacherSchool(req.params.id, req.params.schoolId);
     dbModule.auditLog(getActorFromReq(req), 'teacher_school_unlinked', req.params.id,
                       { schoolId: req.params.schoolId }, req.ip).catch(() => {});
@@ -1912,6 +1991,16 @@ app.put('/api/admin/teachers/:username/role', requireTeacherAuth, requireBeheer,
   const deelt = req.teacher?.id ? await dbModule.delenSchool(req.teacher.id, doel.id) : true;
   if (!magRolToekennen(req.teacher, doel.role, role, deelt)) {
     return res.status(403).json({ error: 'Je mag deze rolwijziging niet doen.' });
+  }
+  // Sprint 51h: een super-admin hangt NOOIT aan een school (platformbeheerder). Iemand die
+  // nog aan een school gekoppeld is, kan dus niet zomaar super-admin worden — ontkoppel eerst.
+  if (role === 'superadmin') {
+    const scholen = await dbModule.getSchoolsForTeacher(doel.id, true);
+    if (scholen.length > 0) {
+      return res.status(400).json({
+        error: 'Een super-admin mag niet aan een school hangen. Ontkoppel deze persoon eerst van alle scholen voordat je hem super-admin maakt.'
+      });
+    }
   }
   const ok = await dbModule.updateTeacherRole(req.params.username, role);
   res.json({ ok });
@@ -2523,7 +2612,11 @@ setInterval(async () => {
         if (student.socketId) io.to(student.socketId).emit('quiz_force_submit', { reason: 'deadline' });
         await dbModule.submitQuizAnswers(code, student.id, true, 'deadline').catch(() => {});
       }
-      log.info(`[quiz] Sessie ${code}: deadline bereikt`);
+      // Sprint 51o (bugfix): zelfde aanvulling als bij handmatig stoppen — leerlingen die
+      // nooit gestart zijn, moeten ook bij het automatisch verstrijken van het venster
+      // zichtbaar worden in de verbeterzone (als lege, gemarkeerde "geen deelname").
+      const nietDeelgenomen = await dbModule.fillMissingQuizParticipants(code).catch(() => 0);
+      log.info(`[quiz] Sessie ${code}: deadline bereikt${nietDeelgenomen ? ` — ${nietDeelgenomen} niet-deelgenomen leerling(en) aangevuld` : ''}`);
     } catch (e) { /* stille fout — zie debug */ }
   }
 }, 60 * 1000);
@@ -2551,7 +2644,13 @@ app.get('/api/quiz/:code/startinfo', async (req, res) => {
 // ── Sprint 69: leerkracht stopt de toets/taak ───────────────────────────────
 // Twee dingen tegelijk: iedereen die bezig is wordt ingediend (ook wie offline is), en
 // de toets gaat DICHT zodat een laatkomer niet alsnog kan starten.
-app.post('/api/quiz/:code/stop', requireTeacherAuth, requireCsrf, async (req, res) => {
+// Sprint 51k (security-fix): dit endpoint deed zijn EIGEN eigendomscheck op de in-memory
+// 'session' — maar enkel "if (session && !magSessieBeheren(...))". Bestond de sessie niet
+// (meer) in het geheugen (bv. na een herstart, of nog nooit live geopend), dan sloeg de HELE
+// check over en kon ELKE ingelogde leerkracht andermans toets stoppen. requireSessionAccess
+// haalt de eigenaar altijd rechtstreeks uit de databank en faalt dicht — net als alle andere
+// mutatie-endpoints op een toets/taak.
+app.post('/api/quiz/:code/stop', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   try {
     const code = String(req.params.code || '').toUpperCase();
     const session = sessions.get(code);
@@ -2583,9 +2682,15 @@ app.post('/api/quiz/:code/stop', requireTeacherAuth, requireCsrf, async (req, re
       aantal++;
     }
 
-    dbModule.auditLog(getActorFromReq(req), 'quiz_stopped', code, { ingediend: aantal }, req.ip).catch(() => {});
-    log.info(`[quiz] ${code} gestopt door leerkracht — ${aantal} deelname(s) ingediend`);
-    res.json({ ok: true, ingediend: aantal, gestoptOp });
+    // Sprint 51o (bugfix): leerlingen die NOOIT gestart zijn voor deze toets (geen enkele
+    // quiz_answers-rij) bleven tot nu toe onzichtbaar in de verbeterzone. Vul hen aan als
+    // een duidelijk gemarkeerde "geen deelname"-inlevering, zodat de leerkracht ze net als
+    // de anderen ziet — leeg, maar zichtbaar.
+    const nietDeelgenomen = await dbModule.fillMissingQuizParticipants(code).catch(() => 0);
+
+    dbModule.auditLog(getActorFromReq(req), 'quiz_stopped', code, { ingediend: aantal, nietDeelgenomen }, req.ip).catch(() => {});
+    log.info(`[quiz] ${code} gestopt door leerkracht — ${aantal} deelname(s) ingediend, ${nietDeelgenomen} niet-deelgenomen leerling(en) aangevuld`);
+    res.json({ ok: true, ingediend: aantal, nietDeelgenomen, gestoptOp });
   } catch (e) {
     log.error('[quiz stop] fout:', e.message);
     res.status(500).json({ error: 'Stoppen mislukte.' });
@@ -2675,10 +2780,11 @@ app.get('/api/quiz/bank/subjects', requireTeacherAuth, async (req, res) => {
 });
 
 app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => {
-  const { text, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer } = req.body || {};
+  const { text, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer, answerParts } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: 'Vraagstelling is verplicht.' });
   if (text.length > 5000) return res.status(400).json({ error: 'Vraagstelling te lang (max 5000 tekens).' });
-  const validTypes = ['code', 'open', 'multiple', 'single'];
+  // Sprint 51j: 'composite' = meerdere antwoordonderdelen (enkel open/code combineerbaar).
+  const validTypes = ['code', 'open', 'multiple', 'single', 'composite'];
   const qType = validTypes.includes(questionType) ? questionType : 'code';
   // Valideer choices bij meerkeuze/single
   if (['multiple', 'single'].includes(qType)) {
@@ -2689,6 +2795,9 @@ app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => 
     const hasCorrect = choices.some(ch => ch.correct === true);
     if (!hasCorrect) return res.status(400).json({ error: 'Minimaal 1 juist antwoord verplicht.' });
   }
+  if (qType === 'composite' && (!Array.isArray(answerParts) || answerParts.length < 1)) {
+    return res.status(400).json({ error: 'Een samengestelde vraag heeft minstens 1 antwoordonderdeel nodig.' });
+  }
   try {
     const teacher = await dbModule.getTeacherByUsername(
       parseBasicAuthHeader(req.headers.authorization)?.username || ''
@@ -2698,7 +2807,7 @@ app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => 
       difficulty: ['makkelijk','gemiddeld','moeilijk'].includes(difficulty) ? difficulty : 'gemiddeld',
       maxPoints: Math.max(1, Math.min(100, parseInt(maxPoints) || 4)),
       questionType: qType,
-      choicesJson: qType === 'code' || qType === 'open' ? '[]' : JSON.stringify(
+      choicesJson: qType === 'code' || qType === 'open' || qType === 'composite' ? '[]' : JSON.stringify(
         (choices || []).map(ch => ({
           id: crypto.randomUUID(),
           text: String(ch.text || '').slice(0, 500),
@@ -2709,13 +2818,14 @@ app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => 
       modelAnswer: String(modelAnswer || '').slice(0, 10000),
       createdBy: teacher?.id || null,
       schoolId: schrijfSchoolVoor(req.teacher),   // Sprint 48c2
+      answerParts: qType === 'composite' ? JSON.stringify(answerParts) : '[]',
     });
     res.json({ ok: true, id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) => {
-  const { text, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer } = req.body || {};
+  const { text, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer, answerParts } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: 'Vraagstelling is verplicht.' });
   // Sprint 51c: enkel de eigenaar (of admin/legacy) mag een vraag bewerken.
   const bestaande = await dbModule.getQuizQuestionById(req.params.id);
@@ -2723,14 +2833,17 @@ app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) 
   if (!magSessieBeheren(req.teacher, bestaande.created_by)) {
     return res.status(403).json({ error: 'Je kan enkel je eigen vragen bewerken.' });
   }
-  const validTypes = ['code', 'open', 'multiple', 'single'];
+  const validTypes = ['code', 'open', 'multiple', 'single', 'composite'];
   const qType = validTypes.includes(questionType) ? questionType : 'code';
+  if (qType === 'composite' && (!Array.isArray(answerParts) || answerParts.length < 1)) {
+    return res.status(400).json({ error: 'Een samengestelde vraag heeft minstens 1 antwoordonderdeel nodig.' });
+  }
   const ok = await dbModule.updateQuizQuestion(req.params.id, {
     text, subject: (subject || '').slice(0, 64),
     difficulty: ['makkelijk','gemiddeld','moeilijk'].includes(difficulty) ? difficulty : 'gemiddeld',
     maxPoints: Math.max(1, Math.min(100, parseInt(maxPoints) || 4)),
     questionType: qType,
-    choicesJson: qType === 'code' || qType === 'open' ? '[]' : JSON.stringify(
+    choicesJson: qType === 'code' || qType === 'open' || qType === 'composite' ? '[]' : JSON.stringify(
       (choices || []).map(ch => ({
         id: ch.id || crypto.randomUUID(),
         text: String(ch.text || '').slice(0, 500),
@@ -2739,6 +2852,7 @@ app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) 
     ),
     tags: (tags || '').slice(0, 200),
     modelAnswer: String(modelAnswer || '').slice(0, 10000),
+    answerParts: qType === 'composite' ? JSON.stringify(answerParts) : '[]',
   });
   res.json({ ok });
 });
@@ -2854,6 +2968,8 @@ app.post('/api/quiz/bank/import-csv', requireTeacherAuth, requireCsrf, async (re
     return {
       onderwerp: p[0], niveau: p[1], type: p[2], punten: p[3], vraag: p[4],
       keuzes: p[5], juiste: p[6], modelantwoord: p[7], tags: p[8], delen: p[9],
+      // Sprint 51j: onderdelen-kolom voor type 'composite' — labels|labels + [type;type] + [score;score].
+      onderdelen: p[10],
       // Compat met de oude 4-koloms-vorm (onderwerp, niveau, punten, vraag):
       moeilijkheid: p[1], max_punten: p[3],
     };
@@ -2937,6 +3053,7 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
           questionType: bank?.question_type || 'code',
           choicesJson: bank?.choices_json || '[]',
           modelAnswer: bank?.model_answer || '',
+          answerParts: bank?.answer_parts || '[]',
         };
       }),
       randomize: randomize !== false,
@@ -3073,6 +3190,7 @@ app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf
           questionType: bank?.question_type || q.question_type || 'code',
           choicesJson: bank?.choices_json || q.choices_json || '[]',
           modelAnswer: bank?.model_answer || '',
+          answerParts: bank?.answer_parts || q.answer_parts || '[]',
         };
       }),
       randomize: randomize !== false,
@@ -3140,6 +3258,8 @@ app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireSessionAccess, 
       choicesJson: q.choices_json || '[]',
       // 37b: modelantwoord ook meekopiëren bij toets-duplicatie
       modelAnswer: q.model_answer || '',
+      // Sprint 51j: antwoordonderdelen (composite) ook meekopiëren
+      answerParts: q.answer_parts || '[]',
     })),
     randomize: meta.randomize,
     noTimer: meta.no_timer || false,
@@ -3414,7 +3534,7 @@ app.post('/api/library/templates/:id/materialize', requireTeacherAuth, requireCs
       questions: vragen.map((q, i) => ({
         bankId: q.id, orderIndex: i, text: q.text, subject: q.subject, points: q.max_points,
         questionType: q.question_type || 'code', choicesJson: q.choices_json || '[]',
-        modelAnswer: q.model_answer || '',
+        modelAnswer: q.model_answer || '', answerParts: q.answer_parts || '[]',
       })),
       randomize: tpl.randomize,
       noTimer: tpl.no_timer || false,
@@ -3559,7 +3679,14 @@ app.get('/api/quiz/:code/export/csv', requireTeacherAuth, requireSessionAccess, 
 
     // CSV opbouwen. Puntkomma als scheidingsteken (NL Excel-standaard).
     const esc = (v) => {
-      const s = String(v ?? '');
+      let s = String(v ?? '');
+      // Sprint 51k (security-fix): CSV/Excel-formule-injectie. Een cel die begint met
+      // =, +, -, @, tab of CR wordt door Excel/Google Sheets als FORMULE geïnterpreteerd
+      // zodra het bestand geopend wordt. Leerlingnamen komen rechtstreeks in deze export
+      // terecht en een leerling kiest zelf zijn naam — dus een naam als '=HYPERLINK(...)'
+      // zou bij het openen in Excel uitgevoerd worden. Fix: zet zo'n cel vast als TEKST
+      // door een onschuldig aanhalingsteken vooraan te zetten (OWASP-aanbevolen aanpak).
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
       return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     };
     const maxTotal = questions.reduce((sum, q) => sum + (q.points || 0), 0);
@@ -3618,6 +3745,28 @@ app.put('/api/quiz/:code/answers/:answerId/score', requireTeacherAuth, requireSe
   res.json({ ok: true });
 });
 
+// Sprint 51j: score van één onderdeel van een composite-vraag. Het totaal (kolom 'score')
+// wordt server-side herberekend als de som van alle onderdeel-scores.
+app.put('/api/quiz/:code/answers/:answerId/part-score', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
+  const { partId, score, teacherComment } = req.body || {};
+  if (!partId) return res.status(400).json({ error: 'partId is verplicht.' });
+  const actor = getActorFromReq(req);
+  const oldAnswers = await dbModule.getQuizAnswers(req.params.code.toUpperCase()).catch(() => []);
+  const oldAns = oldAnswers.find(a => a.id === req.params.answerId);
+  const ok = await dbModule.scoreQuizAnswerPart(
+    req.params.answerId, partId,
+    score !== undefined && score !== null && score !== '' ? parseInt(score, 10) : null,
+    teacherComment !== undefined ? String(teacherComment || '').slice(0, 1000) : null
+  );
+  if (!ok) return res.status(404).json({ error: 'Antwoord niet gevonden.' });
+  dbModule.auditLog(actor, 'part_score_changed', req.params.answerId, {
+    sessionCode: req.params.code, partId,
+    newScore: score !== undefined && score !== null && score !== '' ? parseInt(score, 10) : null,
+    studentName: oldAns?.student_name,
+  }, req.ip).catch(() => {});
+  res.json({ ok: true });
+});
+
 app.put('/api/quiz/:code/general-comment/:studentId', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   const { comment } = req.body || {};
   await dbModule.saveQuizGeneralComment(
@@ -3664,7 +3813,8 @@ app.post('/api/quiz/:code/review-mode', requireTeacherAuth, requireSessionAccess
 // Publiek endpoint — daarom streng: rate-limit, enkel bij openstaande nakijk-modus,
 // en er wordt nooit prijsgegeven of een naam wel/niet bestaat.
 app.post('/api/quiz/:code/review-login', async (req, res) => {
-  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+  // Sprint 51k: gecentraliseerde IP-bepaling i.p.v. losse x-forwarded-for-parsing (zie getClientIp).
+  const ip = getClientIp(req);
   if (!checkJoinRateLimit(ip)) {
     return res.status(429).json({ error: 'Te veel pogingen. Probeer over een minuut opnieuw.' });
   }
@@ -3902,6 +4052,38 @@ async function generateQuizPDF(sessionCode, type, studentId = null, scored = fal
     }
   }
 
+  // Sprint 51j: samengestelde vraag afdrukken in het antwoordformulier — per onderdeel het
+  // label + antwoord, en het (max 1) code-onderdeel als codeBlock. partScores/scored geven
+  // eventueel de score per onderdeel weer.
+  function parsePartsForPdf(raw) {
+    try { const p = JSON.parse(raw || '[]'); return Array.isArray(p) ? p : []; } catch { return []; }
+  }
+  function compositeAnswerBlock(q, ans) {
+    const parts = parsePartsForPdf(q.answer_parts);
+    let partAnswers = {}, partScores = {};
+    try { partAnswers = JSON.parse(ans?.part_answers || '{}'); } catch { partAnswers = {}; }
+    try { partScores = JSON.parse(ans?.part_scores || '{}'); } catch { partScores = {}; }
+    parts.forEach((p) => {
+      if (doc.y > 700) doc.addPage();
+      const label = p.type === 'code' ? '🐍 Code' : (p.label || 'Antwoord');
+      const scoreTxt = scored && partScores[p.id] !== undefined ? `  (${partScores[p.id]}/${p.points} pt)` : `  ( /${p.points} pt)`;
+      doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151').text(label + scoreTxt);
+      doc.fillColor('#000').moveDown(0.15);
+      if (p.type === 'code') {
+        codeBlock(partAnswers[p.id] || '');
+      } else {
+        const tekst = partAnswers[p.id]?.trim();
+        if (!tekst) {
+          doc.fontSize(9).font('Helvetica-Oblique').fillColor('#999').text('(geen antwoord)');
+          doc.fillColor('#000');
+        } else {
+          doc.fontSize(10).font('Helvetica').text(tekst, { lineGap: 2 });
+        }
+        doc.moveDown(0.4);
+      }
+    });
+  }
+
   // ── Type 1: Vragenblad ──────────────────────────────────────────────────────
   if (type === 'questions') {
     const timerMins = Math.round((meta?.timer_seconds || 2700) / 60);
@@ -3965,7 +4147,11 @@ async function generateQuizPDF(sessionCode, type, studentId = null, scored = fal
         doc.fillColor('#000').moveDown(0.2);
         doc.fontSize(9).font('Helvetica').fillColor('#666').text(q.text_snapshot?.slice(0,100) || '', { lineGap: 2 });
         doc.fillColor('#000').moveDown(0.3);
-        codeBlock(ans?.code || '');
+        if (q.question_type === 'composite') {
+          compositeAnswerBlock(q, ans);
+        } else {
+          codeBlock(ans?.code || '');
+        }
         if (scored && ans?.teacher_comment) {
           doc.fontSize(9).font('Helvetica-Oblique').fillColor('#2563eb')
              .text('Opmerking: ' + ans.teacher_comment, { lineGap: 2 });
@@ -4194,7 +4380,11 @@ app.get('/api/quiz/:code/pdf/zip', requireTeacherAuth, requireSessionAccess, asy
            .text(q.text_snapshot?.slice(0, 80) || '', { lineGap: 2 });
         doc.fillColor('#000').moveDown(0.3);
 
-        if (!ans || !ans.code) {
+        if (qType === 'composite') {
+          // Sprint 51j: composite heeft geen 'code'-kolom-antwoord — de onderdelen zitten in
+          // part_answers. Dezelfde compositeAnswerBlock-helper als de hoofd-PDF hergebruiken.
+          compositeAnswerBlock(q, ans);
+        } else if (!ans || !ans.code) {
           doc.fontSize(9).font('Helvetica-Oblique').fillColor('#999').text('(geen antwoord)');
         } else if (qType === 'open') {
           doc.fontSize(9).font('Helvetica').fillColor('#000').text(ans.code, { lineGap: 2 });
@@ -4582,6 +4772,31 @@ app.post('/api/syntax-check-student', async (req, res) => {
 });
 
 // Uitgebreid monitoring endpoint — geeft systeem + alle sessies + vrije sessie in één call
+// Sprint 51n (bugfix): het runner-belasting-widget op het sessiescherm (elke leerkracht,
+// niet enkel systeembeheer) riep tot nu toe /api/monitoring aan — dat werd terecht
+// superadmin-only gemaakt, want het geeft ook gevoelige info vrij (namen/codes van ALLE
+// actieve sessies van ALLE leerkrachten, OS-geheugen, server-heap). Het widget zelf gebruikt
+// echter enkel de onschadelijke runner-capaciteitscijfers. Dit endpoint geeft precies dát,
+// niets meer — wél ingelogde leerkracht vereist, GEEN systeembeheer-toegang nodig.
+app.get('/api/runner-health', requireTeacherAuth, async (req, res) => {
+  try {
+    const runnerResponse = await fetch(`${RUNNER_URL}/health`);
+    if (!runnerResponse.ok) throw new Error(`runner health failed: ${runnerResponse.status}`);
+    const runner = await runnerResponse.json();
+    res.json({
+      ok: true,
+      runner: {
+        activeRuns: Number(runner.activeRuns ?? 0),
+        maxRuns:    Number(runner.maxRuns    ?? 18),
+        queuedRuns: Number(runner.queuedRuns ?? 0),
+        maxQueue:   Number(runner.maxQueue   ?? 90),
+      },
+    });
+  } catch (e) {
+    res.status(503).json({ ok: false, error: 'Runner niet bereikbaar.' });
+  }
+});
+
 app.get('/api/monitoring', requireTeacherAuth, requireSysteem, async (req, res) => {
   try {
     const runnerResponse = await fetch(`${RUNNER_URL}/health`);
@@ -6118,8 +6333,9 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
 
   socket.on("student_join", async ({ name, code, className, resumeId }) => {
     const normalizedCode = (code || "").trim().toUpperCase();
-    // Fix SEC-12: rate limit op join pogingen
-    const joinIp = socket.handshake.headers['x-forwarded-for']?.split(',')[0]?.trim() || socket.handshake.address;
+    // Fix SEC-12: rate limit op join pogingen — Sprint 51k: via getSocketIp (CF-Connecting-IP
+    // geprioriteerd i.p.v. de client-spoofbare x-forwarded-for rechtstreeks te vertrouwen).
+    const joinIp = getSocketIp(socket);
     if (!checkJoinRateLimit(joinIp)) {
       return socket.emit('error_message', 'Te veel inlogpogingen. Probeer over een minuut opnieuw.');
     }
@@ -6414,6 +6630,137 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       }
     };
     poll().catch(() => { socket.emit("free_run_end"); student.runId = null; });
+  });
+
+  // Sprint 51n (bugfix): een leerling die een toets/taak maakt heeft ctx.role === 'quiz_student',
+  // niet 'free' — de code-editor in quiz-student.js stuurde zijn run-aanvraag echter naar
+  // 'free_run_request', dat enkel ctx.role === 'free' accepteert en verder stil (zonder
+  // foutmelding) 'return'de. Resultaat: het output-tabblad opende netjes, maar er kwam nooit
+  // iets binnen — "ik druk op run, er verschijnt niets". Deze handler is een parallelle versie
+  // van free_run_request, maar met de juiste databron (session.students[...] i.p.v. de aparte
+  // freeStudents-Map) en dezelfde event-namen terug naar de client, zodat quiz-student.js enkel
+  // de emit-naam moest wijzigen, niet zijn listeners.
+  socket.on("quiz_run_request", async ({ codeText } = {}) => {
+    if (typeof codeText === 'string' && codeText.length > 32768) {
+      return socket.emit('free_run_end');
+    }
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "quiz_student") return;
+    const session = sessions.get(ctx.code);
+    if (!session || session.closed || session.deleted || session.blocked) return;
+    const student = session.students[ctx.studentId];
+    if (!student || student.removed) return;
+
+    const now = Date.now();
+    const lastRun = runRateLimit.get(socket.id) || 0;
+    if (now - lastRun < RUN_RATE_LIMIT_MS) {
+      return socket.emit("free_run_rate_limited", {
+        waitMs: RUN_RATE_LIMIT_MS - (now - lastRun),
+        message: `Wacht even voor je opnieuw runt.`
+      });
+    }
+    runRateLimit.set(socket.id, now);
+    student.runCount = (student.runCount || 0) + 1;
+    const clientIp = getClientIp(socket.request || {});
+    const ipCheck = checkIpRateLimit(clientIp);
+    if (!ipCheck.allowed) {
+      const waitSec = Math.ceil((ipCheck.retryAfterMs || 60000) / 1000);
+      return socket.emit("free_run_rate_limited", {
+        waitMs: ipCheck.retryAfterMs || 60000,
+        message: `Te veel runs van dit netwerk. Probeer opnieuw over ${waitSec} seconde(n).`
+      });
+    }
+
+    if (student.runId) {
+      try { await fetch(`${RUNNER_URL}/runs/${student.runId}/cancel`, { method: "POST" }); } catch (e) { /* best-effort */ }
+      student.runId = null;
+    }
+
+    let runData;
+    try {
+      runData = await runnerStart(codeText || '');
+    } catch (err) {
+      socket.emit("free_run_output", { output: `Fout bij starten: ${err.message}` });
+      return;
+    }
+
+    student.runId = runData.runId;
+    student._outputAccum = '';
+
+    const poll = async () => {
+      let lastSeq = 0;
+      for (;;) {
+        let evData;
+        try {
+          const r = await fetch(`${RUNNER_URL}/runs/${student.runId}/events?after=${lastSeq}`);
+          if (!r.ok) break;
+          evData = await r.json();
+        } catch { break; }
+
+        for (const ev of (evData.events || [])) {
+          lastSeq = ev.seq;
+          if (ev.type === 'stdout' || ev.type === 'stderr') {
+            student._outputAccum = (student._outputAccum || '') + ev.data;
+            socket.emit("free_run_output", { output: student._outputAccum });
+          } else if (ev.type === 'input_request') {
+            runnerWaitingForInput.add(student.runId);
+            socket.emit("free_input_request");
+          } else if (ev.type === 'run_error') {
+            let errData = {};
+            try {
+              errData = typeof ev.data === 'string' ? JSON.parse(ev.data || '{}') : (ev.data || {});
+            } catch (e) { /* stille fout — zie debug */ }
+            const icons = { cpu_timeout: '⏱', input_timeout: '⏳', disconnect: '🔌', cancelled: '⏹' };
+            const icon = icons[errData.errorType] || '⚠️';
+            const lineInfo = errData.line ? ` (regel ${errData.line})` : '';
+            student._outputAccum = (student._outputAccum || '') + `\n${icon} ${errData.message || 'Fout'}${lineInfo}\n`;
+            socket.emit('free_run_output', { output: student._outputAccum });
+          } else if (ev.type === 'end') {
+            socket.emit("free_run_end");
+            student.runId = null;
+            return;
+          }
+        }
+
+        if (evData.queued) {
+          socket.emit("free_run_queued", { position: evData.queuePosition || 1 });
+          await new Promise(r => setTimeout(r, 800));
+        } else if (!evData.running && !runnerWaitingForInput.has(student.runId)) {
+          socket.emit("free_run_end");
+          student.runId = null;
+          return;
+        } else if (runnerWaitingForInput.has(student.runId)) {
+          await new Promise(r => setTimeout(r, 180));
+        } else {
+          await new Promise(r => setTimeout(r, 180));
+        }
+      }
+    };
+    poll().catch(() => { socket.emit("free_run_end"); student.runId = null; });
+  });
+
+  // Sprint 51n: stdin-tegenhanger van quiz_run_request — zelfde reden/patroon als hierboven.
+  socket.on("quiz_runtime_input", async ({ value } = {}) => {
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "quiz_student") return;
+    const session = sessions.get(ctx.code);
+    if (!session) return;
+    const student = session.students[ctx.studentId];
+    if (!student || !student.runId) return;
+    if (!runnerWaitingForInput.has(student.runId)) return;
+    runnerWaitingForInput.delete(student.runId);
+    const displayValue = String(value ?? "");
+    try {
+      const result = await runnerInput(student.runId, displayValue);
+      if (result && result.rejected) {
+        runnerWaitingForInput.add(student.runId);
+        return;
+      }
+      const echoDisplay = displayValue === '' ? '[lege invoer]' : `[${displayValue}]`;
+      student._outputAccum = (student._outputAccum || '') + echoDisplay + '\n';
+      socket.emit('free_run_output', { output: student._outputAccum });
+      socket.emit("free_run_input_echo", { value: displayValue });
+    } catch (e) { /* stille fout — zie debug */ }
   });
 
   // Vrije sessie: stdin-input doorgeven aan runner
@@ -6808,7 +7155,10 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     if (!ctx || ctx.role !== "teacher") return;
     const session = sessions.get(ctx.code);
     if (!session) return;
-    session.announcement = String(text || "").trim();
+    // Sprint 51l (hardening): een onbegrensd lang bericht wordt naar élke actieve leerling
+    // tegelijk uitgezonden — een kleine DoS-vector zonder limiet. 1000 tekens is ruim
+    // voldoende voor een opdracht/mededeling.
+    session.announcement = String(text || "").trim().slice(0, 1000);
     // Bewaar geschiedenis (max 5 aankondigingen)
     if (session.announcement) {
       if (!session.announcementHistory) session.announcementHistory = [];
@@ -7402,7 +7752,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
   });
 
   socket.on('quiz_save_answer', async (data) => {
-    const { questionId, code, runCount, firstVisitAt, firstRunAt, currentQuestion } = data || {};
+    const { questionId, code, runCount, firstVisitAt, firstRunAt, currentQuestion, partAnswers } = data || {};
     const ctx = socketToUser.get(socket.id);
     if (!ctx || ctx.role !== 'quiz_student') return;
     const session = sessions.get(ctx.code);
@@ -7411,12 +7761,13 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
 
     // Sla op in-memory
     student.quizAnswers[questionId] = { code, runCount, firstVisitAt, firstRunAt,
-      selectedChoices: data?.selectedChoices || [] };
+      selectedChoices: data?.selectedChoices || [], partAnswers: partAnswers || undefined };
     student.quizCurrentQuestion = currentQuestion;
 
     // Sprint 19a: 15s backup interval voor quiz (was 60s)
     // Sla direct op in DB bij elke navigatie
     // 23a: selectedChoices meesturen zodat keuze-antwoorden persistent zijn
+    // 51j: partAnswers meesturen voor composite-vragen (JSON {partId: waarde})
     dbModule.saveQuizAnswer({
       sessionCode: ctx.code, studentId: ctx.studentId,
       studentName: student.name, studentClass: student.className || '',
@@ -7424,6 +7775,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       code, runCount: runCount || 0,
       firstVisitAt: firstVisitAt || null, firstRunAt: firstRunAt || null,
       selectedChoices: JSON.stringify(data?.selectedChoices || []),
+      partAnswers: partAnswers ? JSON.stringify(partAnswers) : undefined,
     }).catch(e => log.error('[quiz] saveQuizAnswer:', e.message));
 
     socket.emit('quiz_answer_saved', { questionId });

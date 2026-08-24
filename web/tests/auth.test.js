@@ -444,6 +444,13 @@ test('51b: een admin mag elke sessie beheren', () => {
   assert.strictEqual(auth.magSessieBeheren(beheerder, null), true);
 });
 
+test('51k REGRESSIE: een super-admin mag elke sessie beheren (was kapot — enkel role==="admin" telde mee)', () => {
+  const superadmin = { id: 'id-super', username: 'super', role: 'superadmin' };
+  assert.strictEqual(auth.magSessieBeheren(superadmin, 'id-a'), true);
+  assert.strictEqual(auth.magSessieBeheren(superadmin, 'id-b'), true);
+  assert.strictEqual(auth.magSessieBeheren(superadmin, null), true);
+});
+
 test('51b: open-modus (source open → rol admin) mag alles', () => {
   const open = auth.bepaalTeacherIdentiteit({ authUit: true });
   assert.strictEqual(auth.magSessieBeheren(open, 'id-a'), true);

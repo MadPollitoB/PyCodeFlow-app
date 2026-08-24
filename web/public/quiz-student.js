@@ -478,11 +478,13 @@ document.addEventListener('DOMContentLoaded', bindQuizTabs);
 let _currentChoices = [];       // choices van huidige vraag
 let _selectedChoices = [];      // geselecteerde choice IDs
 
-function showQuestionPanel(type) {
-  document.getElementById('panel-code').style.display   = type === 'code' ? '' : 'none';
+function showQuestionPanel(type, hasCodePart) {
+  const isComposite = type === 'composite';
+  document.getElementById('panel-composite-open').style.display = isComposite ? '' : 'none';
+  document.getElementById('panel-code').style.display   = (type === 'code' || (isComposite && hasCodePart)) ? '' : 'none';
   document.getElementById('panel-open').style.display   = type === 'open' ? '' : 'none';
   document.getElementById('panel-choice').style.display = ['single','multiple'].includes(type) ? '' : 'none';
-  document.getElementById('quiz-run-btn').style.display = type === 'code' ? '' : 'none';
+  document.getElementById('quiz-run-btn').style.display = (type === 'code' || (isComposite && hasCodePart)) ? '' : 'none';
 }
 
 function renderChoices(choices, type, selected = []) {
@@ -546,9 +548,35 @@ function getCurrentAnswer() {
     return { code: getCurrentCode(), selectedChoices: [] };
   } else if (type === 'open') {
     return { code: document.getElementById('quiz-open-answer')?.value || '', selectedChoices: [] };
+  } else if (type === 'composite') {
+    // Sprint 51j: partAnswers = {partId: waarde}. Het code-onderdeel (indien aanwezig) staat
+    // ook gespiegeld in 'code', zodat runnen/opslaan via het bestaande pad blijft werken.
+    const parts = parseAnswerParts(q.answer_parts);
+    const codePart = parts.find(p => p.type === 'code');
+    const partAnswers = { ..._answers[q.id]?.partAnswers };
+    document.querySelectorAll('.composite-part-input').forEach(el => {
+      partAnswers[el.dataset.partId] = el.value;
+    });
+    if (codePart) partAnswers[codePart.id] = getCurrentCode();
+    return { code: codePart ? getCurrentCode() : '', selectedChoices: [], partAnswers };
   } else {
     return { code: '', selectedChoices: _selectedChoices };
   }
+}
+
+// Sprint 51j: parseert answer_parts (JSON-string of array) veilig naar een array.
+function parseAnswerParts(raw) {
+  if (Array.isArray(raw)) return raw;
+  try { const p = JSON.parse(raw || '[]'); return Array.isArray(p) ? p : []; } catch { return []; }
+}
+
+// Eén open-onderdeel van een samengestelde vraag opslaan (lokaal; de volledige opslag
+// naar de server gebeurt via saveCurrentAnswer, net als bij de andere types).
+function saveCompositePartAnswer(partId, value) {
+  if (!_currentQuestionId) return;
+  if (!_answers[_currentQuestionId]) _answers[_currentQuestionId] = {};
+  if (!_answers[_currentQuestionId].partAnswers) _answers[_currentQuestionId].partAnswers = {};
+  _answers[_currentQuestionId].partAnswers[partId] = value;
 }
 
 // ── Navigatie ───────────────────────────────────────────────────────────────
@@ -608,7 +636,7 @@ function goToQuestion(idx) {
   const qType = q.question_type || 'code';
   if (!_state?.hideQuestionOnScreen) {
     questionEl.style.display = 'block';
-    const typeLabel = {code:'🐍 Code',open:'✏️ Open vraag',single:'◉ Single choice',multiple:'☑ Meerkeuze'}[qType] || '';
+    const typeLabel = {code:'🐍 Code',open:'✏️ Open vraag',single:'◉ Single choice',multiple:'☑ Meerkeuze',composite:'🧩 Samengestelde vraag'}[qType] || '';
     document.getElementById('q-header').textContent =
       `Vraag ${idx+1} van ${questions.length} · ${q.subject || ''} · ${q.points} punten · ${typeLabel}`;
     // Sprint 19f: Markdown rendering
@@ -639,7 +667,9 @@ const qTextEl = document.getElementById('q-text');
   }
 
   // Toon correct panel per vraagtype
-  showQuestionPanel(qType);
+  const partsForType = qType === 'composite' ? parseAnswerParts(q.answer_parts) : [];
+  const codePart = partsForType.find(p => p.type === 'code') || null;
+  showQuestionPanel(qType, !!codePart);
 
   // Herstel antwoord
   const savedAns = _answers[q.id];
@@ -652,6 +682,29 @@ const qTextEl = document.getElementById('q-text');
   } else if (qType === 'open') {
     const ta = document.getElementById('quiz-open-answer');
     if (ta) { ta.value = savedAns?.code || ''; updateOpenCount(); }
+  } else if (qType === 'composite') {
+    // Sprint 51j: samengestelde vraag — per open-onderdeel een tekstveld met label; het
+    // eventuele code-onderdeel gebruikt het gewone (altijd uitvoerbare) code-paneel hierboven.
+    const partAnswers = savedAns?.partAnswers || {};
+    const wrap = document.getElementById('composite-open-parts');
+    if (wrap) {
+      wrap.innerHTML = partsForType.filter(p => p.type === 'open').map(p => `
+        <div>
+          <label style="font-size:0.85rem;color:var(--muted);display:block;margin-bottom:6px;">${escHtml(p.label || 'Antwoord')}</label>
+          <textarea class="composite-part-input" data-part-id="${p.id}" rows="3" maxlength="2000"
+            style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;
+              font-size:0.95rem;font-family:inherit;resize:vertical;box-sizing:border-box;"
+            placeholder="Jouw antwoord..."
+            onkeydown="event.stopPropagation()"
+            oninput="saveCompositePartAnswer('${p.id}', this.value)">${escHtml(partAnswers[p.id] || '')}</textarea>
+        </div>`).join('');
+    }
+    if (codePart) {
+      setEditorCode(partAnswers[codePart.id] || '');
+      const out = document.getElementById('quiz-output-panel');
+      if (out) out.textContent = '';
+      showQuizTab('code');
+    }
   } else {
     // single / multiple
     try {
@@ -693,6 +746,7 @@ function saveCurrentAnswer(code) {
   _answers[_currentQuestionId].code = ans.code;
   _answers[_currentQuestionId].selectedChoices = ans.selectedChoices;
   _answers[_currentQuestionId].runCount = _runCount[_currentQuestionId] || 0;
+  if (ans.partAnswers) _answers[_currentQuestionId].partAnswers = ans.partAnswers;
 
   socket.emit('quiz_save_answer', {
     questionId: _currentQuestionId,
@@ -702,6 +756,7 @@ function saveCurrentAnswer(code) {
     firstVisitAt: _answers[_currentQuestionId]?.firstVisitAt || null,
     firstRunAt: _answers[_currentQuestionId]?.firstRunAt || null,
     currentQuestion: _currentIdx,
+    partAnswers: ans.partAnswers || undefined,
   });
 }
 
@@ -723,15 +778,24 @@ function runCode() {
   // Sla run history op
   socket.emit('quiz_run_completed', { questionId: _currentQuestionId, code });
 
-  // Gebruik bestaande run-logica via socket
-  socket.emit('free_run_request', { codeText: code });
+  // Sprint 51n (bugfix): 'free_run_request' vereist ctx.role === 'free' op de server — een
+  // leerling in een toets/taak heeft echter role 'quiz_student', dus die aanvraag werd stil
+  // genegeerd (geen foutmelding, gewoon geen output). 'quiz_run_request' is de juiste,
+  // parallelle server-handler voor deze context.
+  socket.emit('quiz_run_request', { codeText: code });
   renderNav();
 }
 
 // Hergebruik output events van app.js
+// Sprint 51p (bugfix): de server stuurt bij elke stdout-chunk de VOLLEDIGE, al cumulatief
+// opgebouwde output (student._outputAccum) — niet enkel het nieuwe stukje. Deze listener
+// deed echter panel.textContent += output, waardoor de al-cumulatieve serverstring TELKENS
+// weer bovenop de al-opgebouwde clientstring kwam: een kwadratisch groeiende herhaling
+// (1 / 1,2 / 1,2,3 / 1,2,3,4 / ...). app.js doet dit bij vrij oefenen correct met '=' — hier
+// hetzelfde: de output VERVANGT de inhoud, ze wordt niet toegevoegd.
 socket.on('free_run_output', ({ output }) => {
   const panel = document.getElementById('quiz-output-panel');
-  panel.textContent += output;
+  panel.textContent = output;
   panel.scrollTop = panel.scrollHeight;
 });
 socket.on('free_run_end', () => {
@@ -749,7 +813,8 @@ function sendInput() {
   document.getElementById('quiz-input-field').value = '';
   document.getElementById('quiz-wait-input').style.display = 'none';
   document.getElementById('quiz-input-wrap').style.display = 'none';
-  socket.emit('free_runtime_input', { value: val });
+  // Sprint 51n (bugfix): zelfde reden als bij runCode() — quiz-context gebruikt een eigen event.
+  socket.emit('quiz_runtime_input', { value: val });
 }
 
 // ── Indienen ────────────────────────────────────────────────────────────────

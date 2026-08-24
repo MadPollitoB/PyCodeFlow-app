@@ -361,7 +361,10 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
 
   async function loadTeacherMonitoring() {
     try {
-      const res = await fetch('/api/monitoring', { cache: 'no-store' });
+      // Sprint 51n (bugfix): dit widget is voor ELKE leerkracht bedoeld, niet enkel
+      // systeembeheer — /api/monitoring werd terecht superadmin-only, dus dit gebruikt nu
+      // het beperktere /api/runner-health (enkel de onschadelijke capaciteitscijfers).
+      const res = await fetch('/api/runner-health', { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const r = data.runner || {};
@@ -2422,7 +2425,7 @@ async function applyStudentEditorFromState() {
 
   if (page === 'student-app.html') {
     const state = getLS('studentState');
-    if (!state) go('/student-start.html');
+    if (!state) { go('/student-start.html'); return; }
     const code = getLS('studentSessionCode');
     const studentId = getLS('studentId');
     socket.emit('student_reconnect', { code, studentId });
