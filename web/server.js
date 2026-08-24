@@ -956,6 +956,13 @@ app.post('/api/teacher-login', async (req, res) => {
   const teacher = await authenticateTeacher(fakeAuthHeader); // await! anders wordt DB niet gecheckt
 
   if (teacher) {
+    // Sprint 51t: licentie-controle — een school zonder geldige licentie (uitgeschakeld of
+    // verlopen) mag niemand meer laten inloggen. Een super-admin is hier altijd van
+    // vrijgesteld (hangt nooit aan een school). Dit is GEEN mislukte inlogpoging (het
+    // wachtwoord was correct), dus telt bewust niet mee voor de rate-limiter.
+    if (!(await dbModule.magLeerkrachtInloggen(teacher))) {
+      return res.status(403).json({ error: 'De licentie van je school is niet (meer) geldig. Neem contact op met de schoolbeheerder.' });
+    }
     clearAuthFailures(ip);
     // Sprint 50a/50f: de sessie ís nu de login. Er is geen gedeeld cookie meer dat
     // je alsnog binnenlaat, dus mislukt dit, dan is er ook geen toegang — vandaar dat
@@ -1116,6 +1123,11 @@ app.post('/api/student/login', requireCsrf, async (req, res) => {
     }
     if (student.status === 'blocked') {
       return res.status(403).json({ error: 'Je account is geblokkeerd. Vraag je leerkracht om hulp.' });
+    }
+    // Sprint 51t: licentie-controle — zelfde regel als bij leerkrachten. Telt bewust niet
+    // mee als mislukte poging (de inloggegevens waren correct).
+    if (!(await dbModule.magLeerlingInloggen(student.id))) {
+      return res.status(403).json({ error: 'De licentie van je school is niet (meer) geldig. Neem contact op met je leerkracht.' });
     }
     clearAuthFailures(ip);
     await maakLeerlingSessie(req, res, student);
@@ -2084,6 +2096,65 @@ app.get('/api/admin/schools', requireTeacherAuth, requireBeheer, async (req, res
 // Sprint 56: Mijn klassen — de gekoppelde klassen van deze leerkracht (actief schooljaar,
 // niet-gearchiveerd) mét leerlingen (incl. status/e-mail) en startcode. Open modus: alle
 // klassen (single-user). Bewust géén beheer-gate: dit is lesgereedschap voor iedereen.
+// ── Sprint 51u: actief schooljaar per leerkracht ─────────────────────────────
+// Bron van waarheid voor nieuwe klassen/toetsen zonder klaskoppeling — zie
+// dbModule.bepaalActiefSchoolJaar voor de volgorde (expliciet gezet → meest recente
+// niet-gearchiveerde klas → kalenderberekening).
+app.get('/api/teacher/active-school-year', requireTeacherAuth, async (req, res) => {
+  try {
+    const jaar = await dbModule.bepaalActiefSchoolJaar(req.teacher?.id || null);
+    res.json({ schoolYear: jaar });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/teacher/active-school-year', requireTeacherAuth, requireCsrf, async (req, res) => {
+  try {
+    const { schoolYear } = req.body || {};
+    if (!req.teacher?.id) return res.status(400).json({ error: 'Enkel voor ingelogde leerkrachten.' });
+    if (!/^\d{4}-\d{4}$/.test(String(schoolYear || ''))) {
+      return res.status(400).json({ error: 'Ongeldig schooljaar-formaat.' });
+    }
+    await dbModule.setActiveSchoolYear(req.teacher.id, schoolYear);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// De klassen die deze leerkracht kan archiveren als onderdeel van een jaarwissel — zijn
+// eigen, niet-gearchiveerde klassen in zijn HUIDIGE actieve schooljaar (checkbox-lijst).
+app.get('/api/teacher/archivable-classes', requireTeacherAuth, async (req, res) => {
+  try {
+    if (!req.teacher?.id) return res.json({ schoolYear: dbModule.berekenHuidigSchoolJaar(), classes: [] });
+    const jaar = await dbModule.bepaalActiefSchoolJaar(req.teacher.id);
+    const klassen = (await dbModule.getClassesForTeacher(req.teacher.id))
+      .filter(c => c.school_year === jaar)
+      .map(c => ({ id: c.id, name: c.name, schoolYear: c.school_year }));
+    res.json({ schoolYear: jaar, classes: klassen });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// De jaarwissel zelf: archiveer de gekozen klassen, maak lege vervangers aan in het nieuwe
+// jaar, en zet dit als het nieuwe actieve schooljaar van de leerkracht.
+app.post('/api/teacher/switch-school-year', requireTeacherAuth, requireCsrf, async (req, res) => {
+  try {
+    if (!req.teacher?.id) return res.status(400).json({ error: 'Enkel voor ingelogde leerkrachten.' });
+    const { classIds, newSchoolYear } = req.body || {};
+    if (!/^\d{4}-\d{4}$/.test(String(newSchoolYear || ''))) {
+      return res.status(400).json({ error: 'Ongeldig schooljaar-formaat.' });
+    }
+    if (!Array.isArray(classIds) || !classIds.length) {
+      return res.status(400).json({ error: 'Kies minstens één klas om te archiveren.' });
+    }
+    const result = await dbModule.switchSchoolYear(req.teacher.id, classIds, String(newSchoolYear));
+    if (!result.ok) return res.status(400).json({ error: result.error || 'Wissel mislukt.' });
+    dbModule.auditLog(getActorFromReq(req), 'school_year_switched', req.teacher.id,
+      { newSchoolYear, classIds }, req.ip).catch(() => {});
+    res.json(result);
+  } catch (e) {
+    log.error('[switch-school-year] fout:', e.message);
+    res.status(500).json({ error: 'De jaarwissel is mislukt.' });
+  }
+});
+
 app.get('/api/mijn-klassen', requireTeacherAuth, async (req, res) => {
   try {
     const klassen = req.teacher?.id
@@ -2205,7 +2276,7 @@ app.post('/api/admin/schools', requireTeacherAuth, requireBeheer, requirePlatfor
 });
 
 app.put('/api/admin/schools/:id', requireTeacherAuth, requireBeheer, requireCsrf, async (req, res) => {
-  const { name, logoPath, license, contact, active } = req.body || {};
+  const { name, logoPath, license, contact, active, licenseExpiresAt } = req.body || {};
   if (name !== undefined && !String(name).trim()) {
     return res.status(400).json({ error: 'Naam mag niet leeg zijn' });
   }
@@ -2215,7 +2286,8 @@ app.put('/api/admin/schools/:id', requireTeacherAuth, requireBeheer, requireCsrf
     return res.status(403).json({ error: 'Dit is niet jouw school.' });
   }
   const platform = !req.teacher?.id || authLib.isSuperAdmin(req.teacher);
-  if (!platform && (license !== undefined || active !== undefined)) {
+  // Sprint 51t: licenseExpiresAt hoort bij dezelfde platform-only groep als license/active.
+  if (!platform && (license !== undefined || active !== undefined || licenseExpiresAt !== undefined)) {
     return res.status(403).json({ error: 'Licentie en actief/inactief worden door de platformbeheerder ingesteld.' });
   }
   try {
@@ -2225,6 +2297,8 @@ app.put('/api/admin/schools/:id', requireTeacherAuth, requireBeheer, requireCsrf
       ...(license !== undefined && { license: String(license).slice(0, 64) }),
       ...(contact !== undefined && { contact: String(contact).slice(0, 200) }),
       ...(active !== undefined && { active: active === true || active === 'true' }),
+      // null = vervaldatum wissen (geen vervaldatum meer); een getal = nieuwe vervaldatum.
+      ...(licenseExpiresAt !== undefined && { licenseExpiresAt: licenseExpiresAt === null ? null : Number(licenseExpiresAt) }),
     });
     if (ok) dbModule.auditLog(getActorFromReq(req), 'school_updated', req.params.id, {}, req.ip).catch(() => {});
     res.json({ ok });
@@ -2289,7 +2363,10 @@ app.post('/api/admin/classes', requireTeacherAuth, requireBeheer, requireCsrf, a
   const { name, schoolYear } = req.body || {};
   if (!name?.trim()) return res.status(400).json({ error: 'Naam vereist' });
   try {
-    const id = await dbModule.createClass(name.trim().slice(0, 64), schoolYear || '2025-2026', schrijfSchoolVoor(req.teacher));
+    // Sprint 51u: geen expliciet schooljaar meegegeven? Gebruik het ACTIEVE schooljaar van
+    // deze leerkracht (was een hardcoded '2025-2026' — bleef voor altijd hangen op dat jaar).
+    const jaar = schoolYear || await dbModule.bepaalActiefSchoolJaar(req.teacher?.id || null);
+    const id = await dbModule.createClass(name.trim().slice(0, 64), jaar, schrijfSchoolVoor(req.teacher));
     // Sprint 51e: koppel de maker meteen aan de klas, zodat ze in zijn overzicht verschijnt
     // (en niet als "niet-toegewezen" bij iedereen). In open modus (geen id) slaan we dit over.
     if (req.teacher?.id) {
@@ -2612,11 +2689,10 @@ setInterval(async () => {
         if (student.socketId) io.to(student.socketId).emit('quiz_force_submit', { reason: 'deadline' });
         await dbModule.submitQuizAnswers(code, student.id, true, 'deadline').catch(() => {});
       }
-      // Sprint 51o (bugfix): zelfde aanvulling als bij handmatig stoppen — leerlingen die
-      // nooit gestart zijn, moeten ook bij het automatisch verstrijken van het venster
-      // zichtbaar worden in de verbeterzone (als lege, gemarkeerde "geen deelname").
-      const nietDeelgenomen = await dbModule.fillMissingQuizParticipants(code).catch(() => 0);
-      log.info(`[quiz] Sessie ${code}: deadline bereikt${nietDeelgenomen ? ` — ${nietDeelgenomen} niet-deelgenomen leerling(en) aangevuld` : ''}`);
+      // Sprint 51s (uitbreiding): vult zowel niet-deelgenomen leerlingen áls onbeantwoorde
+      // vragen van wie wel gestart is aan, allebei automatisch met score 0.
+      const { nietDeelgenomen, aangevuld } = await dbModule.fillMissingQuizAnswers(code).catch(() => ({ nietDeelgenomen: 0, aangevuld: 0 }));
+      log.info(`[quiz] Sessie ${code}: deadline bereikt${nietDeelgenomen ? ` — ${nietDeelgenomen} niet-deelgenomen leerling(en)` : ''}${aangevuld ? ` — ${aangevuld} halve inlevering(en) aangevuld` : ''}`);
     } catch (e) { /* stille fout — zie debug */ }
   }
 }, 60 * 1000);
@@ -2682,15 +2758,14 @@ app.post('/api/quiz/:code/stop', requireTeacherAuth, requireSessionAccess, requi
       aantal++;
     }
 
-    // Sprint 51o (bugfix): leerlingen die NOOIT gestart zijn voor deze toets (geen enkele
-    // quiz_answers-rij) bleven tot nu toe onzichtbaar in de verbeterzone. Vul hen aan als
-    // een duidelijk gemarkeerde "geen deelname"-inlevering, zodat de leerkracht ze net als
-    // de anderen ziet — leeg, maar zichtbaar.
-    const nietDeelgenomen = await dbModule.fillMissingQuizParticipants(code).catch(() => 0);
+    // Sprint 51s (uitbreiding van 51o): leerlingen die NOOIT gestart zijn, én leerlingen die
+    // wel startten maar niet alle vragen beantwoordden (halve inlevering), worden nu allebei
+    // automatisch aangevuld met een score van 0 voor de ontbrekende vraag/vragen.
+    const { nietDeelgenomen, aangevuld } = await dbModule.fillMissingQuizAnswers(code).catch(() => ({ nietDeelgenomen: 0, aangevuld: 0 }));
 
-    dbModule.auditLog(getActorFromReq(req), 'quiz_stopped', code, { ingediend: aantal, nietDeelgenomen }, req.ip).catch(() => {});
-    log.info(`[quiz] ${code} gestopt door leerkracht — ${aantal} deelname(s) ingediend, ${nietDeelgenomen} niet-deelgenomen leerling(en) aangevuld`);
-    res.json({ ok: true, ingediend: aantal, nietDeelgenomen, gestoptOp });
+    dbModule.auditLog(getActorFromReq(req), 'quiz_stopped', code, { ingediend: aantal, nietDeelgenomen, aangevuld }, req.ip).catch(() => {});
+    log.info(`[quiz] ${code} gestopt door leerkracht — ${aantal} deelname(s) ingediend, ${nietDeelgenomen} niet-deelgenomen leerling(en), ${aangevuld} halve inlevering(en) aangevuld`);
+    res.json({ ok: true, ingediend: aantal, nietDeelgenomen, aangevuld, gestoptOp });
   } catch (e) {
     log.error('[quiz stop] fout:', e.message);
     res.status(500).json({ error: 'Stoppen mislukte.' });
@@ -3068,7 +3143,9 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
       minRunsPerQ: parseInt(minRunsPerQ) || 0,
       hideQuestionOnScreen: hideQuestionOnScreen === true,
       isTeacherPreview: isTeacherPreview === true,
-      schoolYear: schoolYear || '',
+      // Sprint 51u: geen expliciet schooljaar meegegeven -> val terug op het ACTIEVE
+      // schooljaar van deze leerkracht i.p.v. de kale kalenderberekening.
+      schoolYear: schoolYear || await dbModule.bepaalActiefSchoolJaar(req.teacher?.id || null),
       targetClass: targetClass || '',
       // Sprint 43.14: type staat vast vanaf het openen van het aanmaakscherm en is
       // hierboven al gevalideerd — geen afleiding meer uit noTimer (een taak MAG
@@ -3202,7 +3279,9 @@ app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf
       noBack: noBack === true,
       minRunsPerQ: parseInt(minRunsPerQ) || 0,
       hideQuestionOnScreen: hideQuestionOnScreen === true,
-      schoolYear: schoolYear || '',
+      // Sprint 51u: geen expliciet schooljaar meegegeven -> val terug op het ACTIEVE
+      // schooljaar van deze leerkracht i.p.v. de kale kalenderberekening.
+      schoolYear: schoolYear || await dbModule.bepaalActiefSchoolJaar(req.teacher?.id || null),
       targetClass: targetClass || '',
     });
 
@@ -3630,7 +3709,19 @@ app.post('/api/quiz/:code/pause', requireTeacherAuth, requireSessionAccess, requ
 // ── 16d: Verbetermodule ───────────────────────────────────────────────────────
 
 app.get('/api/quiz/:code/answers', requireTeacherAuth, requireSessionAccess, async (req, res) => {
-  try { res.json(await dbModule.getQuizAnswers(req.params.code.toUpperCase())); }
+  try {
+    const code = req.params.code.toUpperCase();
+    // Sprint 51s: robuustere variant van de aanvulling — dit draait NIET enkel op het
+    // moment van stoppen, maar telkens de verbeterpagina een gestopte toets opent. Dat vangt
+    // ook toetsen die op een andere manier gestopt raakten dan via /stop of de deadline-
+    // cronjob (bv. na een serverherstart net rond de deadline). Idempotent: kost niets als
+    // alles al aangevuld is.
+    const meta = await dbModule.getQuizMeta(code).catch(() => null);
+    if (meta?.stopped_at) {
+      await dbModule.fillMissingQuizAnswers(code).catch(e => log.warn('[answers] aanvullen mislukt:', e.message));
+    }
+    res.json(await dbModule.getQuizAnswers(code));
+  }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3743,6 +3834,36 @@ app.put('/api/quiz/:code/answers/:answerId/score', requireTeacherAuth, requireSe
     studentName: oldAns?.student_name,
   }, req.ip).catch(() => {});
   res.json({ ok: true });
+});
+
+// Sprint 51q (bugfix): scoren van een vraag die de leerling nooit bekeek/beantwoordde — er
+// bestaat dan geen answerId om naar te PUTten (het bovenstaande endpoint kon niets doen: de
+// leerkracht klikte 'Opslaan' zonder zichtbaar effect, typisch bij de LAATSTE vraag van een
+// halve inlevering). Dit endpoint identificeert de vraag via studentId+questionId i.p.v.
+// answerId en maakt de rij aan als ze nog niet bestaat (upsert).
+app.put('/api/quiz/:code/students/:studentId/questions/:questionId/score', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
+  const { score, teacherComment } = req.body || {};
+  const code = req.params.code.toUpperCase();
+  try {
+    const actor = getActorFromReq(req);
+    // Studentnaam/-klas ophalen voor een consistente nieuwe rij (net als bij een echte inzending).
+    const bestaand = (await dbModule.getQuizAnswers(code).catch(() => []))
+      .find(a => a.student_id === req.params.studentId);
+    const studentName = bestaand?.student_name || '';
+    const studentClass = bestaand?.student_class || '';
+    const answerId = await dbModule.scoreQuizAnswerByQuestion(
+      code, req.params.studentId, req.params.questionId, studentName, studentClass,
+      score !== undefined && score !== null && score !== '' ? parseInt(score, 10) : null,
+      String(teacherComment || '').slice(0, 1000)
+    );
+    dbModule.auditLog(actor, 'score_changed', answerId, {
+      sessionCode: code, newScore: score !== undefined ? parseInt(score) : null, studentName,
+    }, req.ip).catch(() => {});
+    res.json({ ok: true, answerId });
+  } catch (e) {
+    log.error('[score-by-question] fout:', e.message);
+    res.status(500).json({ error: 'Score opslaan mislukt.' });
+  }
 });
 
 // Sprint 51j: score van één onderdeel van een composite-vraag. Het totaal (kolom 'score')

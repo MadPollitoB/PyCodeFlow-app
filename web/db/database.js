@@ -173,6 +173,17 @@ async function initSchema() {
       EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
 
+    -- Sprint 51u: "actief schooljaar" per leerkracht — BEWUST op teachers zelf (permanent),
+    -- niet op teacher_sessions (sessie-gebonden) zoals active_school_id hierboven. De
+    -- schoolkeuze is elke login opnieuw relevant (een leerkracht met meerdere scholen kiest
+    -- per sessie), maar het schooljaar is een bewuste, doorlopende werkmodus ("ik werk nu in
+    -- 2026-2027") die niet bij elke nieuwe login zou moeten resetten. NULL = nog niet gezet;
+    -- de app leidt dan een redelijke standaard af (zie bepaalActiefSchoolJaar).
+    DO $$
+    BEGIN
+      BEGIN ALTER TABLE teachers ADD COLUMN active_school_year TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+    END $$;
+
     CREATE TABLE IF NOT EXISTS sessions (
       code            TEXT PRIMARY KEY,
       id              TEXT NOT NULL UNIQUE,
@@ -415,6 +426,10 @@ async function initSchema() {
       BEGIN ALTER TABLE schools ADD COLUMN logo_blob BYTEA; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE schools ADD COLUMN logo_mime TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE schools ADD COLUMN logo_updated_at BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 51t: licentie-vervaldatum (epoch-ms). NULL = geen vervaldatum (nooit verloopt).
+      -- 'active' blijft de HANDMATIGE noodschakelaar; deze datum is de AUTOMATISCHE kant.
+      -- Toegang (inloggen) vereist active=true ÉN (geen vervaldatum OF vervaldatum > nu).
+      BEGIN ALTER TABLE schools ADD COLUMN license_expires_at BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
 
     -- ── Sprint 52d: leerling-sessies (login) ──────────────────────────────────
@@ -1234,6 +1249,42 @@ module.exports = {
 
   // Sprint 41: alle schooljaren waarvoor klassen bestaan (bron van waarheid voor
   // het membership-model). Nieuwste eerst. Met per jaar of het volledig gearchiveerd is.
+  // Sprint 51u: het "kalender-berekende" schooljaar (augustus = nieuw jaar) — de vroegere,
+  // enige fallback vóórdat er een écht actief-schooljaar-concept per leerkracht bestond.
+  // Blijft de LAATSTE terugval wanneer een leerkracht nog niets heeft (geen active_school_year,
+  // geen klassen).
+  berekenHuidigSchoolJaar() {
+    const d = new Date();
+    const y = d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1;
+    return `${y}-${y + 1}`;
+  },
+
+  // Sprint 51u: het actieve schooljaar van een leerkracht — de bron van waarheid voor nieuwe
+  // klassen/toetsen zonder klaskoppeling. Volgorde:
+  //   1) teachers.active_school_year, indien expliciet gezet (na een jaarwissel of handmatige keuze).
+  //   2) het meest recente schooljaar waarin deze leerkracht NIET-gearchiveerde klassen heeft.
+  //   3) het kalender-berekende jaar (nooit eerder geweest — nieuw account).
+  async bepaalActiefSchoolJaar(teacherId) {
+    if (!teacherId) return this.berekenHuidigSchoolJaar();
+    const t = await query(`SELECT active_school_year FROM teachers WHERE id = $1`, [teacherId]);
+    if (t.rows[0]?.active_school_year) return t.rows[0].active_school_year;
+
+    const r = await query(
+      `SELECT DISTINCT c.school_year
+         FROM classes c
+         JOIN teacher_classes tc ON tc.class_id = c.id
+        WHERE tc.teacher_id = $1 AND c.archived = false
+        ORDER BY c.school_year DESC LIMIT 1`,
+      [teacherId]);
+    if (r.rows[0]?.school_year) return r.rows[0].school_year;
+
+    return this.berekenHuidigSchoolJaar();
+  },
+
+  async setActiveSchoolYear(teacherId, schoolYear) {
+    await query(`UPDATE teachers SET active_school_year = $1 WHERE id = $2`, [schoolYear, teacherId]);
+  },
+
   async getSchoolYears() {
     const r = await query(
       `SELECT c.school_year,
@@ -1263,7 +1314,7 @@ module.exports = {
   async listSchools(includeInactive = false) {
     const r = await query(
       `SELECT id, name, logo_path, license, contact, active, created_at,
-              logo_mime, logo_updated_at, (logo_blob IS NOT NULL) AS heeft_logo
+              logo_mime, logo_updated_at, license_expires_at, (logo_blob IS NOT NULL) AS heeft_logo
          FROM schools ${includeInactive ? '' : 'WHERE active = true'}
         ORDER BY LOWER(name)`
     );
@@ -1275,9 +1326,46 @@ module.exports = {
     // meekomen. We geven enkel de vlag mee dat er een logo ís.
     const r = await query(
       `SELECT id, name, logo_path, license, contact, active, created_at,
-              logo_mime, logo_updated_at, (logo_blob IS NOT NULL) AS heeft_logo
+              logo_mime, logo_updated_at, license_expires_at, (logo_blob IS NOT NULL) AS heeft_logo
          FROM schools WHERE id = $1`, [id]);
     return r.rows[0] || null;
+  },
+
+  // ── Sprint 51t: licentie-controle (enkel voor de login-flow) ────────────────
+  // Bewust NIET verweven met getSchoolsForTeacher of andere breed-gebruikte functies —
+  // dat zou een net-verlopen licentie onbedoeld ook autorisatie/klasbeheer kunnen laten
+  // breken voor een leerkracht die al ingelogd is. Deze helper wordt uitsluitend
+  // aangeroepen op het moment van inloggen (teacher-login/student-login).
+  isSchoolLicenseValid(school) {
+    if (!school) return false;
+    if (school.active !== true) return false;
+    if (school.license_expires_at == null) return true; // geen vervaldatum = nooit verloopt
+    return Number(school.license_expires_at) > Date.now();
+  },
+
+  // Mag deze leerkracht inloggen? Een super-admin hangt nooit aan een school en is dus
+  // nooit licentie-gebonden. Een gewone leerkracht met 0 gekoppelde scholen wordt NIET
+  // geblokkeerd (dat is een ander, apart probleem — geen koppeling ≠ verlopen licentie).
+  // Heeft hij wél scholen, dan volstaat één geldige om te mogen inloggen.
+  async magLeerkrachtInloggen(teacher) {
+    if (!teacher || teacher.role === 'superadmin') return true;
+    const scholen = await this.getSchoolsForTeacher(teacher.id, true); // incl. inactieve, voor een duidelijke check
+    if (!scholen.length) return true;
+    return scholen.some(s => this.isSchoolLicenseValid(s));
+  },
+
+  // Mag deze leerling inloggen? Zijn school volgt uit zijn klaslidmaatschap(pen) — een
+  // leerling zonder enige klaskoppeling wordt niet geblokkeerd (zie hierboven, zelfde logica).
+  async magLeerlingInloggen(studentId) {
+    const r = await query(
+      `SELECT DISTINCT s.id, s.active, s.license_expires_at
+         FROM class_memberships m
+         JOIN classes c ON c.id = m.class_id
+         JOIN schools s ON s.id = c.school_id
+        WHERE m.student_id = $1`,
+      [studentId]);
+    if (!r.rows.length) return true;
+    return r.rows.some(s => this.isSchoolLicenseValid(s));
   },
 
   // ── Sprint 48c1: standaardschool + dekkingscontrole ─────────────────────────
@@ -1334,46 +1422,89 @@ module.exports = {
   // submitted_by='geen_deelname' als duidelijke marker — dat is geen score van 0, het is
   // "nooit deelgenomen"). Enkel voor leerlingen met status 'active' (enige status die sowieso
   // mocht deelnemen) en zonder ENKELE bestaande quiz_answers-rij voor deze toets.
-  async fillMissingQuizParticipants(sessionCode) {
+  // Sprint 51s (uitbreiding): hernoemd/verbreed t.o.v. sprint 51o. Vult nu TWEE situaties aan,
+  // beide met een automatische score van 0 (niet langer NULL) — op uitdrukkelijke wens: een
+  // onbeantwoorde vraag hoeft niet meer apart handmatig op 0 gezet te worden:
+  //   1) Leerlingen van de doelklas die NOOIT deelnamen (geen enkele quiz_answers-rij) —
+  //      marker 'geen_deelname', voor ELKE vraag van de toets.
+  //   2) Leerlingen die WEL deelnamen maar niet ALLE vragen beantwoordden (halve inlevering) —
+  //      marker 'niet_beantwoord', enkel voor de ONTBREKENDE vraag/vragen van die leerling.
+  // Idempotent (ON CONFLICT DO NOTHING) en enkel zinvol op een GESTOPTE toets — de aanroeper
+  // bepaalt dat moment (handmatig stoppen, de deadline-cronjob, of — robuuster — telkens de
+  // verbeterpagina geopend wordt voor een reeds-gestopte toets, ongeacht hoe die stopte).
+  async fillMissingQuizAnswers(sessionCode) {
     const meta = await query(`SELECT target_class FROM assignment_bank WHERE session_code = $1`, [sessionCode]);
     const targetClass = meta.rows[0]?.target_class;
-    if (!targetClass) return 0;
 
     const vragen = await query(
       `SELECT id, order_index FROM quiz_question_snapshots WHERE session_code = $1 ORDER BY order_index`,
       [sessionCode]);
-    if (!vragen.rows.length) return 0;
-
-    const klasNaam = await query(`SELECT name FROM classes WHERE id = $1`, [targetClass]);
-    const klasNaamStr = klasNaam.rows[0]?.name || '';
-
-    const leerlingen = await query(
-      `SELECT s.id, s.name FROM class_memberships m
-         JOIN students s ON s.id = m.student_id
-        WHERE m.class_id = $1 AND s.status = 'active'
-          AND NOT EXISTS (
-            SELECT 1 FROM quiz_answers a WHERE a.session_code = $2 AND a.student_id = s.id
-          )`,
-      [targetClass, sessionCode]);
-    if (!leerlingen.rows.length) return 0;
+    if (!vragen.rows.length) return { nietDeelgenomen: 0, aangevuld: 0 };
 
     const now = Date.now();
-    let aangemaakt = 0;
-    for (const leerling of leerlingen.rows) {
-      let pos = 0;
-      for (const vraag of vragen.rows) {
+    let nietDeelgenomen = 0;
+    let aangevuld = 0;
+
+    // ── 1) Leerlingen die nooit deelnamen ──────────────────────────────────────
+    if (targetClass) {
+      const klasNaam = await query(`SELECT name FROM classes WHERE id = $1`, [targetClass]);
+      const klasNaamStr = klasNaam.rows[0]?.name || '';
+      const leerlingen = await query(
+        `SELECT s.id, s.name FROM class_memberships m
+           JOIN students s ON s.id = m.student_id
+          WHERE m.class_id = $1 AND s.status = 'active'
+            AND NOT EXISTS (
+              SELECT 1 FROM quiz_answers a WHERE a.session_code = $2 AND a.student_id = s.id
+            )`,
+        [targetClass, sessionCode]);
+      for (const leerling of leerlingen.rows) {
+        let pos = 0;
+        for (const vraag of vragen.rows) {
+          await query(
+            `INSERT INTO quiz_answers (id, session_code, student_id, student_name, student_class,
+               question_id, personal_order, code, run_count, saved_at, submitted_at,
+               score, selected_choices, submitted_by)
+             VALUES ($1,$2,$3,$4,$8,$5,$6,'',0,$7,$7,0,'[]','geen_deelname')
+             ON CONFLICT (session_code, student_id, question_id) DO NOTHING`,
+            [crypto.randomUUID(), sessionCode, leerling.id, leerling.name, vraag.id, pos, now, klasNaamStr]);
+          pos++;
+        }
+        nietDeelgenomen++;
+      }
+    }
+
+    // ── 2) Leerlingen die WEL deelnamen, maar niet alle vragen beantwoordden ───
+    const deelgenomenLeerlingen = await query(
+      `SELECT DISTINCT student_id, MAX(student_name) AS student_name, MAX(student_class) AS student_class
+         FROM quiz_answers WHERE session_code = $1 GROUP BY student_id`,
+      [sessionCode]);
+    for (const leerling of deelgenomenLeerlingen.rows) {
+      const beantwoord = await query(
+        `SELECT question_id FROM quiz_answers WHERE session_code = $1 AND student_id = $2`,
+        [sessionCode, leerling.student_id]);
+      const beantwoordeIds = new Set(beantwoord.rows.map(r => r.question_id));
+      const ontbrekend = vragen.rows.filter(v => !beantwoordeIds.has(v.id));
+      if (!ontbrekend.length) continue;
+      for (const vraag of ontbrekend) {
         await query(
           `INSERT INTO quiz_answers (id, session_code, student_id, student_name, student_class,
              question_id, personal_order, code, run_count, saved_at, submitted_at,
              score, selected_choices, submitted_by)
-           VALUES ($1,$2,$3,$4,$8,$5,$6,'',0,$7,$7,NULL,'[]','geen_deelname')
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'',0,$8,$8,0,'[]','niet_beantwoord')
            ON CONFLICT (session_code, student_id, question_id) DO NOTHING`,
-          [crypto.randomUUID(), sessionCode, leerling.id, leerling.name, vraag.id, pos, now, klasNaamStr]);
-        pos++;
+          [crypto.randomUUID(), sessionCode, leerling.student_id, leerling.student_name,
+           leerling.student_class, vraag.id, vraag.order_index, now]);
       }
-      aangemaakt++;
+      aangevuld++;
     }
-    return aangemaakt;
+
+    return { nietDeelgenomen, aangevuld };
+  },
+
+  // Sprint 51o (bewaard voor compatibiliteit — nieuwe code gebruikt fillMissingQuizAnswers).
+  async fillMissingQuizParticipants(sessionCode) {
+    const r = await this.fillMissingQuizAnswers(sessionCode);
+    return r.nietDeelgenomen;
   },
 
   // Alle leerlingen die begonnen zijn maar nog niet indienden (ook wie offline is).
@@ -1489,7 +1620,7 @@ module.exports = {
   // de rest per ongeluk leeg te maken.
   async updateSchool(id, velden = {}) {
     const kolommen = { name: 'name', logoPath: 'logo_path', license: 'license',
-                       contact: 'contact', active: 'active' };
+                       contact: 'contact', active: 'active', licenseExpiresAt: 'license_expires_at' };
     const sets = [], waarden = [];
     for (const [sleutel, kolom] of Object.entries(kolommen)) {
       if (velden[sleutel] !== undefined) {
@@ -1519,6 +1650,67 @@ module.exports = {
 
   async archiveClass(id) {
     await query(`UPDATE classes SET archived = true WHERE id = $1`, [id]);
+  },
+
+  // Sprint 51u: de jaarwissel zelf. Voor elke gekozen klas (van DEZE leerkracht, altijd
+  // gevalideerd tegen teacher_classes — nooit blind een classId van de client vertrouwen):
+  //   1) archiveer de klas (globaal — geldt voor alle eraan gekoppelde leerkrachten, net als
+  //      de bestaande "Archiveren"-knop dat al deed; geen aparte per-leerkracht-status).
+  //   2) maak een NIEUWE, LEGE klas met dezelfde naam aan in het nieuwe schooljaar, gekoppeld
+  //      aan diezelfde leerkracht(en) — TENZIJ zo'n klas al bestaat (bv. een co-leerkracht
+  //      deed de wissel al eerder), dan wordt die hergebruikt i.p.v. een duplicaat te maken.
+  //   3) zet active_school_year van de INITIËRENDE leerkracht op het nieuwe jaar.
+  // Geeft per klas terug of ze gearchiveerd is en welke nieuwe klas erbij hoort.
+  async switchSchoolYear(teacherId, classIds, nieuwJaar) {
+    if (!teacherId || !Array.isArray(classIds) || !classIds.length || !nieuwJaar) {
+      return { ok: false, error: 'Ongeldige aanvraag.' };
+    }
+    const resultaat = [];
+    await withTransaction(async (client) => {
+      for (const classId of classIds) {
+        // Valideer eigendom — nooit een klas archiveren die niet aan deze leerkracht gekoppeld is.
+        const eigendom = await client.query(
+          `SELECT 1 FROM teacher_classes WHERE teacher_id = $1 AND class_id = $2`,
+          [teacherId, classId]);
+        if (!eigendom.rows.length) { resultaat.push({ classId, ok: false, reason: 'Niet jouw klas.' }); continue; }
+
+        const oud = await client.query(
+          `SELECT name, school_year, school_id FROM classes WHERE id = $1 AND archived = false`,
+          [classId]);
+        if (!oud.rows.length) { resultaat.push({ classId, ok: false, reason: 'Klas niet gevonden of al gearchiveerd.' }); continue; }
+        const { name, school_year: oudJaar, school_id: schoolId } = oud.rows[0];
+
+        // 1) Archiveren (globaal, geldt voor alle co-leerkrachten).
+        await client.query(`UPDATE classes SET archived = true WHERE id = $1`, [classId]);
+
+        // 2) Nieuwe, lege klas — hergebruik als er al eentje met dezelfde naam/jaar/school bestaat.
+        const bestaandeNieuw = await client.query(
+          `SELECT id FROM classes WHERE name = $1 AND school_year = $2
+             AND COALESCE(school_id,'') = COALESCE($3,'') AND archived = false`,
+          [name, nieuwJaar, schoolId]);
+        let nieuweClassId;
+        if (bestaandeNieuw.rows.length) {
+          nieuweClassId = bestaandeNieuw.rows[0].id;
+        } else {
+          nieuweClassId = crypto.randomUUID();
+          await client.query(
+            `INSERT INTO classes (id, name, school_year, school_id, created_at) VALUES ($1,$2,$3,$4,$5)`,
+            [nieuweClassId, name, nieuwJaar, schoolId, Date.now()]);
+        }
+        // Koppel dezelfde leerkracht(en) als de oude klas aan de nieuwe (geen duplicaten dankzij ON CONFLICT).
+        const leerkrachten = await client.query(`SELECT teacher_id FROM teacher_classes WHERE class_id = $1`, [classId]);
+        for (const lk of leerkrachten.rows) {
+          await client.query(
+            `INSERT INTO teacher_classes (teacher_id, class_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+            [lk.teacher_id, nieuweClassId]);
+        }
+
+        resultaat.push({ classId, ok: true, name, oudJaar, nieuwJaar, nieuweClassId });
+      }
+      // 3) Actief schooljaar van de leerkracht die de wissel initieerde.
+      await client.query(`UPDATE teachers SET active_school_year = $1 WHERE id = $2`, [nieuwJaar, teacherId]);
+    });
+    return { ok: true, resultaat };
   },
 
   async deleteClass(id) {
@@ -1582,8 +1774,12 @@ module.exports = {
   // De scholen van één leerkracht. Dit is straks de bron voor het keuzescherm (48b2),
   // dus enkel ACTIEVE scholen: je kan niet inloggen op een school die niet meer draait.
   async getSchoolsForTeacher(teacherId, includeInactive = false) {
+    // Sprint 51t: license_expires_at meegeven zodat magLeerkrachtInloggen() de licentie kan
+    // controleren — enkel de kolom toegevoegd, het bestaande active-filter blijft ongewijzigd
+    // (geen extra WHERE-voorwaarde, om geen onbedoelde effecten te geven bij andere
+    // aanroepers van deze breed-gebruikte functie).
     const r = await query(
-      `SELECT s.id, s.name, s.logo_path, s.active
+      `SELECT s.id, s.name, s.logo_path, s.active, s.license_expires_at
          FROM teacher_schools ts
          JOIN schools s ON s.id = ts.school_id
         WHERE ts.teacher_id = $1 ${includeInactive ? '' : 'AND s.active = true'}
@@ -2755,6 +2951,14 @@ module.exports = {
   // 'review_mode' bepaalt of de leerling de VOLLEDIGE toets read-only mag inzien (anders
   // enkel score + commentaar).
   async listReleasedResultsForStudent(studentId) {
+    // Sprint 51q (bugfix): deze query vereiste een ACTIEF class_membership bij PRECIES de
+    // doelklas van de toets — maar 'quiz_start' staat elke actieve leerling toe deel te
+    // nemen (ook van een andere klas) zodra er geen expliciete leerlingselectie is ingesteld.
+    // En na een klasverhuizing (sprint 51e) verdwijnt het oude lidmaatschap bewust, terwijl
+    // de resultaten net WEL moesten blijven bestaan. Gevolg: een leerling die zelf een toets
+    // aflegde, zag zijn eigen (vrijgegeven) resultaat soms nooit. De juiste, eenvoudigere
+    // grens is: heeft deze leerling zelf deelgenomen (er bestaat een quiz_answers-rij) —
+    // dat garandeert al dat hij nooit andermans resultaat ziet.
     const r = await query(
       `SELECT DISTINCT s.code, s.name AS session_name, ab.type, ab.review_mode,
               ab.access_until, ab.target_class, c.name AS class_name, c.school_year
@@ -2762,9 +2966,6 @@ module.exports = {
        JOIN sessions s          ON s.code = qa.session_code
        JOIN assignment_bank ab  ON ab.session_code = s.code
        LEFT JOIN classes c      ON c.id = ab.target_class
-       JOIN class_memberships m ON m.student_id = qa.student_id
-                                AND m.class_id  = ab.target_class
-                                AND m.status = 'active'
        WHERE qa.student_id = $1
          AND ab.results_released = true
          AND ab.is_teacher_preview = false
@@ -2806,11 +3007,13 @@ module.exports = {
     if (!meta.rows.length) return { ok: false, reason: 'Niet gevonden.' };
     const m = meta.rows[0];
     if (m.is_teacher_preview || m.results_released !== true) return { ok: false, reason: 'Nog niet vrijgegeven.' };
-    const lid = await query(
-      `SELECT 1 FROM class_memberships
-       WHERE student_id = $1 AND class_id = $2 AND status = 'active' LIMIT 1`,
-      [studentId, m.target_class]);
-    if (!lid.rows.length) return { ok: false, reason: 'Geen toegang.' };
+    // Sprint 51q (bugfix): zelfde correctie als listReleasedResultsForStudent — "heeft zelf
+    // deelgenomen" is de juiste, robuustere grens dan een class_membership-eis die na een
+    // klaswissel of bij deelname buiten de doelklas onterecht de toegang blokkeerde.
+    const deelgenomen = await query(
+      `SELECT 1 FROM quiz_answers WHERE session_code = $1 AND student_id = $2 LIMIT 1`,
+      [sessionCode, studentId]);
+    if (!deelgenomen.rows.length) return { ok: false, reason: 'Geen toegang.' };
     const reviewMode = m.review_mode === true;
     const rows = await query(
       `SELECT q.order_index, q.text_snapshot, q.points, q.question_type,
@@ -3185,6 +3388,36 @@ module.exports = {
       `UPDATE quiz_answers SET score=$1, teacher_comment=$2 WHERE id=$3`,
       [score, teacherComment, answerId]
     );
+  },
+
+  // Sprint 51q (bugfix): scoren van een vraag die de leerling NOOIT bekeek/beantwoordde —
+  // er bestaat dan geen quiz_answers-rij (geen answerId), dus het opslaan via scoreQuizAnswer
+  // (een UPDATE op een bestaand id) kon niets doen: de leerkracht klikte 'Opslaan' en er
+  // gebeurde zichtbaar niets. Dit is een UPSERT op (session_code, student_id, question_id) —
+  // bestaat de rij nog niet, dan wordt ze aangemaakt (lege code/keuzes, wél de score);
+  // bestaat ze al, dan wordt gewoon de score/opmerking bijgewerkt. Geeft de (bestaande of
+  // nieuwe) answer-id terug zodat de client zijn lokale state kan aanvullen.
+  async scoreQuizAnswerByQuestion(sessionCode, studentId, questionId, studentName, studentClass, score, teacherComment) {
+    const bestaand = await query(
+      `SELECT id FROM quiz_answers WHERE session_code=$1 AND student_id=$2 AND question_id=$3`,
+      [sessionCode, studentId, questionId]);
+    if (bestaand.rows.length) {
+      await query(
+        `UPDATE quiz_answers SET score=$1, teacher_comment=$2 WHERE id=$3`,
+        [score, teacherComment, bestaand.rows[0].id]);
+      return bestaand.rows[0].id;
+    }
+    const id = crypto.randomUUID();
+    await query(
+      `INSERT INTO quiz_answers (id, session_code, student_id, student_name, student_class,
+         question_id, personal_order, code, run_count, saved_at, submitted_at,
+         score, teacher_comment, selected_choices, submitted_by)
+       VALUES ($1,$2,$3,$4,$5,$6,0,'',0,$7,$7,$8,$9,'[]','teacher')
+       ON CONFLICT (session_code, student_id, question_id) DO UPDATE
+         SET score=EXCLUDED.score, teacher_comment=EXCLUDED.teacher_comment`,
+      [id, sessionCode, studentId, studentName || '', studentClass || '', questionId,
+       Date.now(), score, teacherComment || '']);
+    return id;
   },
 
   // Sprint 51j: score van ÉÉN onderdeel van een composite-vraag opslaan. Het totaal

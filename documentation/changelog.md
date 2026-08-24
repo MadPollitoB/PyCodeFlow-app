@@ -1,3 +1,127 @@
+## v2026.2.51.18 — Sprint 51t: Licentiesysteem per school
+
+Naar aanleiding van de vraag hoe een superadmin een school toegang kan geven/ontzeggen voor een
+nieuw schooljaar (los van of de klassen/toetsen van die school al gewisseld zijn): een
+licentiesysteem met een vervaldatum, bovenop het bestaande handmatige `active`-veld.
+
+### Nieuw
+- **`schools.license_expires_at`** (vervaldatum, `null` = nooit verloopt). `active` blijft de
+  **handmatige** noodschakelaar; de vervaldatum is de **automatische**, geplande kant.
+- **Login-blokkade**: zowel leerkracht- als leerlingaccounts van een school zonder geldige
+  licentie (`active=false` of vervaldatum in het verleden) krijgen een duidelijke `403` bij het
+  inloggen. Een super-admin is hier altijd van vrijgesteld (hangt nooit aan een school). Dit
+  telt bewust **niet** mee als een mislukte inlogpoging — het wachtwoord was correct, enkel de
+  school is (nog) niet geldig.
+- **Beheer-UI**: de superadmin ziet per school een statusbadge (✅ geldig tot / ⚠️ verloopt
+  binnen 30 dagen / ⛔ verlopen) en kan de vervaldatum wijzigen via een nieuwe knop —
+  platform-only, net als de bestaande `active`/`license`-velden.
+
+### Ontwerpkeuze: bewust geïsoleerd tot de login-flow
+De licentiecontrole zit **niet** verweven in brede, overal-gebruikte functies zoals
+`getSchoolsForTeacher` (enkel de kolom is daar toegevoegd, geen extra filter) — dat voorkomt
+dat een net-verlopen licentie een al-ingelogde leerkracht midden in zijn werk de toegang tot
+zijn eigen klas zou ontzeggen. De check gebeurt uitsluitend op het moment van inloggen.
+
+### Getest
+9 losse scenario's tegen een echte database (geldig/verlopen/verloopt-binnenkort/handmatig-
+inactief, super-admin altijd toegestaan, andere school niet geraakt, na verlenging weer
+toegestaan, leerling-variant) — waarbij een echte bug gevonden en gefixt is (de licentiedatum
+werd niet meegegeven door `getSchoolsForTeacher`, waardoor de check altijd "geldig" concludeerde).
+Daarna een volledige HTTP end-to-end-test tegen een draaiende server: leerkracht/leerling van
+de verlopen school krijgen 403, andere leerkracht en de superadmin loggen gewoon in.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/public/admin.js` ·
+`VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+### Aanvulling op deze versie: Sprint 51u — Jaarwissel-workflow
+
+Tweede deel van dezelfde vraag als de licentie (Sprint 51t hierboven): hoe een leerkracht zijn
+schooljaar consistent kan laten meelopen door de hele app, en hoe hij overgaat naar een nieuw
+schooljaar.
+
+### Het probleem
+Er bestond geen "actief schooljaar"-concept per leerkracht. Een klas aanmaken viel terug op een
+**hardcoded `'2025-2026'`**; een toets/taak zonder klaskoppeling viel terug op een kale
+kalenderberekening (augustus = nieuw jaar). Twee leerkrachten konden zo, zonder enige
+samenhang, in totaal verschillende "jaren" werken.
+
+### Nieuw
+- **`teachers.active_school_year`** — permanent op het account (bewust *niet* sessie-gebonden
+  zoals de schoolkeuze). Bron van waarheid, in volgorde: expliciet gezet → meest recente
+  niet-gearchiveerde klas van de leerkracht → kalenderberekening als laatste redmiddel.
+- **Klas aanmaken en toets/taak zonder klaskoppeling** gebruiken nu dit actieve jaar in plaats
+  van de oude hardcoded/kale fallbacks.
+- **"Nieuw schooljaar starten"** in Mijn klassen: een checkbox-lijst van je eigen,
+  niet-gearchiveerde klassen in je huidige jaar. Bevestigen: elke gekozen klas wordt
+  gearchiveerd (**globaal** — geldt voor alle eraan gekoppelde leerkrachten, geen aparte
+  per-leerkracht-status) en krijgt een **lege** vervanger met dezelfde naam in het nieuwe jaar,
+  gekoppeld aan dezelfde leerkracht(en) als de oude klas (geen dubbele klassen als een
+  co-leerkracht al gewisseld heeft). Leerlingen voeg je daarna zelf toe via de bestaande
+  "klas wisselen"-tool. Historische data blijft altijd raadpleegbaar via de gearchiveerde klas.
+- Eigendom wordt bij elke stap gevalideerd — een leerkracht kan nooit andermans klas archiveren.
+
+### Getest
+11 backend-scenario's tegen een echte database (incl. het co-leerkracht-geval en een
+IDOR-poging die correct geweigerd wordt), een volledige HTTP end-to-end-test (bevestigt dat een
+nieuwe klas zonder expliciet schooljaar meteen het juiste, bijgewerkte jaar krijgt), en een
+browsertest van de modal-UI zelf. Een schema-fout (ontbrekende transactie-wrapper) tijdens het
+testen gevonden en gefixt.
+
+**Extra betrokken bestanden:** `web/public/mijn-klassen.html` · `web/public/mijn-klassen.js` ·
+`scripts/general/run-tests.sh`
+
+---
+
+
+## v2026.2.51.17 — Sprint 51s: Schooljaar-koppeling, ontbrekende leerlingen & auto-0
+
+Drie samenhangende meldingen onderzocht en opgelost, allemaal grondig getest tegen een echte
+database en (waar relevant) een echte browser.
+
+### 1. Toetsen verdwenen stilzwijgend uit het klasoverzicht
+Het schooljaar van een toets werd altijd blind berekend uit de **systeemdatum** (augustus =
+nieuw jaar) — nooit uit de gekozen klas. Werd een toets aangemaakt na de jaarwissel voor een
+klas die zelf nog het vorige schooljaar draagt, dan kreeg de toets een ander schooljaar dan de
+klas, en viel hij stil uit het Klasoverzicht (dat filtert op exact dat schooljaar).
+
+**Fix:** het schooljaar is nu een **dropdown** (met de bestaande, actieve schooljaren) die
+automatisch het schooljaar van de gekozen klas overneemt en vergrendelt — de klas is de bron
+van waarheid. Zonder gekozen klas blijft het vrij instelbaar. Bij het bewerken van een
+bestaande toets met een mismatch blijft het opgeslagen (foutieve) schooljaar zichtbaar tot je
+zelf de klas aanraakt, zodat je nooit stilzwijgend "gecorrigeerd" wordt.
+
+### 2 & 3. Ontbrekende leerling in de verbeterzone + geen automatische 0
+Uitgebreid t.o.v. sprint 51o: `fillMissingQuizAnswers` vult nu **twee** situaties aan, allebei
+met een automatische score van **0** (niet langer een lege/NULL-score die apart handmatig
+gegeven moest worden):
+- leerlingen die **nooit deelnamen** (marker `geen_deelname`),
+- leerlingen die **wél deelnamen maar niet alle vragen beantwoordden** — halve inlevering
+  (marker `niet_beantwoord`), enkel voor de ontbrekende vraag/vragen.
+
+Deze aanvulling gebeurt nu ook **robuuster**: niet enkel op het moment van stoppen, maar
+idempotent telkens de verbeterpagina een reeds-gestopte toets opent — ongeacht via welke weg
+die stopte (handmatig, de deadline-cronjob, of iets anders). De verbeterpagina toont een
+duidelijke gele banner ("automatisch op 0 gezet bij het stoppen") zodat dit nooit verward
+wordt met een score die de leerkracht zelf gaf.
+
+### Getest
+- Backend (echte database): beide aanvul-scenario's geven correct `score: 0`, idempotent bij
+  herhaalde aanroepen.
+- Schooljaar-dropdown (echte browser): correct gevuld, synchroniseert automatisch bij
+  klaskeuze, blijft correct tonen bij het bewerken van een bestaande (foutieve) toets.
+- Volledige integratietest: een toets met correct gekoppeld schooljaar verschijnt meteen in
+  het Klasoverzicht; na het stoppen staan alle klasleden automatisch met score 0 in de
+  verbeterzone.
+- Volledige testsuite: 324/324 groen.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/public/quiz-review.js` ·
+`web/public/quiz-teacher.js` · `web/public/quiz-teacher.html` · `VERSION` · overige
+`web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.16 — Sprint 51r: Bevestiging bij opslaan algemene commentaar
 
 `saveGeneralComment()` gaf geen enkele feedback — geen bevestiging bij succes, en bij een

@@ -889,13 +889,14 @@ async function loadSchools() {
             </td>
             ${MIJ.magSysteem ? `<td>${escHtml(s.license || '—')}</td>` : ''}
             <td>${escHtml(s.contact || '—')}</td>
-            <td>${s.active ? '<span class="status-active">Actief</span>' : '<span class="badge">Inactief</span>'}</td>
+            <td>${s.active ? '<span class="status-active">Actief</span>' : '<span class="badge">Inactief</span>'}${licentieBadge(s)}</td>
             <td>${fmtDate(s.created_at)}</td>
             <td style="display:flex;gap:6px;flex-wrap:wrap;">
               <button class="btn btn-muted small" onclick="beheerLogo('${s.id}', '${escHtml(s.name)}', ${s.heeft_logo ? 'true' : 'false'})">🖼 Logo</button>
               <button class="btn btn-muted small" onclick="manageDomains('${s.id}')">📧 Domeinen</button>
               <button class="btn btn-muted small" onclick="editSchool('${s.id}')">Bewerken</button>
               ${MIJ.magSysteem ? `
+                <button class="btn btn-muted small" onclick="editLicenseExpiry('${s.id}', '${escHtml(s.name)}', ${s.license_expires_at || 'null'})">📅 Vervaldatum</button>
                 <button class="btn btn-muted small" onclick="toggleSchool('${s.id}', ${!s.active})">${s.active ? 'Deactiveren' : 'Heractiveren'}</button>
                 <button class="btn btn-danger small" onclick="deleteSchool('${s.id}')">Verwijderen</button>` : ''}
             </td>
@@ -905,6 +906,43 @@ async function loadSchools() {
   } catch (e) {
     el.innerHTML = '<p class="muted">Kon scholen niet laden.</p>';
   }
+}
+
+// Sprint 51t: leesbare licentiestatus op basis van license_expires_at.
+// null = geen vervaldatum (nooit verloopt) → geen badge nodig, active-status volstaat.
+function licentieBadge(s) {
+  if (s.license_expires_at == null) return '';
+  const nu = Date.now();
+  const dagen = Math.ceil((Number(s.license_expires_at) - nu) / (24 * 60 * 60 * 1000));
+  const datum = new Date(Number(s.license_expires_at)).toLocaleDateString('nl-BE');
+  if (dagen < 0) return ` <span class="badge" style="background:#fee2e2;color:#991b1b;" title="Verlopen op ${datum}">⛔ Licentie verlopen</span>`;
+  if (dagen <= 30) return ` <span class="badge" style="background:#fef3c7;color:#92400e;" title="Verloopt op ${datum}">⚠️ Verloopt over ${dagen}d</span>`;
+  return ` <span class="badge" style="background:#dcfce7;color:#166534;" title="Geldig tot ${datum}">📅 tot ${datum}</span>`;
+}
+
+async function editLicenseExpiry(schoolId, schoolName, huidigeMs) {
+  const huidigeDatum = huidigeMs ? new Date(huidigeMs).toISOString().slice(0, 10) : '';
+  const nieuw = await pyPrompt({
+    title: 'Licentie-vervaldatum — ' + schoolName,
+    body: 'Datum (JJJJ-MM-DD), of leeg laten voor "nooit verloopt":',
+    defaultValue: huidigeDatum,
+    confirmLabel: 'Opslaan',
+  });
+  if (nieuw === null) return; // geannuleerd
+  let ms = null;
+  const trimmed = nieuw.trim();
+  if (trimmed) {
+    const d = new Date(trimmed + 'T23:59:59'); // einde van de gekozen dag
+    if (isNaN(d.getTime())) { await pyAlert('Ongeldige datum. Gebruik het formaat JJJJ-MM-DD.', 'warn'); return; }
+    ms = d.getTime();
+  }
+  const res = await apiFetch(`/api/admin/schools/${schoolId}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ licenseExpiresAt: ms }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (data.ok) { if (window.pyToast) pyToast('Vervaldatum bijgewerkt.', 'success'); loadSchools(); }
+  else await pyAlert('Fout: ' + (data.error || 'kon niet opslaan'), 'error');
 }
 
 async function addSchool() {

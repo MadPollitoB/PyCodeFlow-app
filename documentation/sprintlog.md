@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.16**
+**Huidige versie: v2026.2.51.18**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -224,6 +224,70 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 51u — Jaarwissel-workflow — ✅ AFGEROND (v2026.2.51.18, samen met 51t)
+
+Tweede deel van de jaarwissel-vraag. Nieuw `teachers.active_school_year` (permanent,
+niet sessie-gebonden), afgeleid via `bepaalActiefSchoolJaar` (expliciet → meest recente
+niet-gearchiveerde klas → kalenderberekening). Klas aanmaken en toets/taak zonder
+klaskoppeling gebruiken dit nu i.p.v. de oude hardcoded `'2025-2026'`/kale kalenderberekening.
+
+Nieuwe "Nieuw schooljaar starten"-actie in Mijn klassen: checkbox-lijst van eigen,
+niet-gearchiveerde klassen → archiveert gekozen klassen globaal (alle co-leerkrachten) en
+maakt een lege vervanger met dezelfde naam in het nieuwe jaar aan, gekoppeld aan dezelfde
+leerkracht(en) (geen duplicaten bij een co-leerkracht die al wisselde). Eigendom wordt per
+klas gevalideerd (IDOR-bestendig). Historische data blijft via de gearchiveerde klas
+raadpleegbaar.
+
+Getest: 11 backend-scenario's (incl. co-leerkracht + IDOR-poging), volledige HTTP
+end-to-end-test, browsertest van de modal-UI. Een schema-fout (ontbrekende DO $$-wrapper)
+tijdens het testen gevonden en gefixt.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` ·
+`web/public/mijn-klassen.html` · `web/public/mijn-klassen.js` ·
+`scripts/general/run-tests.sh`.
+
+---
+
+### Sprint 51t — Licentiesysteem per school — ✅ AFGEROND (v2026.2.51.18)
+
+Nieuw `schools.license_expires_at` (vervaldatum, null = nooit verloopt) naast het bestaande
+handmatige `active`. Login-blokkade (teacher-login + student-login) voor accounts van een
+school zonder geldige licentie, super-admin vrijgesteld, telt niet als mislukte poging.
+Beheer-UI toont een statusbadge per school en laat de vervaldatum wijzigen (platform-only).
+
+Ontwerpkeuze: de check zit geïsoleerd in de login-flow, niet verweven met brede
+autorisatiefuncties — voorkomt dat een net-verlopen licentie een lopende sessie breekt.
+
+Getest: 9 scenario's tegen een echte database (incl. een gevonden en gefixte bug —
+getSchoolsForTeacher gaf de vervaldatum niet door) + een volledige HTTP end-to-end-test.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/public/admin.js`.
+
+---
+
+### Sprint 51s — Schooljaar-koppeling, ontbrekende leerlingen & auto-0 — ✅ AFGEROND (v2026.2.51.17)
+
+**Schooljaar-mismatch:** het schooljaar van een toets werd blind uit de systeemdatum berekend,
+nooit uit de klas. Fix: dropdown die het schooljaar van de gekozen klas overneemt en
+vergrendelt (klas = bron van waarheid); vrij instelbaar zonder klas; bij bewerken blijft een
+bestaande mismatch zichtbaar tot de leerkracht de klas zelf aanraakt.
+
+**Ontbrekende leerlingen + auto-0:** `fillMissingQuizAnswers` (uitbreiding van 51o's
+`fillMissingQuizParticipants`) vult nu zowel niet-deelgenomen leerlingen als onbeantwoorde
+vragen van wel-gestarte leerlingen aan, allebei met automatische score 0
+(`geen_deelname`/`niet_beantwoord`-markers). Nu ook getriggerd bij het OPHALEN van de
+verbeterzone (niet enkel bij stoppen), robuust tegen elke manier waarop een toets stopte.
+Gele banner in de verbeterpagina maakt het onderscheid met een leerkracht-gegeven 0 duidelijk.
+
+Getest: backend (echte database, beide scenario's + idempotentie), schooljaar-dropdown (echte
+browser, incl. bewerk-scenario met een bestaande mismatch), en een volledige integratietest
+(aanmaken → klasoverzicht → stoppen → verbeterzone) die alle drie de fixes samen bevestigt.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/public/quiz-review.js` ·
+`web/public/quiz-teacher.js` · `web/public/quiz-teacher.html`.
+
+---
 
 ### Sprint 51r — Bevestiging bij opslaan algemene commentaar — ✅ AFGEROND (v2026.2.51.16)
 

@@ -158,4 +158,87 @@ async function foutmelding(d, r) {
   await window.pyAlert('Actie mislukt: ' + (d.error || ('serverfout ' + r.status)), 'error');
 }
 
+// ── Sprint 51u: actief schooljaar + jaarwissel ────────────────────────────────
+function volgendSchoolJaar(jaar) {
+  const m = String(jaar || '').match(/^(\d{4})-(\d{4})$/);
+  if (!m) return jaar;
+  const y = parseInt(m[1], 10) + 1;
+  return `${y}-${y + 1}`;
+}
+
+async function laadActiefSchoolJaar() {
+  const el = document.getElementById('actief-schooljaar');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/teacher/active-school-year');
+    const d = await r.json();
+    el.textContent = d.schoolYear || '—';
+  } catch (e) { el.textContent = '—'; }
+}
+
+async function openJaarwisselModal() {
+  const modal = document.getElementById('jaarwissel-modal');
+  const lijst = document.getElementById('jw-klassenlijst');
+  modal.style.display = 'flex';
+  lijst.innerHTML = 'Laden…';
+  try {
+    const r = await fetch('/api/teacher/archivable-classes');
+    const d = await r.json();
+    const huidig = d.schoolYear || '';
+    const nieuw = volgendSchoolJaar(huidig);
+    document.getElementById('jw-huidig-jaar').textContent = huidig;
+    document.getElementById('jw-nieuw-jaar').textContent = nieuw;
+    if (!d.classes || !d.classes.length) {
+      lijst.innerHTML = `<p class="muted">Je hebt geen (niet-gearchiveerde) klassen in ${esc(huidig)} — er is niets om te archiveren.
+        Je kan wel meteen zelf een nieuwe klas aanmaken voor ${esc(nieuw)} via Beheer → Klassen.</p>`;
+      return;
+    }
+    lijst.innerHTML = d.classes.map(c => `
+      <label style="display:flex;align-items:center;gap:10px;padding:8px 4px;cursor:pointer;">
+        <input type="checkbox" class="jw-klas-cb" value="${esc(c.id)}"/>
+        <span>${esc(c.name)}</span>
+      </label>`).join('');
+  } catch (e) {
+    lijst.innerHTML = '<p class="muted">Kon je klassen niet laden.</p>';
+  }
+}
+
+function closeJaarwisselModal() {
+  document.getElementById('jaarwissel-modal').style.display = 'none';
+}
+
+async function bevestigJaarwissel() {
+  const gekozen = Array.from(document.querySelectorAll('.jw-klas-cb:checked')).map(cb => cb.value);
+  const nieuwJaar = document.getElementById('jw-nieuw-jaar').textContent;
+  if (!gekozen.length) {
+    if (window.pyToast) pyToast('Kies minstens één klas om te archiveren.', 'warn');
+    return;
+  }
+  const ok = await window.pyConfirm({
+    title: 'Schooljaar wisselen',
+    body: `${gekozen.length} klas(sen) worden gearchiveerd en krijgen een lege vervanger in ${nieuwJaar}. ` +
+          `Dit geldt voor ALLE leerkrachten van die klassen. Doorgaan?`,
+    confirmLabel: 'Ja, wissel', danger: false,
+  });
+  if (!ok) return;
+  try {
+    const r = await window.apiFetch('/api/teacher/switch-school-year', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ classIds: gekozen, newSchoolYear: nieuwJaar }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.ok) {
+      closeJaarwisselModal();
+      if (window.pyToast) pyToast(`Schooljaar gewisseld naar ${nieuwJaar}.`, 'success');
+      laadActiefSchoolJaar();
+      laadKlassen();
+    } else {
+      await foutmelding(d, r);
+    }
+  } catch (e) {
+    await window.pyAlert('De jaarwissel is mislukt: ' + e.message, 'error');
+  }
+}
+
+laadActiefSchoolJaar();
 laadKlassen();

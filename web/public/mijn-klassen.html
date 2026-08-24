@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Mijn klassen</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.16"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.18"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .klas-kaart { background:var(--surface); border:1.5px solid var(--border); border-radius:14px; padding:18px 20px; margin-bottom:18px; }
@@ -48,7 +48,43 @@
 <h1>👥 Mijn klassen</h1>
 <p class="muted">De klassen waaraan jij gekoppeld bent: zet de <strong>startcode</strong> op het bord (klik erop voor bord-formaat),
 open of sluit het registratievenster, en <strong>aanvaard</strong> wachtende leerlingen — pas daarna kunnen ze aan toetsen en taken deelnemen.</p>
+
+<div class="klas-kaart" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+  <div>
+    <div class="muted" style="font-size:0.8rem;">Je actieve schooljaar</div>
+    <div style="font-size:1.3rem;font-weight:800;" id="actief-schooljaar">…</div>
+  </div>
+  <button class="btn btn-muted small" style="margin-left:auto;" onclick="openJaarwisselModal()">📆 Nieuw schooljaar starten</button>
+</div>
+
 <div id="klassen"></div>
+</div>
+
+<!-- Sprint 51u: jaarwissel — archiveer gekozen klassen en start een nieuw, leeg schooljaar. -->
+<div id="jaarwissel-modal" style="position:fixed;inset:0;background:rgba(15,23,42,0.55);display:none;
+  align-items:center;justify-content:center;z-index:9999;padding:20px;">
+  <div style="background:#fff;max-width:520px;width:100%;max-height:85vh;border-radius:16px;
+    box-shadow:0 20px 50px rgba(0,0,0,0.3);display:flex;flex-direction:column;overflow:hidden;">
+    <div style="padding:18px 22px;border-bottom:1px solid var(--border);">
+      <strong style="font-size:1.1rem;">📆 Nieuw schooljaar starten</strong>
+      <p class="muted" style="font-size:0.85rem;margin:8px 0 0;">
+        Kies welke klassen je wil archiveren voor <span id="jw-huidig-jaar">…</span>.
+        Voor elke gekozen klas komt er een <strong>lege</strong> klas met dezelfde naam in het
+        nieuwe schooljaar — leerlingen voeg je daarna zelf toe. De oude klas (met alle
+        historische resultaten) blijft altijd raadpleegbaar via het Archief.
+      </p>
+    </div>
+    <div style="padding:14px 22px;overflow-y:auto;flex:1;">
+      <div id="jw-klassenlijst" class="muted">Laden…</div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px;">
+      <span class="muted" style="font-size:0.85rem;">Nieuw schooljaar: <strong id="jw-nieuw-jaar">…</strong></span>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-muted small" onclick="closeJaarwisselModal()">Annuleren</button>
+        <button class="btn btn-primary small" onclick="bevestigJaarwissel()">Archiveren &amp; starten</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="code-modal" onclick="this.style.display='none'">
@@ -56,7 +92,7 @@ open of sluit het registratievenster, en <strong>aanvaard</strong> wachtende lee
   <div class="uitleg" id="modal-uitleg"></div>
 </div>
 
-<script src="/app.js?v=v2026.2.51.16"></script>
-<script src="/mijn-klassen.js?v=v2026.2.51.16"></script>
+<script src="/app.js?v=v2026.2.51.18"></script>
+<script src="/mijn-klassen.js?v=v2026.2.51.18"></script>
 <script src="/nav-rechten.js"></script>
-<script src="/privacy.js?v=v2026.2.51.16"></script></body></html>
+<script src="/privacy.js?v=v2026.2.51.18"></script></body></html>

@@ -30,8 +30,9 @@ for f in "$WEB/server.js" "$WEB/public/app.js" \
          "$WEB/scripts/manage-teacher.js" \
          "$WEB"/public/monitoring.js "$WEB"/public/quiz-bank.js "$WEB"/public/quiz-student.js \
          "$WEB"/public/quiz-review.js "$WEB"/public/quiz-teacher.js "$WEB"/public/quiz-archive.js \
-         "$WEB"/public/assignment-overview.js \
-         "$WEB"/public/admin.js "$WEB"/public/teacher-grid.js "$WEB"/public/teacher-login.js; do
+         "$WEB"/public/assignment-overview.js "$WEB"/public/privacy.js \
+         "$WEB"/public/admin.js "$WEB"/public/teacher-grid.js "$WEB"/public/teacher-login.js \
+         "$WEB"/public/mijn-klassen.js; do
   if [[ ! -f "$f" ]]; then
     fail "$(basename "$f") — bestand ONTBREEKT (niet gedeployed?)"
   elif node --check "$f" 2>/dev/null; then
