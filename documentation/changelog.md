@@ -1,3 +1,64 @@
+## v2026.2.51.20 — Sprint 51w: Onduidelijke actieve tab op het sessiescherm
+
+Op het sessiescherm (Sessies/Toetsen/Taken-knoppen boven "Lopende sessies") was niet te zien
+welke tab je bekeek.
+
+### Oorzaak
+`.active-tab` werd door `showTab()` correct toegevoegd/verwijderd, maar had **geen enkele
+CSS-regel** — de klasse deed dus visueel niets. Daarnaast bleef de titel boven het paneel
+altijd "Lopende sessies" tonen, ongeacht welke tab actief was.
+
+### Fix
+- **Duidelijk kleurverschil**: de actieve tab krijgt nu de primaire kleur (donkerblauw, wit
+  label), de andere blijven neutraal grijs.
+- **Dynamische titel**: "Lopende sessies" (Sessies-tab) / "Openstaande toetsen" (Toetsen-tab) /
+  "Openstaande taken" (Taken-tab) — precies zoals gevraagd.
+
+**Getest** in een echte browser: bij elke tab-klik is het kleurverschil bevestigd
+(`rgb(51,78,162)` actief vs. `rgb(238,241,245)` niet-actief) en de titel wisselt correct mee,
+inclusief terugklikken naar Sessies.
+
+**Betrokken bestanden:** `web/public/styles.css` · `web/public/app.js` ·
+`web/public/teacher-sessions.html` · `VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.19 — Sprint 51v: Toets/taak verwijderen + DELETE_ALL-bevestiging
+
+Toets/taak verwijderen "lukte niet" zonder enige melding. Twee samenhangende bugs gevonden en
+gefixt, plus de gevraagde extra bevestigingsstap toegevoegd.
+
+### Wat er mis was
+1. De knop riep het **verkeerde endpoint** aan (`/api/sessions/:code` i.p.v. het echte
+   `/api/quiz/:code`), zonder de al langer verplichte naam-bevestiging mee te sturen.
+2. De fetch-respons werd **nooit gecontroleerd** — zowel een succesvolle als een mislukte
+   verwijdering gaven dus letterlijk geen enkele melding.
+3. Onderweg ook een aparte, pre-existing crash-bug gevonden in `pyPrompt()` zelf
+   (`cancelLabel is not defined` — een ontbrekende variabele-declaratie): **elke** plek in de
+   app die een tekstinvoer-bevestiging vraagt (waaronder deze nieuwe flow, en de
+   licentie-vervaldatum-editor uit een vorige sprint) crashte hierdoor stil.
+
+### Nieuw: DELETE_ALL-bevestiging bij bestaande activiteit
+Zoals gevraagd: heeft de toets/taak al scores, commentaren of runs, dan volstaat de gewone
+naam-bevestiging niet meer. Er verschijnt een tweede, duidelijke waarschuwing die uitlegt dat
+dit ALLE scores/commentaren/resultaten van leerlingen definitief verwijdert, en pas na het
+letterlijk intypen van **DELETE_ALL** gaat de verwijdering door. Zonder bestaande activiteit
+blijft de gewone (bestaande) naam-bevestiging volstaan.
+
+In beide gevallen — geslaagd of mislukt — verschijnt nu een duidelijke melding.
+
+### Getest
+Volledige HTTP end-to-end-test tegen een echte server (5 scenario's: zonder DELETE_ALL
+geweigerd met duidelijke reden, mét DELETE_ALL geslaagd en de toets écht weg, foute naam
+geweigerd, verkeerd gespelde DELETE_ALL geweigerd) én een volledige browsertest van de
+tweetraps-modal-flow zelf (beide modals verschijnen in de juiste volgorde, eindigt met een
+zichtbare succes-toast). De `pyPrompt`-crash apart bevestigd en na de fix opnieuw getest.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/app.js` · `VERSION` · overige
+`web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.18 — Sprint 51t: Licentiesysteem per school
 
 Naar aanleiding van de vraag hoe een superadmin een school toegang kan geven/ontzeggen voor een

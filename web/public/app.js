@@ -1202,6 +1202,11 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
   }
 
   // Sprint 16: tab switcher voor teacher-sessions
+  // Sprint 51w (bugfix): de titel boven het paneel bleef altijd "Lopende sessies" staan,
+  // ongeacht welke tab actief was — samen met de ontbrekende .active-tab-stijl (zie
+  // styles.css) was niet te zien welke van Sessies/Toetsen/Taken je bekeek.
+  const TAB_TITEL = { sessions: 'Lopende sessies', quizzes: 'Lopende sessies',
+                       toetsen: 'Openstaande toetsen', taken: 'Openstaande taken' };
   window.showTab = function(name, btn) {
     const show = (id, on) => { const e = document.getElementById(id); if (e) e.style.display = on ? '' : 'none'; };
     show('tab-sessions', name === 'sessions');
@@ -1210,6 +1215,8 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
     show('tab-taken',    name === 'taken');
     document.querySelectorAll('.active-tab').forEach(b => b.classList.remove('active-tab'));
     if (btn) btn.classList.add('active-tab');
+    const titelEl = qs('sessions-panel-title');
+    if (titelEl && TAB_TITEL[name]) titelEl.textContent = TAB_TITEL[name];
     if (name === 'quizzes') loadQuizSessions();
     if (name === 'toetsen') loadActiveAssignments('toets');
     if (name === 'taken')   loadActiveAssignments('taak');
@@ -1384,14 +1391,58 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
   window.deleteQuiz = async function(code) {
     const item = _quizByCode[code];
     const name = item ? (item.name || code) : code;
-    const msg = `Toets/taak "${name}" definitief uit de bank verwijderen?`;
-    const ok = window.pyConfirm ? await pyConfirm({ title: 'Verwijderen', body: msg, confirmLabel: 'Verwijderen', danger: true }) : window.confirm(msg);
-    if (!ok) return;
-    try {
-      await fetch(`/api/sessions/${encodeURIComponent(code)}`, { method: 'DELETE' });
+
+    // Sprint 51v (bugfix): dit riep voorheen het VERKEERDE endpoint aan (/api/sessions/:code
+    // i.p.v. /api/quiz/:code), zonder de vereiste naam-bevestiging mee te sturen, én zonder
+    // ooit de respons te controleren — dus zowel een succesvolle als een mislukte verwijdering
+    // gaven letterlijk geen enkele melding. Nu: het juiste endpoint, de naam ter bevestiging,
+    // en bij bestaande activiteit (scores/commentaren/runs) een tweede, zwaardere stap waar
+    // "DELETE_ALL" getypt moet worden — en in beide gevallen een duidelijke melding.
+    const typedName = await window.pyPrompt({
+      title: 'Toets/taak verwijderen',
+      body: `Dit verwijdert "${escapeHtml(name)}" definitief. Typ de naam ter bevestiging:`,
+      confirmLabel: 'Verwijderen',
+    });
+    if (typedName === null) return; // geannuleerd
+    if (typedName.trim().toLowerCase() !== name.trim().toLowerCase()) {
+      if (window.pyAlert) await pyAlert('De ingetypte naam komt niet overeen — niets verwijderd.', 'warn');
+      return;
+    }
+
+    const postDelete = async (confirmDeleteAll) => {
+      const r = await (window.apiFetch || fetch)(`/api/quiz/${encodeURIComponent(code)}`, {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmName: typedName, confirmDeleteAll }),
+      });
+      const data = await r.json().catch(() => ({}));
+      return { ok: r.ok, data };
+    };
+
+    let { ok, data } = await postDelete(undefined);
+
+    if (!ok && data.requiresDeleteAll) {
+      const typedDeleteAll = await window.pyPrompt({
+        title: '⚠️ Deze toets/taak heeft al ingeleverd werk',
+        body: (data.error || 'Er zijn al scores/commentaren/runs.') +
+              '<br/><br/>Typ <strong>DELETE_ALL</strong> om te bevestigen dat je ALLE scores, ' +
+              'commentaren en resultaten van leerlingen definitief wil verwijderen:',
+        confirmLabel: 'Alles verwijderen',
+      });
+      if (typedDeleteAll === null) return; // geannuleerd
+      if (typedDeleteAll.trim() !== 'DELETE_ALL') {
+        if (window.pyAlert) await pyAlert('Niet exact "DELETE_ALL" ingetypt — niets verwijderd.', 'warn');
+        return;
+      }
+      ({ ok, data } = await postDelete('DELETE_ALL'));
+    }
+
+    if (ok && data.ok) {
+      if (window.pyToast) pyToast(`"${name}" is verwijderd.`, 'success');
+      else if (window.pyAlert) await pyAlert(`"${name}" is verwijderd.`, 'success');
       await refreshQuizViews();
-    } catch (e) {
-      if (window.pyAlert) pyAlert('Verwijderen mislukt: ' + e.message, 'error'); else alert('Verwijderen mislukt: ' + e.message);
+    } else {
+      const msg = 'Verwijderen mislukt: ' + (data.error || 'onbekende fout');
+      if (window.pyAlert) await pyAlert(msg, 'error'); else alert(msg);
     }
   };
 
@@ -3192,6 +3243,10 @@ window.pyPrompt = function(opties) {
   opties = opties || {};
   var title = opties.title || 'Invoer', body = opties.body || '';
   var confirmLabel = opties.confirmLabel || 'OK';
+  // Sprint 51v (bugfix): cancelLabel werd hieronder gebruikt maar nergens gedeclareerd —
+  // elke aanroep van pyPrompt() crashte met "cancelLabel is not defined" (bevestigd met een
+  // browsertest), wat ELKE plek die pyPrompt gebruikt liet falen zonder duidelijke oorzaak.
+  var cancelLabel = opties.cancelLabel || 'Annuleren';
   return new Promise(function(resolve) {
     var existing = document.getElementById('py-modal-overlay');
     if (existing) existing.parentNode.removeChild(existing);

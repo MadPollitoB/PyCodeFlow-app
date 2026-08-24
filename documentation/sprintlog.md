@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.18**
+**Huidige versie: v2026.2.51.20**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -224,6 +224,37 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 51w — Onduidelijke actieve tab op het sessiescherm — ✅ AFGEROND (v2026.2.51.20)
+
+`.active-tab` werd correct toegevoegd/verwijderd door showTab() maar had nooit een CSS-regel
+gekregen — visueel dus onzichtbaar. Fix: primaire kleur (donkerblauw/wit) voor de actieve tab.
+Titel boven het paneel bleef ook altijd "Lopende sessies" tonen; wisselt nu mee: "Lopende
+sessies" (Sessies) / "Openstaande toetsen" (Toetsen) / "Openstaande taken" (Taken).
+
+Getest in een echte browser: kleurverschil en titelwissel bevestigd bij elke tab-klik.
+
+**Betrokken bestanden:** `web/public/styles.css` · `web/public/app.js` ·
+`web/public/teacher-sessions.html`.
+
+---
+
+### Sprint 51v — Toets/taak verwijderen + DELETE_ALL — ✅ AFGEROND (v2026.2.51.19)
+
+Verwijderen "lukte niet, geen melding": de knop riep het verkeerde endpoint aan
+(`/api/sessions/:code` i.p.v. `/api/quiz/:code`) zonder de vereiste naam-bevestiging, en de
+respons werd nooit gecontroleerd. Gefixt: juiste endpoint, altijd een duidelijke melding
+(succes of fout). Nieuw: bij bestaande activiteit (scores/commentaren/runs) een tweede,
+zwaardere stap waar "DELETE_ALL" getypt moet worden — anders volstaat de bestaande
+naam-bevestiging. Onderweg een pre-existing crash in `pyPrompt()` gevonden en gefixt
+(ontbrekende `cancelLabel`-declaratie, trof elke tekstinvoer-bevestiging in de app).
+
+Getest: 5 HTTP-scenario's tegen een echte server + een volledige browsertest van de
+tweetraps-modal-flow (eindigt met zichtbare succes-toast).
+
+**Betrokken bestanden:** `web/server.js` · `web/public/app.js`.
+
+---
 
 ### Sprint 51u — Jaarwissel-workflow — ✅ AFGEROND (v2026.2.51.18, samen met 51t)
 

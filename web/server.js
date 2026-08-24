@@ -4709,17 +4709,29 @@ app.put('/api/quiz/:code/unarchive', requireTeacherAuth, requireSessionAccess, r
 });
 
 app.delete('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
-  const { confirmName } = req.body || {};
+  const { confirmName, confirmDeleteAll } = req.body || {};
   const code = req.params.code.toUpperCase();
   const session = sessions.get(code);
   const sessionName = session?.name || code;
   if (!confirmName || confirmName.trim().toLowerCase() !== sessionName.toLowerCase()) {
     return res.status(400).json({ error: 'Bevestigingsnaam komt niet overeen.' });
   }
+  // Sprint 51v (bugfix + feature): een toets/taak met al bestaande scores/commentaren/runs
+  // vereist een EXTRA, zwaardere bevestiging (het letterlijke woord DELETE_ALL) bovenop de
+  // naam — zodat een leerkracht nooit per ongeluk al het werk van leerlingen wist. Zonder
+  // activiteit volstaat de gewone naam-bevestiging (bestond al).
+  const heeftActiviteit = await dbModule.quizHasActivity(code);
+  if (heeftActiviteit && confirmDeleteAll !== 'DELETE_ALL') {
+    return res.status(400).json({
+      error: 'Deze toets/taak heeft al ingeleverd werk (scores, commentaren, runs, …). ' +
+             'Typ DELETE_ALL om te bevestigen dat dit ALLES definitief verwijdert.',
+      requiresDeleteAll: true,
+    });
+  }
   const actor = getActorFromReq(req);
   await dbModule.deleteQuizFully(code);
   sessions.delete(code);
-  dbModule.auditLog(actor, 'quiz_deleted', code, { sessionName }, req.ip).catch(() => {});
+  dbModule.auditLog(actor, 'quiz_deleted', code, { sessionName, hadActivity: heeftActiviteit }, req.ip).catch(() => {});
   res.json({ ok: true });
 });
 
