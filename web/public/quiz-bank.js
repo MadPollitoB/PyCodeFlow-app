@@ -23,6 +23,51 @@ async function apiFetch(url, options = {}) {
 let _questions = [];
 let _choices   = [];   // huidige antwoordopties
 let _parts     = [];   // Sprint 51j: onderdelen van een samengestelde ('composite') vraag
+
+// ── Sprint 51-fix: echte Monaco-editors voor modelantwoord-velden bij een code-vraag ───────
+// Bewust NIET de gedeelde ensureEditor()/editorStore uit app.js hergebruikt: die is
+// hardcoded voor de student/leerkracht/vrije-editor-context (elke wijziging stuurt een
+// socket.emit('code_update', …) om een live quiz-sessie te synchroniseren) — hier is er
+// geen sessie, enkel een gewoon formulierveld. Een standalone, lichte instance voorkomt
+// die ongewenste neveneffecten terwijl leerkrachten wél dezelfde editor-look/-gevoel
+// krijgen als leerlingen tijdens een toets (Monaco, Python-syntax, donker thema).
+let _qmodelEditor = null;      // hoofdvraag-modelantwoord (#qmodel-editor)
+let _qpartModelEditor = null;  // modelantwoord van het (max 1) code-onderdeel in composite
+
+async function ensureQuizBankMonacoTheme(monaco) {
+  if (window._pycfQuizBankThemeReady) { monaco.editor.setTheme('pycodeflow-dark'); return; }
+  monaco.editor.defineTheme('pycodeflow-dark', {
+    base: 'vs-dark', inherit: true, rules: [],
+    colors: {
+      'editor.background': '#1e1e1e',
+      'editorLineNumber.foreground': '#9fb3c8',
+      'editorLineNumber.activeForeground': '#ffffff',
+      'editor.lineHighlightBackground': '#23272e',
+      'editor.lineHighlightBorder': '#23272e',
+    },
+  });
+  window._pycfQuizBankThemeReady = true;
+  monaco.editor.setTheme('pycodeflow-dark');
+}
+
+async function mountStandaloneCodeEditor(hostId, initialValue) {
+  const host = document.getElementById(hostId);
+  if (!host || !window.loadMonaco) return null;
+  const monaco = await window.loadMonaco();
+  await ensureQuizBankMonacoTheme(monaco);
+  return monaco.editor.create(host, {
+    value: initialValue || '',
+    language: 'python',
+    theme: 'pycodeflow-dark',
+    automaticLayout: true,      // eenvoudiger dan handmatig layout() aanroepen in een dynamisch formulier
+    minimap: { enabled: false },
+    fontSize: 14,
+    lineNumbers: 'on',
+    scrollBeyondLastLine: false,
+    wordWrap: 'on',
+    renderLineHighlight: 'line',
+  });
+}
 let _previewOpen = false;
 
 // ── Tab navigatie ──────────────────────────────────────────────────────────────
@@ -170,6 +215,11 @@ function bindQGridActionsOnce() {
 function editQuestion(id) {
   const q = _questions.find(x => x.id === id);
   if (!q) return;
+  // Sprint 51-fix: switchTab('add') MOET vóór onTypeChange() gebeuren — Monaco meet zijn
+  // containergrootte op het moment van monaco.editor.create(). Was de tab op dat moment nog
+  // verborgen (display:none via een oudere .tab-content), dan initialiseerde de editor met
+  // 0×0 pixels en bleef leeg/onzichtbaar, ook nadat de tab zichtbaar werd.
+  switchTab('add');
   document.getElementById('edit-id').value = id;
   document.getElementById('q-text').value = q.text;
   document.getElementById('q-subject').value = q.subject || '';
@@ -193,10 +243,19 @@ function editQuestion(id) {
   if (q.question_type === 'composite') renderParts();
   // Reset preview als die open stond
   if (_previewOpen) toggleMarkdownPreview();
-  switchTab('add');
 }
 
-function cancelEdit() {
+// Sprint 51-fix: gedeelde reset-logica, met de eind-tab als parameter — 'cancelEdit()'
+// (annuleren, terug naar de lijst) en de "+ Nieuwe vraag"-knop (blijft op het formulier)
+// deelden voorheen deze code niet; de knop riep enkel switchTab('add') aan zonder ooit
+// onTypeChange('code') te triggeren, waardoor de Monaco-editor nooit gemount werd bij het
+// openen van een fris formulier — de host bleef 'display:none' staan.
+// Sprint 51-fix (vervolg): switchTab('add') moet ALTIJD vóór onTypeChange() gebeuren, ook
+// als de uiteindelijke bestemming 'browse' is (annuleren) — Monaco meet zijn container-
+// grootte op het moment van aanmaken, en een verborgen tab geeft een lege 0×0-editor. Bij
+// 'browse' als eindbestemming schakelen we hierna gewoon meteen door.
+function resetQuestionForm(eindTab) {
+  switchTab('add');
   document.getElementById('edit-id').value = '';
   document.getElementById('q-text').value = '';
   document.getElementById('q-subject').value = '';
@@ -214,8 +273,11 @@ function cancelEdit() {
   document.getElementById('q-points').readOnly = false;
   document.getElementById('q-points-auto-hint').style.display = 'none';
   if (_previewOpen) toggleMarkdownPreview();
-  switchTab('browse');
+  if (eindTab !== 'add') switchTab(eindTab);
 }
+
+function cancelEdit() { resetQuestionForm('browse'); }
+function startNewQuestion() { resetQuestionForm('add'); }
 
 // ── 25a/25b/25c/25d: Editor toolbar, split-view, kaders, tabel ───────────────
 
@@ -382,17 +444,31 @@ function insertTabel() {
 }
 
 // ── 22e: Vraagtype & keuze-opties ──────────────────────────────────────────────
-function onTypeChange(type) {
-  // Sprint 51-fix: het modelantwoord-veld (#q-model) is een gedeeld veld voor alle
-  // vraagtypes. Bij 'code' moet het er als een ECHT codeveld uitzien (donkere achtergrond,
-  // monospace) — hergebruikt dezelfde .choice-code-input-stijl die elders al bestaat voor
-  // code-opties, in plaats van een gewone witte tekstbox met enkel een monospace-lettertype.
+async function onTypeChange(type) {
+  // Sprint 51-fix: bij vraagtype 'code' tonen we een ECHTE Monaco-editor (dezelfde
+  // component als leerlingen tijdens een toets krijgen) i.p.v. een simpele donker-
+  // gekleurde textarea. De textarea (#q-model) blijft het opslagpunt voor niet-code
+  // types; bij het wisselen wordt de waarde overgezet tussen beide zodat niets verloren
+  // gaat als je heen-en-weer wisselt tussen vraagtypes.
   const modelField = document.getElementById('q-model');
-  if (modelField) {
-    modelField.classList.toggle('choice-code-input', type === 'code');
-    modelField.placeholder = type === 'code'
-      ? 'Bv. de voorbeeldoplossing in Python…'
-      : 'Bv. de voorbeeldoplossing of het verwachte antwoord…';
+  const modelEditorHost = document.getElementById('qmodel-editor');
+  if (modelField && modelEditorHost) {
+    if (type === 'code') {
+      modelField.style.display = 'none';
+      modelEditorHost.style.display = 'block';
+      if (!_qmodelEditor) {
+        _qmodelEditor = await mountStandaloneCodeEditor('qmodel-editor', modelField.value);
+      } else if (_qmodelEditor.getValue() !== modelField.value) {
+        _qmodelEditor.setValue(modelField.value || '');
+      }
+    } else {
+      // Wissel WEG van code: haal de waarde uit Monaco terug in de textarea, mocht die
+      // net bewerkt zijn, vóórdat de editor weer verborgen wordt.
+      if (_qmodelEditor) modelField.value = _qmodelEditor.getValue();
+      modelEditorHost.style.display = 'none';
+      modelField.style.display = '';
+      modelField.placeholder = 'Bv. de voorbeeldoplossing of het verwachte antwoord…';
+    }
   }
 
   const panel = document.getElementById('choices-panel');
@@ -592,6 +668,7 @@ function updatePartsPointsTotal() {
 
 function renderParts() {
   const heeftCode = _parts.some(p => p.type === 'code');
+  const codePart = _parts.find(p => p.type === 'code');
   const list = document.getElementById('parts-list');
   list.innerHTML = _parts.map((p, i) => `
     <div class="part-row">
@@ -616,9 +693,7 @@ function renderParts() {
         }
         ${(p.type === 'single' || p.type === 'multiple') ? renderPartChoices(p) : ''}
         ${p.type === 'code'
-          ? `<textarea class="choice-code-input" rows="2" placeholder="Modelcode voor dit onderdeel (optioneel)"
-               spellcheck="false" autocapitalize="off" autocorrect="off" style="margin-top:6px;"
-               oninput="setPartField('${p.id}', 'modelAnswer', this.value)" onkeydown="event.stopPropagation()">${esc(p.modelAnswer)}</textarea>`
+          ? `<div id="qpartmodel-editor" class="monaco-editor-host" style="margin-top:6px;height:130px;border-radius:8px;"></div>`
           : (p.type !== 'single' && p.type !== 'multiple'
             ? `<input type="text" value="${esc(p.modelAnswer)}" placeholder="Modelantwoord voor dit onderdeel (optioneel)"
                  spellcheck="false" autocapitalize="off" autocorrect="off" style="margin-top:6px;"
@@ -630,6 +705,25 @@ function renderParts() {
     </div>`).join('');
   const addBtn = document.getElementById('add-part-btn');
   if (addBtn) addBtn.disabled = _parts.length >= 6;
+
+  // Sprint 51-fix: het code-onderdeel (indien aanwezig) krijgt een ECHTE Monaco-editor,
+  // net als het hoofdvraag-modelantwoord. De host hierboven is net herbouwd via
+  // list.innerHTML= — een eventuele vorige instance is dus losgekoppeld en moet
+  // opgeruimd worden vóór een nieuwe wordt aangemaakt (anders lekt elke render een
+  // ongebruikte Monaco-instance).
+  if (_qpartModelEditor) { try { _qpartModelEditor.dispose(); } catch { /* al weg */ } _qpartModelEditor = null; }
+  if (codePart) {
+    mountStandaloneCodeEditor('qpartmodel-editor', codePart.modelAnswer).then(editor => {
+      if (!editor) return;
+      _qpartModelEditor = editor;
+      editor.onDidChangeModelContent(() => {
+        // Zoek het onderdeel opnieuw op (niet de closure-variabele codePart) — _parts kan
+        // ondertussen elders gewijzigd zijn (bv. punten aangepast).
+        const huidig = _parts.find(x => x.type === 'code');
+        if (huidig) huidig.modelAnswer = editor.getValue();
+      });
+    });
+  }
 }
 
 // Sprint 51y: keuze-editor voor een single/multiple onderdeel binnen een samengestelde vraag
@@ -688,7 +782,13 @@ async function saveQuestion() {
     subject:      document.getElementById('q-subject').value.trim(),
     difficulty:   document.getElementById('q-difficulty').value,
     tags:         document.getElementById('q-tags').value.trim(),
-    modelAnswer:  document.getElementById('q-model').value,
+    // Sprint 51-fix: bij type 'code' staat de actuele waarde in de Monaco-editor, niet
+    // (noodzakelijk) in de textarea — die wordt enkel gesynchroniseerd bij een type-wissel,
+    // niet live bij elke toetsaanslag. Rechtstreeks opslaan zonder eerst te wisselen zou
+    // anders de textarea's (mogelijk verouderde) waarde gebruiken.
+    modelAnswer:  (type === 'code' && _qmodelEditor)
+      ? _qmodelEditor.getValue()
+      : document.getElementById('q-model').value,
     maxPoints:    parseInt(document.getElementById('q-points').value) || 4,
     questionType: type,
     choices:      ['single','multiple'].includes(type) ? _choices : [],

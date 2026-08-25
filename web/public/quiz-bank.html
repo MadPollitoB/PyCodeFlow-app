@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Vragenbank</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.23"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.24"/>
   <style>
     .qb-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px; }
     @media(max-width:900px){ .qb-grid { grid-template-columns:1fr; } }
@@ -224,7 +224,7 @@
 
   <div class="tab-nav">
     <button class="active" onclick="switchTab('browse')">📋 Vragen</button>
-    <button onclick="switchTab('add')">+ Nieuwe vraag</button>
+    <button onclick="startNewQuestion()">+ Nieuwe vraag</button>
     <button onclick="switchTab('csv')">📥 CSV-import</button>
   </div>
 
@@ -421,9 +421,15 @@
           <label>Modelantwoord / modelcode
             <span style="color:var(--muted);font-weight:normal;">(optioneel — leerlingen zien dit bij het nakijken)</span>
           </label>
-          <textarea id="q-model" class="choice-code-input" rows="4" placeholder="Bv. de voorbeeldoplossing in Python…"
+          <textarea id="q-model" rows="4" placeholder="Bv. de voorbeeldoplossing of het verwachte antwoord…"
             spellcheck="false" autocapitalize="off" autocorrect="off"
             style="font-size:0.88rem;width:100%;"></textarea>
+          <!-- Sprint 51-fix: bij vraagtype 'code' vervangt een ECHTE Monaco-editor (dezelfde
+               component als leerlingen tijdens een toets gebruiken) deze textarea — géén
+               nagebootste "code-look" met enkel een donkere achtergrond meer. De textarea
+               blijft als opslagpunt voor niet-code types en als fallback vóórdat Monaco
+               geladen is. -->
+          <div id="qmodel-editor" class="monaco-editor-host" style="display:none;height:180px;border-radius:8px;"></div>
         </div>
       </div>
       <div style="display:flex;gap:8px;">
@@ -464,11 +470,19 @@ Lussen;gemiddeld;composite;"[3;3]";"Wat is op het einde de waarde van x en y?";"
   </div>
 </div>
 
-<script src="/app.js?v=v2026.2.51.23"></script>
 <!-- 22d: marked.js voor Markdown preview — geladen VOOR inline script -->
 <script src="/vendor/marked/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.23"></script>
+<script src="/code-highlight.js?v=v2026.2.51.24"></script>
 <script src="/vendor/dompurify/purify.min.js"></script>
-<script src="/quiz-bank.js?v=v2026.2.51.23"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.23"></script></body>
+<!-- Sprint 51-fix: Monaco MOET na marked.min.js laden, niet ervoor — marked.min.js heeft een
+     UMD/AMD-wrapper (typeof define && define.amd ? define(["exports"], t) : ...) die zich bij
+     een AL AANWEZIGE RequireJS-loader (monaco/min/vs/loader.js) probeert te registreren als
+     AMD-module. Dat botst met Monaco's eigen, latere anonieme define()-aanroep voor
+     'vs/editor/editor.main' — "Can only have one anonymous define call per script file".
+     quiz-student.html laadt in dezelfde (juiste) volgorde en heeft dit probleem niet. -->
+<script src="/monaco-env.js"></script>
+<script src="/monaco/min/vs/loader.js"></script>
+<script src="/app.js?v=v2026.2.51.24"></script>
+<script src="/quiz-bank.js?v=v2026.2.51.24"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.24"></script></body>
 </html>

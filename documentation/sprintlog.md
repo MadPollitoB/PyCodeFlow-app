@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.23**
+**Huidige versie: v2026.2.51.24**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -224,6 +224,28 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 51-fix (vervolg) — Echte Monaco-editor voor modelantwoorden — ✅ AFGEROND (v2026.2.51.24)
+
+Modelantwoord bij een code-vraag/code-onderdeel gebruikt nu een echte, eigen (niet gedeelde)
+Monaco-editor-instance — dezelfde component als leerlingen tijdens een toets krijgen, i.p.v.
+een donkere textarea. Bewust geen hergebruik van de gedeelde editor-machinerie (die stuurt
+socket-updates naar een live sessie, ongewenst hier).
+
+3 bugs gevonden en gefixt tijdens het bouwen: (1) verkeerde scriptvolgorde t.o.v.
+marked.min.js gaf een RequireJS "anonymous define"-fout — rechtgezet naar dezelfde volgorde
+als quiz-student.html; (2) "+ Nieuwe vraag" initialiseerde de editor niet — nu hergebruikt
+dezelfde resetfunctie als Annuleren; (3) editor bleef leeg bij bewerken van een bestaande
+vraag omdat Monaco zijn containergrootte meet vóórdat het tabblad zichtbaar was — nu wordt
+het tabblad altijd eerst getoond.
+
+Getest: aanmaken, wisselen tussen alle vraagtypes zonder dataverlies, composite met
+code-onderdeel, en — met een volledige round-trip — bewerken van een bestaande vraag toont
+de opgeslagen code correct terug. Geen JS-fouten. Bevestigd met screenshots.
+
+**Betrokken bestanden:** `web/public/quiz-bank.html` · `web/public/quiz-bank.js`.
+
+---
 
 ### Sprint 51-fix — Route-onbereikbaarheid + codeveld-styling — ✅ AFGEROND (v2026.2.51.23)
 

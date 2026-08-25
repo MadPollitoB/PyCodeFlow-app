@@ -1,3 +1,41 @@
+## v2026.2.51.24 — Sprint 51-fix: Echte Monaco-code-editor voor modelantwoorden
+
+Vervolg op de vorige levering: een donkere, monospace textarea is geen echte code-editor.
+Het modelantwoord bij een code-vraag (en bij het code-onderdeel van een samengestelde vraag)
+gebruikt nu **dezelfde Monaco-editor-component die leerlingen tijdens een toets krijgen** —
+regelnummers, Python-syntaxherkenning met kleuren, bracket-matching, hetzelfde donkere thema.
+
+### Drie problemen gevonden en opgelost tijdens het bouwen
+1. **Verkeerde scriptvolgorde** veroorzaakte een JS-fout (`Can only have one anonymous define
+   call per script file`): Monaco's loader-scripts stonden vóór `marked.min.js`, dat een
+   AMD/UMD-detectie bevat die botst met een al-aanwezige RequireJS-loader. Rechtgezet naar
+   dezelfde (werkende) volgorde als het leerlingscherm.
+2. **"+ Nieuwe vraag"-knop** initialiseerde het formulier niet correct, waardoor de editor
+   soms niet verscheen. Gefixt door dezelfde nette reset-functie te hergebruiken als
+   "Annuleren".
+3. **Editor bleef leeg bij het bewerken van een bestaande vraag**: Monaco meet zijn
+   containergrootte op het moment van aanmaken — gebeurde dat terwijl het tabblad nog
+   verborgen was, bleef de editor 0×0 pixels en toonde niets, ook nadat het tabblad zichtbaar
+   werd. Gefixt door het tabblad altijd eerst zichtbaar te maken.
+
+Bewust een eigen, lichte editor-component gebouwd in plaats van de bestaande gedeelde
+editor-machinerie te hergebruiken: die stuurt bij elke toetsaanslag automatisch updates naar
+een live toets-sessie (bedoeld voor een lopende toets) — hier is er geen sessie, enkel een
+gewoon formulierveld, en die neveneffecten zouden ruis geven.
+
+### Getest
+Uitgebreide browsertests bevestigen: de editor verschijnt correct bij het aanmaken van een
+nieuwe code-vraag, wisselen tussen alle vraagtypes (code → open → composite → terug naar
+code) verliest geen data, een composite-vraag met een code-onderdeel werkt, en — cruciaal —
+het bewerken van een bestaande code-vraag toont de opgeslagen modelcode correct terug, met
+volledige syntaxherkenning. Geen enkele JS-fout meer in het volledige scenario. Bevestigd met
+screenshots.
+
+**Betrokken bestanden:** `web/public/quiz-bank.html` · `web/public/quiz-bank.js` · `VERSION`
+· overige `web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.23 — Sprint 51-fix: Route-onbereikbaarheid Toets-archief + codeveld-styling
 
 Twee gemelde problemen na het testen van v2026.2.51.21.
