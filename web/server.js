@@ -312,6 +312,28 @@ function schrijfSchoolVoor(teacher) {
   return teacher?.activeSchoolId || null;
 }
 
+// Sprint 51z (security): dezelfde eigendom-regel als /api/quiz-sessions (sprint 51e) —
+// eigen toetsen/taken (maker) OF een klas waaraan je als co-leerkracht gekoppeld bent. Hier
+// als GEDEELDE, herbruikbare helper zodat het Toets-archief (dat deze check tot nu toe
+// volledig MISTE — elke leerkracht zag toetsen van ALLE scholen) dezelfde regel volgt zonder
+// de logica te dupliceren of de al-werkende /api/quiz-sessions aan te raken.
+async function maakToetsToegangChecker(teacher) {
+  let linkedClassIds = new Set();
+  try {
+    if (teacher?.id) {
+      const eigenKlassen = await dbModule.getClassesForTeacher(teacher.id);
+      linkedClassIds = new Set(eigenKlassen.map(c => c.id));
+    }
+  } catch { /* zonder koppelingen valt alles terug op eigenaarschap */ }
+  return (ownerId, targetClass) => {
+    if (!teacher) return false;
+    if (!teacher.id) return true;                              // open modus / single-user
+    if (ownerId && teacher.id === ownerId) return true;          // eigenaar
+    if (targetClass && linkedClassIds.has(targetClass)) return true; // co-leerkracht van de klas
+    return false;
+  };
+}
+
 // Sprint 51c: deelt de kijker minstens één school met de eigenaar? (voor de
 // zichtbaarheid van één specifiek item — lijsten filteren in SQL, dit is voor detail.)
 async function deeltSchoolMet(viewer, ownerId) {
@@ -1246,8 +1268,10 @@ app.get('/api/student/sessions', requireStudentAuth, async (req, res) => {
 
 // ── Sprint 51e: leerling ziet zijn eigen VRIJGEGEVEN toetsen/taken ───────────
 // Lijst: enkel opdrachten waaraan de leerling deelnam, van zijn actieve klas/jaar, en
-// die de leerkracht heeft vrijgegeven (results_released). Score + commentaar zijn altijd
-// zichtbaar; de volledige toets read-only enkel wanneer review_mode aanstaat.
+// waarvoor de leerkracht ofwel de resultaten vrijgaf (results_released) ofwel nakijken
+// openstelde (review_mode) — sprint 51z: dit was voorheen enkel results_released, waardoor
+// een toets met ENKEL nakijken aan nooit in de lijst verscheen. Score + commentaar zijn
+// altijd zichtbaar; de volledige toets read-only enkel wanneer review_mode aanstaat.
 app.get('/api/student/my-results', requireStudentAuth, async (req, res) => {
   try {
     const lijst = await dbModule.listReleasedResultsForStudent(req.student.id);
@@ -3175,7 +3199,10 @@ app.get('/api/quiz/archive', requireTeacherAuth, async (req, res) => {
       subject: subject || null,
       archived: archived === 'true' ? true : archived === 'false' ? false : null,
     });
-    res.json(result);
+    // Sprint 51z (security): dit filterde voorheen NIET op eigendom — elke leerkracht zag
+    // toetsen van ALLE scholen. Zelfde regel als /api/quiz-sessions.
+    const magZien = await maakToetsToegangChecker(req.teacher);
+    res.json(result.filter(q => magZien(q.owner_id, q.target_class)));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get('/api/quiz/stats', requireTeacherAuth, async (req, res) => {
@@ -3255,10 +3282,15 @@ app.put('/api/quiz/new-school-year', requireTeacherAuth, requireCsrf, async (req
   const { newYear } = req.body || {};
   if (!newYear || !/^[0-9]{4}-[0-9]{4}$/.test(newYear)) return res.status(400).json({ error: 'Ongeldig schooljaar formaat (bv. 2026-2027)' });
   try {
-    // Archiveer alle actieve (niet-gearchiveerde) quiz sessies
+    // Sprint 51z (security): dit archiveerde voorheen ALLE actieve toetsen/taken in het
+    // hele systeem, ongeacht wie de aanroeper was — een leerkracht kon zo (zonder het te
+    // beseffen) toetsen van collega's en zelfs van andere scholen archiveren. Nu enkel de
+    // toetsen die de aanroeper zelf mag beheren (eigenaar of co-leerkracht van de doelklas).
     const archive = await dbModule.getQuizArchive({ archived: false });
+    const magZien = await maakToetsToegangChecker(req.teacher);
+    const eigen = archive.filter(q => magZien(q.owner_id, q.target_class));
     let archived = 0;
-    for (const q of archive) {
+    for (const q of eigen) {
       await dbModule.archiveQuiz(q.code);
       archived++;
     }
@@ -4738,7 +4770,12 @@ app.get('/api/quiz/archive/student', requireTeacherAuth, async (req, res) => {
   const { name, classId, year } = req.query;
   if (!name) return res.status(400).json({ error: 'name parameter verplicht' });
   try {
-    res.json(await dbModule.getStudentHistory({ name, classId: classId || null, year: year || null }));
+    const result = await dbModule.getStudentHistory({ name, classId: classId || null, year: year || null });
+    // Sprint 51z (security): zonder deze check kon elke leerkracht de volledige
+    // toetsgeschiedenis van een leerling van EENDER WELKE school opzoeken, gewoon door
+    // de naam in te typen — zelfde regel als het archief-overzicht hierboven.
+    const magZien = await maakToetsToegangChecker(req.teacher);
+    res.json(result.filter(r => magZien(r.owner_id, r.target_class)));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -2979,6 +2979,12 @@ module.exports = {
     // aflegde, zag zijn eigen (vrijgegeven) resultaat soms nooit. De juiste, eenvoudigere
     // grens is: heeft deze leerling zelf deelgenomen (er bestaat een quiz_answers-rij) —
     // dat garandeert al dat hij nooit andermans resultaat ziet.
+    // Sprint 51z (bugfix): deze WHERE vereiste altijd results_released=true — maar
+    // review_mode is BEDOELD als een onafhankelijke manier om toegang te geven (zie de
+    // comment bij setReviewMode hieronder: "Los van results_released"). Gevolg: zette een
+    // leerkracht ENKEL "Nakijken" aan zonder apart ook "Resultaten vrijgeven" te klikken,
+    // dan verscheen de toets nooit in de resultatenlijst van de leerling — die kon er
+    // dan helemaal niet meer bij, ook al was nakijken uitdrukkelijk opengesteld.
     const r = await query(
       `SELECT DISTINCT s.code, s.name AS session_name, ab.type, ab.review_mode,
               ab.access_until, ab.target_class, c.name AS class_name, c.school_year
@@ -2987,7 +2993,7 @@ module.exports = {
        JOIN assignment_bank ab  ON ab.session_code = s.code
        LEFT JOIN classes c      ON c.id = ab.target_class
        WHERE qa.student_id = $1
-         AND ab.results_released = true
+         AND (ab.results_released = true OR ab.review_mode = true)
          AND ab.is_teacher_preview = false
        ORDER BY ab.access_until DESC NULLS LAST`,
       [studentId]
@@ -3026,7 +3032,13 @@ module.exports = {
        WHERE ab.session_code = $1`, [sessionCode]);
     if (!meta.rows.length) return { ok: false, reason: 'Niet gevonden.' };
     const m = meta.rows[0];
-    if (m.is_teacher_preview || m.results_released !== true) return { ok: false, reason: 'Nog niet vrijgegeven.' };
+    // Sprint 51z (bugfix): zelfde correctie als listReleasedResultsForStudent hierboven —
+    // review_mode moest onafhankelijk van results_released toegang geven, maar deze check
+    // eiste altijd results_released=true. Een leerkracht die enkel "Nakijken" aanzette
+    // (zonder apart de resultaten vrij te geven) sloot de leerling zo volledig buiten.
+    if (m.is_teacher_preview || (m.results_released !== true && m.review_mode !== true)) {
+      return { ok: false, reason: 'Nog niet vrijgegeven.' };
+    }
     // Sprint 51q (bugfix): zelfde correctie als listReleasedResultsForStudent — "heeft zelf
     // deelgenomen" is de juiste, robuustere grens dan een class_membership-eis die na een
     // klaswissel of bij deelname buiten de doelklas onterecht de toegang blokkeerde.
@@ -3548,7 +3560,7 @@ module.exports = {
 
     const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
     const r = await query(`
-      SELECT s.code, s.name, s.created_at, s.deleted,
+      SELECT s.code, s.name, s.created_at, s.deleted, s.teacher_id AS owner_id,
              m.school_year, m.target_class, m.timer_seconds, m.no_timer,
              m.randomize, m.results_released, m.archived, m.archived_at,
              COUNT(DISTINCT a.student_id)::int AS student_count,
@@ -3560,7 +3572,7 @@ module.exports = {
       LEFT JOIN quiz_answers a ON a.session_code = s.code AND a.submitted_at IS NOT NULL
       LEFT JOIN quiz_question_snapshots qs ON qs.session_code = s.code
       ${whereClause}
-      GROUP BY s.code, s.name, s.created_at, s.deleted,
+      GROUP BY s.code, s.name, s.created_at, s.deleted, s.teacher_id,
                m.school_year, m.target_class, m.timer_seconds, m.no_timer,
                m.randomize, m.results_released, m.archived, m.archived_at
       ORDER BY s.created_at DESC
@@ -3577,7 +3589,7 @@ module.exports = {
     if (classId) { extra += ` AND m.target_class = $${i++}`; params.push(classId); }
 
     const r = await query(`
-      SELECT s.name AS quiz_name, s.code AS session_code, s.created_at,
+      SELECT s.name AS quiz_name, s.code AS session_code, s.created_at, s.teacher_id AS owner_id,
              m.school_year, m.target_class,
              a.student_name, a.student_class,
              SUM(a.score) AS total_score,
@@ -3590,7 +3602,7 @@ module.exports = {
       JOIN quiz_question_snapshots qs ON qs.session_code = s.code
       WHERE LOWER(a.student_name) = $1 ${extra}
         AND a.submitted_at IS NOT NULL
-      GROUP BY s.name, s.code, s.created_at, m.school_year, m.target_class,
+      GROUP BY s.name, s.code, s.created_at, s.teacher_id, m.school_year, m.target_class,
                a.student_name, a.student_class
       ORDER BY s.created_at DESC
     `, params);

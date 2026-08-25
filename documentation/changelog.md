@@ -1,3 +1,42 @@
+## v2026.2.51.25 — Sprint 51z: Beveiligingslek Archief + nakijken zonder vrijgave
+
+Twee gemelde problemen, beide bevestigd en opgelost.
+
+### 1. Beveiligingslek: Toets-archief toonde toetsen van andere scholen
+`GET /api/quiz/archief` had **geen enkele filter** op eigendom — elke leerkracht zag toetsen
+van álle scholen in het systeem. Bij nader onderzoek bleek dit nog verder te reiken:
+- `PUT /api/quiz/new-school-year` ("Nieuw schooljaar starten") kon zo toetsen van **andere**
+  leerkrachten/scholen laten **archiveren**, niet enkel bekijken.
+- `GET /api/quiz/archive/student` ("Per leerling" zoeken) liet leerlingnamen van eender
+  welke school doorzoeken.
+
+Dit lek bestond waarschijnlijk al langer, maar was tot de vorige levering (v2026.2.51.23,
+routing-fix) nooit daadwerkelijk bereikbaar — die fix heeft het onbedoeld zichtbaar gemaakt.
+Alle drie de endpoints gebruiken nu dezelfde autorisatieregel als het bestaande, al-werkende
+toets-overzicht: enkel eigen toetsen, of toetsen van een klas waaraan je als co-leerkracht
+gekoppeld bent.
+
+**Getest:** een volledig end-to-end-scenario met een leerkracht van school A en een van
+school B bevestigt dat school B nu niets van school A ziet, niets kan archiveren, en geen
+leerlingen kan vinden — terwijl school A gewoon toegang tot zijn eigen toetsen behoudt.
+
+### 2. "Nakijken" aanzetten gaf de leerling geen toegang meer
+De code die bepaalt of een toets in de resultatenlijst van een leerling verschijnt, vereiste
+altijd dat de leerkracht apart ook "Resultaten vrijgeven" had aangeklikt — dit ondanks een
+bestaande code-comment die expliciet zei dat "nakijken" (review-modus) **los van** vrijgave
+zou moeten werken. Zette een leerkracht dus enkel "Nakijken" aan, dan verdween de leerling
+volledig buiten beeld: geen toegang meer tot zijn eigen toets.
+
+**Getest:** vier scenario's bevestigen het correcte gedrag — zonder nakijken/vrijgave geen
+toegang; met enkel nakijken (geen vrijgave) verschijnt de toets in de resultatenlijst en kan
+de leerling hem volledig readonly openen; met enkel vrijgave (geen nakijken) ziet de leerling
+zijn score maar niet de volledige code/antwoorden.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `VERSION` · overige
+`web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.24 — Sprint 51-fix: Echte Monaco-code-editor voor modelantwoorden
 
 Vervolg op de vorige levering: een donkere, monospace textarea is geen echte code-editor.

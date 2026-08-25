@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.24**
+**Huidige versie: v2026.2.51.25**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -224,6 +224,29 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 51z — Beveiligingslek Archief + nakijken zonder vrijgave — ✅ AFGEROND (v2026.2.51.25)
+
+1) `GET /api/quiz/archive` had geen eigendom-filter — elke leerkracht zag toetsen van alle
+scholen. Bleek ook `PUT /api/quiz/new-school-year` (kon toetsen van anderen archiveren) en
+`GET /api/quiz/archive/student` (leerlingnamen andere scholen doorzoekbaar) te treffen. Nieuwe
+gedeelde helper `maakToetsToegangChecker()` (zelfde regel als /api/quiz-sessions) toegepast op
+alle drie. Lek bestond al langer maar was pas na de v23-routingfix daadwerkelijk bereikbaar.
+Getest: leerkracht school A vs. school B, volledige isolatie bevestigd.
+
+2) `listReleasedResultsForStudent`/`getReleasedResultDetail` vereisten altijd
+`results_released=true`, ondanks een bestaande comment die zei dat `review_mode` er los van
+zou moeten werken. Enkel "Nakijken" aanzetten (zonder vrijgave) liet de leerling dus volledig
+buiten. Beide functies uitgebreid: toegang bij `results_released OR review_mode`. Getest: 4
+scenario's (geen toegang zonder beide; nakijken-only geeft volledige readonly-toegang;
+release-only toont enkel score, geen code/antwoorden).
+
+Ontdekt maar niet gefixt (apart, niet-security): de "PDF rapport"-knop bij "Per leerling"
+roept een nergens bestaand endpoint aan (altijd 404).
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js`.
+
+---
 
 ### Sprint 51-fix (vervolg) — Echte Monaco-editor voor modelantwoorden — ✅ AFGEROND (v2026.2.51.24)
 
