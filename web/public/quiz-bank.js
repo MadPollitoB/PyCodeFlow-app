@@ -75,9 +75,11 @@ function switchTab(name) {
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-nav button').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
-  const idx = ['browse','add','csv'].indexOf(name);
+  // Sprint 51-fix: knop-volgorde in de HTML is nu [browse, shared, +nieuwe vraag (→ 'add'
+  // via startNewQuestion), csv] — deze index-mapping moet daarmee overeenkomen.
+  const idx = ['browse','shared','add','csv'].indexOf(name);
   document.querySelectorAll('.tab-nav button')[idx].classList.add('active');
-  if (name === 'browse') loadQuestions();
+  if (name === 'browse' || name === 'shared') loadQuestions();
 }
 
 function esc(s) {
@@ -120,14 +122,25 @@ async function loadQuestions() {
       '<div class="empty-state" style="grid-column:1/-1;">⚠️ Kon vragen niet laden. Herlaad de pagina.</div>';
     return;
   }
-  // 33d: filter op tag (client-side, deelstring-match, hoofdletterongevoelig)
+  // Sprint 51-fix: "Mijn vragen" en "Overneembaar" tonen nu APARTE deelverzamelingen van
+  // dezelfde ophaal-aanroep — gesplitst op isOwner, zodat gedeelde vragen van collega's je
+  // eigen lijst niet meer doorkruisen (ze konden er toch nooit bewerkt/verwijderd worden).
+  const eigen = _questions.filter(q => q.isOwner);
+  const gedeeld = _questions.filter(q => !q.isOwner);
+
+  // 33d: filter op tag (client-side, deelstring-match, hoofdletterongevoelig) — elke tab
+  // heeft zijn eigen tag-filterveld, want ze tonen andere data.
   const tagFilter = (document.getElementById('filter-tag')?.value || '').trim().toLowerCase();
-  let shown = _questions;
-  if (tagFilter) {
-    shown = _questions.filter(q => (q.tags || '').toLowerCase().includes(tagFilter));
-  }
-  renderQuestions(shown);
+  const shown = tagFilter ? eigen.filter(q => (q.tags || '').toLowerCase().includes(tagFilter)) : eigen;
+  const sharedTagFilter = (document.getElementById('filter-shared-tag')?.value || '').trim().toLowerCase();
+  const shownShared = sharedTagFilter ? gedeeld.filter(q => (q.tags || '').toLowerCase().includes(sharedTagFilter)) : gedeeld;
+
+  renderQuestions(shown, 'q-grid');
+  renderQuestions(shownShared, 'q-grid-shared');
   document.getElementById('q-count').textContent = `${shown.length} vragen`;
+  document.getElementById('shared-count').textContent = `${shownShared.length} overneembare vragen`;
+  const badge = document.getElementById('shared-count-badge');
+  if (badge) badge.textContent = shownShared.length ? `(${shownShared.length})` : '';
   const byDiff = { makkelijk:0, gemiddeld:0, moeilijk:0 };
   shown.forEach(q => byDiff[q.difficulty] = (byDiff[q.difficulty]||0)+1);
   document.getElementById('stats-bar').innerHTML =
@@ -136,8 +149,8 @@ async function loadQuestions() {
       ? `<div class="stat-chip">${d}: <strong>${n}</strong></div>` : '').join('');
 }
 
-function renderQuestions(qs) {
-  const el = document.getElementById('q-grid');
+function renderQuestions(qs, targetId) {
+  const el = document.getElementById(targetId || 'q-grid');
   if (!qs.length) {
     el.innerHTML = '<div class="empty-state" style="grid-column:1/-1;">Geen vragen gevonden.</div>';
     return;
@@ -205,11 +218,11 @@ function renderQuestions(qs) {
 let _qGridActionsBound = false;
 function bindQGridActionsOnce() {
   if (_qGridActionsBound) return;
-  const grid = document.getElementById('q-grid');
-  if (!grid) return;
   _qGridActionsBound = true;
-  // Event delegation: knoppen op q-cards via data-qid op de parent card
-  grid.addEventListener('click', function(e) {
+  // Sprint 51-fix: event-delegation stond enkel op #q-grid ("Mijn vragen") — de nieuwe
+  // "Overneembaar"-tab (#q-grid-shared) had daardoor GEEN werkende knoppen, ook al werden
+  // ze wel correct getoond: "Overnemen" leek niets te doen (geen fout, gewoon stil genegeerd).
+  const handler = function(e) {
     const card = e.target.closest('[data-qid]');
     if (!card) return;
     const id = card.dataset.qid;
@@ -220,6 +233,10 @@ function bindQGridActionsOnce() {
     if (e.target.closest('.q-btn-delete'))    { verwijderOfArchiveer(id, q.text.slice(0,40)); return; }
     if (e.target.closest('.q-btn-restore'))   { unarchiveQuestion(id); return; }
     if (e.target.closest('.q-btn-destroy'))   { deleteQuestion(id, q.text.slice(0,40)); return; }
+  };
+  ['q-grid', 'q-grid-shared'].forEach(gridId => {
+    const grid = document.getElementById(gridId);
+    if (grid) grid.addEventListener('click', handler);
   });
 }
 

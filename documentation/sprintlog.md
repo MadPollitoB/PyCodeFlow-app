@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.26**
+**Huidige versie: v2026.2.51.27**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -224,6 +224,38 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 51-fix — Readonly toets bij nakijken + vragenbank-tabs — ✅ AFGEROND (v2026.2.51.27)
+
+1) Nieuwe "📖 Toets openen"-knop op "Mijn resultaten" bij review_mode aan — hergebruikt het
+bestaande naam+klas-nakijkmechanisme, nu ook direct bruikbaar voor ingelogde leerlingen
+(nieuw endpoint `POST /api/student/my-results/:code/review-token`, token via sessionStorage
+i.p.v. URL). Resultatenlijst zelf vereenvoudigd naar enkel score + commentaar per vraag.
+
+Twee pre-existing bugs gevonden tijdens het bouwen (nakijk-scherm nooit eerder e2e getest):
+- `preprocessMarkdown`/`renderMarkdown` stonden per ongeluk genest binnen `goToQuestion()`'s
+  if-blok (block-scoped, dus nergens anders bereikbaar) — verplaatst naar top-level.
+- Composite-vragen werden nergens volledig getoond aan de leerling. `getMyResult` +
+  `buildMyResult` (lib/review-result.js) uitgebreid met answer_parts/part_answers/
+  part_scores; `renderVraagKaart` in quiz-student.js toont nu elk onderdeel apart.
+
+Getest: browsertest met alle vraagtypes (incl. 3-onderdelen composite) — screenshot
+bevestigt correcte weergave, geen JS-fouten. Regressietest van de live toetsafname
+(dezelfde goToQuestion-functie) bevestigt geen impact.
+
+2) Vragenbank: nieuw tabblad "📚 Overneembaar" voor gedeelde (niet-eigen) vragen, gescheiden
+van "Mijn vragen". Bug gevonden: event-delegation voor de vraagkaart-knoppen was enkel aan
+#q-grid gekoppeld, niet aan het nieuwe #q-grid-shared — "Overnemen" deed daardoor stil
+niets. Gefixt door de handler op beide grids te binden.
+
+Getest: browsertest bevestigt correcte tab-splitsing, geen Bewerken/Verwijderen op gedeelde
+vragen, en dat "Overnemen" een echte kopie maakt en het bewerkscherm opent.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/lib/review-result.js` ·
+`web/public/quiz-student.js` · `web/public/student-thuis.html` · `web/public/quiz-bank.html` ·
+`web/public/quiz-bank.js`.
+
+---
 
 ### Sprint 51-fix — Vragenbank-eigendom: UI + kritieke bug — ✅ AFGEROND (v2026.2.51.26)
 

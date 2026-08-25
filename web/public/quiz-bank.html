@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Vragenbank</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.26"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.27"/>
   <style>
     .qb-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px; }
     @media(max-width:900px){ .qb-grid { grid-template-columns:1fr; } }
@@ -223,12 +223,13 @@
   <p class="muted" style="margin:0 0 20px;">Beheer herbruikbare toetsvragen per onderwerp.</p>
 
   <div class="tab-nav">
-    <button class="active" onclick="switchTab('browse')">📋 Vragen</button>
+    <button class="active" onclick="switchTab('browse')">📋 Mijn vragen</button>
+    <button onclick="switchTab('shared')">📚 Overneembaar <span id="shared-count-badge" class="muted" style="font-size:0.78rem;"></span></button>
     <button onclick="startNewQuestion()">+ Nieuwe vraag</button>
     <button onclick="switchTab('csv')">📥 CSV-import</button>
   </div>
 
-  <!-- Tab: Bladeren -->
+  <!-- Tab: Bladeren (enkel EIGEN vragen — bewerkbaar/verwijderbaar) -->
   <div class="tab-content active" id="tab-browse">
     <div class="stats-bar" id="stats-bar"></div>
     <div class="filter-bar">
@@ -248,6 +249,23 @@
       <span style="margin-left:auto;color:var(--muted);font-size:0.85rem;" id="q-count"></span>
     </div>
     <div id="q-grid" class="qb-grid"></div>
+  </div>
+
+  <!-- Sprint 51-fix: aparte tab voor vragen die een collega met de school deelde — puur
+       overneembaar (via "⧉ Overnemen"), nooit rechtstreeks bewerkbaar/verwijderbaar. Staat
+       bewust los van "Mijn vragen" zodat de twee elkaar niet in de weg zitten: geen enkele
+       vraag hier zou toch al de bewerk-knoppen tonen, en je eigen lijst blijft overzichtelijk
+       zonder vragen van anderen ertussen. -->
+  <div class="tab-content" id="tab-shared">
+    <p class="muted" style="margin:0 0 14px;font-size:0.85rem;">
+      Vragen die een collega van je school met iedereen deelde. Gebruik "⧉ Overnemen" om er een
+      eigen, bewerkbare kopie van te maken.
+    </p>
+    <div class="filter-bar">
+      <input id="filter-shared-tag" placeholder="Filter op tag…" style="max-width:200px;" oninput="loadQuestions()"/>
+      <span style="margin-left:auto;color:var(--muted);font-size:0.85rem;" id="shared-count"></span>
+    </div>
+    <div id="q-grid-shared" class="qb-grid"></div>
   </div>
 
   <!-- Tab: Nieuwe vraag -->
@@ -472,7 +490,7 @@ Lussen;gemiddeld;composite;"[3;3]";"Wat is op het einde de waarde van x en y?";"
 
 <!-- 22d: marked.js voor Markdown preview — geladen VOOR inline script -->
 <script src="/vendor/marked/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.26"></script>
+<script src="/code-highlight.js?v=v2026.2.51.27"></script>
 <script src="/vendor/dompurify/purify.min.js"></script>
 <!-- Sprint 51-fix: Monaco MOET na marked.min.js laden, niet ervoor — marked.min.js heeft een
      UMD/AMD-wrapper (typeof define && define.amd ? define(["exports"], t) : ...) die zich bij
@@ -482,7 +500,7 @@ Lussen;gemiddeld;composite;"[3;3]";"Wat is op het einde de waarde van x en y?";"
      quiz-student.html laadt in dezelfde (juiste) volgorde en heeft dit probleem niet. -->
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/app.js?v=v2026.2.51.26"></script>
-<script src="/quiz-bank.js?v=v2026.2.51.26"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.26"></script></body>
+<script src="/app.js?v=v2026.2.51.27"></script>
+<script src="/quiz-bank.js?v=v2026.2.51.27"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.27"></script></body>
 </html>

@@ -1293,6 +1293,29 @@ app.get('/api/student/my-results/:code', requireStudentAuth, async (req, res) =>
   }
 });
 
+// Sprint 51-fix: "Toets openen" bij een resultaat met nakijken (review_mode) aan. De
+// leerling is hier al ingelogd via zijn eigen account — in tegenstelling tot het bestaande
+// naam+klas-formulier (review-login, hierboven) hoeft hij zich dus niet opnieuw te
+// identificeren. We genereren gewoon hetzelfde ondertekende review-token voor zijn eigen
+// student-id, en hergebruiken zo het VOLLEDIGE, al-bestaande readonly-toetsscherm
+// (quiz-student.html#review-screen) zonder dat één regel daarvan hoeft te veranderen.
+app.post('/api/student/my-results/:code/review-token', requireStudentAuth, async (req, res) => {
+  try {
+    const code = req.params.code.toUpperCase();
+    const meta = await dbModule.getQuizMeta(code);
+    if (!meta || meta.review_mode !== true) {
+      return res.status(403).json({ error: 'Nakijken is voor deze toets niet opengesteld.' });
+    }
+    const rows = await dbModule.getMyResult(code, req.student.id);
+    if (!rows.length) return res.status(404).json({ error: 'Geen toetsgegevens gevonden.' });
+    const token = createReviewToken(code, req.student.id, reviewTokenSecret());
+    res.json({ ok: true, token, naam: req.student.name });
+  } catch (e) {
+    log.error('[my-results review-token] fout:', e.message);
+    res.status(500).json({ error: 'Kon geen toegang tot de toets verlenen.' });
+  }
+});
+
 // Mag er (nog) vrij geoefend worden vanaf dit IP? Publiek: het startscherm vraagt dit
 // vóór het de knop toont, zodat een geblokkeerde bezoeker meteen weet waar hij aan toe is.
 app.get('/api/free-practice/status', async (req, res) => {

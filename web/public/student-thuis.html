@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Waar wil je naartoe?</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.26"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.27"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .blok { border:1.5px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
@@ -242,15 +242,38 @@ async function laadResultaten() {
       const score = res.volledigVerbeterd
         ? `<span class="res-score">${res.behaald}/${res.maximum}</span>`
         : '<span class="res-score muted" style="font-weight:600;">nog niet volledig verbeterd</span>';
-      const kanOpenen = res.reviewMode ? '<span class="muted" style="font-size:0.75rem;">· volledige toets inzien</span>' : '';
+      // Sprint 51-fix: "Toets openen" geeft de VOLLEDIGE toets in readonly (hergebruikt het
+      // bestaande nakijk-scherm) — de inline kaart hieronder toont voortaan enkel nog de
+      // score per vraag + commentaar, zoals gevraagd; niet langer de volledige antwoorden.
+      const openKnop = res.reviewMode
+        ? `<button class="btn btn-primary small" style="margin-top:6px;"
+             onclick="event.stopPropagation(); openToetsReadonly('${escR(res.code)}')">📖 Toets openen</button>`
+        : '';
       return `<div class="res-kaart" onclick="toggleResultaat('${escR(res.code)}', this)">
         <div class="titel">${icoon} ${escR(res.name)} ${score}</div>
-        <div class="muted" style="font-size:0.78rem;margin-top:3px;">${escR(res.className)} ${kanOpenen}</div>
+        <div class="muted" style="font-size:0.78rem;margin-top:3px;">${escR(res.className)}</div>
+        ${openKnop}
         <div class="res-detail" style="display:none;"></div>
       </div>`;
     }).join('');
   } catch (e) {
     doel.innerHTML = '<p class="muted" style="color:#991b1b;">Kon je resultaten niet laden.</p>';
+  }
+}
+
+// Sprint 51-fix: haalt een review-token op voor de INGELOGDE leerling (geen naam+klas
+// nodig, dat is enkel voor de anonieme/gast-toegang) en opent de toets in het bestaande,
+// volledige readonly-scherm. Het token gaat via sessionStorage naar de andere pagina —
+// bewust niet in de URL, om lekken via browsergeschiedenis of serverlogs te vermijden.
+async function openToetsReadonly(code) {
+  try {
+    const r = await fetch('/api/student/my-results/' + encodeURIComponent(code) + '/review-token', { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok || !d.ok) { alert(d.error || 'Kon de toets niet openen.'); return; }
+    sessionStorage.setItem('pycf_review_token', JSON.stringify({ code, token: d.token, naam: d.naam }));
+    location.href = '/quiz-student.html?nakijken=1&code=' + encodeURIComponent(code);
+  } catch (e) {
+    alert('Kon de toets niet openen: ' + e.message);
   }
 }
 
@@ -268,22 +291,22 @@ async function toggleResultaat(code, kaart) {
       html += `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:0.85rem;">
         <strong>Commentaar leerkracht:</strong><br>${escR(d.generalComment)}</div>`;
     }
+    // Sprint 51-fix: enkel nog score + per-vraag commentaar — de volledige antwoorden
+    // (code, gekozen opties, ...) staan nu achter de expliciete "Toets openen"-knop
+    // hierboven, die het bestaande, VOLLEDIGE readonly-scherm hergebruikt (met correcte
+    // ondersteuning voor elk vraagtype, incl. samengestelde vragen — dat kon deze inline
+    // weergave nooit, ze toonde enkel het antwoord van een gewone code-vraag).
     html += d.questions.map((q, i) => {
       const sc = q.score != null ? `${q.score}/${q.points}` : `?/${q.points}`;
-      let body = '';
-      // Volledige toets enkel bij review_mode (code != null).
-      if (q.code !== null && q.questionType === 'code') {
-        body = `<pre style="background:#071737;color:#f9fbff;padding:10px;border-radius:8px;overflow:auto;font-size:0.8rem;margin:6px 0;">${escR(q.code || '(geen antwoord)')}</pre>`;
-      }
       const comm = q.comment ? `<div style="font-size:0.82rem;color:#334155;margin-top:4px;">💬 ${escR(q.comment)}</div>` : '';
       return `<div class="vraag-blok">
         <div style="display:flex;gap:8px;align-items:baseline;">
           <strong>Vraag ${i + 1}</strong><span class="muted" style="font-size:0.8rem;">${escR((q.text||'').slice(0,80))}</span>
           <span style="margin-left:auto;font-weight:700;">${sc}</span>
-        </div>${body}${comm}</div>`;
+        </div>${comm}</div>`;
     }).join('');
     if (!d.reviewMode) {
-      html += '<p class="muted" style="font-size:0.78rem;margin-top:8px;">De volledige toets is niet opengesteld. Je ziet je scores en de feedback van je leerkracht.</p>';
+      html += '<p class="muted" style="font-size:0.78rem;margin-top:8px;">Je ziet je scores en de feedback van je leerkracht.</p>';
     }
     detail.innerHTML = html;
   } catch (e) {
@@ -293,4 +316,4 @@ async function toggleResultaat(code, kaart) {
 
 laad();
 </script>
-<script src="/privacy.js?v=v2026.2.51.26"></script></body></html>
+<script src="/privacy.js?v=v2026.2.51.27"></script></body></html>

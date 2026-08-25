@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// PyCodeFlow — Nakijk-resultaat opbouwen (sprint 37a)
+// PyCodeFlow — Nakijk-resultaat opbouwen (sprint 37a, composite-onderdelen sprint 51-fix)
 //
 // Zet de ruwe DB-rijen (getMyResult) om naar de payload die de leerling ziet.
 //
@@ -31,6 +31,41 @@ function sanitizeChoices(choices, { onthulJuisteAntwoorden = false } = {}) {
   });
 }
 
+// Sprint 51-fix: één onderdeel van een samengestelde vraag omzetten naar de veilige,
+// leerling-gerichte vorm — zelfde logica als een gewone vraag, maar dan per onderdeel.
+function bouwOnderdeel(deel, partAnswers, partScores, opties) {
+  const type = deel.type || 'open';
+  const isKeuze = KEUZE_TYPES.has(type);
+  const antwoord = partAnswers?.[deel.id];
+  const score = partScores?.[deel.id];
+  const heeftScore = score !== undefined && score !== null;
+
+  const resultaat = {
+    id: String(deel.id || ''),
+    type,
+    label: type === 'code' ? '' : String(deel.label || ''),
+    punten: Number(deel.points) || 0,
+    score: heeftScore ? Number(score) : null,
+    beoordeeld: heeftScore,
+  };
+
+  if (isKeuze) {
+    const gekozenIds = new Set((Array.isArray(antwoord) ? antwoord : []).map(String));
+    resultaat.opties = sanitizeChoices(deel.choices, opties).map(o => ({
+      ...o, gekozen: gekozenIds.has(o.id),
+    }));
+    resultaat.ingevuld = gekozenIds.size > 0;
+  } else {
+    resultaat.eigenAntwoord = typeof antwoord === 'string' ? antwoord : '';
+    resultaat.ingevuld = Boolean(resultaat.eigenAntwoord.trim());
+  }
+  if (opties.onthulJuisteAntwoorden) {
+    const model = String(deel.modelAnswer || '');
+    if (model.trim()) resultaat.modelAnswer = model;
+  }
+  return resultaat;
+}
+
 /**
  * Bouwt het nakijk-resultaat van één leerling.
  * @param {Array} rows rijen uit dbModule.getMyResult()
@@ -52,16 +87,18 @@ function buildMyResult(rows, opties = {}) {
 
     const type = String(r.question_type || 'code');
     const isKeuze = KEUZE_TYPES.has(type);
+    const isComposite = type === 'composite';
 
     const alleChoices = parseJson(r.choices_json, []);
     const gekozen = parseJson(r.selected_choices, []);
     const gekozenIds = new Set((Array.isArray(gekozen) ? gekozen : []).map(String));
 
-    // Heeft de leerling iets ingevuld? (code-antwoord of een keuze gemaakt)
-    const ingevuld = isKeuze
-      ? gekozenIds.size > 0
-      : Boolean(String(r.code || '').trim());
-    if (ingevuld) beantwoord++;
+    // Sprint 51-fix: een samengestelde vraag is "ingevuld" als minstens 1 onderdeel
+    // ingevuld is — bepaald hieronder ná het opbouwen van de onderdelen zelf.
+    let ingevuld;
+    if (!isComposite) {
+      ingevuld = isKeuze ? gekozenIds.size > 0 : Boolean(String(r.code || '').trim());
+    }
 
     const vraag = {
       nummer: i + 1,
@@ -72,10 +109,19 @@ function buildMyResult(rows, opties = {}) {
       type,
       score: heeftScore ? Number(r.score) : null,
       beoordeeld: heeftScore,
-      ingevuld,
     };
 
-    if (isKeuze) {
+    if (isComposite) {
+      // Sprint 51-fix: composite-vragen werden hiervoor NERGENS volledig getoond aan de
+      // leerling — enkel het (max 1) code-onderdeel kwam toevallig mee via r.code. Nu elk
+      // onderdeel (open/code/single/multiple) correct, met per-onderdeel score.
+      const delen = parseJson(r.answer_parts, []);
+      const partAnswers = parseJson(r.part_answers, {});
+      const partScores = parseJson(r.part_scores, {});
+      vraag.onderdelen = (Array.isArray(delen) ? delen : []).map(
+        d => bouwOnderdeel(d, partAnswers, partScores, opties));
+      ingevuld = vraag.onderdelen.some(o => o.ingevuld);
+    } else if (isKeuze) {
       vraag.opties = sanitizeChoices(alleChoices, opties).map(o => ({
         ...o,
         gekozen: gekozenIds.has(o.id),
@@ -83,6 +129,9 @@ function buildMyResult(rows, opties = {}) {
     } else {
       vraag.eigenCode = String(r.code || '');
     }
+    vraag.ingevuld = ingevuld;
+    if (ingevuld) beantwoord++;
+
     // 37b: modelantwoord/modelcode enkel meesturen wanneer de juiste antwoorden
     // onthuld mogen worden (nakijk-modus). Nooit tijdens de toets.
     if (opties.onthulJuisteAntwoorden) {

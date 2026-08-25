@@ -3386,11 +3386,14 @@ module.exports = {
               q.question_type,
               q.choices_json,
               q.model_answer,
+              q.answer_parts,
               a.code,
               a.score,
               a.selected_choices,
               a.auto_scored,
-              a.teacher_comment
+              a.teacher_comment,
+              a.part_answers,
+              a.part_scores
          FROM quiz_question_snapshots q
          LEFT JOIN quiz_answers a
                 ON a.question_id  = q.id

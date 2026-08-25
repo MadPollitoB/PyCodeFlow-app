@@ -53,10 +53,34 @@ async function reviewLogin() {
 }
 
 // Bij ?nakijken=1 tonen we meteen het nakijk-loginscherm i.p.v. de toetsflow.
+// Sprint 51-fix: een leerling die al via zijn EIGEN account is ingelogd (student-thuis.html
+// → "Toets openen"-knop) hoeft zich hier niet nogmaals met naam+klas te identificeren — die
+// pagina zet het token vooraf in sessionStorage (NIET de URL, om lekken via browser-
+// geschiedenis/serverlogs te vermijden) en we lezen het hier meteen uit, eenmalig (direct
+// verwijderd na gebruik — een pagina-ververs valt netjes terug op het naam+klas-formulier).
 if (_isReviewEntry) {
-  document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener('DOMContentLoaded', async () => {
     const start = document.getElementById('start-screen');
     if (start) start.style.display = 'none';
+
+    let vooraf = null;
+    try {
+      const ruw = sessionStorage.getItem('pycf_review_token');
+      if (ruw) {
+        const parsed = JSON.parse(ruw);
+        if (parsed?.code === _reviewCode && parsed?.token) vooraf = parsed;
+      }
+    } catch { /* geen geldig token, val terug op het formulier */ }
+    sessionStorage.removeItem('pycf_review_token'); // eenmalig gebruik
+
+    if (vooraf) {
+      _reviewToken = vooraf.token;
+      const scherm = document.getElementById('review-screen');
+      if (scherm) scherm.style.display = 'block';
+      await loadMyResult(vooraf.naam || '');
+      return;
+    }
+
     const rl = document.getElementById('review-login-screen');
     if (rl) rl.style.display = 'flex';
   });
@@ -110,13 +134,63 @@ function renderReviewChart(vragen) {
   </div>`;
 }
 
+function renderOnderdeelAntwoord(o) {
+  if (o.opties) {
+    // Single/multiple-onderdeel: zelfde correct/fout-markering als een gewone keuzevraag.
+    return `<ul style="list-style:none;padding:0;margin:6px 0 0;">` +
+      o.opties.map(opt => {
+        const juist = opt.correct === true;
+        const foutGekozen = opt.gekozen && !juist;
+        let bg = 'var(--surface-soft)', mark = '○';
+        if (juist) { bg = '#dcfce7'; mark = '✓'; }
+        else if (foutGekozen) { bg = '#fee2e2'; mark = '✗'; }
+        const labels = [];
+        if (opt.gekozen) labels.push('jouw keuze');
+        if (juist) labels.push('juist');
+        return `<li style="padding:5px 9px;border-radius:7px;margin-bottom:3px;background:${bg};
+                   ${opt.gekozen ? 'font-weight:600;' : ''}font-size:0.9rem;">
+          ${mark} ${escHtml(opt.text)}
+          ${labels.length ? `<span class="muted" style="font-size:0.76rem;font-weight:400;"> — ${labels.join(', ')}</span>` : ''}
+        </li>`;
+      }).join('') + `</ul>`;
+  }
+  if (o.eigenAntwoord && o.eigenAntwoord.trim()) {
+    const isCode = o.type === 'code';
+    return isCode
+      ? `<pre style="background:#1e1e1e;color:#d4d4d4;padding:8px 10px;border-radius:8px;
+           overflow:auto;font-size:0.82rem;margin:6px 0 0;">${escHtml(o.eigenAntwoord)}</pre>`
+      : `<div style="background:var(--surface-soft);border-radius:8px;padding:8px 10px;
+           margin:6px 0 0;font-size:0.88rem;white-space:pre-wrap;">${escHtml(o.eigenAntwoord)}</div>`;
+  }
+  return `<p class="muted" style="margin:6px 0 0;font-size:0.85rem;">Niet ingevuld.</p>`;
+}
+
+// Sprint 51-fix: composite-vragen tonen nu al hun onderdelen (open/code/single/multiple)
+// met per-onderdeel score — dit ontbrak volledig, enkel het (max 1) code-onderdeel kwam
+// eerder toevallig door via het gewone eigenCode-pad.
+function renderCompositeAntwoord(onderdelen) {
+  return (onderdelen || []).map(o => {
+    const scoreTekst = o.beoordeeld ? `${o.score}/${o.punten}` : `? / ${o.punten}`;
+    const titel = o.type === 'code' ? '🐍 Code' : escHtml(o.label || 'Onderdeel');
+    return `<div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-top:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:0.85rem;">
+        <strong>${titel}</strong><span class="muted">${scoreTekst}</span>
+      </div>
+      ${renderOnderdeelAntwoord(o)}
+      ${o.modelAnswer ? `<div style="margin-top:6px;font-size:0.8rem;color:var(--muted);">✅ Modelantwoord: ${escHtml(o.modelAnswer)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
 function renderVraagKaart(v) {
   const scoreTekst = v.beoordeeld
     ? `<strong>${v.score}</strong> / ${v.punten}`
     : `<span class="muted">nog niet beoordeeld</span>`;
 
   let antwoordHtml;
-  if (v.type === 'multiple' || v.type === 'single') {
+  if (v.type === 'composite') {
+    antwoordHtml = renderCompositeAntwoord(v.onderdelen);
+  } else if (v.type === 'multiple' || v.type === 'single') {
     // 37b: juiste antwoorden onthuld. Groen ✓ = juist, rood ✗ = fout gekozen.
     antwoordHtml = `<ul style="list-style:none;padding:0;margin:8px 0 0;">` +
       (v.opties || []).map(o => {
@@ -167,7 +241,7 @@ function renderVraagKaart(v) {
       <span>${scoreTekst}</span>
     </div>
     <div class="md-preview" style="margin-top:8px;">${renderMarkdown(v.tekst)}</div>
-    <div style="margin-top:10px;font-size:0.85rem;color:var(--muted);">Jouw antwoord:</div>
+    <div style="margin-top:10px;font-size:0.85rem;color:var(--muted);">${v.type === 'composite' ? 'Onderdelen:' : 'Jouw antwoord:'}</div>
     ${antwoordHtml}
     ${modelHtml}
     ${commentaarHtml}
@@ -622,6 +696,28 @@ function renderNav() {
     `${_currentIdx+1}/${questions.length} · ${Object.keys(_answers).filter(k=>_answers[k]?.code).length} opgeslagen`;
 }
 
+// Sprint 51-fix (kritieke bugfix): preprocessMarkdown/renderMarkdown stonden hiervoor per
+// ongeluk GENEST binnen goToQuestion()'s if-blok — een blok-scoped function declaration is
+// dan ENKEL zichtbaar binnen dat specifieke blok, niet elders in het bestand. Dat werkte
+// toevallig voor de gewone toetsflow (die renderMarkdown binnen diezelfde functie aanroept),
+// maar liet het nakijk-scherm (renderVraagKaart/renderMyResult, hieronder, top-level
+// gedefinieerd) crashen met "renderMarkdown is not defined" zodra een leerling zijn toets
+// probeerde te bekijken — bevestigd met een browsertest. Nu correct op het top-niveau.
+// 25e: preprocessing voor info-kaders (:::tip/opgelet/kader/hint)
+function preprocessMarkdown(text) {
+  return text.replace(/:::(\w+)\n([\s\S]*?):::/g, function(_, type, content) {
+    var map = { tip:'info-tip', opgelet:'info-opgelet', kader:'info-kader-blauw', hint:'info-hint' };
+    var cls = map[type] || 'info-kader-blauw';
+    return '<div class="info-kader ' + cls + '">' + content.trim() + '</div>';
+  });
+}
+function renderMarkdown(text) {
+  if (!window.marked) return text.replace(/\n/g,'<br>');
+  var html = window.marked.parse(preprocessMarkdown(text), { breaks: true, gfm: true });
+  // 28c: XSS-beveiliging — sanitize met DOMPurify (style toegestaan voor kleuren)
+  return window.DOMPurify ? window.DOMPurify.sanitize(html, { ADD_ATTR: ['style', 'target'] }) : html;
+}
+
 function goToQuestion(idx) {
   const questions = _state?.questions || [];
   if (idx < 0 || idx >= questions.length) return;
@@ -659,22 +755,7 @@ function goToQuestion(idx) {
     document.getElementById('q-header').textContent =
       `Vraag ${idx+1} van ${questions.length} · ${q.subject || ''} · ${q.points} punten · ${typeLabel}`;
     // Sprint 19f: Markdown rendering
-    
-// 25e: preprocessing voor info-kaders (:::tip/opgelet/kader/hint)
-function preprocessMarkdown(text) {
-  return text.replace(/:::(\w+)\n([\s\S]*?):::/g, function(_, type, content) {
-    var map = { tip:'info-tip', opgelet:'info-opgelet', kader:'info-kader-blauw', hint:'info-hint' };
-    var cls = map[type] || 'info-kader-blauw';
-    return '<div class="info-kader ' + cls + '">' + content.trim() + '</div>';
-  });
-}
-function renderMarkdown(text) {
-  if (!window.marked) return text.replace(/\n/g,'<br>');
-  var html = window.marked.parse(preprocessMarkdown(text), { breaks: true, gfm: true });
-  // 28c: XSS-beveiliging — sanitize met DOMPurify (style toegestaan voor kleuren)
-  return window.DOMPurify ? window.DOMPurify.sanitize(html, { ADD_ATTR: ['style', 'target'] }) : html;
-}
-const qTextEl = document.getElementById('q-text');
+    const qTextEl = document.getElementById('q-text');
     const rawText = q.text_snapshot || q.text || '';
     if (window.marked) {
       qTextEl.innerHTML = renderMarkdown(rawText);

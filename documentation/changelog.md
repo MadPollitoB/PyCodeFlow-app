@@ -1,3 +1,54 @@
+## v2026.2.51.27 — Sprint 51-fix: Toets readonly openen bij nakijken + vragenbank-tabs
+
+Twee grote uitbreidingen, allebei grondig getest en met een aantal pre-existing bugs
+onderweg gevonden en gefixt.
+
+### 1. "Toets openen"-knop bij nakijken — leerling ziet zijn volledige toets readonly
+Op "Mijn resultaten" verschijnt nu, zodra jij "Nakijken" aanzet, een echte
+**"📖 Toets openen"**-knop. Die opent dezelfde, volledige toets-interface die de leerling
+tijdens het maken zag, nu readonly gevuld met zijn eigen antwoorden, score per vraag, en
+jouw commentaar. Geen naam+klas meer nodig — de leerling is al ingelogd, en het bestaande
+"nakijk"-mechanisme (voorheen enkel via een los naam+klas-formulier) wordt nu ook voor
+ingelogde leerlingen naadloos hergebruikt (het token gaat via een tijdelijke, niet-URL-
+gebonden opslag mee, om lekken via browsergeschiedenis te vermijden).
+
+De resultatenlijst zelf toont, zoals gevraagd, voortaan enkel nog de score per vraag en het
+commentaar van de leerkracht (algemeen bovenaan, per vraag ernaast) — niet langer de
+volledige antwoorden inline.
+
+**Twee pre-existing bugs gevonden en gefixt** tijdens het bouwen (het nakijk-scherm was
+duidelijk nog nooit end-to-end getest):
+- Twee kernfuncties voor het weergeven van de toetstekst stonden per ongeluk diep genest in
+  een andere functie, waardoor het hele nakijk-scherm crashte zodra een leerling het
+  probeerde te openen.
+- Samengestelde vragen (met meerdere onderdelen) werden nergens volledig getoond aan de
+  leerling — enkel het eventuele code-onderdeel kwam toevallig door. Nu toont het
+  nakijk-scherm elk onderdeel apart, met een eigen score.
+
+**Getest:** een volledige browsertest met een toets die alle vraagtypes bevat (open, code,
+single-choice, en een samengestelde vraag met drie onderdelen) bevestigt dat alles correct
+en zonder JS-fouten verschijnt — met een screenshot ter controle. Ook bevestigd dat de
+gewone, live toetsafname (die dezelfde onderliggende code gebruikt) geen regressie heeft.
+
+### 2. Vragenbank: gedeelde vragen van collega's in een eigen tabblad
+"Mijn vragen" toont voortaan enkel je eigen vragen. Vragen die een collega met de school
+deelde, staan nu in een apart tabblad **"📚 Overneembaar"** (met een teller-badge), met
+enkel een "⧉ Overnemen"-knop — nooit meer per ongeluk tussen je eigen vragen.
+
+**Onderweg een bug gevonden en gefixt:** de klik-afhandeling voor de vraagkaarten was enkel
+aan het bestaande vragenraster gekoppeld, niet aan het nieuwe. De "Overnemen"-knop op het
+nieuwe tabblad deed daardoor eerst niets, zonder foutmelding.
+
+**Getest:** een volledige browsertest bevestigt dat een gedeelde vraag correct enkel in
+"Overneembaar" verschijnt (nooit in "Mijn vragen"), dat daar geen Bewerken/Verwijderen-knop
+staat, en dat "Overnemen" een echte kopie maakt en meteen het bewerkscherm opent.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/lib/review-result.js` ·
+`web/public/quiz-student.js` · `web/public/student-thuis.html` · `web/public/quiz-bank.html` ·
+`web/public/quiz-bank.js` · `VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.26 — Sprint 51-fix: Eigendom vragenbank verwarrend + kritieke bug in eigenaar-toewijzing
 
 Naar aanleiding van de melding "ik krijg de fout 'Je kan enkel je eigen vragen bewerken' —
