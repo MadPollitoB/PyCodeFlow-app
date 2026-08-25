@@ -173,13 +173,25 @@ function renderQuestions(qs) {
       <div class="q-text md-preview" style="max-height:140px;overflow:auto;">${renderedText}</div>
       ${q.tags ? `<div class="q-tags">${q.tags.split(',').map(t => t.trim()).filter(Boolean).map(t => `<span class="tag-chip">🏷 ${esc(t)}</span>`).join('')}</div>` : ''}
       <div class="q-actions">
-        <button class="btn btn-muted small q-btn-edit">✏️ Bewerken</button>
-        ${!q.archived
-          ? '<button class="btn btn-muted small q-btn-duplicate">⧉ Dupliceren</button>' +
-            '<button class="btn btn-danger small q-btn-delete">🗑 Verwijderen</button>'
-          : '<button class="btn btn-muted small q-btn-restore">↩ Herstellen</button>' +
-            '<button class="btn btn-danger small q-btn-destroy">🗑 Definitief verwijderen</button>'
-        }
+        <!-- Sprint 51-fix: "Bewerken" en "Verwijderen" stonden hier ALTIJD, ook bij een
+             gedeelde vraag van een collega (school-scope) — de server weigert dat terecht
+             (je kan enkel je eigen vragen bewerken/verwijderen), maar de knop gaf daar
+             vooraf geen enkele hint over: je klikte, vulde het formulier in, en kreeg pas
+             bij het opslaan een foutmelding. Nu consistent met de "Delen"-selector
+             hierboven, die al wél op isOwner checkte. Een gedeelde vraag krijgt in de
+             plaats een duidelijke "Overnemen"-knop — dat dupliceert 'm naar je eigen naam
+             (bestaand mechanisme, werkt al correct), waarna de kopie gewoon bewerkbaar is. -->
+        ${q.isOwner ? `
+          <button class="btn btn-muted small q-btn-edit">✏️ Bewerken</button>
+          ${!q.archived
+            ? '<button class="btn btn-muted small q-btn-duplicate">⧉ Dupliceren</button>' +
+              '<button class="btn btn-danger small q-btn-delete">🗑 Verwijderen</button>'
+            : '<button class="btn btn-muted small q-btn-restore">↩ Herstellen</button>' +
+              '<button class="btn btn-danger small q-btn-destroy">🗑 Definitief verwijderen</button>'
+          }
+        ` : `
+          <button class="btn btn-soft small q-btn-duplicate" title="Maakt een eigen, bewerkbare kopie van deze gedeelde vraag">⧉ Overnemen</button>
+        `}
       </div>
     </div>`;
   }).join('');

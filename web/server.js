@@ -2892,9 +2892,14 @@ app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => 
     return res.status(400).json({ error: 'Een samengestelde vraag heeft minstens 1 antwoordonderdeel nodig.' });
   }
   try {
-    const teacher = await dbModule.getTeacherByUsername(
-      parseBasicAuthHeader(req.headers.authorization)?.username || ''
-    );
+    // Sprint 51-fix (kritiek): dit las de eigenaar voorheen uit een HTTP Basic-Auth-header
+    // (parseBasicAuthHeader(req.headers.authorization)) — die bestaat enkel bij de oude
+    // Basic-Auth-inlogflow, NIET bij de moderne sessie-cookie-login die de rest van de app
+    // gebruikt. Bij een cookie-login is die header altijd afwezig, dus kreeg ELKE nieuwe
+    // vraag `created_by = null` — wat de "onbekende eigenaar"-uitzondering in
+    // magSessieBeheren activeert en daardoor IEDEREEN toestaat de vraag te bewerken/
+    // verwijderen, in plaats van enkel de aanmaker. req.teacher (gezet door
+    // requireTeacherAuth, hierboven al gebruikt voor schrijfSchoolVoor) is de juiste bron.
     const id = await dbModule.createQuizQuestion({
       text, subject: (subject || '').slice(0, 64),
       difficulty: ['makkelijk','gemiddeld','moeilijk'].includes(difficulty) ? difficulty : 'gemiddeld',
@@ -2909,7 +2914,7 @@ app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => 
       ),
       tags: (tags || '').slice(0, 200),
       modelAnswer: String(modelAnswer || '').slice(0, 10000),
-      createdBy: teacher?.id || null,
+      createdBy: req.teacher?.id || null,
       schoolId: schrijfSchoolVoor(req.teacher),   // Sprint 48c2
       answerParts: qType === 'composite' ? JSON.stringify(answerParts) : '[]',
     });
@@ -2953,10 +2958,12 @@ app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) 
 // 38: dupliceer één bankvraag in het vragenoverzicht (los van toets dupliceren).
 app.post('/api/quiz/bank/:id/duplicate', requireTeacherAuth, requireCsrf, async (req, res) => {
   try {
-    const teacher = await dbModule.getTeacherByUsername(
-      parseBasicAuthHeader(req.headers.authorization)?.username || ''
-    );
-    const newId = await dbModule.duplicateQuizQuestion(req.params.id, teacher?.id || null);
+    // Sprint 51-fix: zelfde bug als bij het aanmaken hierboven — de kopie kreeg altijd
+    // created_by = null (Basic-Auth-header bestaat niet bij cookie-login), dus "Overnemen"
+    // leek te werken (geen foutmelding) maar zette in werkelijkheid GEEN echte eigenaar,
+    // waardoor de kopie voor IEDEREEN bewerkbaar bleef in plaats van enkel voor de
+    // leerkracht die 'm overnam.
+    const newId = await dbModule.duplicateQuizQuestion(req.params.id, req.teacher?.id || null);
     if (!newId) return res.status(404).json({ error: 'Vraag niet gevonden.' });
     res.json({ ok: true, id: newId });
   } catch (e) {
@@ -3069,11 +3076,10 @@ app.post('/api/quiz/bank/import-csv', requireTeacherAuth, requireCsrf, async (re
   }).filter(r => r.vraag);
 
   try {
-    const teacher = await dbModule.getTeacherByUsername(
-      parseBasicAuthHeader(req.headers.authorization)?.username || ''
-    ) || req.teacher;
+    // Sprint 51-fix: de Basic-Auth-poging hierboven was altijd zinloos bij cookie-login
+    // (had toevallig al een `|| req.teacher`-fallback die het redde) — vereenvoudigd.
     const schoolId = leesScopeVoor(req.teacher) || null;
-    const result = await dbModule.importQuizQuestionsCSV(rows, teacher?.id || null, schoolId);
+    const result = await dbModule.importQuizQuestionsCSV(rows, req.teacher?.id || null, schoolId);
     res.json({ ok: true, ...result });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3185,10 +3191,8 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
 // Dat verklaarde zowel 'toets niet gevonden in Archief' als 'Fout: Toets/taak niet gevonden'
 // bij de jaarwissel-knop. Nu vóór de wildcard geplaatst, zodat ze wél bereikt worden.
 app.get('/api/quiz/comment-templates', requireTeacherAuth, async (req, res) => {
-  const teacher = await dbModule.getTeacherByUsername(
-    parseBasicAuthHeader(req.headers.authorization)?.username || ''
-  );
-  res.json(await dbModule.listQuizCommentTemplates(teacher?.id));
+  // Sprint 51-fix: zelfde Basic-Auth-header-bug als hierboven.
+  res.json(await dbModule.listQuizCommentTemplates(req.teacher?.id));
 });
 app.get('/api/quiz/archive', requireTeacherAuth, async (req, res) => {
   try {
@@ -4149,10 +4153,8 @@ app.get('/api/quiz/:code/similarity', requireTeacherAuth, requireSessionAccess, 
 app.post('/api/quiz/comment-templates', requireTeacherAuth, requireCsrf, async (req, res) => {
   const { text } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: 'Tekst is verplicht.' });
-  const teacher = await dbModule.getTeacherByUsername(
-    parseBasicAuthHeader(req.headers.authorization)?.username || ''
-  );
-  const id = await dbModule.createQuizCommentTemplate(text.slice(0, 500), teacher?.id);
+  // Sprint 51-fix: zelfde Basic-Auth-header-bug als hierboven.
+  const id = await dbModule.createQuizCommentTemplate(text.slice(0, 500), req.teacher?.id);
   res.json({ ok: true, id });
 });
 

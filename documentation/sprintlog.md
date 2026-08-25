@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.25**
+**Huidige versie: v2026.2.51.26**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -224,6 +224,28 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 51-fix — Vragenbank-eigendom: UI + kritieke bug — ✅ AFGEROND (v2026.2.51.26)
+
+1) "Bewerken"/"Verwijderen" stonden altijd in de vraagkaart, ook bij een gedeelde
+(school-scope) vraag van een collega — server weigerde terecht maar zonder vooraf-hint.
+Nu conditioneel op `isOwner`; niet-eigen vraag krijgt een "⧉ Overnemen"-knop (bestaand
+duplicate-mechanisme, hernoemd/verduidelijkt).
+
+2) Dieperliggende bug gevonden: 5 plekken bepaalden de eigenaar bij het aanmaken/dupliceren
+van een vraag via `parseBasicAuthHeader(req.headers.authorization)` — een mechanisme dat
+niet meer bestaat sinds de overstap naar sessie-cookie-login. Resultaat: nieuwe/overgenomen
+vragen kregen `created_by = null`, wat via de "onbekende eigenaar"-uitzondering in
+`magSessieBeheren` IEDEREEN bewerkrechten gaf i.p.v. enkel de aanmaker. Alle 5 plekken nu
+naar `req.teacher?.id`.
+
+Getest: gedeelde vraag toont enkel Overnemen; rechtstreeks bewerken geweigerd (403); na
+Overnemen krijgt de kopie een echte eigenaar en is bewerkbaar; eigen vraag blijft gewoon
+werken; school-admin-brede rechten (bewuste, bestaande regel) blijven intact.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/quiz-bank.js`.
+
+---
 
 ### Sprint 51z — Beveiligingslek Archief + nakijken zonder vrijgave — ✅ AFGEROND (v2026.2.51.25)
 

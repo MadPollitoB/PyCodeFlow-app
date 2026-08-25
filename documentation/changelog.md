@@ -1,3 +1,44 @@
+## v2026.2.51.26 — Sprint 51-fix: Eigendom vragenbank verwarrend + kritieke bug in eigenaar-toewijzing
+
+Naar aanleiding van de melding "ik krijg de fout 'Je kan enkel je eigen vragen bewerken' —
+maar vragen in de vragenbank zijn toch altijd van mij?" — dit bleken **twee samenhangende
+problemen** te zijn, waarvan één een écht belangrijke, onderliggende bug.
+
+### 1. UI toonde "Bewerken"/"Verwijderen" ook voor gedeelde vragen van collega's
+De vragenbank toont bewust ook vragen die een collega met de hele school deelde (via de
+"Delen"-instelling), zodat je ze kan hergebruiken. Maar de "Bewerken"- en "Verwijderen"-
+knoppen stonden **altijd** in de kaart, ook bij zo'n gedeelde, niet-eigen vraag — de server
+weigerde dat terecht, maar pas ná het volledig invullen van het formulier en op "Opslaan"
+klikken, zonder enige eerdere hint. Nu tonen die knoppen enkel nog bij je eigen vragen; een
+gedeelde vraag van een collega krijgt in de plaats een duidelijke **"⧉ Overnemen"**-knop, die
+een eigen, volledig bewerkbare kopie maakt (het bestaande "dupliceren"-mechanisme, nu
+hergebruikt met een duidelijkere naam voor dit doel).
+
+### 2. Kritieke bug: nieuw aangemaakte/overgenomen vragen kregen géén echte eigenaar
+Bij het uitzoeken van punt 1 kwam een dieperliggende, belangrijkere bug aan het licht: het
+aanmaken van een nieuwe vraag — én het "overnemen" (dupliceren) van een gedeelde vraag —
+bepaalde de eigenaar via een **verouderd mechanisme** (het uitlezen van een HTTP Basic-Auth-
+header), dat helemaal niet meer bestaat sinds de app overschakelde op sessie-cookie-login.
+Gevolg: zulke vragen kregen stelselmatig **geen eigenaar** toegewezen, wat een bestaande
+"onbekende eigenaar"-uitzondering activeerde die *elke* leerkracht toestond de vraag te
+bewerken of te verwijderen — niet enkel de leerkracht die hem aanmaakte of overnam. Vijf
+plekken in de code hadden deze bug; alle vijf zijn nu overgeschakeld naar de juiste,
+sessie-gebaseerde manier om de ingelogde leerkracht te bepalen.
+
+### Getest
+Volledige end-to-end-tests (server én browser) bevestigen: een gedeelde vraag van een
+collega toont enkel "Overnemen", geen "Bewerken"/"Verwijderen"; rechtstreeks bewerken van
+andermans vraag wordt terecht geweigerd; na "Overnemen" krijgt de kopie een échte, eigen
+eigenaar en is ze meteen bewerkbaar; een zelf aangemaakte vraag blijft gewoon van jezelf en
+bewerkbaar/verwijderbaar. Ook bevestigd dat de bestaande, bewuste regel dat een school-admin
+alle vragen van zijn school mag beheren (niet enkel eigen) intact blijft. Volledige
+testsuite: 324/324 groen.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/quiz-bank.js` · `VERSION` · overige
+`web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.25 — Sprint 51z: Beveiligingslek Archief + nakijken zonder vrijgave
 
 Twee gemelde problemen, beide bevestigd en opgelost.
