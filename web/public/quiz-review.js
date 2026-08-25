@@ -213,6 +213,13 @@ async function selectQuestion(idx) {
   const comment = ans?.teacher_comment || '';
   const qType = q.question_type || 'code';
   const isAutoScored = ans?.auto_scored;
+  // Sprint 51s: duidelijke banner wanneer deze score automatisch op 0 gezet is bij het
+  // stoppen — zodat het onderscheid met een leerkracht-gegeven 0 helder blijft.
+  const autoZeroHtml = ans?.submitted_by === 'geen_deelname'
+    ? `<div class="similarity-warning" style="background:#fef3c7;border-color:#fde68a;">⚪ Deze leerling heeft niet deelgenomen — score automatisch op 0 gezet bij het stoppen.</div>`
+    : ans?.submitted_by === 'niet_beantwoord'
+      ? `<div class="similarity-warning" style="background:#fef3c7;border-color:#fde68a;">⚪ Deze vraag werd niet beantwoord — score automatisch op 0 gezet bij het stoppen.</div>`
+      : '';
 
   // Bouw antwoordweergave per vraagtype
   let answerHtml = '';
@@ -260,11 +267,26 @@ async function selectQuestion(idx) {
     // Sprint 51j: samengestelde vraag — per onderdeel het label, het leerlingantwoord en
     // (indien aanwezig) het modelantwoord. Het code-onderdeel wordt hieronder in het gewone,
     // uitvoerbare code-paneel getoond (dezelfde editor als bij een normale code-vraag).
+    // Sprint 51y: single/multiple-onderdelen tonen de gekozen optie(s), met welke correct was.
     let partAnswers = {};
     try { partAnswers = JSON.parse(ans?.part_answers || '{}'); } catch { partAnswers = {}; }
     const parts = parseAnswerPartsReview(q.answer_parts);
-    const openParts = parts.filter(p => p.type === 'open');
-    answerHtml = openParts.map(p => `
+    const toonbareParts = parts.filter(p => p.type !== 'code');
+    answerHtml = toonbareParts.map(p => {
+      if (p.type === 'single' || p.type === 'multiple') {
+        const gekozen = Array.isArray(partAnswers[p.id]) ? partAnswers[p.id] : [];
+        const opties = (p.choices || []).map(c => {
+          const icon = c.correct ? '✅' : (gekozen.includes(c.id) ? '❌' : '⚪');
+          const isGekozen = gekozen.includes(c.id);
+          return `<div style="padding:4px 0;${isGekozen ? 'font-weight:600;' : ''}">${icon} ${esc(c.text)}${isGekozen ? ' <span class="muted" style="font-weight:normal;">(gekozen)</span>' : ''}</div>`;
+        }).join('');
+        return `
+        <div class="card" style="padding:14px;margin-bottom:10px;">
+          <div style="font-size:0.78rem;color:var(--muted);margin-bottom:6px;">${p.type === 'single' ? '◉' : '☑'} ${esc(p.label)}</div>
+          ${gekozen.length ? opties : '<p class="muted" style="font-style:italic;margin:4px 0;">(geen antwoord)</p>'}
+        </div>`;
+      }
+      return `
       <div class="card" style="padding:14px;margin-bottom:10px;">
         <div style="font-size:0.78rem;color:var(--muted);margin-bottom:6px;">✏️ ${esc(p.label)}</div>
         <div style="font-size:0.93rem;line-height:1.6;white-space:pre-wrap;padding:10px;
@@ -273,11 +295,13 @@ async function selectQuestion(idx) {
         </div>
         ${p.modelAnswer ? `<div style="margin-top:8px;font-size:0.8rem;color:var(--muted);">
           ✅ Modelantwoord: <span style="color:inherit;">${esc(p.modelAnswer)}</span></div>` : ''}
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }
 
   document.getElementById('q-detail').innerHTML = `
     ${simHtml}
+    ${autoZeroHtml}
     <div style="background:var(--surface-soft);border-radius:10px;padding:12px 14px;margin-bottom:12px;">
       <strong>Vraag ${idx+1}:</strong><div class="md-preview" style="margin:4px 0 8px;">${renderMarkdown(q.text_snapshot || q.text || '')}</div>
       <span class="muted" style="font-size:0.82rem;">

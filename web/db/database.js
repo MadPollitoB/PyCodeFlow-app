@@ -72,13 +72,18 @@ async function withTransaction(fn) {
   }
 }
 
-// Sprint 51j: normaliseert de antwoordonderdelen van een 'composite'-vraag.
-// Input mag een JSON-string, een array, of leeg zijn. Regels (zoals afgesproken):
+// Sprint 51j (uitgebreid in 51y): normaliseert de antwoordonderdelen van een 'composite'-
+// vraag. Input mag een JSON-string, een array, of leeg zijn. Regels (zoals afgesproken):
 //   - max 6 onderdelen; extra onderdelen worden afgekapt.
 //   - max 1 code-onderdeel; een tweede/verdere code-onderdeel wordt naar 'open' omgezet
 //     (we verliezen liever niets dan een onderdeel stilzwijgend te laten vallen).
 //   - een code-onderdeel heeft NOOIT een label (het is altijd de uitvoerbare code-editor,
 //     zoals een gewone code-vraag — geen voorafgaand label nodig of gewenst).
+//   - Sprint 51y: 'single' en 'multiple' zijn nu ook toegestane onderdeel-types (naast open
+//     en code), elk met een eigen keuzelijst (choices: [{id, text, correct}]). Zelfde
+//     validatie-geest als de bestaande top-level keuzevragen: minstens 2 opties, elke optie
+//     krijgt een stabiel id. Deze onderdelen worden automatisch gescoord (net als een gewone
+//     single/multiple-vraag) — zie lib/scoring.js computeAutoScore, hergebruikt per onderdeel.
 //   - elk onderdeel krijgt een stabiel id (blijft bestaan bij een update) en een geheel
 //     aantal punten (>= 0).
 function normalizeAnswerParts(input) {
@@ -91,21 +96,36 @@ function normalizeAnswerParts(input) {
   const out = [];
   for (const ruw of arr.slice(0, 6)) {
     if (!ruw || typeof ruw !== 'object') continue;
-    let type = ruw.type === 'code' ? 'code' : 'open';
+    let type = ['code', 'single', 'multiple'].includes(ruw.type) ? ruw.type : 'open';
     if (type === 'code') {
       if (codeGezien) type = 'open';   // max 1 code-onderdeel
       else codeGezien = true;
     }
     const id = (typeof ruw.id === 'string' && ruw.id) ? ruw.id : crypto.randomUUID();
     const points = Math.max(0, parseInt(ruw.points, 10) || 0);
-    out.push({
+    const onderdeel = {
       id,
       type,
       // Een code-onderdeel heeft nooit een label.
       label: type === 'code' ? '' : String(ruw.label || '').trim().slice(0, 200),
       points,
       modelAnswer: String(ruw.modelAnswer || '').slice(0, 10000),
-    });
+    };
+    if (type === 'single' || type === 'multiple') {
+      const ruweChoices = Array.isArray(ruw.choices) ? ruw.choices : [];
+      onderdeel.choices = ruweChoices.slice(0, 8).map(c => ({
+        id: (typeof c?.id === 'string' && c.id) ? c.id : crypto.randomUUID(),
+        text: String(c?.text || '').trim().slice(0, 300),
+        correct: c?.correct === true,
+      })).filter(c => c.text);
+      // Minder dan 2 geldige opties (of geen enkele correcte) is geen bruikbare keuzevraag —
+      // val terug op 'open' zodat er nooit een onscoorbaar, kapot onderdeel ontstaat.
+      if (onderdeel.choices.length < 2 || !onderdeel.choices.some(c => c.correct)) {
+        onderdeel.type = 'open';
+        delete onderdeel.choices;
+      }
+    }
+    out.push(onderdeel);
   }
   return out;
 }

@@ -383,6 +383,18 @@ function insertTabel() {
 
 // ── 22e: Vraagtype & keuze-opties ──────────────────────────────────────────────
 function onTypeChange(type) {
+  // Sprint 51-fix: het modelantwoord-veld (#q-model) is een gedeeld veld voor alle
+  // vraagtypes. Bij 'code' moet het er als een ECHT codeveld uitzien (donkere achtergrond,
+  // monospace) — hergebruikt dezelfde .choice-code-input-stijl die elders al bestaat voor
+  // code-opties, in plaats van een gewone witte tekstbox met enkel een monospace-lettertype.
+  const modelField = document.getElementById('q-model');
+  if (modelField) {
+    modelField.classList.toggle('choice-code-input', type === 'code');
+    modelField.placeholder = type === 'code'
+      ? 'Bv. de voorbeeldoplossing in Python…'
+      : 'Bv. de voorbeeldoplossing of het verwachte antwoord…';
+  }
+
   const panel = document.getElementById('choices-panel');
   const hint  = document.getElementById('choices-hint');
   panel.style.display = ['single','multiple'].includes(type) ? 'block' : 'none';
@@ -518,6 +530,57 @@ function setPartType(id, type) {
   }
   p.type = type;
   if (type === 'code') p.label = '';   // een code-onderdeel heeft nooit een label
+  // Sprint 51y: single/multiple onderdelen hebben een eigen keuzelijst — begin met 2 lege
+  // opties (zelfde startpunt als een gewone single/multiple-vraag), en ruim de lijst op
+  // zodra het onderdeel weer naar open/code wisselt (geen weeskeuzes achterlaten).
+  if (type === 'single' || type === 'multiple') {
+    if (!Array.isArray(p.choices) || !p.choices.length) {
+      p.choices = [
+        { id: crypto.randomUUID(), text: '', correct: false },
+        { id: crypto.randomUUID(), text: '', correct: false },
+      ];
+    }
+  } else {
+    delete p.choices;
+  }
+  renderParts();
+}
+
+// Sprint 51y: keuzebeheer per onderdeel (single/multiple) — analoog aan de bestaande
+// top-level addChoice()/removeChoice(), maar geschopt tot binnen één onderdeel.
+function addPartChoice(partId) {
+  const p = _parts.find(x => x.id === partId);
+  if (!p) return;
+  if (!Array.isArray(p.choices)) p.choices = [];
+  if (p.choices.length >= 8) { pyAlert('Maximaal 8 opties per onderdeel.', 'warn'); return; }
+  p.choices.push({ id: crypto.randomUUID(), text: '', correct: false });
+  renderParts();
+}
+
+function removePartChoice(partId, choiceId) {
+  const p = _parts.find(x => x.id === partId);
+  if (!p || !Array.isArray(p.choices)) return;
+  if (p.choices.length <= 2) { pyAlert('Minstens 2 opties nodig.', 'warn'); return; }
+  p.choices = p.choices.filter(c => c.id !== choiceId);
+  renderParts();
+}
+
+function setPartChoiceText(partId, choiceId, text) {
+  const p = _parts.find(x => x.id === partId);
+  const c = p?.choices?.find(x => x.id === choiceId);
+  if (c) c.text = text;
+}
+
+// Bij 'single' mag maar 1 optie correct zijn (radiogedrag); bij 'multiple' mogen er meerdere.
+function togglePartChoiceCorrect(partId, choiceId) {
+  const p = _parts.find(x => x.id === partId);
+  if (!p || !Array.isArray(p.choices)) return;
+  if (p.type === 'single') {
+    p.choices.forEach(c => { c.correct = (c.id === choiceId); });
+  } else {
+    const c = p.choices.find(x => x.id === choiceId);
+    if (c) c.correct = !c.correct;
+  }
   renderParts();
 }
 
@@ -537,6 +600,8 @@ function renderParts() {
           <span style="font-size:0.8rem;color:var(--muted);min-width:70px;">Onderdeel ${i + 1}</span>
           <select onchange="setPartType('${p.id}', this.value)" style="width:auto;padding:4px 8px;">
             <option value="open" ${p.type === 'open' ? 'selected' : ''}>✏️ Open</option>
+            <option value="single" ${p.type === 'single' ? 'selected' : ''}>◉ Single choice</option>
+            <option value="multiple" ${p.type === 'multiple' ? 'selected' : ''}>☑ Multiple choice</option>
             <option value="code" ${p.type === 'code' ? 'selected' : ''} ${(heeftCode && p.type !== 'code') ? 'disabled' : ''}>🐍 Code (uitvoerbaar)</option>
           </select>
           <label style="font-size:0.8rem;color:var(--muted);margin-left:auto;">Punten:
@@ -544,20 +609,51 @@ function renderParts() {
               oninput="setPartField('${p.id}', 'points', this.value)"/>
           </label>
         </div>
-        ${p.type === 'open'
-          ? `<input type="text" value="${esc(p.label)}" placeholder="Label, bv. Waarde van x"
+        ${p.type === 'code'
+          ? `<p style="font-size:0.78rem;color:var(--muted);margin:2px 0;">Geen label — dit wordt de gewone, uitvoerbare code-editor bij de leerling.</p>`
+          : `<input type="text" value="${esc(p.label)}" placeholder="Label, bv. Waarde van x"
                oninput="setPartField('${p.id}', 'label', this.value)" onkeydown="event.stopPropagation()"/>`
-          : `<p style="font-size:0.78rem;color:var(--muted);margin:2px 0;">Geen label — dit wordt de gewone, uitvoerbare code-editor bij de leerling.</p>`
         }
-        <input type="text" value="${esc(p.modelAnswer)}" placeholder="Modelantwoord voor dit onderdeel (optioneel)"
-          spellcheck="false" autocapitalize="off" autocorrect="off"
-          style="margin-top:6px;font-family:${p.type === 'code' ? 'monospace' : 'inherit'};"
-          oninput="setPartField('${p.id}', 'modelAnswer', this.value)" onkeydown="event.stopPropagation()"/>
+        ${(p.type === 'single' || p.type === 'multiple') ? renderPartChoices(p) : ''}
+        ${p.type === 'code'
+          ? `<textarea class="choice-code-input" rows="2" placeholder="Modelcode voor dit onderdeel (optioneel)"
+               spellcheck="false" autocapitalize="off" autocorrect="off" style="margin-top:6px;"
+               oninput="setPartField('${p.id}', 'modelAnswer', this.value)" onkeydown="event.stopPropagation()">${esc(p.modelAnswer)}</textarea>`
+          : (p.type !== 'single' && p.type !== 'multiple'
+            ? `<input type="text" value="${esc(p.modelAnswer)}" placeholder="Modelantwoord voor dit onderdeel (optioneel)"
+                 spellcheck="false" autocapitalize="off" autocorrect="off" style="margin-top:6px;"
+                 oninput="setPartField('${p.id}', 'modelAnswer', this.value)" onkeydown="event.stopPropagation()"/>`
+            : '')
+        }
       </div>
       <button type="button" class="choice-remove" onclick="removePart('${p.id}')" title="Onderdeel verwijderen">✕</button>
     </div>`).join('');
   const addBtn = document.getElementById('add-part-btn');
   if (addBtn) addBtn.disabled = _parts.length >= 6;
+}
+
+// Sprint 51y: keuze-editor voor een single/multiple onderdeel binnen een samengestelde vraag
+// — bewust een lichtere, eigen opmaak (niet de top-level .choice-row-structuur, die is
+// ontworpen voor een volledige vraag, niet voor genest gebruik binnen één onderdeel).
+function renderPartChoices(p) {
+  const inputType = p.type === 'single' ? 'radio' : 'checkbox';
+  const choices = Array.isArray(p.choices) ? p.choices : [];
+  return `
+    <div style="margin-top:6px;padding:8px 10px;background:var(--surface-soft);border-radius:8px;">
+      ${choices.map(c => `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <input type="${inputType}" ${c.correct ? 'checked' : ''} title="Correct antwoord"
+            onclick="togglePartChoiceCorrect('${p.id}', '${c.id}')"/>
+          <input type="text" value="${esc(c.text)}" placeholder="Optietekst…" style="flex:1;"
+            oninput="setPartChoiceText('${p.id}', '${c.id}', this.value)" onkeydown="event.stopPropagation()"/>
+          <button type="button" class="choice-remove" style="margin-top:0;" title="Optie verwijderen"
+            onclick="removePartChoice('${p.id}', '${c.id}')">✕</button>
+        </div>`).join('')}
+      <button type="button" class="btn btn-muted small" onclick="addPartChoice('${p.id}')">+ Optie toevoegen</button>
+      <p style="font-size:0.74rem;color:var(--muted);margin:6px 0 0;">
+        ${p.type === 'single' ? 'Vink de ene juiste optie aan.' : 'Vink alle juiste opties aan.'}
+      </p>
+    </div>`;
 }
 
 
@@ -575,9 +671,16 @@ async function saveQuestion() {
   }
   if (type === 'composite') {
     if (_parts.length < 1) return void await pyAlert('Voeg minstens 1 antwoordonderdeel toe.', "warn");
-    const openZonderLabel = _parts.find(p => p.type === 'open' && !p.label.trim());
-    if (openZonderLabel) return void await pyAlert('Elk open-onderdeel heeft een label nodig.', "warn");
+    const zonderLabel = _parts.find(p => p.type !== 'code' && !p.label.trim());
+    if (zonderLabel) return void await pyAlert('Elk open/keuze-onderdeel heeft een label nodig.', "warn");
     if (_parts.some(p => p.points <= 0)) return void await pyAlert('Elk onderdeel heeft minstens 1 punt nodig.', "warn");
+    // Sprint 51y: single/multiple onderdelen hebben dezelfde eisen als een gewone keuzevraag.
+    for (const p of _parts) {
+      if (p.type !== 'single' && p.type !== 'multiple') continue;
+      const ingevuld = (p.choices || []).filter(c => c.text.trim());
+      if (ingevuld.length < 2) return void await pyAlert(`Onderdeel "${p.label}": vul minstens 2 opties in.`, "warn");
+      if (!(p.choices || []).some(c => c.correct)) return void await pyAlert(`Onderdeel "${p.label}": selecteer minstens 1 juist antwoord.`, "warn");
+    }
   }
 
   const body = {

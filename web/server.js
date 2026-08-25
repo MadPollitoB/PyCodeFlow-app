@@ -272,7 +272,6 @@ function herkenAfbeelding(buf) {
 // (Sprint 65) De logo-endpoints stonden hier fout: vóór `const app = express()`.
 // Ze staan nu bij de andere school-endpoints, ná de aanmaak van `app`.
 
-
 // Sprint 60: mag deze beheerder DEZE school bewerken? Super-admin/open → altijd;
 // een admin enkel zijn eigen scholen. (Aanmaken/verwijderen blijft platformwerk.)
 async function magSchoolBeheren(req, schoolId) {
@@ -746,7 +745,6 @@ async function verlengSessieIndienNodig(req, res, sessie) {
     log.warn('[auth] sessie verlengen mislukt:', e.message);
   }
 }
-
 
 // Sprint 50f: leest de identiteit die io.use bij het verbinden heeft vastgesteld.
 // Blijft synchroon, dus de 30 handlers die hem aanroepen wijzigen niet.
@@ -1408,8 +1406,6 @@ app.post('/api/student/recover', requireCsrf, async (req, res) => {
   }
 });
 
-
-
 // Sprint 50b: laat de ingelogde leerkracht zien wie de app dénkt dat hij is.
 // Dit is meteen de test voor deze sprint: log in als A en als B in twee browsers,
 // en dit moet twee verschillende namen geven.
@@ -1601,7 +1597,6 @@ app.get('/school-logo', async (req, res) => {
   res.sendFile(logoPath);
 });
 
-
 function readCgroupNumber(filePath) {
   try {
     const raw = require('fs').readFileSync(filePath, 'utf8').trim();
@@ -1649,7 +1644,6 @@ app.get('/api/system-stats', requireTeacherAuth, requireSysteem, async (req, res
     res.status(500).json({ ok: false, error: error.message || 'stats failed' });
   }
 });
-
 
 // ── Sprint 24g: Database viewer endpoints ─────────────────────────────────────
 
@@ -3161,6 +3155,34 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Sprint 51-fix: deze 4 routes stonden voorheen NA 'app.get(\'/api/quiz/:code\'...)'/'app.put(\'/api/quiz/:code\'...)' en werden daardoor NOOIT bereikt -- Express matcht routes
+// in registratievolgorde, en de :code-wildcard onderschepte elk pad met exact 1 segment na
+// /api/quiz/ (zoals /api/quiz/archive -> code='ARCHIVE', /api/quiz/stats -> code='STATS', ...).
+// Dat verklaarde zowel 'toets niet gevonden in Archief' als 'Fout: Toets/taak niet gevonden'
+// bij de jaarwissel-knop. Nu vóór de wildcard geplaatst, zodat ze wél bereikt worden.
+app.get('/api/quiz/comment-templates', requireTeacherAuth, async (req, res) => {
+  const teacher = await dbModule.getTeacherByUsername(
+    parseBasicAuthHeader(req.headers.authorization)?.username || ''
+  );
+  res.json(await dbModule.listQuizCommentTemplates(teacher?.id));
+});
+app.get('/api/quiz/archive', requireTeacherAuth, async (req, res) => {
+  try {
+    const { year, classId, subject, archived } = req.query;
+    const result = await dbModule.getQuizArchive({
+      year: year || null,
+      classId: classId || null,
+      subject: subject || null,
+      archived: archived === 'true' ? true : archived === 'false' ? false : null,
+    });
+    res.json(result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/quiz/stats', requireTeacherAuth, async (req, res) => {
+  try { res.json(await dbModule.getQuizStats()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   const code = req.params.code.toUpperCase();
   const session = sessions.get(code);
@@ -3226,6 +3248,21 @@ app.get('/api/quiz/:code/edit', requireTeacherAuth, requireSessionAccess, async 
       })),
       studentIds,
     });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/quiz/new-school-year', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { newYear } = req.body || {};
+  if (!newYear || !/^[0-9]{4}-[0-9]{4}$/.test(newYear)) return res.status(400).json({ error: 'Ongeldig schooljaar formaat (bv. 2026-2027)' });
+  try {
+    // Archiveer alle actieve (niet-gearchiveerde) quiz sessies
+    const archive = await dbModule.getQuizArchive({ archived: false });
+    let archived = 0;
+    for (const q of archive) {
+      await dbModule.archiveQuiz(q.code);
+      archived++;
+    }
+    res.json({ ok: true, archived, newYear });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -4077,13 +4114,6 @@ app.get('/api/quiz/:code/similarity', requireTeacherAuth, requireSessionAccess, 
 
 // ── 16d: Commentaar templates ─────────────────────────────────────────────────
 
-app.get('/api/quiz/comment-templates', requireTeacherAuth, async (req, res) => {
-  const teacher = await dbModule.getTeacherByUsername(
-    parseBasicAuthHeader(req.headers.authorization)?.username || ''
-  );
-  res.json(await dbModule.listQuizCommentTemplates(teacher?.id));
-});
-
 app.post('/api/quiz/comment-templates', requireTeacherAuth, requireCsrf, async (req, res) => {
   const { text } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: 'Tekst is verplicht.' });
@@ -4115,6 +4145,63 @@ async function getSchoolNameVoorSessie(sessionCode) {
   } catch (e) { log.warn('[pdf] schoolnaam bepalen mislukt:', e.message); }
   // Terugval: install-brede naam (single-school installatie), anders neutraal.
   return process.env.SCHOOL_NAME || 'PyCodeFlow';
+}
+
+// Sprint 51j: samengestelde vraag afdrukken — per onderdeel het label + antwoord, en het
+// (max 1) code-onderdeel via codeBlockFn. partScores/scored geven eventueel de score per
+// onderdeel weer.
+// Sprint 51z (bugfix): dit stond voorheen ALS LOKALE functie BINNEN generateQuizPDF —
+// bereikbaar voor de hoofd-PDF (vragenblad/antwoordformulier/overzicht), maar de ZIP-export
+// (`GET /pdf/zip`) is een volledig aparte, top-level route-handler die er ondanks de
+// (foutieve) commentaar "hergebruikt dezelfde helper" nooit bij kon — dat gaf een
+// `ReferenceError: compositeAnswerBlock is not defined`, bevestigd met een end-to-end-test.
+// Nu op MODULE-niveau, met `doc`/`scored`/`codeBlockFn` als parameters (geen closure meer op
+// een specifieke aanroeper) zodat beide plekken 'm correct kunnen gebruiken.
+function parsePartsForPdf(raw) {
+  try { const p = JSON.parse(raw || '[]'); return Array.isArray(p) ? p : []; } catch { return []; }
+}
+function compositeAnswerBlock(doc, q, ans, scored, codeBlockFn) {
+  const parts = parsePartsForPdf(q.answer_parts);
+  let partAnswers = {}, partScores = {};
+  try { partAnswers = JSON.parse(ans?.part_answers || '{}'); } catch { partAnswers = {}; }
+  try { partScores = JSON.parse(ans?.part_scores || '{}'); } catch { partScores = {}; }
+  parts.forEach((p) => {
+    if (doc.y > 700) doc.addPage();
+    const label = p.type === 'code' ? '🐍 Code' : (p.label || 'Antwoord');
+    const scoreTxt = scored && partScores[p.id] !== undefined ? `  (${partScores[p.id]}/${p.points} pt)` : `  ( /${p.points} pt)`;
+    doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151').text(label + scoreTxt);
+    doc.fillColor('#000').moveDown(0.15);
+    if (p.type === 'code') {
+      codeBlockFn(partAnswers[p.id] || '');
+    } else if (p.type === 'single' || p.type === 'multiple') {
+      // Sprint 51y: partAnswers[p.id] is hier een ARRAY van gekozen choice-id's, geen
+      // string — .trim() erop zou crashen. Toon de gekozen optietekst(en), met een vinkje
+      // bij de juiste optie.
+      const gekozen = Array.isArray(partAnswers[p.id]) ? partAnswers[p.id] : [];
+      const choices = Array.isArray(p.choices) ? p.choices : [];
+      if (!gekozen.length) {
+        doc.fontSize(9).font('Helvetica-Oblique').fillColor('#999').text('(geen antwoord)');
+        doc.fillColor('#000');
+      } else {
+        choices.forEach(c => {
+          const isGekozen = gekozen.includes(c.id);
+          const teken = c.correct ? '✅' : (isGekozen ? '❌' : '○');
+          doc.fontSize(9).font(isGekozen ? 'Helvetica-Bold' : 'Helvetica').fillColor('#000')
+             .text(`${teken} ${c.text}`);
+        });
+      }
+      doc.moveDown(0.4);
+    } else {
+      const tekst = partAnswers[p.id]?.trim();
+      if (!tekst) {
+        doc.fontSize(9).font('Helvetica-Oblique').fillColor('#999').text('(geen antwoord)');
+        doc.fillColor('#000');
+      } else {
+        doc.fontSize(10).font('Helvetica').text(tekst, { lineGap: 2 });
+      }
+      doc.moveDown(0.4);
+    }
+  });
 }
 
 async function generateQuizPDF(sessionCode, type, studentId = null, scored = false) {
@@ -4171,38 +4258,6 @@ async function generateQuizPDF(sessionCode, type, studentId = null, scored = fal
       doc.fontSize(8).fillColor('#999')
          .text(`Pagina ${i+1} van ${range.count}`, 50, 790, { width: 495, align: 'center' });
     }
-  }
-
-  // Sprint 51j: samengestelde vraag afdrukken in het antwoordformulier — per onderdeel het
-  // label + antwoord, en het (max 1) code-onderdeel als codeBlock. partScores/scored geven
-  // eventueel de score per onderdeel weer.
-  function parsePartsForPdf(raw) {
-    try { const p = JSON.parse(raw || '[]'); return Array.isArray(p) ? p : []; } catch { return []; }
-  }
-  function compositeAnswerBlock(q, ans) {
-    const parts = parsePartsForPdf(q.answer_parts);
-    let partAnswers = {}, partScores = {};
-    try { partAnswers = JSON.parse(ans?.part_answers || '{}'); } catch { partAnswers = {}; }
-    try { partScores = JSON.parse(ans?.part_scores || '{}'); } catch { partScores = {}; }
-    parts.forEach((p) => {
-      if (doc.y > 700) doc.addPage();
-      const label = p.type === 'code' ? '🐍 Code' : (p.label || 'Antwoord');
-      const scoreTxt = scored && partScores[p.id] !== undefined ? `  (${partScores[p.id]}/${p.points} pt)` : `  ( /${p.points} pt)`;
-      doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151').text(label + scoreTxt);
-      doc.fillColor('#000').moveDown(0.15);
-      if (p.type === 'code') {
-        codeBlock(partAnswers[p.id] || '');
-      } else {
-        const tekst = partAnswers[p.id]?.trim();
-        if (!tekst) {
-          doc.fontSize(9).font('Helvetica-Oblique').fillColor('#999').text('(geen antwoord)');
-          doc.fillColor('#000');
-        } else {
-          doc.fontSize(10).font('Helvetica').text(tekst, { lineGap: 2 });
-        }
-        doc.moveDown(0.4);
-      }
-    });
   }
 
   // ── Type 1: Vragenblad ──────────────────────────────────────────────────────
@@ -4269,7 +4324,7 @@ async function generateQuizPDF(sessionCode, type, studentId = null, scored = fal
         doc.fontSize(9).font('Helvetica').fillColor('#666').text(q.text_snapshot?.slice(0,100) || '', { lineGap: 2 });
         doc.fillColor('#000').moveDown(0.3);
         if (q.question_type === 'composite') {
-          compositeAnswerBlock(q, ans);
+          compositeAnswerBlock(doc, q, ans, scored, codeBlock);
         } else {
           codeBlock(ans?.code || '');
         }
@@ -4502,9 +4557,21 @@ app.get('/api/quiz/:code/pdf/zip', requireTeacherAuth, requireSessionAccess, asy
         doc.fillColor('#000').moveDown(0.3);
 
         if (qType === 'composite') {
-          // Sprint 51j: composite heeft geen 'code'-kolom-antwoord — de onderdelen zitten in
-          // part_answers. Dezelfde compositeAnswerBlock-helper als de hoofd-PDF hergebruiken.
-          compositeAnswerBlock(q, ans);
+          // Sprint 51z (bugfix): compositeAnswerBlock is nu een MODULE-level functie (zie
+          // boven generateQuizPDF) — voorheen was dit een ReferenceError, want de oude
+          // versie was enkel bereikbaar binnen generateQuizPDF's closure, niet hier.
+          // codeBlockFn hergebruikt dezelfde inline-codeblok-stijl als de gewone 'code'-tak
+          // hieronder, zodat een code-onderdeel er in de ZIP-PDF identiek uitziet.
+          compositeAnswerBlock(doc, q, ans, scored, (code) => {
+            const lines = (code || '').split(String.fromCharCode(10));
+            doc.rect(54, doc.y - 2, 487, lines.length * 13 + 10).fillAndStroke('#f8f9fa', '#d1d5db');
+            doc.fontSize(8).font('Courier').fillColor('#1e1e1e');
+            lines.forEach((line, li) => {
+              doc.text(line, 58, (doc.y) + li * 13 - (li === 0 ? 0 : 13), { lineBreak: false, width: 479 });
+            });
+            doc.y += lines.length * 13 + 12;
+            doc.fillColor('#000');
+          });
         } else if (!ans || !ans.code) {
           doc.fontSize(9).font('Helvetica-Oblique').fillColor('#999').text('(geen antwoord)');
         } else if (qType === 'open') {
@@ -4667,19 +4734,6 @@ ${'='.repeat(60)}
 
 // ── 17b: Quiz archief endpoints ──────────────────────────────────────────────
 
-app.get('/api/quiz/archive', requireTeacherAuth, async (req, res) => {
-  try {
-    const { year, classId, subject, archived } = req.query;
-    const result = await dbModule.getQuizArchive({
-      year: year || null,
-      classId: classId || null,
-      subject: subject || null,
-      archived: archived === 'true' ? true : archived === 'false' ? false : null,
-    });
-    res.json(result);
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
 app.get('/api/quiz/archive/student', requireTeacherAuth, async (req, res) => {
   const { name, classId, year } = req.query;
   if (!name) return res.status(400).json({ error: 'name parameter verplicht' });
@@ -4735,20 +4789,6 @@ app.delete('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireC
   res.json({ ok: true });
 });
 
-app.put('/api/quiz/new-school-year', requireTeacherAuth, requireCsrf, async (req, res) => {
-  const { newYear } = req.body || {};
-  if (!newYear || !/^[0-9]{4}-[0-9]{4}$/.test(newYear)) return res.status(400).json({ error: 'Ongeldig schooljaar formaat (bv. 2026-2027)' });
-  try {
-    // Archiveer alle actieve (niet-gearchiveerde) quiz sessies
-    const archive = await dbModule.getQuizArchive({ archived: false });
-    let archived = 0;
-    for (const q of archive) {
-      await dbModule.archiveQuiz(q.code);
-      archived++;
-    }
-    res.json({ ok: true, archived, newYear });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
 
 // Route voor quiz-archive.html
 app.get('/quiz-archive.html', requireTeacherAuth, (req, res) => {
@@ -4845,11 +4885,6 @@ app.post('/api/admin/logs/cleanup-all', requireTeacherAuth, requireSysteem, requ
 });
 
 // ── 16f: Quiz monitoring stats ────────────────────────────────────────────────
-
-app.get('/api/quiz/stats', requireTeacherAuth, async (req, res) => {
-  try { res.json(await dbModule.getQuizStats()); }
-  catch (e) { res.status(500).json({ error: e.message }); }
-});
 
 // Web-container health check
 app.get('/health', (req, res) => {
@@ -5057,7 +5092,6 @@ app.use("/monaco", express.static(path.join(__dirname, "node_modules", "monaco-e
 app.use("/vendor/dompurify", express.static(path.join(__dirname, "node_modules", "dompurify", "dist")));
 app.use("/vendor/marked",    express.static(path.join(__dirname, "node_modules", "marked")));
 
-
 const sessions = new Map();
 const socketToUser = new Map();
 const activeRuns = new Map(); // runId -> routing info
@@ -5196,7 +5230,6 @@ function nextRevision(current) {
     log.error('[db] Kon sessies niet laden:', e.message);
   }
 })();
-
 
 function makeCode() {
   // Fix SEC-1+13: crypto.randomBytes() + 8 tekens (32^8 = ~1 biljoen combinaties)
@@ -5816,7 +5849,6 @@ function emitTeacherSession(session) {
   io.to(session.teacherSocketId).emit("teacher_session_data", buildTeacherData(session));
 }
 
-
 function findReusableStudent(session, name, resumeId = null) {
   if (resumeId && session.students[resumeId] && !session.students[resumeId].removed) {
     return session.students[resumeId];
@@ -5834,7 +5866,6 @@ function findReusableStudent(session, name, resumeId = null) {
 
   return null;
 }
-
 
 function buildTeacherData(session) {
   const isClassPersonal = session.mode === "class" && (session.classWorkspaceMode || "shared") === "personal";
@@ -5912,7 +5943,6 @@ function setStatus(session, text, type="info") {
   session.statusType = type;
   emitTeacherSession(session);
 }
-
 
 function emitStudentState(session, student) {
   if (!student.socketId) return;
@@ -7962,6 +7992,10 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
         code: ans.code || '', runCount: ans.runCount || 0,
         firstVisitAt: ans.firstVisitAt || null, firstRunAt: ans.firstRunAt || null,
         selectedChoices: JSON.stringify(ans.selectedChoices || []),
+        // Sprint 51y (bugfix): dit ontbrak hier — bij het INDIENEN werd partAnswers niet
+        // doorgegeven, waardoor saveQuizAnswer's ON CONFLICT-tak de al tussentijds
+        // opgeslagen onderdeel-antwoorden van een composite-vraag met '{}' overschreef.
+        partAnswers: ans.partAnswers ? JSON.stringify(ans.partAnswers) : undefined,
       }).catch(() => {});
 
       // Sla auto-score op als berekend
@@ -7971,6 +8005,32 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
         if (savedAns) {
           await dbModule.scoreQuizAnswer(savedAns.id, autoScore,
             `🤖 Automatisch gescoord (${q.question_type})`).catch(() => {});
+        }
+      }
+
+      // Sprint 51y: auto-scoring voor single/multiple-choice ONDERDELEN van een composite-
+      // vraag — zelfde computeAutoScore()-logica, hergebruikt door het onderdeel als een
+      // "fake" vraag te verpakken (question_type + choices_json + points).
+      if (q?.question_type === 'composite' && ans.partAnswers) {
+        let parts = [];
+        try { parts = JSON.parse(q.answer_parts || '[]'); } catch { parts = []; }
+        const scoorbareOnderdelen = parts.filter(p => p.type === 'single' || p.type === 'multiple');
+        if (scoorbareOnderdelen.length) {
+          const savedAnswers = await dbModule.getQuizAnswersByStudent(ctx.code, ctx.studentId).catch(() => []);
+          const savedAns = savedAnswers.find(a => a.question_id === questionId);
+          if (savedAns) {
+            for (const p of scoorbareOnderdelen) {
+              const gekozen = ans.partAnswers[p.id];
+              const { autoScore: partScore, autoScored: partAutoScored } = scoringLib.computeAutoScore(
+                { question_type: p.type, choices_json: JSON.stringify(p.choices || []), points: p.points },
+                gekozen
+              );
+              if (partAutoScored && partScore !== null) {
+                await dbModule.scoreQuizAnswerPart(savedAns.id, p.id, partScore,
+                  `🤖 Automatisch gescoord (${p.type})`).catch(() => {});
+              }
+            }
+          }
         }
       }
     }
@@ -8130,7 +8190,6 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     emitTeacherSession(session);
   });
 });
-
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // STRESSTEST ENGINE

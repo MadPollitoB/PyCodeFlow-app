@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.21**
+**Huidige versie: v2026.2.51.23**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -224,6 +224,49 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 51-fix — Route-onbereikbaarheid + codeveld-styling — ✅ AFGEROND (v2026.2.51.23)
+
+Express matcht routes in registratievolgorde; `GET /api/quiz/:code` (regel 3164) stond vóór
+4 specifieke routes met een vast pad-segment, die daardoor systematisch onbereikbaar waren:
+`/api/quiz/archive` (verklaart "toets niet gevonden" + "undefined toetsen"-teller),
+`/api/quiz/new-school-year` (PUT, verklaart de archiveerfout), plus 2 zelf-ontdekte,
+niet-gemelde gevallen (`/api/quiz/comment-templates`, `/api/quiz/stats`). Alle 4 verplaatst
+naar vóór de wildcard. Getest met een browsertest die het exacte gemelde scenario herhaalt.
+
+Modelantwoord bij een code-vraag/code-onderdeel gebruikt nu de bestaande donkere
+code-editor-stijl (`.choice-code-input`) i.p.v. een gewoon wit veld. Onderweg een CSS-
+specificiteitsbotsing gevonden (`.form-row textarea` overschreef de class stilzwijgend) en
+gefixt. Getest: correct bij initieel laden én bij wisselen tussen vraagtypes.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/quiz-bank.html` ·
+`web/public/quiz-bank.js`.
+
+---
+
+### Sprint 51y/51z — Single/multiple-choice als onderdeel-type + PDF-fix — ✅ AFGEROND (v2026.2.51.22)
+
+Composite-vragen ondersteunen nu ook single/multiple-choice als onderdeel-type (naast
+open/code). `normalizeAnswerParts` uitgebreid met choices-validatie; vragenbank-editor met
+volledige keuze-editor per onderdeel; leerlingscherm met radio's/checkboxes; automatische
+scoring via hergebruik van `computeAutoScore` (fake-question-wrapper per onderdeel);
+verbeterpagina toont gekozen optie(s) + correctheid; PDF toont optietekst + markering.
+
+Twee pre-existing bugs gevonden en gefixt tijdens het testen: (1) `quiz_submit_all` gaf
+`partAnswers` niet door aan `saveQuizAnswer` bij indienen — kon eerder opgeslagen
+onderdeel-antwoorden overschrijven; (2) `compositeAnswerBlock` was enkel bereikbaar binnen
+`generateQuizPDF`'s closure, niet vanuit de aparte ZIP-export-route — `ReferenceError` bij
+elke composite-vraag in een ZIP. Verplaatst naar module-niveau met `doc`/`scored`/
+`codeBlockFn` als parameters.
+
+Getest: volledige HTTP+socket.io end-to-end (correct/fout antwoord → juiste auto-score voor
+single én multiple), alle 4 onderdeel-types samen inclusief PDF- én ZIP-export (beiden
+crashten voorheen, nu bevestigd 200 met geldige inhoud). 324/324 unit tests.
+
+**Betrokken bestanden:** `web/db/database.js` · `web/server.js` · `web/public/quiz-bank.js` ·
+`web/public/quiz-student.js` · `web/public/quiz-review.js`.
+
+---
 
 ### Sprint 51x — Vier meldingen na jaarwissel-feedback — ✅ AFGEROND (v2026.2.51.21)
 

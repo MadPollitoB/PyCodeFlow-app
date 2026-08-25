@@ -1,3 +1,90 @@
+## v2026.2.51.23 — Sprint 51-fix: Route-onbereikbaarheid Toets-archief + codeveld-styling
+
+Twee gemelde problemen na het testen van v2026.2.51.21.
+
+### 1. "Toets niet gevonden", "undefined toetsen" en de archiveerfout — alle drie dezelfde oorzaak
+Een systematische Express-routingbug: routes worden gematcht in **registratievolgorde**, en
+`GET /api/quiz/:code` (een generieke "haal deze ene toets op"-route) stond ver vóór een reeks
+specifieke routes met een vast pad-segment. Elke aanroep naar zo'n route werd daardoor
+altijd onderschept door de generieke route, met het vaste pad-segment als (niet-bestaande)
+toets-code:
+- `GET /api/quiz/archive` → verklaart zowel "een aangemaakte toets is niet terug te vinden"
+  in het overzicht als de **"undefined toetsen"**-teller (die rekende op een array die er
+  door deze bug nooit was).
+- `PUT /api/quiz/new-school-year` → verklaart exact de **"Fout: Toets/taak niet gevonden."**
+  bij het bevestigen van "Nieuw schooljaar starten".
+
+Bij het systematisch doorzoeken van alle `/api/quiz/…`-routes zijn nog **twee sluimerende,
+niet-gemelde gevallen** met hetzelfde probleem gevonden en meteen mee gefixt
+(`/api/quiz/comment-templates` en `/api/quiz/stats`). Alle vier zijn verplaatst naar vóór de
+generieke `:code`-route.
+
+**Getest:** een volledige browsertest herhaalt het exacte gemelde scenario — een toets
+aanmaken → verschijnt correct in het Archief-overzicht → teller toont het juiste aantal (geen
+"undefined" meer) → "Nieuw schooljaar starten" slaagt met een zichtbare succesmelding.
+
+### 2. Modelantwoord bij een code-vraag is nu een echt codeveld
+Er bestond al een donkere, code-editor-stijl (gebruikt bij het code-alternatief in
+keuzevragen) — het modelantwoord-veld gebruikt die nu ook, zowel bij een gewone code-vraag als
+bij het code-onderdeel van een samengestelde vraag. Onderweg een CSS-specificiteitsbotsing
+gevonden en gefixt: een generieke stijlregel voor formuliervelden had toevallig hogere
+specificiteit en overschreef de bedoelde donkere code-stijl stilzwijgend.
+
+**Getest:** in een echte browser bevestigd dat het veld zowel bij het openen van het formulier
+als bij het wisselen tussen vraagtypes correct donker/monospace wordt bij "Python code" en
+weer normaal bij andere types — voor zowel het hoofdvraag- als het onderdeel-modelantwoord.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/quiz-bank.html` ·
+`web/public/quiz-bank.js` · `VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.22 — Sprint 51y/51z: Single/multiple-choice als onderdeel-type + PDF-fix
+
+Het vijfde, grotere punt uit de vorige feedback-ronde: bij een samengestelde vraag kon je
+enkel "Open" en "Code" als onderdeel-type kiezen. Nu zijn ook **Single choice** en
+**Multiple choice** volwaardige onderdeel-types.
+
+### Nieuw
+- **Vragenbank-editor**: de onderdelen-dropdown heeft nu ook "◉ Single choice" en
+  "☑ Multiple choice", met een volledige keuze-editor per onderdeel (opties toevoegen/
+  verwijderen, correct(e) antwoord(en) aanvinken — radiogedrag bij single, checkboxgedrag
+  bij multiple). Dezelfde regels als bestaande onderdelen blijven gelden (max 6, max 1
+  code-onderdeel).
+- **Leerlingscherm**: toont radio's/checkboxes voor deze onderdelen, met behoud van eerder
+  gekozen antwoorden bij het wisselen tussen vragen.
+- **Automatische scoring**: single/multiple-onderdelen worden bij het indienen automatisch
+  gescoord — hergebruikt dezelfde, al bestaande `computeAutoScore`-logica als een gewone
+  keuzevraag (volle punten bij correct; bij multiple: 0 zodra één fout antwoord meegekozen is).
+- **Verbeterpagina**: toont welke optie(s) een leerling koos, met welke correct was — de
+  auto-score staat al ingevuld en kan door de leerkracht overruled worden.
+- **PDF-export**: single/multiple-onderdelen tonen de gekozen optietekst(en) met een
+  correct/fout-markering.
+
+### Twee echte bugs gevonden en gefixt tijdens het testen
+1. **`quiz_submit_all` gaf `partAnswers` niet door aan `saveQuizAnswer`** bij het indienen —
+   een pre-existing bug (niet vandaag geïntroduceerd) die de tussentijds opgeslagen
+   onderdeel-antwoorden van een composite-vraag kon overschrijven met een lege waarde.
+2. **`compositeAnswerBlock` was enkel bereikbaar binnen `generateQuizPDF`'s closure** — de
+   ZIP-export (`/pdf/zip`) is een volledig aparte route-handler die er, ondanks een
+   misleidende commentaar ("hergebruikt dezelfde helper"), nooit bij kon. Gaf een
+   `ReferenceError` zodra een composite-vraag in de ZIP-export voorkwam. Nu op module-niveau
+   verplaatst zodat beide plekken hem correct gebruiken.
+
+### Getest
+Volledige HTTP + socket.io end-to-end-test tegen een echte server: een leerling die het
+correcte antwoord kiest krijgt automatisch de volle punten, een fout antwoord krijgt 0 —
+bevestigd voor zowel single- als multiple-choice. Een uitgebreide test met alle vier
+onderdeel-types tegelijk (open, code, single, multiple) bevestigt zowel de PDF- als de
+ZIP-export correct genereren (voorheen crashte de ZIP-export hierop). Volledige testsuite:
+324/324 groen.
+
+**Betrokken bestanden:** `web/db/database.js` · `web/server.js` · `web/public/quiz-bank.js` ·
+`web/public/quiz-student.js` · `web/public/quiz-review.js` · `VERSION` · overige
+`web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.21 — Sprint 51x: Vier meldingen na de jaarwissel-feedback
 
 Vier van de vijf gemelde punten opgelost en getest. Het vijfde (single/multiple-choice als

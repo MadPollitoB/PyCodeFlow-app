@@ -579,6 +579,25 @@ function saveCompositePartAnswer(partId, value) {
   _answers[_currentQuestionId].partAnswers[partId] = value;
 }
 
+// Sprint 51y: single/multiple-choice-onderdeel binnen een samengestelde vraag — de waarde
+// blijft ALTIJD een array van gekozen choice-id's (ook bij single, met max 1 element), zodat
+// de server dezelfde computeAutoScore()-logica kan hergebruiken als bij een gewone keuzevraag.
+function saveCompositeChoiceAnswer(partId, choiceId, isMultiple) {
+  if (!_currentQuestionId) return;
+  if (!_answers[_currentQuestionId]) _answers[_currentQuestionId] = {};
+  if (!_answers[_currentQuestionId].partAnswers) _answers[_currentQuestionId].partAnswers = {};
+  const huidig = _answers[_currentQuestionId].partAnswers[partId];
+  let gekozen = Array.isArray(huidig) ? huidig.slice() : [];
+  if (isMultiple) {
+    const idx = gekozen.indexOf(choiceId);
+    if (idx >= 0) gekozen.splice(idx, 1); else gekozen.push(choiceId);
+  } else {
+    gekozen = [choiceId]; // single: altijd exact 1 keuze, radiogedrag vervangt de vorige
+  }
+  _answers[_currentQuestionId].partAnswers[partId] = gekozen;
+  saveCurrentAnswer();
+}
+
 // ── Navigatie ───────────────────────────────────────────────────────────────
 function renderNav() {
   const questions = _state?.questions || [];
@@ -683,12 +702,30 @@ const qTextEl = document.getElementById('q-text');
     const ta = document.getElementById('quiz-open-answer');
     if (ta) { ta.value = savedAns?.code || ''; updateOpenCount(); }
   } else if (qType === 'composite') {
-    // Sprint 51j: samengestelde vraag — per open-onderdeel een tekstveld met label; het
-    // eventuele code-onderdeel gebruikt het gewone (altijd uitvoerbare) code-paneel hierboven.
+    // Sprint 51j: samengestelde vraag — per onderdeel een passend invoerveld; het eventuele
+    // code-onderdeel gebruikt het gewone (altijd uitvoerbare) code-paneel hierboven.
+    // Sprint 51y: uitgebreid met single/multiple-choice-onderdelen (radio's/checkboxes).
     const partAnswers = savedAns?.partAnswers || {};
     const wrap = document.getElementById('composite-open-parts');
     if (wrap) {
-      wrap.innerHTML = partsForType.filter(p => p.type === 'open').map(p => `
+      wrap.innerHTML = partsForType.filter(p => p.type !== 'code').map(p => {
+        if (p.type === 'single' || p.type === 'multiple') {
+          const gekozen = Array.isArray(partAnswers[p.id]) ? partAnswers[p.id] : [];
+          const inputType = p.type === 'single' ? 'radio' : 'checkbox';
+          const groupName = 'composite-choice-' + p.id;
+          return `<div>
+            <label style="font-size:0.85rem;color:var(--muted);display:block;margin-bottom:6px;">${escHtml(p.label || 'Antwoord')}</label>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              ${(p.choices || []).map(c => `
+                <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;">
+                  <input type="${inputType}" name="${groupName}" value="${escHtml(c.id)}" ${gekozen.includes(c.id) ? 'checked' : ''}
+                    onchange="saveCompositeChoiceAnswer('${p.id}', '${c.id}', ${p.type === 'multiple'})"/>
+                  <span>${escHtml(c.text)}</span>
+                </label>`).join('')}
+            </div>
+          </div>`;
+        }
+        return `
         <div>
           <label style="font-size:0.85rem;color:var(--muted);display:block;margin-bottom:6px;">${escHtml(p.label || 'Antwoord')}</label>
           <textarea class="composite-part-input" data-part-id="${p.id}" rows="3" maxlength="2000"
@@ -697,7 +734,8 @@ const qTextEl = document.getElementById('q-text');
             placeholder="Jouw antwoord..."
             onkeydown="event.stopPropagation()"
             oninput="saveCompositePartAnswer('${p.id}', this.value)">${escHtml(partAnswers[p.id] || '')}</textarea>
-        </div>`).join('');
+        </div>`;
+      }).join('');
     }
     if (codePart) {
       setEditorCode(partAnswers[codePart.id] || '');
