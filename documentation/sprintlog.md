@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.28**
+**Huidige versie: v2026.2.51.29**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -224,6 +224,26 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 51-fix — Verwarrende Stoppen-knop bij verlopen toets — ✅ AFGEROND (v2026.2.51.29)
+
+`availability='expired'` (tijd-gebaseerd) en `stoppedAt` (enkel gezet bij handmatig
+stoppen) liepen niet synchroon — de deadline-cronjob zette stoppedAt nooit automatisch,
+dus de "Stoppen"-knop (die enkel naar stoppedAt keek) bleef staan bij een vanzelf verlopen
+toets. Fix bij de bron: zowel de cronjob als een nieuwe lazy-check in
+GET /api/quiz-sessions zetten stoppedAt nu ook bij expired (de lazy-check vangt ook
+toetsen die nooit in het geheugen van een actieve server zaten). Fix in de weergave:
+nieuwe isActief()-helper in assignment-overview.js stuurt de knop; badge-volgorde toont
+"⛔ Venster voorbij" vóór het minder specifieke "⏹ gestopt".
+
+Getest: end-to-end (toets met deadline in het verleden, nooit handmatig gestopt) bevestigt
+automatische stoppedAt + verdwenen knop, met browsertest/screenshot die het gemelde scherm
+exact reproduceert. Twee controlescenario's (nog actief, handmatig gestopt vóór deadline)
+bevestigen geen regressie.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/assignment-overview.js`.
+
+---
 
 ### Sprint 51-fix (v2) — Nakijkscherm: antwoord vs. antwoordsleutel gescheiden — ✅ AFGEROND (v2026.2.51.28)
 

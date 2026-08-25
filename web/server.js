@@ -2733,6 +2733,12 @@ setInterval(async () => {
       // Sprint 51s (uitbreiding): vult zowel niet-deelgenomen leerlingen áls onbeantwoorde
       // vragen van wie wel gestart is aan, allebei automatisch met score 0.
       const { nietDeelgenomen, aangevuld } = await dbModule.fillMissingQuizAnswers(code).catch(() => ({ nietDeelgenomen: 0, aangevuld: 0 }));
+      // Sprint 51-fix: het automatisch verstrijken van de deadline zette tot nu toe NOOIT
+      // stopped_at — enkel de handmatige "Stoppen"-knop deed dat. Gevolg: het overzicht
+      // toonde bij zo'n toets zowel "⛔ Venster voorbij" als een zinloze "⏹ Stoppen"-knop
+      // (er is niemand meer om te laten inleveren, de deadline is al voorbij). Nu wordt de
+      // toets ook hier als écht gestopt geregistreerd — één bron van waarheid.
+      await dbModule.stopAssignment(code).catch(() => {});
       log.info(`[quiz] Sessie ${code}: deadline bereikt${nietDeelgenomen ? ` — ${nietDeelgenomen} niet-deelgenomen leerling(en)` : ''}${aangevuld ? ` — ${aangevuld} halve inlevering(en) aangevuld` : ''}`);
     } catch (e) { /* stille fout — zie debug */ }
   }
@@ -5481,6 +5487,16 @@ app.get("/api/quiz-sessions", requireTeacherAuth, async (req, res) => {
     const onlineCount = students.filter(st => st.online).length;
     const row = quizSummaryRow(code, name || code, createdAt || 0, closed, meta, onlineCount, students.length, now);
     row.className = classMap[row.targetClass] || '';
+    // Sprint 51-fix: lazy tegenhanger van de cronjob-fix hierboven — die bereikt enkel
+    // sessies die nog in het geheugen zitten. Een toets waarvan het venster verstreek
+    // terwijl de server niet draaide (of die al lang daarvoor verliep) kreeg zo nooit
+    // stopped_at gezet, en toonde hier dus zowel "⛔ Venster voorbij" als een zinloze
+    // "⏹ Stoppen"-knop. Wordt het hier alsnog gedetecteerd, dan zetten we het meteen recht
+    // (en werken row.stoppedAt bij) zodat dit overzicht meteen klopt, niet pas volgende keer.
+    if (row.availability === 'expired' && !row.stoppedAt && !row.isPreview) {
+      const gestoptOp = await dbModule.stopAssignment(code).catch(() => null);
+      if (gestoptOp) row.stoppedAt = Number(gestoptOp);
+    }
     // Sprint 50 (bug 2): bewerkbaar zolang geen preview, niet gearchiveerd/gesloten/gestopt
     // en er nog geen leerling gestart is of resultaten zijn.
     const heeftActiviteit = activiteitSet.has(code);

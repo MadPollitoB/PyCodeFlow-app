@@ -13,12 +13,25 @@
 
   function esc(s) { return window.escapeHtml ? window.escapeHtml(String(s == null ? '' : s)) : String(s == null ? '' : s); }
 
+  // Sprint 51-fix: is deze toets/taak nog écht actief (kan iemand nog deelnemen, heeft
+  // "Stoppen" nog zin)? Vroeger keek de "Stoppen"-knop enkel naar stoppedAt — een toets
+  // waarvan het tijdvenster gewoon vanzelf verstreek (availability='expired') kreeg dat
+  // veld tot voor kort nooit gezet, dus bleef de knop zichtbaar terwijl er niemand meer
+  // kon deelnemen. De server zet stoppedAt nu ook bij een verstreken venster (zie sprint
+  // 51-fix in server.js); deze check is de bijhorende, defensieve client-kant daarvan.
+  function isActief(a) {
+    return !a.isPreview && !a.stoppedAt && a.availability !== 'expired' && a.availability !== 'closed';
+  }
+
   function statusBadge(a) {
     if (a.isPreview)                 return '<span class="badge" style="background:#fef3c7;color:#92400e;">👁 preview</span>';
-    // Sprint 51d: een door de leerkracht gestopte toets/taak is niet meer "Open".
+    // Sprint 51-fix: "Venster voorbij" vóór "gestopt" gecheckt — specifieker (vertelt WAAROM
+    // het niet meer loopt: de tijd verstreek, niet dat iemand het bewust afbrak). Beide
+    // velden kunnen nu tegelijk waar zijn (zie hierboven), dus de volgorde bepaalt welke
+    // ene badge je te zien krijgt.
+    if (a.availability === 'expired')return '<span class="badge" style="background:#fee2e2;color:#991b1b;">⛔ Venster voorbij</span>';
     if (a.stoppedAt)                 return '<span class="badge" style="background:#e2e8f0;color:#475569;">⏹ gestopt</span>';
     if (a.availability === 'closed') return '<span class="badge" style="background:#e2e8f0;color:#475569;">Gesloten</span>';
-    if (a.availability === 'expired')return '<span class="badge" style="background:#fee2e2;color:#991b1b;">⛔ Venster voorbij</span>';
     if (a.availability === 'pending')return '<span class="badge" style="background:#dbeafe;color:#1e40af;">⏳ Nog niet open</span>';
     return '<span class="badge" style="background:#dcfce7;color:#166534;">🟢 Open</span>';
   }
@@ -96,12 +109,14 @@
       '<a class="btn btn-soft small" href="/teacher-grid.html?code=' + a.code + '" target="_blank">👁 Live</a>' +
       '<button class="btn btn-soft small" onclick="toggleQuizRoster(\'' + a.code + '\')">👥 Voortgang</button>' +
       // Sprint 69: stoppen dient ook als "iedereen nu inleveren" — enkel zinvol zolang de
-      // toets nog niet gestopt is. Sprint 51d: is ze al gestopt, dan tonen we hier NIETS meer
-      // (de status "⏹ gestopt" staat nu bovenaan bij de badge, geen dubbele pil).
-      (a.stoppedAt
-        ? ''
-        : '<button class="btn btn-muted small" onclick="stopQuiz(\'' + a.code + '\',\'' + esc(a.name || a.code) + '\')" ' +
-          'title="Iedereen die bezig is meteen laten inleveren en de ' + LABEL + ' sluiten">⏹ Stoppen</button>');
+      // toets nog écht actief is. Sprint 51-fix: dit keek voorheen enkel naar stoppedAt, dus
+      // een toets waarvan het venster gewoon vanzelf verstreek (nog geen stoppedAt) hield
+      // de knop ten onrechte. isActief() dekt beide gevallen (handmatig én automatisch niet
+      // meer actief) — geen dubbele pil, "⛔ Venster voorbij"/"⏹ gestopt" staat al bovenaan.
+      (isActief(a)
+        ? '<button class="btn btn-muted small" onclick="stopQuiz(\'' + a.code + '\',\'' + esc(a.name || a.code) + '\')" ' +
+          'title="Iedereen die bezig is meteen laten inleveren en de ' + LABEL + ' sluiten">⏹ Stoppen</button>'
+        : '');
     // Sprint 50/51d: "Aanpassen" — enkel op dit overzicht (niet in het live-/sessiescherm) én
     // ENKEL zolang het nog mag (a.editable van de server: geen preview, niet gearchiveerd/
     // gesloten/gestopt, en nog geen leerling gestart of resultaten). Kan het niet meer, dan

@@ -1,3 +1,37 @@
+## v2026.2.51.29 — Sprint 51-fix: Verwarrende "Stoppen"-knop bij een verlopen toets
+
+Een toets die "⛔ Venster voorbij" én "🔍 nazicht open" toonde, bleef toch nog een "⏹ Stoppen"-
+knop tonen — terwijl er niets meer te stoppen viel.
+
+### Oorzaak
+Twee gescheiden concepten die niet op elkaar afgestemd waren: `availability='expired'` is
+puur tijd-gebaseerd (de deadline is verstreken), terwijl `stoppedAt` **uitsluitend** gezet
+werd als de leerkracht expliciet op "Stoppen" klikte — de automatische deadline-afhandeling
+deed dat nooit. De "Stoppen"-knop keek enkel naar `stoppedAt`, dus een toets waarvan de
+deadline gewoon vanzelf verstreek hield de knop, ook al kon er niemand meer deelnemen.
+
+### Fix — bij de bron én in de weergave
+- **Bron**: zowel de bestaande deadline-cronjob als een nieuwe, "lazy" controle bij het
+  ophalen van het toetsoverzicht zetten `stoppedAt` nu ook bij een automatisch verstreken
+  venster. De lazy-controle vangt ook toetsen die nooit in het geheugen van een actieve
+  server zaten (bv. na een herstart) — er is nu nog maar één plek die "is dit gestopt?"
+  bepaalt.
+- **Weergave**: een nieuwe `isActief()`-check (niet preview, niet gestopt, venster niet
+  verstreken/gesloten) bepaalt voortaan of de "Stoppen"-knop verschijnt — niet langer enkel
+  `stoppedAt`. De statusbadge toont bij een verstreken venster nu specifiek "⛔ Venster
+  voorbij" (in plaats van het minder informatieve "⏹ gestopt") wanneer beide gelden.
+
+**Getest:** een volledig end-to-end-scenario (toets aanmaken met een deadline in het
+verleden, zonder ooit handmatig te stoppen) bevestigt dat `stoppedAt` automatisch gezet
+wordt en de "Stoppen"-knop verdwijnt, met een browsertest en screenshot die het exacte
+gemelde scherm reproduceren. Twee controlescenario's (nog actieve toets, en een toets die
+vóór de deadline handmatig gestopt werd) bevestigen dat daar niets veranderd is.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/assignment-overview.js` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.28 — Sprint 51-fix (v2): Nakijkscherm — eigen antwoord en antwoordsleutel apart
 
 Vervolg op de vorige levering: het readonly-nakijkscherm toonde antwoord en correctheid
