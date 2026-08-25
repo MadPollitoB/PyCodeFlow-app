@@ -1,3 +1,38 @@
+## v2026.2.51.28 — Sprint 51-fix (v2): Nakijkscherm — eigen antwoord en antwoordsleutel apart
+
+Vervolg op de vorige levering: het readonly-nakijkscherm toonde antwoord en correctheid
+door elkaar, en code werd als platte tekst getoond in plaats van een echte editor.
+
+### Wat er nu anders is
+Elke vraag toont voortaan **twee duidelijk gescheiden secties**:
+- **"Jouw antwoord"** — uitsluitend wat de leerling zelf invulde of koos, zonder enig
+  correct/fout-oordeel. Bij een keuzevraag zonder gekozen optie blijft de volledige lijst
+  gewoon zichtbaar, niets aangeduid — in plaats van een tekst als "niet ingevuld" die de
+  opties verborg en het onmogelijk maakte om te zien wat er te kiezen was.
+- **"Juiste antwoord"** — een aparte sectie eronder: bij keuzevragen dezelfde lijst met het/
+  de juiste antwoord(en) groen, als een echte antwoordsleutel; bij code een **echte,
+  syntax-gekleurde Monaco-editor** met de modelcode (readonly) — niet langer een platte
+  tekstblok.
+
+Dit geldt ook voor elk onderdeel van een samengestelde vraag.
+
+### Technisch
+Meerdere gelijktijdige, readonly Monaco-editors op één scherm (leerlingcode + modelcode,
+per code-vraag/-onderdeel) via een eigen, lichte mount-helper — bewust niet de gedeelde
+editor-component die maar 1 instance per scherm ondersteunt.
+
+### Getest
+Volledige browsertests bevestigen beide scenario's: een volledig ingevulde toets (alle
+vraagtypes, incl. een samengestelde vraag) toont eigen antwoord én antwoordsleutel correct
+naast elkaar; een halve inlevering (één vraag niet beantwoord) toont de keuzelijst leeg en
+ongemarkeerd bij "Jouw antwoord", met de antwoordsleutel er gewoon apart naast — bevestigd
+met screenshots. Geen JS-fouten. Volledige testsuite: 324/324 groen.
+
+**Betrokken bestanden:** `web/public/quiz-student.js` · `VERSION` · overige
+`web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.27 — Sprint 51-fix: Toets readonly openen bij nakijken + vragenbank-tabs
 
 Twee grote uitbreidingen, allebei grondig getest en met een aantal pre-existing bugs

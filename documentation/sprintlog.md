@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.27**
+**Huidige versie: v2026.2.51.28**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -224,6 +224,27 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 51-fix (v2) — Nakijkscherm: antwoord vs. antwoordsleutel gescheiden — ✅ AFGEROND (v2026.2.51.28)
+
+Elke vraag in het readonly-nakijkscherm toont nu twee gescheiden secties: "Jouw antwoord"
+(uitsluitend wat de leerling invulde/koos, geen correct/fout-markering — bij een lege
+keuzevraag blijft de volledige lijst zichtbaar, niets gemarkeerd, i.p.v. een verbergende
+"niet ingevuld"-tekst) en "Juiste antwoord" (aparte antwoordsleutel: groen voor keuzevragen,
+een echte readonly Monaco-editor met syntaxkleuren voor code i.p.v. een platte tekstblok).
+Geldt ook per onderdeel van een samengestelde vraag.
+
+Technisch: eigen, lichte Monaco-mount-helper in quiz-student.js voor meerdere gelijktijdige
+readonly-instances (leerlingcode + modelcode naast elkaar) — de gedeelde editor-component
+ondersteunt maar 1 instance per scherm.
+
+Getest: browsertests voor zowel volledig ingevuld (screenshot bevestigt eigen antwoord +
+antwoordsleutel correct naast elkaar, alle vraagtypes incl. composite) als halve inlevering
+(lege keuzelijst ongemarkeerd bij "Jouw antwoord", antwoordsleutel blijft apart zichtbaar).
+
+**Betrokken bestanden:** `web/public/quiz-student.js`.
+
+---
 
 ### Sprint 51-fix — Readonly toets bij nakijken + vragenbank-tabs — ✅ AFGEROND (v2026.2.51.27)
 

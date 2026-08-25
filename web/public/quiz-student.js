@@ -98,6 +98,9 @@ async function loadMyResult(naam) {
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Kon je resultaten niet laden.');
     renderMyResult(naam, data);
+    // Sprint 51-fix (v2): de code-editor-hosts staan nu wél in de DOM (net gezet via
+    // renderMyResult's innerHTML=) — pas NU kan Monaco er echt in gemount worden.
+    await mountReviewCodeEditors();
   } catch (e) {
     paneel.innerHTML =
       `<div style="background:#fee2e2;color:#991b1b;border-radius:10px;padding:14px;">
@@ -134,50 +137,130 @@ function renderReviewChart(vragen) {
   </div>`;
 }
 
-function renderOnderdeelAntwoord(o) {
+// ── Sprint 51-fix (v2): echte, readonly Monaco-editors in het nakijk-scherm ─────────────
+// Zowel "Jouw antwoord" als "Juiste antwoord" bij een code-vraag/-onderdeel krijgen nu een
+// echte code-editor (regelnummers, Python-syntaxkleuren) i.p.v. een platte <pre>-tekstblok.
+// Bewust een EIGEN, lichte mount-helper (net als in quiz-bank.js) i.p.v. de gedeelde
+// ensureEditor()/editorStore uit app.js: die ondersteunt maar 1 instance per "owner"-naam
+// en stuurt bij wijzigingen socket-updates naar een live sessie — hier kunnen er meerdere
+// (readonly) editors tegelijk op het scherm staan, zonder enige sessie om mee te syncen.
+let _reviewMonacoQueue = [];  // { hostId, code } — gevuld tijdens het bouwen van de HTML,
+                               // pas gemount NADAT die HTML echt in de DOM staat.
+
+async function ensureReviewMonacoTheme(monaco) {
+  if (window._pycfReviewThemeReady) { monaco.editor.setTheme('pycodeflow-dark'); return; }
+  monaco.editor.defineTheme('pycodeflow-dark', {
+    base: 'vs-dark', inherit: true, rules: [],
+    colors: {
+      'editor.background': '#1e1e1e',
+      'editorLineNumber.foreground': '#9fb3c8',
+      'editorLineNumber.activeForeground': '#ffffff',
+      'editor.lineHighlightBackground': '#23272e',
+      'editor.lineHighlightBorder': '#23272e',
+    },
+  });
+  window._pycfReviewThemeReady = true;
+  monaco.editor.setTheme('pycodeflow-dark');
+}
+
+async function mountReviewCodeEditors() {
+  if (!_reviewMonacoQueue.length || !window.loadMonaco) return;
+  const monaco = await window.loadMonaco();
+  await ensureReviewMonacoTheme(monaco);
+  const wachtrij = _reviewMonacoQueue;
+  _reviewMonacoQueue = [];
+  wachtrij.forEach(({ hostId, code }) => {
+    const host = document.getElementById(hostId);
+    if (!host) return;
+    monaco.editor.create(host, {
+      value: code || '', language: 'python', theme: 'pycodeflow-dark', readOnly: true,
+      automaticLayout: true, minimap: { enabled: false }, fontSize: 13, lineNumbers: 'on',
+      scrollBeyondLastLine: false, wordWrap: 'on', renderLineHighlight: 'none',
+      domReadOnly: true, contextmenu: false,
+    });
+  });
+}
+
+// Bouwt de HTML voor één code-editor-host en zet 'm op de mount-wachtrij. hoogtePx houdt
+// lege/korte antwoorden compact (een leeg leerlingantwoord hoeft geen even hoge editor als
+// een 7-regelige modeloplossing).
+function codeEditorHost(idPrefix, code) {
+  const id = idPrefix + '-' + Math.random().toString(36).slice(2, 9);
+  const regels = Math.max(3, Math.min(14, (code || '').split('\n').length + 1));
+  _reviewMonacoQueue.push({ hostId: id, code: code || '' });
+  return `<div id="${id}" class="monaco-editor-host" style="height:${regels * 19 + 16}px;border-radius:8px;margin-top:6px;"></div>`;
+}
+
+
+// Sprint 51-fix (v2): keuzelijst tonen — twee VARIANTEN. `modus='jouw'` markeert enkel wat
+// de leerling koos (geen groen/rood, ZELFS niet als er niets gekozen is — dan blijft de
+// volledige lijst gewoon ongemarkeerd zichtbaar, in plaats van een tekst als "niet ingevuld"
+// die de opties verbergt). `modus='juist'` toont dezelfde lijst met de correcte optie(s)
+// groen — een antwoordsleutel, los van wat de leerling koos.
+function renderKeuzeLijst(opties, modus) {
+  return `<ul style="list-style:none;padding:0;margin:6px 0 0;">` +
+    (opties || []).map(opt => {
+      let bg = 'var(--surface-soft)', mark = '○', vet = false, label = '';
+      if (modus === 'jouw') {
+        if (opt.gekozen) { bg = '#e0e7ff'; mark = '●'; vet = true; label = 'jouw keuze'; }
+      } else {
+        if (opt.correct === true) { bg = '#dcfce7'; mark = '✓'; vet = true; label = 'juist'; }
+      }
+      return `<li style="padding:5px 9px;border-radius:7px;margin-bottom:3px;background:${bg};
+                 ${vet ? 'font-weight:600;' : ''}font-size:0.88rem;">
+        ${mark} ${escHtml(opt.text)}
+        ${label ? `<span class="muted" style="font-size:0.76rem;font-weight:400;"> — ${label}</span>` : ''}
+      </li>`;
+    }).join('') + `</ul>`;
+}
+
+// Sprint 51-fix (v2): "Jouw antwoord" — toont UITSLUITEND wat de leerling zelf invulde/koos,
+// zonder correct/fout-oordeel. Bij niets ingevuld: het veld zelf blijft zichtbaar en leeg
+// (een lege editor / een lege tekstbox / de keuzelijst zonder markering) in plaats van een
+// vervangende tekst als "niet ingevuld" — zo is altijd duidelijk WAT er te zien zou zijn,
+// en dat er bewust niets werd ingevuld, niet dat er iets fout ging bij het tonen.
+function renderJouwAntwoord(o, idPrefix) {
+  if (o.opties) return renderKeuzeLijst(o.opties, 'jouw');
+  if (o.type === 'code') return codeEditorHost(idPrefix + '-jouw', o.eigenAntwoord || '');
+  return `<div style="background:var(--surface-soft);border-radius:8px;padding:8px 10px;
+    margin-top:6px;font-size:0.88rem;white-space:pre-wrap;min-height:20px;">
+    ${o.eigenAntwoord && o.eigenAntwoord.trim() ? escHtml(o.eigenAntwoord) : '<span class="muted" style="font-style:italic;">(niets ingevuld)</span>'}</div>`;
+}
+
+// Sprint 51-fix (v2): "Juiste antwoord" — een aparte sectie, los van wat de leerling
+// invulde. Keuzevragen: dezelfde lijst-stijl maar met het/de juiste antwoord(en) groen (een
+// echte antwoordsleutel). Code: een echte, syntax-gekleurde Monaco-editor met de modelcode
+// (niet langer een platte tekstblok). Open: het modelantwoord als tekst. Ontbreekt er geen
+// modelantwoord/geen enkele optie is "correct" gemarkeerd, dan blijft deze sectie leeg.
+function renderJuisteAntwoord(o, idPrefix) {
   if (o.opties) {
-    // Single/multiple-onderdeel: zelfde correct/fout-markering als een gewone keuzevraag.
-    return `<ul style="list-style:none;padding:0;margin:6px 0 0;">` +
-      o.opties.map(opt => {
-        const juist = opt.correct === true;
-        const foutGekozen = opt.gekozen && !juist;
-        let bg = 'var(--surface-soft)', mark = '○';
-        if (juist) { bg = '#dcfce7'; mark = '✓'; }
-        else if (foutGekozen) { bg = '#fee2e2'; mark = '✗'; }
-        const labels = [];
-        if (opt.gekozen) labels.push('jouw keuze');
-        if (juist) labels.push('juist');
-        return `<li style="padding:5px 9px;border-radius:7px;margin-bottom:3px;background:${bg};
-                   ${opt.gekozen ? 'font-weight:600;' : ''}font-size:0.9rem;">
-          ${mark} ${escHtml(opt.text)}
-          ${labels.length ? `<span class="muted" style="font-size:0.76rem;font-weight:400;"> — ${labels.join(', ')}</span>` : ''}
-        </li>`;
-      }).join('') + `</ul>`;
+    if (!o.opties.some(opt => opt.correct === true)) return '';
+    return renderKeuzeLijst(o.opties, 'juist');
   }
-  if (o.eigenAntwoord && o.eigenAntwoord.trim()) {
-    const isCode = o.type === 'code';
-    return isCode
-      ? `<pre style="background:#1e1e1e;color:#d4d4d4;padding:8px 10px;border-radius:8px;
-           overflow:auto;font-size:0.82rem;margin:6px 0 0;">${escHtml(o.eigenAntwoord)}</pre>`
-      : `<div style="background:var(--surface-soft);border-radius:8px;padding:8px 10px;
-           margin:6px 0 0;font-size:0.88rem;white-space:pre-wrap;">${escHtml(o.eigenAntwoord)}</div>`;
+  if (o.type === 'code') {
+    if (!o.modelAnswer || !o.modelAnswer.trim()) return '';
+    return codeEditorHost(idPrefix + '-model', o.modelAnswer);
   }
-  return `<p class="muted" style="margin:6px 0 0;font-size:0.85rem;">Niet ingevuld.</p>`;
+  if (!o.modelAnswer || !o.modelAnswer.trim()) return '';
+  return `<div class="md-preview" style="background:#f0fdf4;border:1px solid #bbf7d0;
+    border-radius:8px;padding:8px 10px;margin-top:6px;font-size:0.88rem;">${renderMarkdown(o.modelAnswer)}</div>`;
 }
 
 // Sprint 51-fix: composite-vragen tonen nu al hun onderdelen (open/code/single/multiple)
-// met per-onderdeel score — dit ontbrak volledig, enkel het (max 1) code-onderdeel kwam
-// eerder toevallig door via het gewone eigenCode-pad.
-function renderCompositeAntwoord(onderdelen) {
+// met per-onderdeel score, elk met de "Jouw antwoord" / "Juiste antwoord"-tweedeling.
+function renderCompositeAntwoord(onderdelen, vraagId) {
   return (onderdelen || []).map(o => {
     const scoreTekst = o.beoordeeld ? `${o.score}/${o.punten}` : `? / ${o.punten}`;
     const titel = o.type === 'code' ? '🐍 Code' : escHtml(o.label || 'Onderdeel');
+    const idPrefix = 'rv-' + vraagId + '-' + o.id;
+    const juisteHtml = renderJuisteAntwoord(o, idPrefix);
     return `<div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-top:8px;">
       <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:0.85rem;">
         <strong>${titel}</strong><span class="muted">${scoreTekst}</span>
       </div>
-      ${renderOnderdeelAntwoord(o)}
-      ${o.modelAnswer ? `<div style="margin-top:6px;font-size:0.8rem;color:var(--muted);">✅ Modelantwoord: ${escHtml(o.modelAnswer)}</div>` : ''}
+      <div style="font-size:0.78rem;color:var(--muted);margin-top:6px;">Jouw antwoord:</div>
+      ${renderJouwAntwoord(o, idPrefix)}
+      ${juisteHtml ? `<div style="font-size:0.78rem;color:var(--muted);margin-top:8px;">✅ Juiste antwoord:</div>${juisteHtml}` : ''}
     </div>`;
   }).join('');
 }
@@ -186,44 +269,23 @@ function renderVraagKaart(v) {
   const scoreTekst = v.beoordeeld
     ? `<strong>${v.score}</strong> / ${v.punten}`
     : `<span class="muted">nog niet beoordeeld</span>`;
+  const idPrefix = 'rv-' + v.vraagId;
 
-  let antwoordHtml;
-  if (v.type === 'composite') {
-    antwoordHtml = renderCompositeAntwoord(v.onderdelen);
-  } else if (v.type === 'multiple' || v.type === 'single') {
-    // 37b: juiste antwoorden onthuld. Groen ✓ = juist, rood ✗ = fout gekozen.
-    antwoordHtml = `<ul style="list-style:none;padding:0;margin:8px 0 0;">` +
-      (v.opties || []).map(o => {
-        const juist = o.correct === true;
-        const foutGekozen = o.gekozen && !juist;
-        let bg = 'var(--surface-soft)', mark = '○';
-        if (juist) { bg = '#dcfce7'; mark = '✓'; }
-        else if (foutGekozen) { bg = '#fee2e2'; mark = '✗'; }
-        const labels = [];
-        if (o.gekozen) labels.push('jouw keuze');
-        if (juist) labels.push('juist');
-        return `
-        <li style="padding:6px 10px;border-radius:8px;margin-bottom:4px;background:${bg};
-                   ${o.gekozen ? 'font-weight:600;' : ''}">
-          ${mark} ${escHtml(o.text)}
-          ${labels.length ? `<span class="muted" style="font-size:0.8rem;font-weight:400;"> — ${labels.join(', ')}</span>` : ''}
-        </li>`;
-      }).join('') + `</ul>`;
-  } else if (v.eigenCode && v.eigenCode.trim()) {
-    antwoordHtml = `<pre style="background:#1e1e1e;color:#d4d4d4;padding:10px 12px;border-radius:8px;
-      overflow:auto;font-size:0.85rem;margin:8px 0 0;">${escHtml(v.eigenCode)}</pre>`;
-  } else {
-    antwoordHtml = `<p class="muted" style="margin:8px 0 0;">Je hebt deze vraag niet ingevuld.</p>`;
+  let jouwHtml, juisteHtml;
+  if (v.type === 'multiple' || v.type === 'single') {
+    jouwHtml = renderKeuzeLijst(v.opties, 'jouw');
+    juisteHtml = (v.opties || []).some(o => o.correct === true) ? renderKeuzeLijst(v.opties, 'juist') : '';
+  } else if (v.type === 'code') {
+    jouwHtml = codeEditorHost(idPrefix + '-jouw', v.eigenCode || '');
+    juisteHtml = (v.modelAnswer && v.modelAnswer.trim()) ? codeEditorHost(idPrefix + '-model', v.modelAnswer) : '';
+  } else if (v.type !== 'composite') {
+    jouwHtml = `<div style="background:var(--surface-soft);border-radius:8px;padding:10px 12px;
+      margin-top:6px;font-size:0.9rem;white-space:pre-wrap;min-height:20px;">
+      ${v.eigenCode && v.eigenCode.trim() ? escHtml(v.eigenCode) : '<span class="muted" style="font-style:italic;">(niets ingevuld)</span>'}</div>`;
+    juisteHtml = (v.modelAnswer && v.modelAnswer.trim())
+      ? `<div class="md-preview" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;
+          padding:10px 12px;margin-top:6px;">${renderMarkdown(v.modelAnswer)}</div>` : '';
   }
-
-  // 37b: modelantwoord/modelcode van de leerkracht (indien ingevuld), via Markdown.
-  const modelHtml = v.modelAnswer ? `
-    <div style="margin-top:10px;">
-      <div style="font-size:0.85rem;color:var(--muted);margin-bottom:4px;">✅ Modelantwoord:</div>
-      <div class="md-preview" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;">
-        ${renderMarkdown(v.modelAnswer)}
-      </div>
-    </div>` : '';
 
   // 37c: commentaar van de leerkracht bij deze vraag (indien ingevuld), via Markdown.
   const commentaarHtml = v.commentaar ? `
@@ -241,9 +303,14 @@ function renderVraagKaart(v) {
       <span>${scoreTekst}</span>
     </div>
     <div class="md-preview" style="margin-top:8px;">${renderMarkdown(v.tekst)}</div>
-    <div style="margin-top:10px;font-size:0.85rem;color:var(--muted);">${v.type === 'composite' ? 'Onderdelen:' : 'Jouw antwoord:'}</div>
-    ${antwoordHtml}
-    ${modelHtml}
+    ${v.type === 'composite' ? `
+      <div style="margin-top:10px;font-size:0.85rem;color:var(--muted);">Onderdelen:</div>
+      ${renderCompositeAntwoord(v.onderdelen, v.vraagId)}
+    ` : `
+      <div style="font-size:0.85rem;color:var(--muted);margin-top:10px;">Jouw antwoord:</div>
+      ${jouwHtml}
+      ${juisteHtml ? `<div style="font-size:0.85rem;color:var(--muted);margin-top:10px;">✅ Juiste antwoord:</div>${juisteHtml}` : ''}
+    `}
     ${commentaarHtml}
   </div>`;
 }
