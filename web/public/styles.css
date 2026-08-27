@@ -247,7 +247,7 @@ textarea.code-area {
 .code-grid { display:grid; grid-template-columns:60px 1fr; min-height:540px; background:#071737; }
 .line-numbers { background:#243762; color:#eef3ff; padding:18px 10px; text-align:right; font-family:Consolas,monospace; line-height:1.8; }
 .line-numbers span { display:block; }
-.output-panel { min-height:540px; background:#071737; color:#f3ffdd; padding:18px; font-family:Consolas,monospace; white-space:pre-wrap; }
+.output-panel { min-height:540px; max-height:540px; overflow-y:auto; background:#071737; color:#f3ffdd; padding:18px; font-family:Consolas,monospace; white-space:pre-wrap; }
 .runtime-input-wrap { display:flex; gap:10px; padding:16px; background:#071737; border-top:1px solid rgba(255,255,255,.06); }
 .runtime-input-wrap input { background:#d9dce3; color:#1f2937; }
 .runtime-input-wrap input:disabled, .runtime-input-wrap button:disabled { opacity:.7; }

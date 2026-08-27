@@ -14,6 +14,10 @@ let _simWarnings = [];
 let _editMode = false;   // "Aanpassen & testen" modus
 let _reviewMode = false; // 37d: staat nakijken open voor leerlingen?
 let _originalCode = '';
+// Sprint 51-ai (v4): welke answerId(+partId)-combinaties al feedback kregen — gebruikt om
+// het feedback-knopje te verbergen bij items die al een verdict hebben.
+let _aiFeedbackGegeven = new Set();
+let _aiFeedbackContext = null; // { answerId, partId, questionId } van de popup die net open staat
 
 
 // 25e: preprocessing voor info-kaders (:::tip/opgelet/kader/hint)
@@ -46,6 +50,14 @@ async function init() {
   // Laad alle antwoorden
   const ar = await fetch(`/api/quiz/${sessionCode}/answers`);
   _answers = await ar.json();
+
+  // Sprint 51-ai (v4): bestaande feedback-entries — bepaalt welke feedback-knopjes al
+  // verborgen moeten zijn (item kreeg al een verdict).
+  try {
+    const fr = await fetch(`/api/quiz/${sessionCode}/ai-grade/feedback`);
+    const { feedback } = await fr.json();
+    _aiFeedbackGegeven = new Set((feedback || []).map(f => f.answer_id + '::' + (f.part_id || '')));
+  } catch { _aiFeedbackGegeven = new Set(); }
 
   // Unieke leerlingen
   const seen = new Set();
@@ -220,6 +232,19 @@ async function selectQuestion(idx) {
     : ans?.submitted_by === 'niet_beantwoord'
       ? `<div class="similarity-warning" style="background:#fef3c7;border-color:#fde68a;">⚪ Deze vraag werd niet beantwoord — score automatisch op 0 gezet bij het stoppen.</div>`
       : '';
+  // Sprint 51-ai: kleine, leerkracht-only banner zodat je meteen ziet welke scores door de
+  // AI gezet zijn en steekproefsgewijs kan controleren — de leerling ziet dit nooit (zie
+  // db/database.js: ai_graded wordt uitsluitend hier, in het leerkracht-endpoint, meegestuurd).
+  // Sprint 51-ai (v4): feedback-knopje ernaast — verdwijnt zodra er al feedback gegeven is
+  // voor dit specifieke antwoord (voorkomt herhaalde feedback op hetzelfde item).
+  const aiFeedbackKey = ans?.id + '::';
+  const aiGradedHtml = ans?.ai_graded === true
+    ? `<div class="similarity-warning" style="background:#ede9fe;border-color:#ddd6fe;display:flex;align-items:center;justify-content:space-between;gap:10px;">
+        <span>🤖 Deze score/commentaar is door de lokale AI gegenereerd. Controleer gerust en pas aan indien nodig.</span>
+        ${_aiFeedbackGegeven.has(aiFeedbackKey) ? '<span class="muted" style="font-size:0.78rem;white-space:nowrap;">✓ feedback gegeven</span>'
+          : `<button class="btn btn-muted small" style="white-space:nowrap;" onclick="openAiFeedbackModal('${esc(ans.id)}', null, '${esc(q.id)}')">📝 Feedback</button>`}
+      </div>`
+    : '';
 
   // Bouw antwoordweergave per vraagtype
   let answerHtml = '';
@@ -302,6 +327,7 @@ async function selectQuestion(idx) {
   document.getElementById('q-detail').innerHTML = `
     ${simHtml}
     ${autoZeroHtml}
+    ${aiGradedHtml}
     <div style="background:var(--surface-soft);border-radius:10px;padding:12px 14px;margin-bottom:12px;">
       <strong>Vraag ${idx+1}:</strong><div class="md-preview" style="margin:4px 0 8px;">${renderMarkdown(q.text_snapshot || q.text || '')}</div>
       <span class="muted" style="font-size:0.82rem;">
@@ -356,26 +382,44 @@ async function selectQuestion(idx) {
       const parts = parseAnswerPartsReview(q.answer_parts);
       let partScores = {};
       try { partScores = JSON.parse(ans?.part_scores || '{}'); } catch { partScores = {}; }
+      let partComments = {};
+      try { partComments = JSON.parse(ans?.part_comments || '{}'); } catch { partComments = {}; }
+      let partAiFlags = {};
+      try { partAiFlags = JSON.parse(ans?.part_ai_graded || '{}'); } catch { partAiFlags = {}; }
       const totaal = Object.values(partScores).reduce((s, v) => s + (v || 0), 0);
       return `<div class="card" style="padding:12px;margin-bottom:14px;">
         <div style="font-size:0.82rem;color:var(--muted);margin-bottom:8px;">Score per onderdeel</div>
         ${parts.map((p, pi) => {
           const label = p.type === 'code' ? '🐍 Code' : esc(p.label || ('Onderdeel ' + (pi + 1)));
           const s = partScores[p.id] !== undefined ? partScores[p.id] : '';
-          return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-            <span style="flex:1;font-size:0.88rem;">${label}</span>
-            <input type="number" class="part-score-input" data-part-id="${p.id}" value="${s}" min="0" max="${p.points}" placeholder="—" style="width:70px;"/>
-            <span class="muted" style="font-size:0.82rem;">/ ${p.points}</span>
+          // Sprint 51-fix: per-onderdeel commentaar EN AI-badge — bestond voorheen niet;
+          // het AI-commentaar per onderdeel overschreef per ongeluk de ene, gedeelde
+          // "Algemene opmerking" van de hele vraag (zie db/database.js).
+          const partFeedbackKey = ans?.id + '::' + p.id;
+          const aiBadge = partAiFlags[p.id] === true
+            ? `<span class="badge" style="background:#ede9fe;color:#5b21b6;font-size:0.72rem;margin-left:6px;" title="Door de lokale AI beoordeeld — controleer gerust en pas aan indien nodig.">🤖 AI</span>
+               ${_aiFeedbackGegeven.has(partFeedbackKey) ? '<span class="muted" style="font-size:0.72rem;margin-left:4px;">✓ feedback</span>'
+                 : `<button class="btn btn-muted small" style="font-size:0.7rem;padding:2px 8px;margin-left:4px;" onclick="openAiFeedbackModal('${esc(ans?.id||'')}', '${esc(p.id)}', '${esc(p.id)}')">📝</button>`}`
+            : '';
+          return `<div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border);">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+              <span style="flex:1;font-size:0.88rem;">${label}${aiBadge}</span>
+              <input type="number" class="part-score-input" data-part-id="${p.id}" value="${s}" min="0" max="${p.points}" placeholder="—" style="width:70px;"/>
+              <span class="muted" style="font-size:0.82rem;">/ ${p.points}</span>
+            </div>
+            <textarea class="part-comment-input" data-part-id="${p.id}" placeholder="Opmerking bij dit onderdeel…"
+              style="width:100%;min-height:44px;font-size:0.85rem;">${esc(partComments[p.id] || '')}</textarea>
           </div>`;
         }).join('')}
-        <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:0.88rem;font-weight:700;">
+        <div style="margin-top:4px;padding-top:8px;font-size:0.88rem;font-weight:700;">
           Totaal: ${totaal} / ${q.points}
         </div>
-        <button class="btn btn-soft small" style="margin-top:8px;" onclick="savePartScores('${ans?.id||''}', ${idx})">💾 Onderdeelscores opslaan</button>
+        <button class="btn btn-soft small" style="margin-top:8px;" onclick="savePartScores('${ans?.id||''}', ${idx})">💾 Onderdeelscores &amp; opmerkingen opslaan</button>
       </div>
       <div class="card" style="padding:12px;margin-bottom:14px;">
-        <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Algemene opmerking</label>
+        <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Algemene opmerking bij deze vraag <span class="muted" style="font-weight:normal;">(los van de onderdelen hierboven)</span></label>
         <textarea id="comment-input" placeholder="Opmerking...">${esc(comment)}</textarea>
+        <button class="btn btn-muted small" style="margin-top:6px;" onclick="saveScore('${ans?.id||''}', ${idx}, '${q.id}')">💾 Algemene opmerking opslaan</button>
       </div>`;
     })() : `
     <div class="score-row">
@@ -560,17 +604,21 @@ async function saveAndNext(answerId, qIdx, questionId) {
 
 // Sprint 51j: alle onderdeel-scores van een composite-vraag in één keer opslaan (één
 // PUT-call per onderdeel naar het part-score endpoint; de server herberekent het totaal).
+// Sprint 51-fix: elk onderdeel stuurt nu zijn EIGEN commentaar-veld mee (part-comment-input),
+// niet langer de ene, gedeelde "Algemene opmerking" van de hele vraag — die wordt apart
+// opgeslagen via de "Algemene opmerking opslaan"-knop (saveScore).
 async function savePartScores(answerId, qIdx) {
   if (!answerId) { if (window.pyToast) pyToast('Nog geen antwoord om te scoren.', 'warn'); return; }
-  const comment = document.getElementById('comment-input')?.value ?? undefined;
-  const inputs = document.querySelectorAll('.part-score-input');
+  const scoreInputs = document.querySelectorAll('.part-score-input');
   let partScores = {};
-  for (const el of inputs) {
+  for (const el of scoreInputs) {
     const partId = el.dataset.partId;
     const val = el.value;
+    const commentEl = document.querySelector(`.part-comment-input[data-part-id="${partId}"]`);
+    const partComment = commentEl ? commentEl.value : undefined;
     await (window.apiFetch||fetch)(`/api/quiz/${sessionCode}/answers/${answerId}/part-score`, {
       method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ partId, score: val !== '' ? parseInt(val, 10) : null, teacherComment: comment }),
+      body: JSON.stringify({ partId, score: val !== '' ? parseInt(val, 10) : null, teacherComment: partComment }),
     });
     partScores[partId] = val !== '' ? parseInt(val, 10) : undefined;
   }
@@ -751,6 +799,255 @@ function exportAll() {
     sluit();
     if (window.pyToast) pyToast(gekozen.length === 1 ? 'Download gestart.' : gekozen.length + ' downloads gestart.', 'success');
   });
+}
+
+// ── Sprint 51-ai: AI verbeteren (popup + doorlopende voortgang) ────────────────
+// Sprint 51-fix: de polling-timer stopt NIET meer zodra de popup gesloten wordt — enkel
+// het openen/sluiten van de POPUP zelf wisselt, de achtergrond-status-pil (buiten de
+// popup) blijft gewoon bijgewerkt. Zo verlies je nooit het zicht op een lopende taak,
+// ook niet als je de popup sluit om intussen zelf iets te verbeteren.
+let _aiGradeProgressTimer = null;
+
+async function openAiGradePopup() {
+  const modal = document.getElementById('ai-grade-modal');
+  modal.style.display = 'flex';
+  modal.classList.remove('hidden');
+  document.getElementById('ai-grade-check-msg').innerHTML = '<p class="muted">Bezig met controleren…</p>';
+  document.getElementById('ai-grade-form').style.display = 'none';
+  document.getElementById('ai-grade-progress').style.display = 'none';
+
+  // Als er al een taak loopt (of recent klaarkwam) voor deze toets, toon meteen de
+  // voortgang/log i.p.v. het formulier — zo blijft ook een afgeronde log zichtbaar bij
+  // een klik op de pil, niet enkel tijdens het lopen.
+  try {
+    const progressR = await fetch(`/api/quiz/${sessionCode}/ai-grade/progress`);
+    const progress = await progressR.json();
+    if (progress.status === 'running' || progress.status === 'done' || progress.status === 'error') {
+      document.getElementById('ai-grade-check-msg').innerHTML = '';
+      toonAiGradeVoortgang();
+      return;
+    }
+  } catch { /* negeren, val terug op normale flow */ }
+
+  try {
+    const checkR = await fetch(`/api/quiz/${sessionCode}/ai-grade/check`);
+    const check = await checkR.json();
+    if (!check.ok) {
+      document.getElementById('ai-grade-check-msg').innerHTML =
+        `<div class="similarity-warning" style="background:#fee2e2;border-color:#fecaca;">⚠️ ${esc(check.reason || 'Lokale AI niet beschikbaar.')}</div>`;
+      return;
+    }
+    document.getElementById('ai-grade-check-msg').innerHTML =
+      `<p class="muted" style="font-size:0.82rem;">Model: <code>${esc(check.model)}</code></p>`;
+
+    const studentsR = await fetch(`/api/quiz/${sessionCode}/ai-grade/students`);
+    const { students } = await studentsR.json();
+    const lijst = document.getElementById('ai-grade-student-list');
+    lijst.innerHTML = (students || []).map(s => `
+      <label style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:0.88rem;">
+        <input type="checkbox" class="ai-grade-student-cb" value="${s.id}" ${s.aantalVragen === 0 ? 'disabled' : ''}>
+        ${esc(s.name)} <span class="muted">(${s.aantalVragen} vraag/vragen)</span>
+      </label>`).join('') || '<p class="muted">Geen leerlingen gevonden.</p>';
+
+    document.getElementById('ai-grade-form').style.display = 'block';
+  } catch (e) {
+    document.getElementById('ai-grade-check-msg').innerHTML =
+      `<div class="similarity-warning" style="background:#fee2e2;border-color:#fecaca;">⚠️ Kon niet controleren: ${esc(e.message)}</div>`;
+  }
+}
+
+// Sprint 51-fix: sluit enkel het VENSTER — de achtergrond-polling (en dus de status-pil)
+// blijft gewoon doorlopen, ongeacht of de popup open of dicht is.
+function closeAiGradePopup() {
+  const modal = document.getElementById('ai-grade-modal');
+  modal.style.display = 'none';
+  modal.classList.add('hidden');
+}
+
+function toggleAiGradeStudentList() {
+  const specifiek = document.querySelector('input[name="ai-grade-scope"]:checked')?.value === 'specifiek';
+  document.getElementById('ai-grade-student-list').style.display = specifiek ? 'block' : 'none';
+}
+
+async function startAiGrade() {
+  const specifiek = document.querySelector('input[name="ai-grade-scope"]:checked')?.value === 'specifiek';
+  const overwriteExisting = document.getElementById('ai-grade-overwrite').checked;
+  let studentIds = null;
+  if (specifiek) {
+    studentIds = Array.from(document.querySelectorAll('.ai-grade-student-cb:checked')).map(cb => cb.value);
+    if (!studentIds.length) {
+      if (window.pyToast) pyToast('Kies minstens één leerling, of kies "Hele klas".', 'warn');
+      return;
+    }
+  }
+  try {
+    const r = await (window.apiFetch || fetch)(`/api/quiz/${sessionCode}/ai-grade`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentIds, overwriteExisting }),
+    });
+    const data = await r.json();
+    if (!r.ok || !data.ok) {
+      if (window.pyAlert) pyAlert(data.error || 'Kon niet starten.', 'error');
+      return;
+    }
+    toonAiGradeVoortgang();
+  } catch (e) {
+    if (window.pyAlert) pyAlert('Fout: ' + e.message, 'error');
+  }
+}
+
+function _aiGradeStatusTekst(job) {
+  const totaal = job.totaal || 0;
+  const voltooid = job.voltooid || 0;
+  if (job.status === 'running') {
+    const leerlingDeel = job.huidigeLeerling ? ` — ${job.huidigeLeerling}` : '';
+    return `🤖 Bezig… ${voltooid}/${totaal}${leerlingDeel}`;
+  }
+  if (job.status === 'done') {
+    return `✅ AI verbeteren klaar — ${voltooid}/${totaal}${job.fouten?.length ? ` (${job.fouten.length} overgeslagen)` : ''}`;
+  }
+  return `⚠️ AI verbeteren gestopt: ${job.fout || 'onbekende fout'}`;
+}
+
+// Sprint 51-fix: wordt zowel bij het starten van een nieuwe taak aangeroepen als bij het
+// laden van de pagina (init() hieronder) als blijkt dat er al een taak loopt — zo zie je de
+// voortgang ook terug als je de popup ooit sloot of tussentijds wegnavigeerde en terugkwam.
+function toonAiGradeVoortgang() {
+  const form = document.getElementById('ai-grade-form');
+  const progressEl = document.getElementById('ai-grade-progress');
+  if (form) form.style.display = 'none';
+  if (progressEl) progressEl.style.display = 'block';
+  if (_aiGradeProgressTimer) return; // al aan het pollen, niet dubbel starten
+
+  const pill = document.getElementById('ai-grade-status-pill');
+  const poll = async () => {
+    try {
+      const r = await fetch(`/api/quiz/${sessionCode}/ai-grade/progress`);
+      const job = await r.json();
+      if (job.status === 'idle') { // nooit gestart, of al lang geleden opgeruimd
+        clearInterval(_aiGradeProgressTimer);
+        _aiGradeProgressTimer = null;
+        return;
+      }
+      const totaal = job.totaal || 0;
+      const voltooid = job.voltooid || 0;
+      const pct = totaal > 0 ? Math.round((voltooid / totaal) * 100) : 0;
+      const bar = document.getElementById('ai-grade-progress-bar');
+      const tekstEl = document.getElementById('ai-grade-progress-text');
+      if (bar) bar.style.width = pct + '%';
+      if (tekstEl) tekstEl.textContent = _aiGradeStatusTekst(job);
+      if (pill) { pill.style.display = 'block'; pill.classList.remove('hidden'); pill.textContent = _aiGradeStatusTekst(job); }
+
+      // Sprint 51-fix: gedetailleerd log — nieuwste bovenaan (kolom is column-reverse).
+      const logEl = document.getElementById('ai-grade-log');
+      if (logEl && Array.isArray(job.log)) {
+        logEl.innerHTML = job.log.slice(-100).map(regel => {
+          const tijd = regel.tijd ? new Date(regel.tijd).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+          const onderdeelDeel = regel.onderdeel ? ` — ${esc(regel.onderdeel)}` : '';
+          if (regel.fout) {
+            return `<div style="color:#b91c1c;padding:2px 0;">⚠️ ${tijd} · ${esc(regel.student)} · ${esc(regel.vraag)}${onderdeelDeel} — fout: ${esc(regel.fout)}</div>`;
+          }
+          return `<div style="padding:2px 0;">✓ ${tijd} · ${esc(regel.student)} · ${esc(regel.vraag)}${onderdeelDeel} — ${regel.score}/${regel.maxPunten}</div>`;
+        }).join('');
+      }
+
+      if (job.status !== 'running') {
+        clearInterval(_aiGradeProgressTimer);
+        _aiGradeProgressTimer = null;
+        // Herlaad de antwoorden-data en de huidig geselecteerde leerling zodat nieuwe
+        // AI-scores meteen zichtbaar zijn zonder de pagina te moeten verversen.
+        init().then(() => { if (_currentStudent) renderReviewPanel(); });
+        if (window.pyToast && job.status === 'done') pyToast('AI-verbeteren klaar.', 'success');
+        // De pil blijft nog even staan (5 min, zie server) zodat een teruggekeerde
+        // leerkracht ook de "klaar"-status ziet — daarna verdwijnt hij vanzelf bij een
+        // volgende page-load (server geeft dan 'idle' terug).
+      }
+    } catch { /* volgende poll probeert opnieuw */ }
+  };
+  poll();
+  _aiGradeProgressTimer = setInterval(poll, 1500);
+}
+
+// Sprint 51-fix: bij het laden van de verbeterpagina meteen checken of er al een taak
+// loopt voor DEZE toets — zodat de status-pil ook verschijnt als je de pagina net opende
+// terwijl een eerder gestarte taak nog bezig is (of recent klaarkwam).
+(async function _aiGradeCheckBijLaden() {
+  try {
+    const r = await fetch(`/api/quiz/${sessionCode}/ai-grade/progress`);
+    const job = await r.json();
+    if (job.status === 'running' || job.status === 'done' || job.status === 'error') {
+      toonAiGradeVoortgang();
+    }
+  } catch { /* geen probleem, gewoon geen pil tonen */ }
+})();
+
+// ── Sprint 51-ai (v4): feedback-popup (goed/kon beter op een AI-score) ─────────
+let _aiFeedbackVerdict = null;
+
+function openAiFeedbackModal(answerId, partId, questionId) {
+  _aiFeedbackContext = { answerId, partId: partId || null, questionId };
+  _aiFeedbackVerdict = null;
+  document.getElementById('ai-feedback-improvement-text').value = '';
+  document.getElementById('ai-feedback-corrected-score').value = '';
+  document.getElementById('ai-feedback-corrected-comment').value = '';
+  document.getElementById('ai-feedback-improvement-wrap').style.display = 'none';
+  document.getElementById('ai-feedback-btn-goed').classList.remove('btn-primary');
+  document.getElementById('ai-feedback-btn-kon_beter').classList.remove('btn-primary');
+  const modal = document.getElementById('ai-feedback-modal');
+  modal.style.display = 'flex';
+  modal.classList.remove('hidden');
+}
+
+function closeAiFeedbackModal() {
+  const modal = document.getElementById('ai-feedback-modal');
+  modal.style.display = 'none';
+  modal.classList.add('hidden');
+  _aiFeedbackContext = null;
+}
+
+function setAiFeedbackVerdict(verdict) {
+  _aiFeedbackVerdict = verdict;
+  document.getElementById('ai-feedback-btn-goed').classList.toggle('btn-primary', verdict === 'goed');
+  document.getElementById('ai-feedback-btn-kon_beter').classList.toggle('btn-primary', verdict === 'kon_beter');
+  document.getElementById('ai-feedback-improvement-wrap').style.display = verdict === 'kon_beter' ? 'block' : 'none';
+}
+
+async function submitAiFeedback() {
+  if (!_aiFeedbackContext) return;
+  if (!_aiFeedbackVerdict) {
+    if (window.pyToast) pyToast('Kies eerst "Goed" of "Kon beter".', 'warn');
+    return;
+  }
+  const improvementText = _aiFeedbackVerdict === 'kon_beter'
+    ? document.getElementById('ai-feedback-improvement-text').value.trim() : null;
+  // Sprint 51-ai (v5): optionele, expliciete correctie — enkel relevant bij "kon beter".
+  const correctedScoreRaw = _aiFeedbackVerdict === 'kon_beter'
+    ? document.getElementById('ai-feedback-corrected-score').value.trim() : '';
+  const correctedCommentRaw = _aiFeedbackVerdict === 'kon_beter'
+    ? document.getElementById('ai-feedback-corrected-comment').value.trim() : '';
+  try {
+    const r = await (window.apiFetch || fetch)(`/api/quiz/${sessionCode}/ai-grade/feedback`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        answerId: _aiFeedbackContext.answerId, partId: _aiFeedbackContext.partId,
+        questionId: _aiFeedbackContext.questionId, verdict: _aiFeedbackVerdict, improvementText,
+        correctedScore: correctedScoreRaw !== '' ? Number(correctedScoreRaw) : null,
+        correctedComment: correctedCommentRaw || null,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok || !data.ok) {
+      if (window.pyAlert) pyAlert(data.error || 'Kon feedback niet opslaan.', 'error');
+      return;
+    }
+    _aiFeedbackGegeven.add(_aiFeedbackContext.answerId + '::' + (_aiFeedbackContext.partId || ''));
+    closeAiFeedbackModal();
+    if (window.pyToast) pyToast('Bedankt voor je feedback!', 'success');
+    if (_currentStudent) renderReviewPanel(); // ververst de badge/knop-weergave
+  } catch (e) {
+    if (window.pyAlert) pyAlert('Fout: ' + e.message, 'error');
+  }
 }
 
 init();

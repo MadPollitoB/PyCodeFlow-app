@@ -131,6 +131,7 @@
     return '<div class="' + cls + '">' +
       '<div class="a-meta"><strong>' + esc(a.name || a.code) + '</strong>' + statusBadge(a) + releaseBadges(a) +
         (a.onlineCount ? '<span class="badge" style="background:#dcfce7;color:#166534;">👥 ' + a.onlineCount + ' online</span>' : '') +
+        '<span id="ai-grade-badge-' + a.code + '"></span>' +
       '</div>' +
       '<div class="a-sub">Code: <strong>' + esc(a.code) + '</strong>' +
         (a.className ? ' · 👥 ' + esc(a.className) : '') +
@@ -183,10 +184,41 @@
       items = all.filter(function (a) { return a.quizType === TYPE; });
       if (window.cacheAssignments) window.cacheAssignments(all);
       renderStats(); renderFilters(); renderList();
+      pollAiGradeJobs();
     } catch (e) {
       if (el) el.innerHTML = '<p class="empty-state">Kon niet laden.</p>';
     }
   };
+
+  // Sprint 51-fix: toont een kleine badge op elke toets-/taakkaart met een lopende (of
+  // recent afgeronde) AI-verbeter-taak — zodat je dat ook op dit overzicht ziet, niet enkel
+  // op de verbeterpagina zelf. Blijft pollen zolang er minstens één taak nog loopt; stopt
+  // vanzelf zodra alles klaar/leeg is.
+  var _aiGradeOverviewTimer = null;
+  function pollAiGradeJobs() {
+    fetch('/api/ai-grade/active').then(function (r) { return r.json(); }).then(function (data) {
+      var jobs = (data && data.jobs) || [];
+      var nogActief = false;
+      jobs.forEach(function (job) {
+        var el = document.getElementById('ai-grade-badge-' + job.code);
+        if (!el) return; // deze toets staat niet op dit overzicht (bv. het andere type)
+        if (job.status === 'running') nogActief = true;
+        var tekst = job.status === 'running'
+          ? '🤖 AI verbeteren: ' + (job.voltooid || 0) + '/' + (job.totaal || 0)
+          : job.status === 'done'
+            ? '✅ AI verbeteren klaar'
+            : '⚠️ AI verbeteren gestopt';
+        var kleur = job.status === 'error' ? 'background:#fee2e2;color:#991b1b;' : 'background:#ede9fe;color:#5b21b6;';
+        el.innerHTML = '<a class="badge" href="/quiz-review.html?code=' + job.code + '" style="' + kleur + 'text-decoration:none;">' + tekst + '</a>';
+      });
+      if (nogActief && !_aiGradeOverviewTimer) {
+        _aiGradeOverviewTimer = setInterval(pollAiGradeJobs, 3000);
+      } else if (!nogActief && _aiGradeOverviewTimer) {
+        clearInterval(_aiGradeOverviewTimer);
+        _aiGradeOverviewTimer = null;
+      }
+    }).catch(function () { /* volgende keer opnieuw proberen bij reload */ });
+  }
 
   // Sprint 43.9: preview zelf doorlopen (opent de leerling-weergave in een nieuw tabblad).
   // Previews zijn vrijgesteld van de leerling-selectie, dus 'Leerkracht Test' mag starten.

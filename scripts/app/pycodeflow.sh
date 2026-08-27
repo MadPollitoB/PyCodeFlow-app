@@ -95,6 +95,145 @@ versie_display() {
   [[ -z "$j" ]] && get_env APP_VERSION || echo "${j}.${m}.${n}.${b}"
 }
 
+# ── Sprint 51-ai: AI-verbeteren (lokale Ollama) — installatie + configuratie ───
+# Biedt drie paden: (1) Ollama volledig installeren via dit script, als Docker-service
+# binnen dezelfde stack (aanbevolen — geen aparte installatie nodig); (2) enkel het adres
+# invullen van een Ollama die al ergens anders draait; (3) overslaan. Volledig optioneel —
+# zonder OLLAMA_URL in .env blijft de rest van PyCodeFlow gewoon werken, enkel de
+# "🤖 AI verbeteren"-knop op de verbeterpagina toont dan een nette foutmelding. Wordt
+# aangeroepen vanuit zowel de eerste-start-wizard (optie 13) als vóór een rebuild (optie 5),
+# zodat ook een bestaande installatie die deze update binnenhaalt de kans krijgt dit alsnog
+# in te stellen, zonder de volledige wizard opnieuw te moeten doorlopen.
+configureer_ollama() {
+  local bestaand_url
+  bestaand_url=$(get_env OLLAMA_URL)
+  if [[ -n "$bestaand_url" ]]; then
+    ok "AI-verbeteren (Ollama) al geconfigureerd: $bestaand_url"
+    return
+  fi
+  # Bewust eerder overgeslagen? Dan niet bij elke rebuild opnieuw vragen — enkel
+  # handmatig in .env of via deze stap alsnog in te stellen.
+  if [[ "$(get_env OLLAMA_SETUP_SKIPPED)" == "true" ]]; then
+    info "AI-verbeteren nog niet geconfigureerd (eerder bewust overgeslagen)."
+    info "Alsnog instellen: handmatig in .env, of verwijder OLLAMA_SETUP_SKIPPED om deze vraag terug te zien."
+    return
+  fi
+
+  echo ""
+  echo -e "  ${BOLD}AI-verbeteren (optioneel)${RESET}"
+  echo -e "  ${DIM}Laat open- en code-vragen automatisch nakijken door een LOKALE AI (Ollama)"
+  echo -e "  — er verlaat hierbij nooit iets je eigen netwerk.${RESET}"
+  echo ""
+  echo -e "  ${BOLD}1)${RESET} Ollama nu installeren via dit script ${DIM}(aanbevolen — draait als"
+  echo -e "     extra Docker-service binnen deze installatie, geen aparte setup nodig)${RESET}"
+  echo -e "  ${BOLD}2)${RESET} Ollama draait al ergens anders — enkel het adres invullen"
+  echo -e "  ${BOLD}3)${RESET} Niet nu ${DIM}(kan later via deze stap of handmatig in .env)${RESET}"
+  echo ""
+  read -rp "  Keuze (1/2/3) [3]: " ollama_keuze
+  ollama_keuze="${ollama_keuze:-3}"
+
+  case "$ollama_keuze" in
+    1) _ollama_installeren ;;
+    2) _ollama_extern_configureren ;;
+    *)
+      set_env "OLLAMA_SETUP_SKIPPED" "true"
+      info "Overgeslagen — kan later via deze stap of handmatig in .env (OLLAMA_URL/OLLAMA_MODEL)."
+      ;;
+  esac
+}
+
+# Vraagt enkel het adres/model van een Ollama die al ELDERS draait (los van deze
+# docker-compose-stack) — geen installatie, enkel configuratie.
+_ollama_extern_configureren() {
+  echo ""
+  echo -e "  ${DIM}Draait Ollama op deze zelfde NAS, maar NIET in deze docker-compose-stack"
+  echo -e "  (bv. als losse container of native dienst)? Gebruik dan"
+  echo -e "  'host.docker.internal' in plaats van 'localhost' — anders verwijst"
+  echo -e "  'localhost' naar de PyCodeFlow-container zelf, niet naar de NAS.${RESET}"
+  echo ""
+  local ollama_url
+  read -rp "  Ollama-adres [http://host.docker.internal:11434]: " ollama_url
+  ollama_url="${ollama_url:-http://host.docker.internal:11434}"
+  set_env "OLLAMA_URL" "$ollama_url"
+
+  local ollama_model
+  ollama_model=$(_vraag_ollama_model)
+  set_env "OLLAMA_MODEL" "$ollama_model"
+
+  ok "AI-verbeteren geconfigureerd: $ollama_url ($ollama_model)"
+  info "Werkt dit niet meteen? Controleer dat Ollama daadwerkelijk draait en dat het"
+  info "model opgehaald is (ollama pull ${ollama_model}). De knop toont anders een"
+  info "duidelijke foutmelding — de rest van PyCodeFlow blijft intussen gewoon werken."
+}
+
+# Vraagt welk model, met uitleg — hergebruikt door beide installatiepaden.
+# Resultaat komt op stdout (echo), zodat de aanroeper het met $(...) kan opvangen.
+_vraag_ollama_model() {
+  echo -e "  ${DIM}Aanbevolen model voor het nakijken van Python-code: qwen2.5-coder." >&2
+  echo -e "  Kies de modelgrootte op basis van je hardware — hoe groter, hoe beter maar" >&2
+  echo -e "  ook trager (zeker zonder losse GPU): 3b (snel, minder genuanceerd), 7b" >&2
+  echo -e "  (goede balans), 14b/32b (zwaarder, wel een stevige GPU aangeraden).${RESET}" >&2
+  echo "" >&2
+  local ollama_model
+  read -rp "  Ollama-model [qwen2.5-coder:7b]: " ollama_model >&2
+  echo "${ollama_model:-qwen2.5-coder:7b}"
+}
+
+# Installeert Ollama ALS Docker-service binnen deze stack (profiel 'ollama' in
+# docker-compose.yml — start dus niet mee tenzij hier geactiveerd), start de container,
+# en haalt het gekozen model op. Kan enkele minuten tot tientallen minuten duren afhankelijk
+# van de modelgrootte en de internetverbinding van de NAS — de eigen voortgangsbalk van
+# 'ollama pull' wordt gewoon rechtstreeks getoond.
+_ollama_installeren() {
+  local ollama_model
+  ollama_model=$(_vraag_ollama_model)
+
+  set_env "OLLAMA_URL" "http://ollama:11434"
+  set_env "OLLAMA_MODEL" "$ollama_model"
+  # COMPOSE_PROFILES wordt door Docker Compose zelf uit dit .env-bestand gelezen (project-
+  # directory .env) — hiermee telt de 'ollama'-service voortaan automatisch mee bij elke
+  # gewone start/restart/rebuild, niet enkel bij deze installatie-stap.
+  set_env "COMPOSE_PROFILES" "ollama"
+
+  echo ""
+  stap "Ollama installeren"
+  info "Container ophalen en starten (kan een minuutje duren bij de eerste keer)..."
+  if ! $COMPOSE --project-directory "$BASE" --profile ollama up -d ollama; then
+    err "Kon de Ollama-container niet starten — zie de foutmelding hierboven."
+    err "AI-verbeteren blijft uitgeschakeld; de rest van PyCodeFlow werkt gewoon door."
+    return 1
+  fi
+
+  info "Wachten tot Ollama klaar is om te antwoorden..."
+  local pogingen=0
+  while ! docker exec pycodeflow-ollama-1 ollama list > /dev/null 2>&1; do
+    sleep 2
+    pogingen=$((pogingen + 1))
+    if [[ $pogingen -gt 30 ]]; then
+      err "Ollama start niet op na 60 seconden."
+      err "Controleer: docker compose --project-directory \"$BASE\" logs ollama"
+      return 1
+    fi
+    echo -n "."
+  done
+  echo ""
+  ok "Ollama draait"
+  echo ""
+
+  echo -e "  ${GEEL}Model ophalen: ${ollama_model} — dit kan enkele GB downloaden en dus"
+  echo -e "  even duren, zeker over een trage verbinding. De voortgang hieronder komt"
+  echo -e "  rechtstreeks van Ollama zelf.${RESET}"
+  echo ""
+  if docker exec pycodeflow-ollama-1 ollama pull "$ollama_model"; then
+    echo ""
+    ok "AI-verbeteren volledig geïnstalleerd en klaar: http://ollama:11434 ($ollama_model)"
+  else
+    echo ""
+    err "Kon het model niet ophalen — Ollama zelf draait wel."
+    err "Probeer later opnieuw: docker exec pycodeflow-ollama-1 ollama pull ${ollama_model}"
+  fi
+}
+
 container_status() {
   docker inspect --format='{{.State.Status}}' "$1" 2>/dev/null || echo "niet gevonden"
 }
@@ -334,6 +473,9 @@ setup_eerste_start() {
       info "Overgeslagen — kan later via deze stap of handmatig in .env."
     fi
   fi
+  echo ""
+  stap "Stap 2c: AI-verbeteren (optioneel)"
+  configureer_ollama
   echo ""
   stap "Stap 3: Basisinstellingen"
   echo ""
@@ -753,6 +895,11 @@ actie_rebuild() {
       echo ""
     fi
   fi
+  # Sprint 51-ai: ontbrekende, optionele instellingen aanvullen vóór de rebuild — zo krijgt
+  # ook een bestaande installatie die deze update binnenhaalt de kans om AI-verbeteren te
+  # configureren, zonder de volledige eerste-start-wizard opnieuw te moeten doorlopen.
+  configureer_ollama
+  echo ""
   # Sprint 51: rebuild-bevestiging. Kiest de gebruiker 'n', dan stopt ALLES hier —
   # ook de OLDIES-opruiming wordt dan overgeslagen (geen extra vragen).
   warn "Dit rebuildt alle Docker images (kan enkele minuten duren)."
@@ -1486,6 +1633,146 @@ actie_testdb() {
   done
 }
 
+# ── Sprint 51-ai (v5): AI-training — periodiek, handmatig fine-tune-traject ─────
+# Twee stappen, telkens via dit menu: (1) trainingsgegevens downloaden (leerkracht-feedback
+# + stille correcties, verzameld terwijl je normaal verbetert/nakijkt) als JSONL-bestand
+# dat je op je eigen machine (met GPU) kan gebruiken om een LoRA-adapter te trainen — bv.
+# via Unsloth Desktop, die rechtstreeks naar GGUF exporteert; (2) de getrainde adapter
+# terug opladen, waarna PyCodeFlow zelf een nieuwe Ollama-modelversie aanmaakt en instelt.
+# Nadrukkelijk GEEN automatische, ingebouwde training — dat vereist een GPU die deze NAS
+# niet heeft (zie ook de toelichting in LEES-MIJ bij deze levering).
+actie_ai_training() {
+  local WEB_CONT="pycodeflow-web-1"
+  local OLLAMA_CONT="pycodeflow-ollama-1"
+  while true; do
+    header
+    stap "AI-training"
+    echo ""
+    echo -e "  ${DIM}Periodiek, handmatig traject: hier trainingsgegevens downloaden, ergens met"
+    echo -e "  een GPU (bv. je laptop, via Unsloth Desktop) een LoRA-adapter trainen, en die"
+    echo -e "  adapter hier terug opladen. Zie LEES-MIJ voor de volledige uitleg.${RESET}"
+    echo ""
+    echo -e "  ${BOLD}1)${RESET} ⬇️   Trainingsgegevens downloaden"
+    echo -e "  ${BOLD}2)${RESET} ⬆️   Nieuw getraind model opladen"
+    echo -e "  ${BOLD}3)${RESET} 📜  Actief AI-model tonen"
+    echo -e "  ${BOLD} q)${RESET} ←   Terug naar hoofdmenu"
+    echo ""
+    read -rp "  Keuze: " ai_keuze
+    echo ""
+
+    case "$ai_keuze" in
+      1)
+        header
+        stap "Trainingsgegevens downloaden"
+        if [[ "$(container_status "$WEB_CONT")" != "running" ]]; then
+          err "De web-container draait niet — start PyCodeFlow eerst (optie 2)."
+          pauze; continue
+        fi
+        local datum; datum=$(date +%Y%m%d-%H%M)
+        local exportmap="$BASE/exports"
+        mkdir -p "$exportmap"
+        info "Gegevens verzamelen..."
+        if ! docker exec "$WEB_CONT" node scripts/export-ai-training.js "/tmp/ai-training-${datum}.jsonl"; then
+          err "Export mislukt — zie de foutmelding hierboven."
+          pauze; continue
+        fi
+        docker cp "${WEB_CONT}:/tmp/ai-training-${datum}.jsonl" "$exportmap/" > /dev/null 2>&1
+        docker cp "${WEB_CONT}:/tmp/ai-training-${datum}-samenvatting.txt" "$exportmap/" > /dev/null 2>&1
+        docker exec "$WEB_CONT" rm -f "/tmp/ai-training-${datum}.jsonl" "/tmp/ai-training-${datum}-samenvatting.txt" 2>/dev/null
+        local zipbestand="$exportmap/ai-training-${datum}.zip"
+        (cd "$exportmap" && zip -q "$(basename "$zipbestand")" "ai-training-${datum}.jsonl" "ai-training-${datum}-samenvatting.txt")
+        echo ""
+        ok "Klaar: $zipbestand"
+        [[ -f "$exportmap/ai-training-${datum}-samenvatting.txt" ]] && cat "$exportmap/ai-training-${datum}-samenvatting.txt"
+        echo ""
+        info "Haal dit bestand van de NAS (bv. via je bestandsbeheerder of scp) en gebruik"
+        info "het .jsonl-bestand erin als trainingsdataset op je eigen machine."
+        pauze
+        ;;
+      2)
+        header
+        stap "Nieuw getraind model opladen"
+        if [[ "$(container_status "$WEB_CONT")" != "running" ]]; then
+          err "De web-container draait niet — start PyCodeFlow eerst (optie 2)."
+          pauze; continue
+        fi
+        local huidig_model; huidig_model=$(get_env OLLAMA_MODEL)
+        if [[ -z "$huidig_model" ]]; then
+          err "Er is nog geen AI-verbeteren geconfigureerd (OLLAMA_MODEL ontbreekt in .env)."
+          pauze; continue
+        fi
+        echo -e "  ${DIM}Zet vooraf het bestand met je getrainde adapter (een .zip met daarin een"
+        echo -e "  .gguf-adapterbestand, bv. geëxporteerd via Unsloth) ergens op deze NAS.${RESET}"
+        echo ""
+        read -rp "  Volledig pad naar die .zip: " upload_zip
+        if [[ ! -f "$upload_zip" ]]; then
+          err "Bestand niet gevonden: $upload_zip"
+          pauze; continue
+        fi
+        local werkmap; werkmap=$(mktemp -d)
+        if ! unzip -q "$upload_zip" -d "$werkmap"; then
+          err "Kon de zip niet uitpakken."
+          rm -rf "$werkmap"; pauze; continue
+        fi
+        local adapter_bestand; adapter_bestand=$(find "$werkmap" -iname "*.gguf" | head -1)
+        if [[ -z "$adapter_bestand" ]]; then
+          err "Geen .gguf-bestand gevonden in de zip."
+          rm -rf "$werkmap"; pauze; continue
+        fi
+        # Basismodel = het huidige OLLAMA_MODEL zonder een eventuele eerdere "-custom"-tag,
+        # zodat je op een al eerder getrainde versie kan doortrainen zonder de basis kwijt te
+        # raken. Bewaar elke versie apart (op datum), zodat je bij een tegenvallend
+        # trainingsresultaat gewoon terug kan naar een vorige tag.
+        local basismodel="${huidig_model%%-custom*}"
+        local nieuwe_tag="pycodeflow-custom:$(date +%Y%m%d-%H%M)"
+        echo ""
+        info "Basismodel: $basismodel"
+        info "Nieuwe modelnaam: $nieuwe_tag"
+        echo ""
+        read -rp "  Doorgaan? (j/n): " bevestig
+        if [[ ! "$bevestig" =~ ^[jJ]$ ]]; then
+          warn "Geannuleerd."
+          rm -rf "$werkmap"; pauze; continue
+        fi
+        cat > "$werkmap/Modelfile" <<EOF
+FROM ${basismodel}
+ADAPTER ./$(basename "$adapter_bestand")
+EOF
+        docker cp "$werkmap/." "${OLLAMA_CONT}:/tmp/nieuwe-training/" > /dev/null 2>&1
+        if docker exec "$OLLAMA_CONT" ollama create "$nieuwe_tag" -f "/tmp/nieuwe-training/Modelfile"; then
+          set_env "OLLAMA_MODEL" "$nieuwe_tag"
+          docker exec "$OLLAMA_CONT" rm -rf /tmp/nieuwe-training 2>/dev/null
+          rm -rf "$werkmap"
+          echo ""
+          ok "Nieuw model actief: $nieuwe_tag"
+          info "Herstart de web-container om de nieuwe instelling te laten gelden."
+          read -rp "  Nu herstarten? (j/n): " herstart_nu
+          [[ "$herstart_nu" =~ ^[jJ]$ ]] && docker restart "$WEB_CONT" > /dev/null 2>&1 && ok "Herstart."
+        else
+          err "Kon het model niet aanmaken — zie de foutmelding hierboven."
+          err "Vorige model blijft actief: $huidig_model"
+          docker exec "$OLLAMA_CONT" rm -rf /tmp/nieuwe-training 2>/dev/null
+          rm -rf "$werkmap"
+        fi
+        pauze
+        ;;
+      3)
+        header
+        stap "Actief AI-model"
+        echo -e "  OLLAMA_MODEL (.env): ${GEEL}$(get_env OLLAMA_MODEL)${RESET}"
+        if [[ "$(container_status "$OLLAMA_CONT")" == "running" ]]; then
+          echo ""
+          echo -e "  ${DIM}Geïnstalleerde modellen op Ollama:${RESET}"
+          docker exec "$OLLAMA_CONT" ollama list 2>/dev/null || warn "Kon de lijst niet ophalen."
+        fi
+        pauze
+        ;;
+      q|Q) return ;;
+      *) err "Ongeldige keuze."; sleep 1 ;;
+    esac
+  done
+}
+
 actie_db_beheer() {
   local WEB_CONT="pycodeflow-web-1"
   local MANAGE="node /app/scripts/manage-teacher.js"
@@ -1943,6 +2230,7 @@ while true; do
   echo -e "  ${BOLD}19)${RESET} 🗄  Database beheer"
   echo -e "  ${BOLD}20)${RESET} 🧪  Tests draaien (syntax + unit + sandbox)"
   echo -e "  ${BOLD}21)${RESET} 🧬  Testdatabase (seed / wis) — enkel test!"
+  echo -e "  ${BOLD}22)${RESET} 🎓  AI-training (trainingsgegevens down-/opladen)"
   echo -e "  ${BOLD} q)${RESET} ✖   Afsluiten"
   echo ""
   echo -e "${BOLD}──────────────────────────────────────────────${RESET}"
@@ -1971,6 +2259,7 @@ while true; do
     19) actie_db_beheer ;;
     20) actie_tests ;;
     21) actie_testdb ;;
+    22) actie_ai_training ;;
     q|Q) echo -e "${GROEN}Tot later!${RESET}"; echo ""; exit 0 ;;
     *) err "Ongeldige keuze."; sleep 1 ;;
   esac

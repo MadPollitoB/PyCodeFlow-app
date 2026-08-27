@@ -205,6 +205,7 @@ const { createLogger } = require('./lib/logger');
 const log = createLogger();
 // 37d: nakijk-token (HMAC, stateless) voor leerling-inzage
 const { createReviewToken, verifyReviewToken } = require('./lib/review-token');
+const aiGrading = require('./lib/ai-grading');
 // 37a: bouwt het nakijk-resultaat en strippt de juiste antwoorden
 const { buildMyResult } = require('./lib/review-result');
 const safeEqual = authLib.safeEqual;
@@ -3921,18 +3922,32 @@ app.get('/api/quiz/:code/run-history/:studentId/:questionId', requireTeacherAuth
 app.put('/api/quiz/:code/answers/:answerId/score', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   const { score, teacherComment } = req.body || {};
   const actor = getActorFromReq(req);
-  // Haal oude score op voor audit
-  const oldAnswers = await dbModule.getQuizAnswers(req.params.code.toUpperCase()).catch(() => []);
-  const oldAns = oldAnswers.find(a => a.id === req.params.answerId);
-  await dbModule.scoreQuizAnswer(req.params.answerId,
-    score !== undefined ? parseInt(score) : null,
-    String(teacherComment || '').slice(0, 1000)
-  );
+  const code = req.params.code.toUpperCase();
+  // Sprint 51-ai (v5): één gerichte lookup i.p.v. de hele antwoordenlijst op te halen om er
+  // één rij uit te vissen — geeft meteen ook de velden (question_type/model_answer) die
+  // nodig zijn voor de stille correctie-vastlegging hieronder.
+  const oldAns = await dbModule.getAnswerContextForTraining(req.params.answerId).catch(() => null);
+  const nieuweScore = score !== undefined ? parseInt(score) : null;
+  const nieuwCommentaar = String(teacherComment || '').slice(0, 1000);
+  await dbModule.scoreQuizAnswer(req.params.answerId, nieuweScore, nieuwCommentaar);
+  // Sprint 51-ai (v5): PASSIEVE correctie-vastlegging — dit was een AI-gescoord antwoord
+  // (ai_graded=true) dat de leerkracht nu handmatig overschrijft. Leg het "voor/na"-paar
+  // automatisch vast als trainingsmateriaal, zonder dat daar een aparte actie voor nodig is.
+  if (oldAns?.ai_graded === true) {
+    const context = bouwTrainingContext(oldAns, null);
+    if (context) {
+      dbModule.saveAiGradeCorrection({
+        sessionCode: code, answerId: req.params.answerId, partId: null, questionId: oldAns.question_id,
+        teacherId: req.teacher?.id || null, aiScore: oldAns.score, aiComment: oldAns.teacher_comment,
+        humanScore: nieuweScore, humanComment: nieuwCommentaar, context,
+      }).catch(() => {});
+    }
+  }
   // Audit log
   dbModule.auditLog(actor, 'score_changed', req.params.answerId, {
-    sessionCode: req.params.code,
+    sessionCode: code,
     oldScore: oldAns?.score,
-    newScore: score !== undefined ? parseInt(score) : null,
+    newScore: nieuweScore,
     studentName: oldAns?.student_name,
   }, req.ip).catch(() => {});
   res.json({ ok: true });
@@ -3974,17 +3989,36 @@ app.put('/api/quiz/:code/answers/:answerId/part-score', requireTeacherAuth, requ
   const { partId, score, teacherComment } = req.body || {};
   if (!partId) return res.status(400).json({ error: 'partId is verplicht.' });
   const actor = getActorFromReq(req);
-  const oldAnswers = await dbModule.getQuizAnswers(req.params.code.toUpperCase()).catch(() => []);
-  const oldAns = oldAnswers.find(a => a.id === req.params.answerId);
-  const ok = await dbModule.scoreQuizAnswerPart(
-    req.params.answerId, partId,
-    score !== undefined && score !== null && score !== '' ? parseInt(score, 10) : null,
-    teacherComment !== undefined ? String(teacherComment || '').slice(0, 1000) : null
-  );
+  const code = req.params.code.toUpperCase();
+  // Sprint 51-ai (v5): gerichte lookup i.p.v. de hele antwoordenlijst — geeft ook de
+  // velden (answer_parts e.d.) nodig voor de stille correctie-vastlegging hieronder.
+  const oldAns = await dbModule.getAnswerContextForTraining(req.params.answerId).catch(() => null);
+  let oldPartAiFlags = {};
+  try { oldPartAiFlags = JSON.parse(oldAns?.part_ai_graded || '{}'); } catch { /* leeg */ }
+  const wasAiGraded = oldPartAiFlags[partId] === true;
+  let oldPartScores = {}, oldPartComments = {};
+  try { oldPartScores = JSON.parse(oldAns?.part_scores || '{}'); } catch { /* leeg */ }
+  try { oldPartComments = JSON.parse(oldAns?.part_comments || '{}'); } catch { /* leeg */ }
+
+  const nieuweScore = score !== undefined && score !== null && score !== '' ? parseInt(score, 10) : null;
+  const nieuwCommentaar = teacherComment !== undefined ? String(teacherComment || '').slice(0, 1000) : null;
+  const ok = await dbModule.scoreQuizAnswerPart(req.params.answerId, partId, nieuweScore, nieuwCommentaar);
   if (!ok) return res.status(404).json({ error: 'Antwoord niet gevonden.' });
+
+  // Sprint 51-ai (v5): PASSIEVE correctie-vastlegging voor dit specifieke onderdeel.
+  if (wasAiGraded && oldAns) {
+    const context = bouwTrainingContext(oldAns, partId);
+    if (context) {
+      dbModule.saveAiGradeCorrection({
+        sessionCode: code, answerId: req.params.answerId, partId, questionId: partId,
+        teacherId: req.teacher?.id || null, aiScore: oldPartScores[partId], aiComment: oldPartComments[partId],
+        humanScore: nieuweScore, humanComment: nieuwCommentaar ?? oldPartComments[partId], context,
+      }).catch(() => {});
+    }
+  }
   dbModule.auditLog(actor, 'part_score_changed', req.params.answerId, {
-    sessionCode: req.params.code, partId,
-    newScore: score !== undefined && score !== null && score !== '' ? parseInt(score, 10) : null,
+    sessionCode: code, partId,
+    newScore: nieuweScore,
     studentName: oldAns?.student_name,
   }, req.ip).catch(() => {});
   res.json({ ok: true });
@@ -4031,6 +4065,362 @@ app.post('/api/quiz/:code/review-mode', requireTeacherAuth, requireSessionAccess
     .catch(() => {});
   res.json({ ok: true, enabled });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Sprint 51-ai: automatisch verbeteren via een lokale AI (Ollama) ────────────────
+// Enkel open- en code-vragen (ook binnen samengestelde vragen); keuzevragen zijn al
+// automatisch scoorbaar. Draait als achtergrondtaak (kan lang duren, vooral op
+// CPU-only hardware) — de client pollt de voortgang via /ai-grade/progress.
+//
+// BELANGRIJK (leerkracht-only): de score wordt opgeslagen via aiScoreQuizAnswer(Part),
+// die de score/commentaar EXACT zo opslaat als een handmatige score (ai_graded=true erbij,
+// zie db/database.js) — het commentaar zelf bevat GEEN AI-markering of prefix. Enkel
+// leerkracht-gerichte endpoints (getQuizAnswers) sturen ai_graded mee; de leerling ziet via
+// getMyResult/getReleasedResultDetail gewoon zijn score en commentaar, zonder enig verschil
+// met een score die de leerkracht zelf typte.
+// ═══════════════════════════════════════════════════════════════════════════════
+const aiGradeJobs = new Map(); // sessionCode -> jobstatus
+
+// Vooraf checken of Ollama bereikbaar/geconfigureerd is, zodat de popup dat meteen kan
+// tonen — vervelend om pas na het klikken op "Starten" te ontdekken dat het niet werkt.
+app.get('/api/quiz/:code/ai-grade/check', requireTeacherAuth, requireSessionAccess, async (req, res) => {
+  const check = await aiGrading.checkOllamaBeschikbaar();
+  res.json(check);
+});
+
+// Leerlingenlijst voor de popup (met hoeveel open/code-vragen elk heeft, zodat "0 vragen"
+// leerlingen niet nodeloos aangevinkt kunnen worden).
+app.get('/api/quiz/:code/ai-grade/students', requireTeacherAuth, requireSessionAccess, async (req, res) => {
+  try {
+    const code = req.params.code.toUpperCase();
+    const answers = await dbModule.getAnswersForAIGrading(code);
+    const perStudent = new Map();
+    for (const a of answers) {
+      if (!perStudent.has(a.student_id)) {
+        perStudent.set(a.student_id, { id: a.student_id, name: a.student_name, aantalVragen: 0 });
+      }
+      const entry = perStudent.get(a.student_id);
+      if (a.question_type === 'open' || a.question_type === 'code') {
+        entry.aantalVragen++;
+      } else if (a.question_type === 'composite') {
+        let delen = [];
+        try { delen = JSON.parse(a.answer_parts || '[]'); } catch { delen = []; }
+        entry.aantalVragen += delen.filter(d => d.type === 'open' || d.type === 'code').length;
+      }
+    }
+    res.json({ students: [...perStudent.values()].sort((a, b) => a.name.localeCompare(b.name, 'nl')) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Sprint 51-ai (v4): leerkracht-feedback op een AI-score ("goed" / "kon beter" + eigen
+// verbetering) — de praktische, haalbare invulling van "wordt de AI beter?": geen echte
+// model-training (dat vereist trainingsinfrastructuur die een lokale Ollama niet biedt),
+// maar een groeiend, VRAAG-specifiek correctie-geheugen dat als extra context meegaat in
+// toekomstige AI-verbeter-beurten van dezelfde vraag (zie verwerkAIGradeJob hieronder).
+// Sprint 51-ai (v5): bouwt de {type, vraagstelling, modelAntwoord, leerlingAntwoord,
+// maxPunten, aiScore, aiComment}-structuur voor een antwoord (of onderdeel ervan) — gebruikt
+// om een context-snapshot vast te leggen bij feedback of een stille correctie. Analoog aan
+// hoe verwerkAIGradeJob dezelfde velden opbouwt vóór het AI-verbeteren zelf.
+function bouwTrainingContext(row, partId) {
+  if (partId) {
+    let delen = [];
+    try { delen = JSON.parse(row.answer_parts || '[]'); } catch { delen = []; }
+    const deel = delen.find(d => d.id === partId);
+    if (!deel) return null;
+    let partAnswers = {}, partScores = {}, partComments = {};
+    try { partAnswers = JSON.parse(row.part_answers || '{}'); } catch { /* leeg */ }
+    try { partScores = JSON.parse(row.part_scores || '{}'); } catch { /* leeg */ }
+    try { partComments = JSON.parse(row.part_comments || '{}'); } catch { /* leeg */ }
+    return {
+      type: deel.type,
+      vraagstelling: row.text_snapshot + (deel.label ? ` — onderdeel: ${deel.label}` : ' — onderdeel: code'),
+      modelAntwoord: deel.modelAnswer || '',
+      leerlingAntwoord: typeof partAnswers[partId] === 'string' ? partAnswers[partId] : '',
+      maxPunten: deel.points,
+      aiScore: partScores[partId] !== undefined ? partScores[partId] : null,
+      aiComment: partComments[partId] || '',
+    };
+  }
+  return {
+    type: row.question_type,
+    vraagstelling: row.text_snapshot,
+    modelAntwoord: row.model_answer || '',
+    leerlingAntwoord: row.code || '',
+    maxPunten: row.question_points,
+    aiScore: row.score,
+    aiComment: row.teacher_comment || '',
+  };
+}
+
+// Sprint 51-ai (v4/v5): leerkracht-feedback op een AI-score ("goed" / "kon beter" + eigen
+// verbetering, optioneel met een expliciete correcte score/commentaar) — de praktische,
+// haalbare invulling van "wordt de AI beter?": geen echte model-training via deze weg (dat
+// vereist trainingsinfrastructuur die een lokale Ollama niet biedt), maar wel het materiaal
+// ervoor — zie ook de export achter "pycodeflow.sh → AI-training".
+app.post('/api/quiz/:code/ai-grade/feedback', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
+  try {
+    const { answerId, partId, questionId, verdict, improvementText, correctedScore, correctedComment } = req.body || {};
+    if (!answerId || !questionId || !['goed', 'kon_beter'].includes(verdict)) {
+      return res.status(400).json({ error: 'answerId, questionId en een geldige verdict zijn verplicht.' });
+    }
+    // Sprint 51-ai (v5): context-snapshot opzoeken en meteen mee opslaan — zie
+    // bouwTrainingContext hierboven waarom dit NU gebeurt, niet pas bij een latere export.
+    const row = await dbModule.getAnswerContextForTraining(answerId).catch(() => null);
+    const context = row ? bouwTrainingContext(row, partId) : null;
+    await dbModule.saveAiGradeFeedback({
+      sessionCode: req.params.code.toUpperCase(), answerId, partId: partId || null, questionId,
+      verdict, improvementText: improvementText ? String(improvementText).slice(0, 500) : null,
+      teacherId: req.teacher?.id || null,
+      correctedScore: correctedScore !== undefined && correctedScore !== null && correctedScore !== ''
+        ? Number(correctedScore) : null,
+      correctedComment: correctedComment ? String(correctedComment).slice(0, 1000) : null,
+      context,
+    });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Bestaande feedback voor deze sessie — de client gebruikt dit om het feedback-knopje te
+// verbergen bij items die al een verdict kregen (voorkomt dubbele/herhaalde feedback).
+app.get('/api/quiz/:code/ai-grade/feedback', requireTeacherAuth, requireSessionAccess, async (req, res) => {
+  try {
+    const rows = await dbModule.getAiGradeFeedbackForSession(req.params.code.toUpperCase());
+    res.json({ feedback: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/quiz/:code/ai-grade/progress', requireTeacherAuth, requireSessionAccess, async (req, res) => {
+  const job = aiGradeJobs.get(req.params.code.toUpperCase());
+  // Sprint 51-fix: een job blijft in het geheugen staan na afloop (voor de "klaar"-melding
+  // en de status-pil op andere pagina's), maar niet voor altijd — anders zou een leerkracht
+  // die dagen later de verbeterpagina opent nog steeds "✅ klaar" te zien krijgen van een
+  // allang vergeten taak. Na 5 minuten telt een afgeronde job weer als 'idle'.
+  const nogRelevant = job && (job.status === 'running' || (job.klaar && Date.now() - job.klaar < 5 * 60 * 1000));
+  res.json(nogRelevant ? job : { status: 'idle' });
+});
+
+// Sprint 51-fix: overzicht van ALLE actieve (of recent afgeronde) AI-verbeter-taken van
+// deze leerkracht, ongeacht welke toets — gebruikt door het Toets/Taak overzicht zodat een
+// lopende (of net voltooide) taak zichtbaar blijft, ook nadat de popup op de verbeterpagina
+// gesloten werd of nadat je naar een andere pagina navigeerde. "Recent afgerond" blijft 5
+// minuten zichtbaar na het klaar zijn, zodat een "✅ klaar"-melding niet meteen verdwijnt
+// als je toevallig net op dat moment aan het kijken bent.
+app.get('/api/ai-grade/active', requireTeacherAuth, async (req, res) => {
+  try {
+    const magZien = await maakToetsToegangChecker(req.teacher);
+    const nu = Date.now();
+    const resultaten = [];
+    for (const [code, job] of aiGradeJobs.entries()) {
+      const nogRelevant = job.status === 'running' || (job.klaar && nu - job.klaar < 5 * 60 * 1000);
+      if (!nogRelevant) continue;
+      const meta = await dbModule.getQuizOwnerInfo(code).catch(() => null);
+      if (!meta || !magZien(meta.teacher_id, meta.target_class)) continue;
+      resultaten.push({
+        code, status: job.status, totaal: job.totaal, voltooid: job.voltooid,
+        huidigeLeerling: job.huidigeLeerling || null, klaar: job.klaar || null,
+      });
+    }
+    res.json({ jobs: resultaten });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/quiz/:code/ai-grade', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const bestaand = aiGradeJobs.get(code);
+  if (bestaand && bestaand.status === 'running') {
+    return res.status(409).json({ error: 'Er loopt al een AI-verbeter-taak voor deze toets.' });
+  }
+  const check = await aiGrading.checkOllamaBeschikbaar();
+  if (!check.ok) return res.status(503).json({ error: check.reason });
+
+  const studentIds = Array.isArray(req.body?.studentIds) && req.body.studentIds.length ? req.body.studentIds : null;
+  const overwriteExisting = req.body?.overwriteExisting === true;
+
+  const job = { status: 'running', totaal: 0, voltooid: 0, huidigeLeerling: null, fouten: [], log: [], gestart: Date.now(), klaar: null };
+  aiGradeJobs.set(code, job);
+  res.json({ ok: true });
+
+  const actor = getActorFromReq(req);
+  dbModule.auditLog(actor, 'ai_grade_started', code, { studentIds, overwriteExisting }, req.ip).catch(() => {});
+
+  verwerkAIGradeJob(code, studentIds, overwriteExisting, job)
+    .then(() => {
+      job.status = 'done';
+      job.klaar = Date.now();
+      dbModule.auditLog(actor, 'ai_grade_finished', code,
+        { voltooid: job.voltooid, fouten: job.fouten.length }, req.ip).catch(() => {});
+    })
+    .catch(e => {
+      job.status = 'error';
+      job.fout = e.message;
+      log.error(`[ai-grade] ${code} onverwacht gefaald:`, e.message);
+    });
+});
+
+// Bouwt de lijst "te verbeteren items" (per antwoord, of per onderdeel bij een
+// samengestelde vraag), gegroepeerd PER LEERLING, en verwerkt ze leerling voor leerling.
+// Bewust sequentieel, niet parallel: op CPU-only Ollama-hardware zou parallel draaien enkel
+// alles vertragen, en de runner-sandbox heeft sowieso een eigen wachtrij-limiet. Na alle
+// items van één leerling wordt ook het algemene commentaar gegenereerd — vandaar de
+// groepering per leerling in plaats van gewoon plat door alle items heen te lopen.
+async function verwerkAIGradeJob(code, studentIds, overwriteExisting, job) {
+  const answers = await dbModule.getAnswersForAIGrading(code, studentIds);
+
+  // Sprint 51-fix: een vraag die AUTOMATISCH op score 0 gezet werd (leerling nam niet deel,
+  // of liet deze ene vraag onbeantwoord bij een halve inlevering) is geen "echte"
+  // beoordeling — enkel een placeholder. Die telt dus NIET mee als "al beoordeeld": de AI
+  // mag ze gewoon verbeteren, net als een vraag die nog helemaal geen score heeft. Zonder
+  // deze uitzondering sloeg de AI-taak zulke vragen stilzwijgend over, wat leek alsof "de
+  // 2de vraag" gewoon nooit verbeterd werd.
+  const isPlaceholderScore = a => a.submitted_by === 'niet_beantwoord';
+
+  const perLeerling = new Map(); // student_id -> { naam, items: [], alleAntwoorden: [] }
+  for (const a of answers) {
+    if (!perLeerling.has(a.student_id)) {
+      perLeerling.set(a.student_id, { naam: a.student_name, items: [], alleAntwoorden: [] });
+    }
+    const entry = perLeerling.get(a.student_id);
+    entry.alleAntwoorden.push(a);
+
+    if (a.question_type === 'open' || a.question_type === 'code') {
+      const alGescoord = a.score !== null && a.score !== undefined && !isPlaceholderScore(a);
+      if (alGescoord && !overwriteExisting) continue;
+      entry.items.push({ antwoord: a, onderdeel: null });
+    } else if (a.question_type === 'composite') {
+      let delen = [];
+      try { delen = JSON.parse(a.answer_parts || '[]'); } catch { delen = []; }
+      let partScores = {};
+      try { partScores = JSON.parse(a.part_scores || '{}'); } catch { partScores = {}; }
+      for (const deel of delen) {
+        if (deel.type !== 'open' && deel.type !== 'code') continue;
+        // Onderdelen hebben geen eigen submitted_by — de placeholder-uitzondering geldt
+        // hier op het niveau van de hele vraag (isPlaceholderScore(a)).
+        const alGescoord = partScores[deel.id] !== undefined && !isPlaceholderScore(a);
+        if (alGescoord && !overwriteExisting) continue;
+        entry.items.push({ antwoord: a, onderdeel: deel });
+      }
+    }
+  }
+
+  job.totaal = [...perLeerling.values()].reduce((s, e) => s + e.items.length, 0);
+
+  for (const [, leerling] of perLeerling) {
+    if (!leerling.items.length) continue;
+    job.huidigeLeerling = leerling.naam;
+
+    for (const item of leerling.items) {
+      const { antwoord: a, onderdeel } = item;
+      try {
+        let leerlingAntwoord, modelAntwoord, vraagstelling, maxPunten, type;
+        let uitvoerResultaat = null, modelUitvoerResultaat = null;
+        if (onderdeel) {
+          let partAnswers = {};
+          try { partAnswers = JSON.parse(a.part_answers || '{}'); } catch { partAnswers = {}; }
+          const ruw = partAnswers[onderdeel.id];
+          leerlingAntwoord = typeof ruw === 'string' ? ruw : '';
+          modelAntwoord = onderdeel.modelAnswer || '';
+          vraagstelling = a.text_snapshot + (onderdeel.label ? ` — onderdeel: ${onderdeel.label}` : ' — onderdeel: code');
+          maxPunten = onderdeel.points;
+          type = onderdeel.type;
+        } else {
+          leerlingAntwoord = a.code || '';
+          modelAntwoord = a.model_answer || '';
+          vraagstelling = a.text_snapshot;
+          maxPunten = a.points;
+          type = a.question_type;
+        }
+
+        if (type === 'code') {
+          // Sprint 51-fix: naast de leerlingcode nu OOK de modeloplossing zelf uitvoeren,
+          // en beide echte uitvoerresultaten meegeven aan de AI. Voorheen moest de AI zelf
+          // "berekenen" wat de modelcode zou uitvoeren, wat op een lokaal, CPU-gebonden
+          // model foutgevoelig bleek (bv. een off-by-one in range() die toch als 100%
+          // correct beoordeeld werd) — nu is het een letterlijke tekstvergelijking.
+          if (leerlingAntwoord.trim()) {
+            const run = await runCodeNonInteractive(leerlingAntwoord, 10000);
+            uitvoerResultaat = run.reden === 'klaar'
+              ? (run.output || '(geen uitvoer)')
+              : `(kon niet volledig uitgevoerd worden: ${run.reden})\n${run.output || ''}`;
+          }
+          if (modelAntwoord.trim()) {
+            const modelRun = await runCodeNonInteractive(modelAntwoord, 10000);
+            modelUitvoerResultaat = modelRun.reden === 'klaar'
+              ? (modelRun.output || '(geen uitvoer)')
+              : null; // modeloplossing zelf faalde — geef dan geen onbetrouwbare referentie mee
+          }
+        }
+
+        // Sprint 51-ai (v4): recente "kon beter"-feedback van de leerkracht voor DEZELFDE
+        // vraag — de lichte, in-context "leer"-stap (zie db/database.js). Vraag-specifiek
+        // opgezocht op questionId (het onderdeel-id zelf is nauwkeuriger dan de hoofdvraag
+        // voor een samengestelde vraag, dus die gebruiken we als aanwezig).
+        const notitieQuestionId = onderdeel ? onderdeel.id : a.question_id;
+        const verbeterNotities = await dbModule.getRecentImprovementNotes(notitieQuestionId, 3).catch(() => []);
+
+        const resultaat = await aiGrading.gradeAnswer({
+          type, vraagstelling, modelAntwoord, leerlingAntwoord,
+          uitvoerResultaat, modelUitvoerResultaat, maxPunten, verbeterNotities,
+        });
+        // Geen tekst-marker hier — de commentaar-tekst is precies wat de leerling ziet.
+        // De ai_graded-vlag (via aiScoreQuizAnswer/Part) is de ENIGE plek waar dit
+        // bijgehouden wordt, en die vlag wordt nooit naar de leerling teruggestuurd.
+        if (onderdeel) {
+          await dbModule.aiScoreQuizAnswerPart(a.answer_id, onderdeel.id, resultaat.score, resultaat.comment);
+        } else {
+          await dbModule.aiScoreQuizAnswer(a.answer_id, resultaat.score, resultaat.comment);
+        }
+        // Zodat het algemene-commentaar hieronder de zonet bijgewerkte score/commentaar
+        // ziet, zonder de data opnieuw uit de database te moeten ophalen.
+        a.score = onderdeel ? a.score : resultaat.score;
+        a.teacher_comment = onderdeel ? a.teacher_comment : resultaat.comment;
+        // Sprint 51-fix: gedetailleerd log per verwerkt item — voor de popup die opent bij
+        // een klik op de voortgangspil, zodat je kan meevolgen wat er precies gebeurt in
+        // plaats van enkel een percentage te zien.
+        job.log.push({
+          student: a.student_name,
+          vraag: (vraagstelling || '').slice(0, 70),
+          onderdeel: onderdeel ? (onderdeel.label || (onderdeel.type === 'code' ? 'Code' : '')) : null,
+          score: resultaat.score, maxPunten, tijd: Date.now(),
+        });
+        if (job.log.length > 200) job.log.shift(); // begrens het geheugengebruik bij zeer grote batches
+      } catch (e) {
+        // Eén falend antwoord mag de hele batch niet stoppen — noteer en ga verder.
+        job.fouten.push({
+          student: a.student_name,
+          vraag: (a.text_snapshot || '').slice(0, 60),
+          fout: e.message,
+        });
+        job.log.push({ student: a.student_name, vraag: (a.text_snapshot || '').slice(0, 70), fout: e.message, tijd: Date.now() });
+      }
+      job.voltooid++;
+    }
+
+    // Sprint 51-fix: algemeen commentaar — ontbrak voorheen volledig. Enkel invullen als
+    // er nog niets staat, tenzij expliciet overschrijven aangevinkt is (zelfde regel als
+    // bij losse vragen). Gebaseerd op ALLE vragen van de leerling (ook die niet door de AI
+    // aangeraakt werden deze ronde), voor een representatief totaalbeeld.
+    const heeftAlgemeenCommentaar = leerling.alleAntwoorden.some(a => (a.general_comment || '').trim());
+    if (!heeftAlgemeenCommentaar || overwriteExisting) {
+      const gescoord = leerling.alleAntwoorden.filter(a => a.score !== null && a.score !== undefined);
+      if (gescoord.length) {
+        const totaalScore = gescoord.reduce((s, a) => s + Number(a.score || 0), 0);
+        const maxTotaal = leerling.alleAntwoorden.reduce((s, a) => s + Number(a.points || 0), 0);
+        const vraagResultaten = gescoord
+          .filter(a => (a.teacher_comment || '').trim())
+          .map(a => ({ score: a.score, punten: a.points, commentaar: a.teacher_comment }));
+        const studentId = leerling.alleAntwoorden[0]?.student_id;
+        const algemeenCommentaar = await aiGrading.generateGeneralComment({
+          studentNaam: leerling.naam, totaalScore, maxTotaal, vraagResultaten,
+        });
+        if (algemeenCommentaar && studentId) {
+          await dbModule.saveQuizGeneralComment(code, studentId, algemeenCommentaar).catch(() => {});
+        }
+      }
+    }
+  }
+  job.huidigeLeerling = null;
+}
+
 
 // Leerling logt opnieuw in om zijn eigen toets in te kijken.
 // Publiek endpoint — daarom streng: rate-limit, enkel bij openstaande nakijk-modus,
@@ -5556,7 +5946,11 @@ app.get("/api/quiz-sessions/:code/roster", requireTeacherAuth, requireSessionAcc
     return {
       id: leerling.id, name: leerling.name, status,
       note: hand?.note || '',
-      score: d?.heeft_score ? Number(d.score_totaal) : null,
+      // Sprint 51-fix: de score bleef hier gewoon staan (bv. 18/18, of een automatisch
+      // toegekende 0) ongeacht of de leerkracht de leerling als "gewettigd afwezig"
+      // markeerde — een leerling die je als gewettigd afwezig aanduidt, telt niet mee en
+      // hoort dus ook geen (mogelijk mismakende) score meer te tonen.
+      score: (status === 'gewettigd') ? null : (d?.heeft_score ? Number(d.score_totaal) : null),
       submittedAt: d?.submitted_at ? Number(d.submitted_at) : null,
       submittedBy: d?.submitted_by || null,
     };
@@ -5636,7 +6030,12 @@ async function bouwKlasMatrix(classId, schoolYear) {
         submittedAt: d?.submitted_at ? Number(d.submitted_at) : null,
         submittedBy: d?.submitted_by || null,
       });
-      const score = d?.heeft_score ? Number(d.score_totaal) : null;
+      // Sprint 51-fix: zelfde correctie als het roster-endpoint — een gewettigd-afwezig
+      // gemarkeerde leerling toonde hier nog gewoon zijn (mogelijk misleidende) score. De
+      // klasmatrix-client filtert dit toevallig al correct weg in de weergave (toont enkel
+      // een score bij status op_tijd/te_laat), maar de Excel-export gebruikt deze ruwe
+      // waarde rechtstreeks — die moet dus ook hier al kloppen.
+      const score = (status === 'gewettigd') ? null : (d?.heeft_score ? Number(d.score_totaal) : null);
       return { code: k.code, status, score };
     });
     // Gemiddelde: gewettigd afwezig en 'nog geen lid' tellen niet mee; wie niets
@@ -6142,6 +6541,55 @@ async function runnerCancel(runId) {
   if (!res.ok && res.status !== 404) throw new Error(`Runner cancel failed: ${res.status}`);
 }
 
+// Sprint 51-ai: niet-interactieve variant voor AI-verbeteren — hergebruikt dezelfde
+// runnerStart/runnerEvents-bouwstenen als de live toets-afname, maar zonder enige input
+// te kunnen geven (er is niemand om die te typen tijdens automatisch nakijken) en met een
+// harde eindtijd. Geeft de samengevoegde stdout/stderr terug, of een duidelijke reden
+// waarom er geen bruikbare uitvoer is.
+async function runCodeNonInteractive(code, timeoutMs = 10000) {
+  if (!code || !code.trim()) return { output: '', reden: 'geen_code' };
+  let runId;
+  try {
+    const start = await runnerStart(code);
+    runId = start.runId;
+  } catch (e) {
+    return { output: '', reden: 'kon_niet_starten: ' + e.message };
+  }
+  const begin = Date.now();
+  let output = '';
+  let lastSeq = 0;
+  try {
+    for (;;) {
+      if (Date.now() - begin > timeoutMs) {
+        await runnerCancel(runId).catch(() => {});
+        return { output, reden: 'timeout' };
+      }
+      const evData = await runnerEvents(runId, lastSeq);
+      for (const ev of (evData.events || [])) {
+        lastSeq = ev.seq;
+        if (ev.type === 'stdout' || ev.type === 'stderr') {
+          output += ev.data;
+        } else if (ev.type === 'input_request') {
+          // Er is niemand om input te geven tijdens automatisch nakijken — stoppen.
+          await runnerCancel(runId).catch(() => {});
+          return { output, reden: 'vraagt_input' };
+        } else if (ev.type === 'run_error') {
+          let errData = {};
+          try { errData = typeof ev.data === 'string' ? JSON.parse(ev.data || '{}') : (ev.data || {}); } catch { /* negeren */ }
+          output += `\n[fout: ${errData.message || 'onbekende fout'}]`;
+        } else if (ev.type === 'end') {
+          return { output, reden: 'klaar' };
+        }
+      }
+      if (!evData.running && !evData.queued) return { output, reden: 'klaar' };
+      await new Promise(r => setTimeout(r, 250));
+    }
+  } catch (e) {
+    await runnerCancel(runId).catch(() => {});
+    return { output, reden: 'fout: ' + e.message };
+  }
+}
+
 function clearDisconnectTimer(runId) {
   const timer = disconnectTimers.get(runId);
   if (timer) {
@@ -6576,8 +7024,20 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     const normalizedCode = (code || "").trim().toUpperCase();
     // Fix SEC-12: rate limit op join pogingen — Sprint 51k: via getSocketIp (CF-Connecting-IP
     // geprioriteerd i.p.v. de client-spoofbare x-forwarded-for rechtstreeks te vertrouwen).
+    // Sprint 51-fix: de ingebouwde stresstest laat tot 15 clients gelijktijdig joinen — allemaal
+    // vanaf hetzelfde (localhost) IP, ver boven JOIN_RATE_MAX=10. Dat blokkeerde niet enkel de
+    // WebSocket-belastingstest zelf, maar liet ook de DAAROPVOLGENDE rate-limit-test falen: de
+    // IP-teller stond dan al vol, dus die test se eigen join werd ook geweigerd, nog vóór er
+    // ooit een run_request verstuurd kon worden — geen bug in de rate-limit-logica zelf (die is
+    // apart bevestigd correct), maar deze bewuste beveiliging tegen misbruik-van-buitenaf botste
+    // met de stresstest zijn eigen, interne verkeer. Enkel overslaan voor herkenbaar
+    // stresstest-verkeer (de vaste naamconventie 'stresstest_...' die geen echte gebruiker zou
+    // kiezen) ÉN enkel vanaf localhost (waar de stresstest altijd vandaan draait) — een externe
+    // aanvaller kan deze naamconventie dus nooit gebruiken om de rate-limit te omzeilen.
     const joinIp = getSocketIp(socket);
-    if (!checkJoinRateLimit(joinIp)) {
+    const isLocalhost = joinIp === '127.0.0.1' || joinIp === '::1' || joinIp === '::ffff:127.0.0.1';
+    const isStressTestTraffic = activeStressTest && isLocalhost && String(name || '').startsWith('stresstest_');
+    if (!isStressTestTraffic && !checkJoinRateLimit(joinIp)) {
       return socket.emit('error_message', 'Te veel inlogpogingen. Probeer over een minuut opnieuw.');
     }
     const normalizedName = String(name || "").trim().slice(0, 64);
@@ -6811,19 +7271,31 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       return;
     }
 
-    student.runId = runData.runId;
+    // Sprint 51-fix (kritieke bug): de poll-loop las voorheen bij ELKE iteratie
+    // student.runId opnieuw — een GEDEELDE, muteerbare eigenschap. Klikte de leerling
+    // snel meermaals op "Run" (bv. tijdens het wachten op input), dan overschreef elke
+    // nieuwe klik student.runId, en de OUDE, nog actieve poll-loop(s) gingen daardoor de
+    // NIEUWE run-id volgen — elk vanaf lastSeq=0. Resultaat: 2 of 3 poll-loops die
+    // allemaal dezelfde, laatste run vanaf het begin uitlazen en hun eigen kopie naar de
+    // client stuurden — de output (en dus "de code") leek letterlijk 2-3x te lopen.
+    // Fix: elke poll-loop houdt een eigen, VASTE runId vast, en stopt zodra
+    // student.runId daarvan afwijkt (een nieuwere run is inmiddels gestart).
+    const runId = runData.runId;
+    student.runId = runId;
     student._outputAccum = ''; // Reset output accumulator bij nieuwe run
 
     // Poll-loop: hergebruikt dezelfde runner als klas/examsessies
     const poll = async () => {
       let lastSeq = 0;
       for (;;) {
+        if (student.runId !== runId) return; // een nieuwere run heeft deze overgenomen
         let evData;
         try {
-          const r = await fetch(`${RUNNER_URL}/runs/${student.runId}/events?after=${lastSeq}`);
+          const r = await fetch(`${RUNNER_URL}/runs/${runId}/events?after=${lastSeq}`);
           if (!r.ok) break;
           evData = await r.json();
         } catch { break; }
+        if (student.runId !== runId) return; // nogmaals checken na de await
 
         for (const ev of (evData.events || [])) {
           lastSeq = ev.seq;
@@ -6833,7 +7305,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
             student._outputAccum = (student._outputAccum || '') + ev.data;
             socket.emit("free_run_output", { output: student._outputAccum });
           } else if (ev.type === 'input_request') {
-            runnerWaitingForInput.add(student.runId);
+            runnerWaitingForInput.add(runId);
             socket.emit("free_input_request");
           } else if (ev.type === 'run_error') {
             // Stuur gestructureerd fout-event naar de vrije editor client
@@ -6848,7 +7320,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
             socket.emit('free_run_output', { output: student._outputAccum });
           } else if (ev.type === 'end') {
             socket.emit("free_run_end");
-            student.runId = null;
+            if (student.runId === runId) student.runId = null;
             return;
           }
         }
@@ -6856,13 +7328,13 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
         if (evData.queued) {
           socket.emit("free_run_queued", { position: evData.queuePosition || 1 });
           await new Promise(r => setTimeout(r, 800));
-        } else if (!evData.running && !runnerWaitingForInput.has(student.runId)) {
+        } else if (!evData.running && !runnerWaitingForInput.has(runId)) {
           // Enkel stoppen als runner NIET wacht op input
           // Anders: runner is klaar met verwerken maar wacht op stdin — poll verder
           socket.emit("free_run_end");
-          student.runId = null;
+          if (student.runId === runId) student.runId = null;
           return;
-        } else if (runnerWaitingForInput.has(student.runId)) {
+        } else if (runnerWaitingForInput.has(runId)) {
           // Runner wacht op input — normaal pollen (180ms)
           await new Promise(r => setTimeout(r, 180));
         } else {
@@ -6870,7 +7342,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
         }
       }
     };
-    poll().catch(() => { socket.emit("free_run_end"); student.runId = null; });
+    poll().catch(() => { socket.emit("free_run_end"); if (student.runId === runId) student.runId = null; });
   });
 
   // Sprint 51n (bugfix): een leerling die een toets/taak maakt heeft ctx.role === 'quiz_student',
@@ -6925,18 +7397,24 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       return;
     }
 
-    student.runId = runData.runId;
+    // Sprint 51-fix: zelfde kritieke bug als free_run_request hierboven — een lokale,
+    // vaste runId per poll-loop voorkomt dat snel herhaald op "Run" klikken (bv. tijdens
+    // het wachten op input) de output 2-3x laat verschijnen.
+    const runId = runData.runId;
+    student.runId = runId;
     student._outputAccum = '';
 
     const poll = async () => {
       let lastSeq = 0;
       for (;;) {
+        if (student.runId !== runId) return;
         let evData;
         try {
-          const r = await fetch(`${RUNNER_URL}/runs/${student.runId}/events?after=${lastSeq}`);
+          const r = await fetch(`${RUNNER_URL}/runs/${runId}/events?after=${lastSeq}`);
           if (!r.ok) break;
           evData = await r.json();
         } catch { break; }
+        if (student.runId !== runId) return;
 
         for (const ev of (evData.events || [])) {
           lastSeq = ev.seq;
@@ -6944,7 +7422,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
             student._outputAccum = (student._outputAccum || '') + ev.data;
             socket.emit("free_run_output", { output: student._outputAccum });
           } else if (ev.type === 'input_request') {
-            runnerWaitingForInput.add(student.runId);
+            runnerWaitingForInput.add(runId);
             socket.emit("free_input_request");
           } else if (ev.type === 'run_error') {
             let errData = {};
@@ -6958,7 +7436,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
             socket.emit('free_run_output', { output: student._outputAccum });
           } else if (ev.type === 'end') {
             socket.emit("free_run_end");
-            student.runId = null;
+            if (student.runId === runId) student.runId = null;
             return;
           }
         }
@@ -6966,18 +7444,18 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
         if (evData.queued) {
           socket.emit("free_run_queued", { position: evData.queuePosition || 1 });
           await new Promise(r => setTimeout(r, 800));
-        } else if (!evData.running && !runnerWaitingForInput.has(student.runId)) {
+        } else if (!evData.running && !runnerWaitingForInput.has(runId)) {
           socket.emit("free_run_end");
-          student.runId = null;
+          if (student.runId === runId) student.runId = null;
           return;
-        } else if (runnerWaitingForInput.has(student.runId)) {
+        } else if (runnerWaitingForInput.has(runId)) {
           await new Promise(r => setTimeout(r, 180));
         } else {
           await new Promise(r => setTimeout(r, 180));
         }
       }
     };
-    poll().catch(() => { socket.emit("free_run_end"); student.runId = null; });
+    poll().catch(() => { socket.emit("free_run_end"); if (student.runId === runId) student.runId = null; });
   });
 
   // Sprint 51n: stdin-tegenhanger van quiz_run_request — zelfde reden/patroon als hierboven.
@@ -9348,6 +9826,16 @@ app.post('/api/stress-test/start', requireTeacherAuth, requireCsrf, async (req, 
         const rWs = await testWebSocketLoad(emitter, logLines, isStopped, Math.min(concurrency, 15));
         allResults.push(...rWs);
         if (!isStopped()) {
+          // Sprint 51-fix: de WebSocket-belastingstest laat tot 15 gelijktijdige clients
+          // ontkoppelen — dat gebeurt netwerk-asynchroon (client.disconnect() wacht niet op
+          // de server-kant afhandeling), en bij een trage/onbereikbare runner kunnen er ook
+          // nog cancel-aanvragen van die clients onderweg zijn. Zonder pauze bleek de
+          // daaropvolgende rate-limit-test soms te falen: het EERSTE run_request werd door
+          // een nog drukke event-loop niet op tijd verwerkt vóór het tweede (100ms later)
+          // binnenkwam, waardoor er nog geen rate-limit-registratie bestond om tegen te
+          // toetsen — geen fout in de rate-limit-logica zelf (die is apart bevestigd
+          // correct), maar een volgorde-gevoeligheid van deze testreeks.
+          await new Promise(r => setTimeout(r, 1500));
           stressLog(emitter, logLines, 'info', '--- Rate limit verificatie ---');
           const rRl = await testRateLimitVerification(emitter, logLines, isStopped);
           allResults.push(...rRl);

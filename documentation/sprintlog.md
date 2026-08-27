@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.29**
+**Huidige versie: v2026.2.51.34**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -224,6 +224,195 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 51-ai (v5) — Echte AI-training via periodiek fine-tune-traject — ✅ AFGEROND (v2026.2.51.34)
+
+DB: ai_grade_feedback uitgebreid met corrected_score/corrected_comment + volledige
+context-snapshot-kolommen (vraag_type/vraagstelling/model_antwoord/leerling_antwoord/
+uitvoer_resultaat/model_uitvoer_resultaat/max_punten/ai_score/ai_comment). Nieuwe tabel
+ai_grade_corrections (zelfde snapshot-schema + human_score/human_comment) voor passieve
+vastlegging. Nieuwe db-functies: saveAiGradeFeedback (uitgebreid), saveAiGradeCorrection,
+getAiTrainingExamples (union van beide bronnen, gefilterd op bruikbaarheid),
+getAnswerContextForTraining (gerichte lookup met question_type/model_answer/answer_parts,
+ontbrak in getQuizAnswers).
+
+server.js: nieuwe helper bouwTrainingContext(row, partId) — bouwt {type, vraagstelling,
+modelAntwoord, leerlingAntwoord, maxPunten, aiScore, aiComment}, hergebruikt in het
+feedback-endpoint (nu met correctedScore/correctedComment) EN in de PUT .../score en
+.../part-score endpoints (stille correctie: check ai_graded vóór overschrijven, capture
+voor/na-paar). Per ongeluk tijdens het bouwen de app.post-regel zelf overschreven met de
+helper-functie — direct hersteld en bevestigd met een gerichte syntax-check.
+
+Nieuw web/scripts/export-ai-training.js: query getAiTrainingExamples(), bouwt per rij een
+{prompt, completion}-paar via aiGrading.bouwPrompt() (exacte formaat-pariteit met
+inferentie), schrijft JSONL + een samenvattingsbestand met een eerlijke
+te-weinig-data-waarschuwing (<20 voorbeelden). Draait via `docker exec pycodeflow-web-1
+node scripts/export-ai-training.js <pad>` — bewust geen HTTP-auth nodig, want docker exec
+vereist al NAS-toegang.
+
+pycodeflow.sh: nieuwe actie_ai_training() (menu 22) met submenu download/upload/model-info.
+Upload-pad: unzip → zoek .gguf → bouw Modelfile (FROM huidig-basismodel zonder
+-custom-suffix, ADAPTER) → docker cp naar ollama-container → `ollama create
+pycodeflow-custom:<datum>` → set_env OLLAMA_MODEL → optioneel herstart web-container.
+Oude modelversies blijven behouden (elke training = nieuwe gedateerde tag) voor
+terugvalmogelijkheid.
+
+Getest: end-to-end (mock feedback met expliciete correctie + echte PUT .../score op een
+ai_graded-item) bevestigt beide paden correct wegschrijven; export-script tegen dezelfde DB
+bevestigt geldige JSONL met correct prompt-formaat en gecorrigeerde score/commentaar in de
+completion. 324/324 unit tests.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` ·
+`web/scripts/export-ai-training.js` (nieuw) · `web/public/quiz-review.html` ·
+`web/public/quiz-review.js` · `scripts/app/pycodeflow.sh` · `docker-compose.yml`.
+
+---
+
+### Sprint 51-ai (v4) — Structuurbug, beleid, log & feedback — ✅ AFGEROND (v2026.2.51.33)
+
+Root cause composite-badge: geen opslagplek voor per-onderdeel-commentaar bestond —
+teacher_comment (hoofdvraag) werd per ongeluk overschreven door elk verwerkt onderdeel.
+Nieuwe part_comments-kolom (analoog part_scores/part_ai_graded), _scoreQuizAnswerPartIntern
+herschreven om NOOIT meer teacher_comment aan te raken. UI composite-vraag volledig
+herstructureerd: eigen commentaarveld + eigen 🤖-badge per onderdeel, aparte "Algemene
+opmerking"-sectie met eigen opslagknop (saveScore i.p.v. meegevoerd in savePartScores).
+Doorgetrokken naar leerlingscherm (getMyResult, lib/review-result.js, quiz-student.js).
+
+Prompt-beleid (lib/ai-grading.js): partiële punten bij code i.p.v. 0/vol, expliciete
+instructie voor concreet/niet-verzonnen verschil-beschrijving; open vragen geen
+puntenaftrek voor spelling; vlottere bouwAlgemeenPrompt; "geen puntenverlies" enkel indien
+waar.
+
+Log-feature: job.log-array (server.js) met per-item {student, vraag, onderdeel, score,
+tijd}, popup toont scrollbare lijst (quiz-review.js/html), blijft bekijkbaar na afloop via
+klik op status-pil.
+
+Feedback-mechanisme (nieuw, groot): tabel ai_grade_feedback (uniek op answer_id+part_id),
+endpoints POST/GET .../ai-grade/feedback, UI-knopje bij elke AI-badge (verdwijnt na
+gebruik, via _aiFeedbackGegeven-Set client-side), popup goed/kon_beter+improvement-tekst.
+getRecentImprovementNotes(questionId) haalt laatste 3 "kon_beter"-notities op, meegegeven
+aan bouwPrompt als verbeterNotities — lichte in-context "leer"-stap, expliciet GEEN echte
+model-training (eerlijk gecommuniceerd).
+
+Getest: mock-Ollama (nieuwe versie met multiline-veilige uitvoer-vergelijking) + mock-
+runner die nu ECHTE python3-code uitvoert (i.p.v. patroonherkenning, was te beperkt voor
+string-reversal-scenario's) — bevestigt composite-commentaar-scheiding, letter-per-regel
+partiële score met accuraat commentaar, feedback-terugkoppeling in volgende prompt, en
+badge-verdwijning bij handmatige aanpassing (hoofdvraag én onderdeel). 324/324 unit tests.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/lib/ai-grading.js` ·
+`web/lib/review-result.js` · `web/public/quiz-review.html` · `web/public/quiz-review.js` ·
+`web/public/quiz-student.js`.
+
+---
+
+### Sprint 51-ai (v3) — AI-verbeteren: vijf gemelde problemen — ✅ AFGEROND (v2026.2.51.32)
+
+1) Voortgangspil naast de "AI verbeteren"-knop blijft zichtbaar ongeacht popup open/dicht;
+verschijnt terug bij page-load/terugkeer (nieuw endpoint GET /api/ai-grade/active geeft
+running + <5min-oude done-jobs terug, met toegangscontrole via maakToetsToegangChecker +
+nieuwe db-helper getQuizOwnerInfo want assignment_bank zelf heeft geen teacher_id). Ook
+badge op assignment-overview.js (Toets/Taak overzicht) per toetskaart, met eigen
+polling-loop die stopt zodra niets meer actief is.
+
+2) Algemeen commentaar: nieuwe aiGrading.generateGeneralComment(), aangeroepen na alle
+items van één leerling verwerkt zijn (verwerkAIGradeJob nu gegroepeerd per leerling i.p.v.
+plat over alle items). getAnswersForAIGrading uitgebreid met general_comment (LEFT JOIN
+quiz_general_comments) om te weten of er al iets staat.
+
+3+4) Root cause badge-inconsistentie/overgeslagen vraag: "al beoordeeld"-check sloot
+submitted_by='niet_beantwoord' niet uit — automatische score-0-placeholders (sprint 51s)
+telden ten onrechte als "al door mens/AI beoordeeld". Nieuwe isPlaceholderScore()-check in
+verwerkAIGradeJob sluit dit uit.
+
+5) Te soepele beoordeling: SCORE_SCHEMA kreeg een verplicht 'redenering'-veld vóór
+score/comment (chain-of-thought via structured output, nooit opgeslagen/getoond). Bij
+type='code' wordt nu ook de modeloplossing zelf uitgevoerd (niet enkel leerlingcode) en
+modelUitvoerResultaat meegegeven — AI hoeft dan enkel twee echte teksten te vergelijken i.p.v.
+zelf uit te rekenen. Prompt aangescherpt: afwijkende uitvoer = altijd puntenverlies.
+
+Getest: mock-Ollama (nieuw schema) + zelfgebouwde mock-runner-service (patroonherkenning op
+range() voor realistische output) samen — bevestigt het exacte gemelde scenario
+(range(1,10) i.p.v. range(1,11) → 2/4 punten, letterlijk de voorgestelde commentaartekst).
+Browsertest bevestigt pil-gedrag op beide pagina's. 324/324 unit tests.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/lib/ai-grading.js` ·
+`web/public/quiz-review.html` · `web/public/quiz-review.js` ·
+`web/public/assignment-overview.js`.
+
+---
+
+### Sprint 51-ai — AI-verbeteren + drie grondig onderzochte bugs — ✅ AFGEROND (v2026.2.51.31)
+
+Grote, samengestelde levering na een tussentijdse sandbox-reset (opgelost door reconstructie
+uit de v2026.2.51.30-basis van de gebruiker + de laatste zip, bevestigd met 324/324 tests
+vóór verder werk).
+
+1) **AI-verbeteren**: nieuwe module `lib/ai-grading.js` (Ollama-integratie, structured JSON
+output, applicatie-laag-validatie/clamping), `runCodeNonInteractive()` in server.js
+(hergebruikt runnerStart/runnerEvents voor niet-interactieve code-uitvoering), nieuwe DB-
+kolommen `ai_graded`/`part_ai_graded` (STRIKT gescheiden van teacher_comment — enkel
+leerkracht-endpoints sturen ze mee), nieuwe functies `aiScoreQuizAnswer`/
+`aiScoreQuizAnswerPart`, volledig endpoint-blok met achtergrond-job + voortgang-polling,
+UI (knop/popup/voortgangsbalk/badge) in quiz-review.html/js. Getest met een mock-Ollama-
+server: 10 scenario's voor de module zelf, plus een volledige end-to-end-bevestiging dat de
+leerling-respons geen enkel spoor van AI-markering bevat.
+
+2) **Scrollbar-bug**: `.output-panel` miste max-height/overflow-y, groeide onbeperkt mee
+i.p.v. te scrollen. Één CSS-regel; het bestaande autoscroll-mechanisme in app.js werkte al
+correct maar had nooit effect. Bevestigd met browsertest (scrollHeight > clientHeight).
+
+3) **"3x lopende code"-bug**: de poll-loop in `free_run_request`/`quiz_run_request`
+(server.js) las `student.runId` (gedeeld, muteerbaar) opnieuw bij elke iteratie i.p.v. een
+vaste lokale kopie — bij snel herhaald klikken volgden oudere poll-loops de nieuwste
+run-id, elk vanaf lastSeq=0, wat de output verdrievoudigde. Gefixt op beide plekken +
+Run-knop client-side ook uitgeschakeld tijdens een lopende run (app.js).
+
+4) **Stresstest-analyse**: WebSocket-belastingstest en rate-limit-verificatie faalden in de
+aangeleverde logs. Empirisch gereproduceerd via het ingebouwde stresstest-endpoint
+(`POST /api/stress-test/start`). Rate-limit-logica zelf bewezen correct (geïsoleerd: altijd
+PASS). Root cause: `JOIN_RATE_MAX=10`/min/IP — de test laat 15 clients joinen vanaf
+hetzelfde (lokale) IP, wat niet enkel de test zelf blokkeert maar ook de daaropvolgende
+rate-limit-test (IP-teller al vol). Gefixt met een gerichte uitzondering in `student_join`:
+enkel voor herkenbaar `stresstest_`-verkeer, enkel vanaf localhost — geen verzwakking voor
+echte gebruikers. Bevestigd: rate-limit-test toont nu consistent PASS.
+
+5) **iPad-timeout-bug**: langste onderzoek. Client-side `connect`-handler deed enkel een
+visuele statusupdate, synchroniseerde nooit de run-status na een HERverbinding. Safari/iOS
+sluit WebSockets vaker bij tab-wissel/schermvergrendeling dan andere browsers — server-kant
+`run_end`/state-updates na het aflopen van een vastgelopen lus (via de bestaande CPU-
+tijdslimiet van de runner) gingen dan naar een al-verbroken socket en kwamen nooit aan. Bij
+`connect` na een `disconnect` wordt nu opnieuw `student_join_free`/`quiz_start`
+aangeroepen (app.js resp. quiz-student.js) om de staat te hersynchroniseren. `set_offline()`
+en CDP-netwerk-emulatie bleken geen actieve WebSockets te raken in Playwright — uiteindelijk
+getest via een echte server-herstart (verbreekt de TCP-verbinding daadwerkelijk),
+bevestigd voor zowel vrije editor als toetsafname.
+
+Volledige testsuite: 324/324 na elke stap.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/lib/ai-grading.js`
+(nieuw) · `web/public/app.js` · `web/public/quiz-student.js` · `web/public/quiz-review.html` ·
+`web/public/quiz-review.js` · `web/public/styles.css`.
+
+---
+
+### Sprint 51-fix — Gewettigd afwezig markeren was te beperkt — ✅ AFGEROND (v2026.2.51.30)
+
+Sinds de auto-0-toekenning (sprint 51s) kon een leerling met ENIGE inhoud (halve inlevering
+of volledige score) niet meer als gewettigd afwezig gemarkeerd worden — checkbox enkel bij
+status 'niets'. En waar wel zichtbaar, bleef de score gewoon getoond na aanvinken.
+
+Fix 1: checkbox in de roster-weergave (app.js, Voortgang-modal) nu altijd zichtbaar,
+ongeacht status. Fix 2: score wordt null zodra status='gewettigd', in zowel het
+roster-endpoint als bouwKlasMatrix (server.js) — voorheen volledig onafhankelijk van
+status berekend.
+
+Getest: end-to-end met een leerling met echte score (18/18) — score verdwijnt correct na
+aanvinken, bevestigd via API en browsertest. 324/324 unit tests.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/app.js`.
+
+---
 
 ### Sprint 51-fix — Verwarrende Stoppen-knop bij verlopen toets — ✅ AFGEROND (v2026.2.51.29)
 

@@ -33,7 +33,7 @@ function sanitizeChoices(choices, { onthulJuisteAntwoorden = false } = {}) {
 
 // Sprint 51-fix: één onderdeel van een samengestelde vraag omzetten naar de veilige,
 // leerling-gerichte vorm — zelfde logica als een gewone vraag, maar dan per onderdeel.
-function bouwOnderdeel(deel, partAnswers, partScores, opties) {
+function bouwOnderdeel(deel, partAnswers, partScores, partComments, opties) {
   const type = deel.type || 'open';
   const isKeuze = KEUZE_TYPES.has(type);
   const antwoord = partAnswers?.[deel.id];
@@ -62,6 +62,11 @@ function bouwOnderdeel(deel, partAnswers, partScores, opties) {
   if (opties.onthulJuisteAntwoorden) {
     const model = String(deel.modelAnswer || '');
     if (model.trim()) resultaat.modelAnswer = model;
+    // Sprint 51-fix: per-onderdeel commentaar (nieuwe part_comments-kolom) — kan een hint
+    // naar het antwoord bevatten, dus zelfde regel als bij de hoofdvraag: enkel meesturen
+    // bij onthulling (nakijk-modus).
+    const partComment = String(partComments?.[deel.id] || '');
+    if (partComment.trim()) resultaat.commentaar = partComment;
   }
   return resultaat;
 }
@@ -118,8 +123,9 @@ function buildMyResult(rows, opties = {}) {
       const delen = parseJson(r.answer_parts, []);
       const partAnswers = parseJson(r.part_answers, {});
       const partScores = parseJson(r.part_scores, {});
+      const partComments = parseJson(r.part_comments, {});
       vraag.onderdelen = (Array.isArray(delen) ? delen : []).map(
-        d => bouwOnderdeel(d, partAnswers, partScores, opties));
+        d => bouwOnderdeel(d, partAnswers, partScores, partComments, opties));
       ingevuld = vraag.onderdelen.some(o => o.ingevuld);
     } else if (isKeuze) {
       vraag.opties = sanitizeChoices(alleChoices, opties).map(o => ({

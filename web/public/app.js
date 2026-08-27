@@ -1492,8 +1492,13 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
 
       const rij = st => {
         const info = S[st.status] || S.niets;
-        // Aanvinken kan enkel voor wie NIETS inleverde — wie werk indiende is niet afwezig.
-        const aanvinkbaar = st.status === 'niets' || st.status === 'gewettigd';
+        // Sprint 51-fix: "gewettigd" was voorheen enkel aanvinkbaar bij status 'niets' — een
+        // leerling die WEL iets indiende (bv. een halve inlevering, met sinds sprint 51s
+        // automatisch score 0 voor de onbeantwoorde vragen) bleef op 'op_tijd'/'te_laat'
+        // staan, en kon dan niet meer als gewettigd afwezig gemarkeerd worden — ook niet als
+        // hij bv. ziek werd halverwege de toets. De leerkracht heeft hier altijd het
+        // laatste woord, ongeacht de automatisch berekende status.
+        const aanvinkbaar = true;
         return `<tr>
           <td style="padding:4px 8px;">${escapeHtml(st.name)}</td>
           <td style="padding:4px 8px;color:${info.kleur};white-space:nowrap;">${info.icoon} ${info.label}</td>
@@ -1820,6 +1825,36 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       socket.emit('student_join_free', { name, className });
     })();
 
+    // Sprint 51-fix: bij een oneindige lus bleef de "Run"-knop op sommige apparaten
+    // (gemeld: iPad, niet reproduceerbaar op laptop) geblokkeerd nadat de server de run al
+    // lang gestopt had. Oorzaak: Safari/iOS sluit een WebSocket-verbinding vaker dan andere
+    // browsers bij tab-wissel, schermvergrendeling of het naar de achtergrond gaan van de
+    // app — de server-kant "free_run_end"-melding werd dan naar een inmiddels VERBROKEN
+    // socket gestuurd en kwam dus nooit aan. Bij de daaropvolgende automatische herverbinding
+    // (nieuw socket.id) bleef de client-kant UI-status (o.a. de gedeactiveerde knop, zie
+    // eerdere sprint 51-fix) gewoon hangen op "run actief", want er was geen enkel mechanisme
+    // dat de status na een herverbinding opnieuw ophaalde. socket.on('connect', ...) triggert
+    // in socket.io ook bij een HERverbinding (niet enkel de allereerste) — we detecteren dat
+    // via een vlag die bij 'disconnect' gezet wordt, en sturen dan gewoon opnieuw
+    // student_join_free: dat geeft een verse, gegarandeerd correcte staat (Run-knop weer
+    // bruikbaar) terug, ook al is de eventuele oude, vastgelopen run zelf niet meer te traceren
+    // (die loopt hoe dan ook af via de CPU-tijdslimiet van de runner zelf).
+    let _freeHadDisconnected = false;
+    socket.on('disconnect', () => { _freeHadDisconnected = true; });
+    socket.on('connect', () => {
+      if (!_freeHadDisconnected) return;
+      _freeHadDisconnected = false;
+      const name = getLS('freeStudentName', '') || 'Gast';
+      const className = getLS('freeStudentClass', '');
+      socket.emit('student_join_free', { name, className });
+      // Reset ook de lokale UI-status defensief, voor het geval het server-antwoord
+      // uitblijft of vertraagd is.
+      _freeRunActive = false;
+      const runBtn = qs('free-run-btn');
+      if (runBtn) runBtn.disabled = false;
+      disableInput('free');
+    });
+
     // Editor initialiseren zodra server bevestigt
     // Sprint 30-copy: contextuele kopieerknop (free-copy-btn) via inline onclick
     updateCopyButtonLabel('free');
@@ -1838,6 +1873,13 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
     // Run-knop
     qs('free-run-btn')?.addEventListener('click', () => {
       _freeRunActive = true;
+      // Sprint 51-fix: de knop bleef voorheen klikbaar tijdens een lopende run (ook
+      // tijdens het wachten op input) — snel meermaals klikken kon zo tot 2-3 tegelijk
+      // lopende poll-loops leiden die elkaars output vermengden (zie server.js-fix).
+      // De server is nu robuust tegen dat scenario, maar de knop hier uitschakelen
+      // voorkomt de nodeloze extra runs meteen aan de bron.
+      const btn = qs('free-run-btn');
+      if (btn) { btn.disabled = true; btn.dataset.wasDisabled = '1'; }
       const panel = qs('free-output-panel');
       if (panel) panel.textContent = '';
       const code = getEditorValue('free');
@@ -1930,6 +1972,8 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
     socket.on('free_run_end', () => {
       _freeRunActive = false;
       disableInput('free');
+      const btn = qs('free-run-btn');
+      if (btn) btn.disabled = false;
     });
     socket.on('free_run_rate_limited', ({ waitMs }) => {
       const panel = qs('free-output-panel');

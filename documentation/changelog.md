@@ -1,3 +1,253 @@
+## v2026.2.51.34 — Sprint 51-ai (v5): echte AI-training, periodiek en handmatig
+
+Vervolg op het feedback-mechanisme: het materiaal dat je met de 👍/👎-knopjes verzamelt kan
+nu ook daadwerkelijk gebruikt worden om het model zelf bij te trainen — niet enkel als
+prompt-geheugen, maar als een echte, periodieke fine-tuning van de AI zelf.
+
+### Belangrijke, eerlijke kanttekening
+Dit is geen automatisch, ingebouwd trainingsproces — dat vereist een GPU die een NAS niet
+heeft. Het is een **handmatig, periodiek traject**: eenmaal per maand (of zo vaak als je
+wil) trainingsgegevens downloaden, op een machine met een GPU (bv. je laptop) trainen, en
+het resultaat terug opladen.
+
+### Twee nieuwe bronnen van trainingsdata
+1. **Expliciete feedback** (de bestaande 👍/👎-knopjes) heeft er nu een optioneel veld bij:
+   bij "kon beter" kan je meteen ook de exacte, juiste score en commentaar invullen — niet
+   enkel een losse notitie.
+2. **Stille, automatische correctie**: past je zelf een score aan die eerder door de AI
+   gezet was (zonder de feedback-knop te gebruiken), dan wordt dat "voor/na"-paar nu vanzelf
+   bewaard als trainingsmateriaal — geen aparte actie nodig.
+
+Beide leggen de volledige vraag-context vast op het moment zelf (niet pas bij een latere
+export), zodat een export maanden later nog steeds correct werkt, ook als de vraag intussen
+gewijzigd of verwijderd is.
+
+### Nieuw in `pycodeflow.sh`: menu 22, "AI-training"
+- **Trainingsgegevens downloaden**: exporteert alle verzamelde correcties als een
+  JSONL-bestand — in exact hetzelfde promptformaat als het AI-verbeteren zelf gebruikt,
+  zodat een training zo dicht mogelijk aansluit bij de echte praktijk. Een
+  samenvattingsbestand erbij waarschuwt eerlijk als er nog te weinig data is om zinvol te
+  trainen (te weinig voorbeelden kan het model net onnauwkeuriger maken).
+- **Nieuw getraind model opladen**: neemt een zip met een getrainde LoRA-adapter
+  (bv. geëxporteerd via Unsloth Desktop), bouwt automatisch een Ollama-Modelfile, maakt een
+  nieuwe, gedateerde modelversie aan, en stelt die in — met behoud van de vorige versie
+  voor het geval een training tegenvalt.
+- **Actief AI-model tonen**: overzicht van de huidige instelling en alle geïnstalleerde
+  Ollama-modellen.
+
+**Getest:** een volledig end-to-end-scenario (expliciete correctie via feedback + stille
+correctie via een gewone handmatige aanpassing) bevestigt dat beide paden correct in de
+database terechtkomen, en dat het export-script ze correct omzet naar geldige
+trainingsvoorbeelden — inclusief de juiste, gecorrigeerde score/commentaar en het
+consistente promptformaat. Volledige testsuite: 324/324 groen.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/scripts/export-ai-training.js`
+(nieuw) · `web/public/quiz-review.html` · `web/public/quiz-review.js` · `VERSION` · overige
+`web/public/*.html` (cache-bust) — plus een aparte, gelijktijdige update van
+`scripts/app/pycodeflow.sh` en `docker-compose.yml` (zie de begeleidende script-zip).
+
+---
+
+## v2026.2.51.33 — Sprint 51-ai (v4): AI-verbeteren — structuurbug, beleid, log & feedback
+
+Vierde, grote herwerking van de AI-verbeterfunctie na verder gebruik in de praktijk.
+
+### De echte oorzaak van de ontbrekende badge bij samengestelde vragen
+Er bestond helemaal geen aparte opslagplek voor commentaar per onderdeel van een
+samengestelde vraag — enkel het ene, gedeelde "Algemene opmerking"-veld voor de hele vraag.
+Het AI-commentaar per onderdeel schreef daar per ongeluk naartoe, en het laatst-verwerkte
+onderdeel overschreef steeds de vorige. Nieuwe `part_comments`-kolom lost dit structureel
+op: elk onderdeel krijgt nu zijn **eigen** commentaarveld én zijn **eigen** 🤖-badge, zowel
+op de verbeterpagina als in het leerlingscherm. De "Algemene opmerking" bij een
+samengestelde vraag is voortaan een aparte, bewust losstaande sectie met een eigen
+opslagknop.
+
+### Strenger en eerlijker beoordelingsbeleid
+- **Partiële punten bij code**: een deels correcte oplossing (bv. juiste logica maar
+  verkeerde opmaak van de uitvoer) krijgt nu een tussenscore in plaats van automatisch 0 of
+  de volle punten. Het commentaar benoemt het **exacte, concrete verschil** — nooit meer een
+  vage of verzonnen vergelijking.
+- **Open vragen**: geen puntenaftrek meer voor spelling-, schrijf- of taalfouten — enkel de
+  inhoud telt. De correcte schrijfwijze mag wel als suggestie in het commentaar staan.
+- **Vlottere, natuurlijkere taal** voor het algemene toetscommentaar.
+- Uitspraken als "geen puntenverlies" verschijnen voortaan enkel als dat ook echt klopt.
+
+### Gedetailleerd log i.p.v. enkel een percentage
+Een klik op de voortgangspil toont nu een scrollbare log met per verwerkte vraag/onderdeel
+wie er verbeterd werd, met welke score, en wanneer — blijft ook na afloop bekijkbaar.
+
+### Feedback op AI-scores — de praktische invulling van "wordt de AI beter?"
+Bij elke AI-gescoorde vraag staat nu een klein "📝 Feedback"-knopje: "👍 Goed" of "👎 Kon
+beter" (met een korte, eigen verbetering). Eenmaal gegeven verdwijnt het knopje voor dat
+specifieke item. **Belangrijk om eerlijk te zijn: dit is geen echte model-training** — een
+lokaal Ollama-model "leert" niet vanzelf tussen sessies. Wat wél gebeurt: de meest recente
+"kon beter"-notities voor **dezelfde vraag** worden als extra context meegegeven bij een
+volgende AI-verbeterbeurt van die vraag — een groeiend, vraag-specifiek correctie-geheugen
+dat de AI expliciet op eerdere fouten wijst, bevestigd doeltreffend in een end-to-end-test.
+
+### Overig
+- De AI-badge verdwijnt correct zodra de leerkracht zelf een score/commentaar aanpast —
+  bevestigd voor zowel gewone vragen als per samengestelde-vraag-onderdeel.
+
+**Getest:** volledige end-to-end-tests met een mock-Ollama-server én een mock-runner-service
+die nu écht Python-code uitvoert (i.p.v. patroonherkenning) voor realistische, willekeurige
+scenario's. Bevestigd: composite-onderdelen behouden elk hun eigen commentaar, de
+hoofdvraag-opmerking blijft ongemoeid, het letter-per-regel-scenario geeft nu correcte
+partiële punten met een accuraat commentaar, feedback wordt opgeslagen en komt terug in een
+volgende prompt, en de badge verdwijnt bij handmatige aanpassing. Volledige testsuite:
+324/324 groen.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/lib/ai-grading.js` ·
+`web/lib/review-result.js` · `web/public/quiz-review.html` · `web/public/quiz-review.js` ·
+`web/public/quiz-student.js` · `VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.32 — Sprint 51-ai (v3): AI-verbeteren — vijf gemelde problemen opgelost
+
+Grondige herwerking van de AI-verbeterfunctie na feedback uit echt gebruik.
+
+### 1. Geen zicht meer op de voortgang na het sluiten van het venster
+Er staat nu een blijvende, klikbare statuspil naast de "🤖 AI verbeteren"-knop die zichtbaar
+blijft ongeacht of de popup open of dicht staat — inclusief wie er net verbeterd wordt. Ze
+verschijnt ook vanzelf terug als je de pagina herlaadt of later terugkomt, en blijft nog 5
+minuten "✅ klaar" tonen na afloop. **Nieuw: dezelfde melding staat nu ook op het Toets/Taak
+overzicht**, als badge op de betreffende kaart — je hoeft niet meer op de verbeterpagina zelf
+te zijn om te weten dat er iets loopt of klaar is.
+
+### 2. Geen algemeen commentaar
+Na het verbeteren van alle vragen van een leerling schrijft de AI nu ook een kort,
+samenvattend algemeen commentaar — gebaseerd op de score en de net gegeven per-vraag
+commentaren. Wordt enkel ingevuld als er nog niets stond, tenzij je expliciet "overschrijven"
+aanvinkt.
+
+### 3. Een vraag die de AI wél verbeterde toonde soms geen badge; een andere vraag werd
+### stilzwijgend overgeslagen
+Root cause gevonden: een vraag die automatisch op score 0 gezet was (leerling liet ze
+onbeantwoord, of nam niet deel) werd door de AI-taak foutief beschouwd als "al beoordeeld" —
+en dus overgeslagen, ook al was die 0 geen echte beoordeling maar een automatische
+placeholder. Zulke vragen worden nu gewoon normaal door de AI verbeterd. Bevestigd met een
+gerichte test: vóór de fix bleef zo'n vraag onaangeroerd, na de fix krijgt ze een echte
+score en commentaar.
+
+### 4. Foute uitvoer kreeg toch de volle punten (bv. `range(1, 10)` i.p.v. `range(1, 11)`)
+De AI kreeg voorheen enkel de modelcode te lezen en moest zelf "berekenen" wat de juiste
+uitvoer zou moeten zijn — foutgevoelig voor een lokaal, CPU-gebonden model. Nu wordt bij een
+code-vraag **ook de modeloplossing zelf uitgevoerd**, en krijgt de AI beide echte
+uitvoerresultaten om rechtstreeks te vergelijken. De instructies zijn ook aangescherpt: een
+afwijkende uitvoer betekent altijd puntenverlies, nooit de volle punten. Daarnaast redeneert
+de AI voortaan eerst kort intern (wat klopt, wat niet) vóór ze een score bepaalt — een lichte
+vorm van "hardop nadenken" die de nauwkeurigheid duidelijk verbetert, tegen een kleine
+tijdskost. Bevestigd met het exacte gemelde scenario: een leerling met `range(1, 10)` i.p.v.
+`range(1, 11)` krijgt nu 2 van de 4 punten, met als commentaar — letterlijk — "Gebruik van de
+for-lus en het printen van de getallen zijn goed, maar de range klopt niet helemaal."
+
+**Getest:** volledige end-to-end-tests met een mock-Ollama-server én een mock-runner-service
+(om de code-uitvoer-vergelijking realistisch te simuleren), plus een browsertest van de
+voortgangspil op beide pagina's (blijft zichtbaar na sluiten, na herladen, en op het
+overzicht). Volledige testsuite: 324/324 groen.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/lib/ai-grading.js` ·
+`web/public/quiz-review.html` · `web/public/quiz-review.js` ·
+`web/public/assignment-overview.js` · `VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.31 — Sprint 51-ai: AI-verbeteren + drie echte bugs opgelost
+
+Grote, samengestelde levering met een nieuwe functie en drie stevige, grondig onderzochte
+bugfixes.
+
+### Nieuw: automatisch verbeteren via een lokale AI
+Op de verbeterpagina staat nu een **"🤖 AI verbeteren"**-knop. Die laat open- en code-vragen
+(ook onderdelen van samengestelde vragen) automatisch nakijken door een lokale Ollama-server —
+geen enkel leerlingantwoord verlaat het eigen netwerk. Een popup laat kiezen tussen de hele
+klas of specifieke leerlingen, met een expliciete "ook al beoordeelde antwoorden
+overschrijven"-optie (standaard uit, zodat eigen werk van de leerkracht nooit per ongeluk
+overschreven wordt). Bij code-vragen wordt de code ook écht uitgevoerd via de bestaande
+sandbox, en de werkelijke uitvoer meegegeven aan de AI voor een betrouwbaardere beoordeling.
+
+**Belangrijk:** de AI-markering is strikt leerkracht-only. Een nieuwe, aparte
+database-kolom (los van de zichtbare commentaartekst) houdt bij welke scores van de AI
+komen — enkel de verbeterpagina toont die info (met een duidelijke badge). De leerling ziet
+zijn score en commentaar gewoon als tekst, zonder ooit te weten dat een AI die schreef.
+Bevestigd met een volledige end-to-end-test: de leerling-respons bevat geen enkel spoor van
+"ai_graded", "AI" of 🤖.
+
+### Bug: output-scherm groeide oneindig i.p.v. te scrollen
+Het outputvenster (Vrij oefenen en elders) had geen maximumhoogte, waardoor lange output de
+hele pagina liet meegroeien in plaats van binnen een vaste hoogte te scrollen. Één CSS-regel
+loste dit op — het bestaande "scroll naar onderen"-knopje werkte al helemaal correct in de
+code, maar had nooit zichtbaar effect omdat het venster nooit een echte scroll-container was.
+
+### Bug: meermaals op "Run" klikken gaf de code 2-3 keer
+Een achtergrondtaak die de uitvoer van een lopende code volgt, las een gedeelde eigenschap
+opnieuw uit bij elke stap in plaats van een vaste, eigen kopie vast te houden. Klikte je
+snel meermaals op "Run" (bijvoorbeeld tijdens het wachten op invoer), dan gingen oudere,
+nog actieve achtergrondtaken de nieuwste uitvoering volgen — elk vanaf het begin — waardoor
+de uitvoer letterlijk werd samengevoegd en meermaals verstuurd. Gefixt op beide plekken waar
+dit voorkwam (vrij oefenen en tijdens een toets), met een extra beveiliging: de Run-knop
+wordt nu ook even uitgeschakeld tijdens een lopende uitvoering.
+
+### Bug: automatische stop bij een oneindige lus "werkte niet" op iPad
+Grondig onderzocht waarom dit op laptop wel en op iPad niet werkte. Oorzaak: Safari/iOS
+sluit een actieve verbinding vaker dan andere browsers bij tab-wissel of
+schermvergrendeling. Stopte de server een vastgelopen lus daarna (via de bestaande
+tijdslimiet), dan werd dat bericht naar de inmiddels *verbroken* verbinding gestuurd en kwam
+het dus nooit aan — na de automatische herverbinding bleef de gebruikersinterface (o.a. de
+Run-knop) hangen in "bezig", ook al was er server-kant allang niets meer aan de hand. Bij
+elke herverbinding wordt de actuele status nu opnieuw opgehaald, zowel bij vrij oefenen als
+tijdens een toets — bevestigd met een test die de verbinding daadwerkelijk verbreekt
+(server-herstart) in plaats van enkel te simuleren.
+
+### Bug: twee onderdelen van de ingebouwde stresstest faalden
+Grondig geanalyseerd waarom de WebSocket-belastingstest en de daaropvolgende
+rate-limit-verificatie in de logs faalden. Oorzaak gevonden: de stresstest laat tot 15
+clients gelijktijdig joinen, allemaal vanaf hetzelfde (lokale) adres — ver boven de
+bestaande, terechte limiet van 10 joinpogingen per minuut per adres. Dat blokkeerde niet
+enkel de belastingstest zelf, maar liet ook de daaropvolgende rate-limit-test falen: de
+teller stond dan al vol, dus die test se eigen verbindingspoging werd ook geweigerd, nog
+vóór er ooit iets getest kon worden. Geen bug in de rate-limit-logica zelf (apart bevestigd
+correct) — de bestaande beveiliging tegen misbruik van buitenaf botste met de stresstest
+zijn eigen, interne verkeer. Opgelost met een gerichte, veilige uitzondering: enkel voor
+herkenbaar stresstest-verkeer, en enkel vanaf het eigen adres, zodat er voor echte
+gebruikers niets verandert. Bevestigd: de rate-limit-test toont nu consistent "PASS".
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/lib/ai-grading.js`
+(nieuw) · `web/public/app.js` · `web/public/quiz-student.js` · `web/public/quiz-review.html` ·
+`web/public/quiz-review.js` · `web/public/styles.css` · `VERSION` · overige
+`web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.30 — Sprint 51-fix: "Gewettigd afwezig" markeren was te beperkt
+
+Sinds de automatische score-0-toekenning bij niet-deelname/onbeantwoorde vragen (sprint 51s)
+kon een leerling die *wél* iets had ingeleverd (bv. een halve inlevering, of gewoon een
+volledige, echte score) niet meer als "gewettigd afwezig" gemarkeerd worden — de checkbox was
+enkel zichtbaar bij een leerling die letterlijk niets deed. En zelfs waar de checkbox wél
+zichtbaar was, bleef de eerder toegekende score (bv. de automatische 0) gewoon getoond staan
+na het aanvinken.
+
+### Twee samenhangende problemen gefixt
+1. **De "gewettigd"-checkbox** (bij Toets/Taak overzicht → "👥 Voortgang") is nu altijd
+   zichtbaar, ongeacht de huidige inleverstatus — de leerkracht heeft hier altijd het laatste
+   woord, bijvoorbeeld voor een leerling die pas halverwege de toets ziek werd.
+2. **De score verdwijnt nu écht** zodra een leerling als gewettigd afwezig gemarkeerd wordt —
+   zowel in de roster-weergave als in het klasoverzicht (en dus ook in de Excel-export die
+   daarop steunt). Voorheen bleef de score (bv. 18/18, of de automatisch toegekende 0) gewoon
+   zichtbaar staan, ook al werd de leerling niet meer meegeteld voor het gemiddelde.
+
+**Getest:** een volledig end-to-end-scenario met een leerling die écht en volledig deelnam
+(score 18/18) bevestigt: vóór het aanvinken toont de score gewoon 18, ná het aanvinken van
+"gewettigd" verdwijnt die naar `null` — zowel via de API als bevestigd met een browsertest.
+Volledige testsuite: 324/324 groen.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/app.js` · `VERSION` · overige
+`web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.29 — Sprint 51-fix: Verwarrende "Stoppen"-knop bij een verlopen toets
 
 Een toets die "⛔ Venster voorbij" én "🔍 nazicht open" toonde, bleef toch nog een "⏹ Stoppen"-

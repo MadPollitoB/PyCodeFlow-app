@@ -130,6 +130,47 @@ function normalizeAnswerParts(input) {
   return out;
 }
 
+// Sprint 51-ai: gedeelde opslaglogica voor scoreQuizAnswerPart/aiScoreQuizAnswerPart —
+// enige verschil is of part_ai_graded wordt bijgewerkt. Bewust in een aparte, top-level
+// functie (niet als object-methode): wordt door twee geëxporteerde functies hergebruikt.
+//
+// Sprint 51-fix: schreef voorheen het per-onderdeel-commentaar (teacherComment-parameter)
+// via COALESCE naar het ENE, GEDEELDE teacher_comment-veld van de hele samengestelde
+// vraag ("Algemene opmerking") — er was helemaal geen aparte opslagplek per onderdeel. Bij
+// meerdere onderdelen overschreef het laatst-verwerkte onderdeel simpelweg de opmerking van
+// de vorige, en er was dus ook geen manier om per onderdeel een AI-badge te tonen. Nu gaat
+// het per-onderdeel-commentaar naar de nieuwe part_comments-kolom (JSON {partId: tekst}),
+// en blijft teacher_comment op vraagniveau ONAANGEROERD door deze functie — dat veld is nu
+// uitsluitend voor de leerkracht's eigen, expliciete "Algemene opmerking" bij de vraag.
+async function _scoreQuizAnswerPartIntern(answerId, partId, score, teacherComment, aiGraded) {
+  const r = await query(`SELECT part_scores, part_ai_graded, part_comments FROM quiz_answers WHERE id = $1`, [answerId]);
+  if (!r.rows.length) return false;
+  let scores = {};
+  try { scores = JSON.parse(r.rows[0].part_scores || '{}'); } catch { scores = {}; }
+  let aiFlags = {};
+  try { aiFlags = JSON.parse(r.rows[0].part_ai_graded || '{}'); } catch { aiFlags = {}; }
+  let comments = {};
+  try { comments = JSON.parse(r.rows[0].part_comments || '{}'); } catch { comments = {}; }
+
+  if (score === null || score === undefined || Number.isNaN(score)) {
+    delete scores[partId];
+    delete aiFlags[partId];
+    delete comments[partId];
+  } else {
+    scores[partId] = Math.max(0, parseInt(score, 10) || 0);
+    if (aiGraded) aiFlags[partId] = true;
+    else delete aiFlags[partId]; // handmatige score wist de ai-markering van dít onderdeel
+    if (teacherComment !== null && teacherComment !== undefined) comments[partId] = teacherComment;
+  }
+  const totaal = Object.values(scores).reduce((s, v) => s + (v || 0), 0);
+  const heeftScores = Object.keys(scores).length > 0;
+  await query(
+    `UPDATE quiz_answers SET part_scores=$1, part_ai_graded=$2, part_comments=$3, score=$4 WHERE id=$5`,
+    [JSON.stringify(scores), JSON.stringify(aiFlags), JSON.stringify(comments), heeftScores ? totaal : null, answerId]
+  );
+  return true;
+}
+
 // ── Schema initialisatie ───────────────────────────────────────────────────────
 async function initSchema() {
   await query(`
@@ -766,6 +807,23 @@ async function initSchema() {
       -- waarde wordt ook in 'code' gespiegeld zodat runnen/gelijkenis/PDF blijven werken.
       BEGIN ALTER TABLE quiz_answers ADD COLUMN part_answers TEXT NOT NULL DEFAULT '{}'; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE quiz_answers ADD COLUMN part_scores TEXT NOT NULL DEFAULT '{}'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 51-ai: markeert een score als afkomstig van de lokale AI-verbeter-functie.
+      -- BEWUST een aparte kolom, NIET een prefix in teacher_comment: dat commentaarveld
+      -- wordt ONGEWIJZIGD hergebruikt in het leerling-nakijkscherm (getMyResult/
+      -- getReleasedResultDetail) — een marker in de tekst zelf zou daar meelekken. Deze
+      -- kolom wordt enkel uitgelezen door leerkracht-gerichte endpoints (getQuizAnswers),
+      -- nooit door de leerling-gerichte. part_ai_graded is het onderdeel-equivalent,
+      -- analoog aan part_scores hierboven: JSON {partId: true}.
+      BEGIN ALTER TABLE quiz_answers ADD COLUMN ai_graded BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE quiz_answers ADD COLUMN part_ai_graded TEXT NOT NULL DEFAULT '{}'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 51-fix: er bestond NOOIT een opslagplek voor per-onderdeel-commentaar bij een
+      -- samengestelde vraag — enkel het ene, gedeelde teacher_comment-veld ("Algemene
+      -- opmerking") voor de HELE vraag. Het AI-verbeter-commentaar per onderdeel schreef
+      -- daardoor per ongeluk naar dat gedeelde veld, en het laatst-verwerkte onderdeel
+      -- overschreef de vorige — vandaar dat bij een samengestelde vraag nooit een correcte
+      -- (of AI-gemarkeerde) opmerking per onderdeel te zien was. JSON {partId: tekst},
+      -- analoog aan part_scores/part_ai_graded.
+      BEGIN ALTER TABLE quiz_answers ADD COLUMN part_comments TEXT NOT NULL DEFAULT '{}'; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
     CREATE INDEX IF NOT EXISTS idx_quiz_answers_session
       ON quiz_answers(session_code);
@@ -779,6 +837,79 @@ async function initSchema() {
       updated_at   BIGINT NOT NULL,
       PRIMARY KEY(session_code, student_id)
     );
+
+    -- Sprint 51-ai (v4): feedback van de leerkracht op een AI-gegeven score/commentaar —
+    -- "goed" of "kon beter" (met een korte, eigen verbetering). Enkel bedoeld als lichte,
+    -- in-context-vorm van "leren": bij een latere AI-verbeter-beurt van DEZELFDE vraag
+    -- worden de meest recente "kon_beter"-notities als extra context meegegeven aan de
+    -- prompt (zie lib/ai-grading.js) — geen echte model-training, wel een groeiende,
+    -- vraag-specifieke correctie-geheugen. Eén feedback-entry per answer_id(+part_id):
+    -- eenmaal gegeven verdwijnt het feedback-knopje in de UI voor dat specifieke item.
+    CREATE TABLE IF NOT EXISTS ai_grade_feedback (
+      id                TEXT PRIMARY KEY,
+      session_code      TEXT NOT NULL,
+      answer_id         TEXT NOT NULL,
+      part_id           TEXT,                 -- NULL = de hele (niet-samengestelde) vraag
+      question_id       TEXT NOT NULL,
+      verdict           TEXT NOT NULL,         -- 'goed' | 'kon_beter'
+      improvement_text  TEXT,
+      teacher_id        TEXT,
+      created_at        BIGINT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_feedback_uniek
+      ON ai_grade_feedback(answer_id, COALESCE(part_id, ''));
+    CREATE INDEX IF NOT EXISTS idx_ai_feedback_question
+      ON ai_grade_feedback(question_id, verdict);
+    CREATE INDEX IF NOT EXISTS idx_ai_feedback_session
+      ON ai_grade_feedback(session_code);
+    -- Sprint 51-ai (v5): trainingsdata-export — naast het verdict ook een expliciete,
+    -- correcte score/commentaar (optioneel, ingevuld via de feedback-popup) EN een volledige
+    -- snapshot van de vraag-context op het moment van feedback. Zonder deze snapshot zou een
+    -- latere export (mogelijk maanden later) kunnen verwijzen naar een intussen gewijzigde of
+    -- verwijderde vraag — de context wordt daarom hier al vastgelegd, niet pas bij export.
+    DO $$ BEGIN
+      BEGIN ALTER TABLE ai_grade_feedback ADD COLUMN corrected_score NUMERIC; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE ai_grade_feedback ADD COLUMN corrected_comment TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE ai_grade_feedback ADD COLUMN vraag_type TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE ai_grade_feedback ADD COLUMN vraagstelling TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE ai_grade_feedback ADD COLUMN model_antwoord TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE ai_grade_feedback ADD COLUMN leerling_antwoord TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE ai_grade_feedback ADD COLUMN uitvoer_resultaat TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE ai_grade_feedback ADD COLUMN model_uitvoer_resultaat TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE ai_grade_feedback ADD COLUMN max_punten NUMERIC; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE ai_grade_feedback ADD COLUMN ai_score NUMERIC; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE ai_grade_feedback ADD COLUMN ai_comment TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+    END $$;
+
+    -- Sprint 51-ai (v5): PASSIEVE, automatische correctie-vastlegging — telkens een
+    -- leerkracht handmatig een score/commentaar overschrijft die eerder door de AI gezet
+    -- was, wordt dat "voor/na"-paar hier automatisch bewaard — geen expliciete feedback-
+    -- actie nodig. Samen met ai_grade_feedback hierboven de twee bronnen voor de
+    -- trainingsdata-export (pycodeflow.sh → AI-training → downloaden).
+    CREATE TABLE IF NOT EXISTS ai_grade_corrections (
+      id                 TEXT PRIMARY KEY,
+      session_code       TEXT NOT NULL,
+      answer_id          TEXT NOT NULL,
+      part_id            TEXT,
+      question_id        TEXT NOT NULL,
+      vraag_type         TEXT,
+      vraagstelling      TEXT,
+      model_antwoord     TEXT,
+      leerling_antwoord  TEXT,
+      uitvoer_resultaat  TEXT,
+      model_uitvoer_resultaat TEXT,
+      max_punten         NUMERIC,
+      ai_score           NUMERIC,
+      ai_comment         TEXT,
+      human_score        NUMERIC,
+      human_comment      TEXT,
+      teacher_id         TEXT,
+      created_at         BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_corrections_session
+      ON ai_grade_corrections(session_code);
+    CREATE INDEX IF NOT EXISTS idx_ai_corrections_question
+      ON ai_grade_corrections(question_id);
 
     CREATE TABLE IF NOT EXISTS quiz_student_order (
       session_code TEXT NOT NULL,
@@ -2648,6 +2779,47 @@ module.exports = {
     return r.rows[0] || null;
   },
 
+  // Sprint 51-fix: assignment_bank zelf heeft geen eigenaar-kolom — die staat op sessions.
+  // Kleine, gerichte join voor plekken die enkel eigenaarschap/doelklas nodig hebben
+  // (toegangscontrole), zonder de rest van de sessie-rij op te hoeven halen.
+  async getQuizOwnerInfo(sessionCode) {
+    const r = await query(
+      `SELECT s.teacher_id, ab.target_class
+         FROM sessions s
+         JOIN assignment_bank ab ON ab.session_code = s.code
+        WHERE s.code = $1`, [sessionCode]);
+    return r.rows[0] || null;
+  },
+
+  // Sprint 51-ai: alle antwoord-rijen met de VOLLEDIGE vraag-context erbij (type,
+  // modelantwoord, samengestelde-vraag-onderdelen) — wat getQuizAnswers() niet meegeeft,
+  // maar wat de AI-verbeter-functie nodig heeft om een goede prompt op te bouwen.
+  // studentIds = null → alle deelnemers; anders enkel de opgegeven leerlingen.
+  async getAnswersForAIGrading(sessionCode, studentIds = null) {
+    const params = [sessionCode];
+    let studentFilter = '';
+    if (Array.isArray(studentIds) && studentIds.length) {
+      params.push(studentIds);
+      studentFilter = `AND a.student_id = ANY($2)`;
+    }
+    const r = await query(
+      `SELECT a.id AS answer_id, a.session_code, a.student_id, a.student_name, a.code,
+              a.score, a.teacher_comment, a.part_answers, a.part_scores, a.submitted_by,
+              q.id AS question_id, q.text_snapshot, q.question_type, q.model_answer,
+              q.answer_parts, q.points,
+              gc.comment AS general_comment
+         FROM quiz_answers a
+         JOIN quiz_question_snapshots q ON q.id = a.question_id
+         LEFT JOIN quiz_general_comments gc
+                ON gc.session_code = a.session_code AND gc.student_id = a.student_id
+        WHERE a.session_code = $1 ${studentFilter}
+          AND a.submitted_by NOT IN ('geen_deelname')
+        ORDER BY a.student_name, q.order_index`,
+      params
+    );
+    return r.rows;
+  },
+
   // ── Sprint 50 (bug 2): mag deze toets/taak nog bewerkt worden? ──────────────
   // Bewerken is enkel toegestaan zolang er GEEN echte leerling-activiteit is: niemand
   // heeft de toets gestart (quiz_student_order) én er zijn geen antwoorden/resultaten
@@ -3393,7 +3565,8 @@ module.exports = {
               a.auto_scored,
               a.teacher_comment,
               a.part_answers,
-              a.part_scores
+              a.part_scores,
+              a.part_comments
          FROM quiz_question_snapshots q
          LEFT JOIN quiz_answers a
                 ON a.question_id  = q.id
@@ -3418,9 +3591,40 @@ module.exports = {
     return r.rows;
   },
 
+  // Sprint 51-ai (v5): volledige antwoord+vraag-context voor één answer_id — gebruikt om een
+  // context-snapshot vast te leggen bij feedback of een stille correctie (ai_grade_feedback/
+  // ai_grade_corrections). Bevat, in tegenstelling tot getQuizAnswers, ook question_type/
+  // model_answer/answer_parts, nodig om bij een samengestelde vraag het juiste onderdeel op
+  // te zoeken.
+  async getAnswerContextForTraining(answerId) {
+    const r = await query(
+      `SELECT a.*, q.text_snapshot, q.points AS question_points, q.question_type, q.model_answer, q.answer_parts
+         FROM quiz_answers a
+         JOIN quiz_question_snapshots q ON q.id = a.question_id
+        WHERE a.id = $1`,
+      [answerId]
+    );
+    return r.rows[0] || null;
+  },
+
   async scoreQuizAnswer(answerId, score, teacherComment) {
     await query(
-      `UPDATE quiz_answers SET score=$1, teacher_comment=$2 WHERE id=$3`,
+      // Sprint 51-ai: een handmatige score door de leerkracht wist altijd een eventuele
+      // eerdere ai_graded-markering — zodra de leerkracht zelf ingrijpt, is het niet meer
+      // "door de AI beoordeeld, ongezien".
+      `UPDATE quiz_answers SET score=$1, teacher_comment=$2, ai_graded=false WHERE id=$3`,
+      [score, teacherComment, answerId]
+    );
+  },
+
+  // Sprint 51-ai: score+commentaar door de lokale AI ingevuld — zelfde als scoreQuizAnswer,
+  // maar zet ai_graded=true. Deze vlag wordt UITSLUITEND door leerkracht-gerichte
+  // endpoints (getQuizAnswers) meegestuurd, nooit door de leerling-gerichte
+  // (getMyResult/getReleasedResultDetail) — de leerling ziet gewoon zijn score+commentaar,
+  // zonder enige aanduiding dat een AI die schreef.
+  async aiScoreQuizAnswer(answerId, score, teacherComment) {
+    await query(
+      `UPDATE quiz_answers SET score=$1, teacher_comment=$2, ai_graded=true WHERE id=$3`,
       [score, teacherComment, answerId]
     );
   },
@@ -3459,22 +3663,14 @@ module.exports = {
   // (kolom 'score') wordt meteen herberekend als de som van alle part_scores — zo blijft
   // de rest van de app (klasoverzicht, PDF, gemiddeldes) gewoon 'score' lezen.
   async scoreQuizAnswerPart(answerId, partId, score, teacherComment) {
-    const r = await query(`SELECT part_scores FROM quiz_answers WHERE id = $1`, [answerId]);
-    if (!r.rows.length) return false;
-    let scores = {};
-    try { scores = JSON.parse(r.rows[0].part_scores || '{}'); } catch { scores = {}; }
-    if (score === null || score === undefined || Number.isNaN(score)) {
-      delete scores[partId];
-    } else {
-      scores[partId] = Math.max(0, parseInt(score, 10) || 0);
-    }
-    const totaal = Object.values(scores).reduce((s, v) => s + (v || 0), 0);
-    const heeftScores = Object.keys(scores).length > 0;
-    await query(
-      `UPDATE quiz_answers SET part_scores=$1, score=$2, teacher_comment=COALESCE($3, teacher_comment) WHERE id=$4`,
-      [JSON.stringify(scores), heeftScores ? totaal : null, teacherComment ?? null, answerId]
-    );
-    return true;
+    return _scoreQuizAnswerPartIntern(answerId, partId, score, teacherComment, false);
+  },
+
+  // Sprint 51-ai: onderdeel-equivalent van aiScoreQuizAnswer — zelfde opslaglogica, maar
+  // markeert dit specifieke onderdeel in part_ai_graded (JSON {partId: true}), strikt
+  // gescheiden van de zichtbare teacher_comment-tekst.
+  async aiScoreQuizAnswerPart(answerId, partId, score, teacherComment) {
+    return _scoreQuizAnswerPartIntern(answerId, partId, score, teacherComment, true);
   },
 
   async saveQuizGeneralComment(sessionCode, studentId, comment) {
@@ -3484,6 +3680,108 @@ module.exports = {
        ON CONFLICT (session_code, student_id) DO UPDATE SET comment=EXCLUDED.comment, updated_at=EXCLUDED.updated_at`,
       [sessionCode, studentId, comment, Date.now()]
     );
+  },
+
+  // Sprint 51-ai (v4/v5): leerkracht-feedback op een AI-score opslaan. Eén entry per
+  // answer_id(+part_id) — een tweede keer feedback geven op HETZELFDE item overschrijft de
+  // eerste (UPSERT), maar de UI biedt dat in de praktijk niet aan zodra er al feedback is
+  // (het knopje verdwijnt dan, zie getAiGradeFeedbackForSession hieronder).
+  // Sprint 51-ai (v5): naast verdict/improvementText nu ook een OPTIONELE, expliciete
+  // correctie (correctedScore/correctedComment) en een volledige context-snapshot (context)
+  // — nodig voor een bruikbare trainingsdata-export. De snapshot wordt hier, op het moment
+  // van feedback, vastgelegd (niet pas bij export) zodat een latere export niet afhankelijk
+  // is van een intussen mogelijk gewijzigde of verwijderde vraag.
+  async saveAiGradeFeedback({ sessionCode, answerId, partId, questionId, verdict, improvementText, teacherId,
+                              correctedScore, correctedComment, context }) {
+    const c = context || {};
+    await query(
+      `INSERT INTO ai_grade_feedback (
+         id, session_code, answer_id, part_id, question_id, verdict, improvement_text, teacher_id, created_at,
+         corrected_score, corrected_comment, vraag_type, vraagstelling, model_antwoord, leerling_antwoord,
+         uitvoer_resultaat, model_uitvoer_resultaat, max_punten, ai_score, ai_comment
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+       ON CONFLICT (answer_id, COALESCE(part_id, ''))
+       DO UPDATE SET verdict=EXCLUDED.verdict, improvement_text=EXCLUDED.improvement_text, created_at=EXCLUDED.created_at,
+         corrected_score=EXCLUDED.corrected_score, corrected_comment=EXCLUDED.corrected_comment,
+         vraag_type=EXCLUDED.vraag_type, vraagstelling=EXCLUDED.vraagstelling, model_antwoord=EXCLUDED.model_antwoord,
+         leerling_antwoord=EXCLUDED.leerling_antwoord, uitvoer_resultaat=EXCLUDED.uitvoer_resultaat,
+         model_uitvoer_resultaat=EXCLUDED.model_uitvoer_resultaat, max_punten=EXCLUDED.max_punten,
+         ai_score=EXCLUDED.ai_score, ai_comment=EXCLUDED.ai_comment`,
+      [crypto.randomUUID(), sessionCode, answerId, partId || null, questionId, verdict, improvementText || null,
+       teacherId || null, Date.now(), correctedScore ?? null, correctedComment || null,
+       c.type || null, c.vraagstelling || null, c.modelAntwoord || null, c.leerlingAntwoord || null,
+       c.uitvoerResultaat || null, c.modelUitvoerResultaat || null, c.maxPunten ?? null, c.aiScore ?? null, c.aiComment || null]
+    );
+  },
+
+  // Geeft alle bestaande feedback-entries voor een sessie terug — de client gebruikt dit om
+  // te bepalen bij welke AI-gescoorde items het feedback-knopje al verdwenen moet zijn.
+  async getAiGradeFeedbackForSession(sessionCode) {
+    const r = await query(
+      `SELECT answer_id, part_id, verdict FROM ai_grade_feedback WHERE session_code = $1`,
+      [sessionCode]
+    );
+    return r.rows;
+  },
+
+  // Sprint 51-ai (v5): PASSIEVE correctie-vastlegging — wordt aangeroepen vanuit de gewone
+  // score-opslaan-endpoints, telkens een leerkracht een score/commentaar overschrijft die
+  // eerder door de AI gezet was (dus vóór deze aanroep ai_graded/part_ai_graded=true was).
+  // Geen aparte UI-actie nodig: dit gebeurt gewoon vanzelf zodra je normaal corrigeert.
+  async saveAiGradeCorrection({ sessionCode, answerId, partId, questionId, teacherId, aiScore, aiComment,
+                                 humanScore, humanComment, context }) {
+    const c = context || {};
+    await query(
+      `INSERT INTO ai_grade_corrections (
+         id, session_code, answer_id, part_id, question_id, vraag_type, vraagstelling, model_antwoord,
+         leerling_antwoord, uitvoer_resultaat, model_uitvoer_resultaat, max_punten, ai_score, ai_comment,
+         human_score, human_comment, teacher_id, created_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+      [crypto.randomUUID(), sessionCode, answerId, partId || null, questionId,
+       c.type || null, c.vraagstelling || null, c.modelAntwoord || null, c.leerlingAntwoord || null,
+       c.uitvoerResultaat || null, c.modelUitvoerResultaat || null, c.maxPunten ?? null,
+       aiScore ?? null, aiComment || null, humanScore ?? null, humanComment || null, teacherId || null, Date.now()]
+    );
+  },
+
+  // Sprint 51-ai (v5): alle bruikbare trainingsvoorbeelden — uit BEIDE bronnen (expliciete
+  // feedback mét correctie, en stille correcties). Gebruikt door het export-script achter
+  // "pycodeflow.sh → AI-training → trainingsgegevens downloaden". Enkel rijen met genoeg
+  // informatie om een echt voor/na-paar te vormen (dus met een menselijke score erbij, of
+  // een bevestigend "goed"-verdict dat het AI-antwoord zelf als correct label gebruikt).
+  async getAiTrainingExamples() {
+    const feedback = await query(
+      `SELECT session_code, answer_id, part_id, question_id, verdict, improvement_text,
+              corrected_score, corrected_comment, vraag_type, vraagstelling, model_antwoord,
+              leerling_antwoord, uitvoer_resultaat, model_uitvoer_resultaat, max_punten,
+              ai_score, ai_comment, created_at
+         FROM ai_grade_feedback
+        WHERE vraagstelling IS NOT NULL
+          AND (verdict = 'goed' OR (verdict = 'kon_beter' AND corrected_score IS NOT NULL))`
+    );
+    const corrections = await query(
+      `SELECT session_code, answer_id, part_id, question_id, vraag_type, vraagstelling, model_antwoord,
+              leerling_antwoord, uitvoer_resultaat, model_uitvoer_resultaat, max_punten,
+              ai_score, ai_comment, human_score, human_comment, created_at
+         FROM ai_grade_corrections
+        WHERE vraagstelling IS NOT NULL`
+    );
+    return { feedback: feedback.rows, corrections: corrections.rows };
+  },
+
+  // Sprint 51-ai (v4): de meest recente "kon_beter"-notities voor DEZELFDE vraag, over alle
+  // sessies heen — dit is de lichte, in-context "leer"-stap: geen echte model-training, wel
+  // een groeiend, vraag-specifiek correctie-geheugen dat als extra context in de prompt gaat
+  // (zie lib/ai-grading.js). Begrensd tot een klein aantal, anders wordt de prompt nodeloos
+  // lang zonder extra nut.
+  async getRecentImprovementNotes(questionId, limit = 3) {
+    const r = await query(
+      `SELECT improvement_text FROM ai_grade_feedback
+        WHERE question_id = $1 AND verdict = 'kon_beter' AND improvement_text IS NOT NULL AND improvement_text != ''
+        ORDER BY created_at DESC LIMIT $2`,
+      [questionId, limit]
+    );
+    return r.rows.map(row => row.improvement_text);
   },
 
   async getQuizGeneralComment(sessionCode, studentId) {

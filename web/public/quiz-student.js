@@ -254,6 +254,15 @@ function renderCompositeAntwoord(onderdelen, vraagId) {
     const titel = o.type === 'code' ? '🐍 Code' : escHtml(o.label || 'Onderdeel');
     const idPrefix = 'rv-' + vraagId + '-' + o.id;
     const juisteHtml = renderJuisteAntwoord(o, idPrefix);
+    // Sprint 51-fix: commentaar per onderdeel — bestond voorheen niet in deze weergave
+    // (er was ook geen opslagplek voor, zie db/database.js part_comments).
+    const onderdeelCommentaarHtml = o.commentaar ? `
+      <div style="margin-top:8px;">
+        <div style="font-size:0.76rem;color:var(--muted);margin-bottom:3px;">💬 Commentaar van je leerkracht:</div>
+        <div class="md-preview" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 10px;font-size:0.85rem;">
+          ${renderMarkdown(o.commentaar)}
+        </div>
+      </div>` : '';
     return `<div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-top:8px;">
       <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:0.85rem;">
         <strong>${titel}</strong><span class="muted">${scoreTekst}</span>
@@ -261,6 +270,7 @@ function renderCompositeAntwoord(onderdelen, vraagId) {
       <div style="font-size:0.78rem;color:var(--muted);margin-top:6px;">Jouw antwoord:</div>
       ${renderJouwAntwoord(o, idPrefix)}
       ${juisteHtml ? `<div style="font-size:0.78rem;color:var(--muted);margin-top:8px;">✅ Juiste antwoord:</div>${juisteHtml}` : ''}
+      ${onderdeelCommentaarHtml}
     </div>`;
   }).join('');
 }
@@ -362,6 +372,21 @@ const params = new URLSearchParams(location.search);
 const urlCode = params.get('code') || '';
 const urlName = params.get('name') || localStorage.getItem('studentName') || '';
 const urlClass = params.get('class') || localStorage.getItem('pycodeflow_student_class') || '';
+
+// Sprint 51-fix: zelfde probleem als bij de vrije editor (zie app.js) — Safari/iOS kan een
+// WebSocket-verbinding sluiten bij tab-wissel/schermvergrendeling, en de server-kant
+// "run_end"/"quiz_state"-updates die daarna verstuurd worden (bv. na de CPU-tijdslimiet van
+// een oneindige lus) komen dan nooit aan. Bij een HERverbinding vragen we de huidige staat
+// gewoon opnieuw op via quiz_start — dat endpoint geeft de laatst opgeslagen voortgang
+// terug (hetzelfde als bij een gewone pagina-ververs tijdens de toets), dus er gaat niets
+// verloren; enkel actief ná een écht gestarte toets, nooit op het nakijkscherm.
+let _quizHadDisconnected = false;
+socket.on('disconnect', () => { _quizHadDisconnected = true; });
+socket.on('connect', () => {
+  if (!_quizHadDisconnected || _isReviewEntry) return;
+  _quizHadDisconnected = false;
+  if (_state) socket.emit('quiz_start', { code: urlCode, name: urlName, className: urlClass });
+});
 
 // Vul startscherm
 document.getElementById('start-student-name').textContent = urlName || '(naam ontbreekt)';

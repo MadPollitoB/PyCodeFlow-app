@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets verbeteren</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.29"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.34"/>
   <style>
     .review-layout { display:grid; grid-template-columns:280px 1fr; gap:20px; }
     @media(max-width:900px){ .review-layout { grid-template-columns:1fr; } }
@@ -74,10 +74,22 @@
 </div></div>
 
 <div class="screen" style="max-width:1200px;margin:0 auto;padding:20px;">
-  <div style="margin-bottom:16px;">
-    <h1 id="review-title" style="margin:0 0 4px;">Toets laden...</h1>
-    <div class="stats-mini" id="stats-mini"></div>
-    <div id="similarity-warnings"></div>
+  <div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+    <div>
+      <h1 id="review-title" style="margin:0 0 4px;">Toets laden...</h1>
+      <div class="stats-mini" id="stats-mini"></div>
+      <div id="similarity-warnings"></div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+      <button class="btn btn-soft" onclick="openAiGradePopup()" title="Laat open- en code-vragen automatisch nakijken door een lokale AI">
+        🤖 AI verbeteren
+      </button>
+      <!-- Sprint 51-fix: blijft zichtbaar ook als de popup gesloten is/was, zodat je nooit
+           het zicht verliest op een lopende (of net afgeronde) AI-verbeter-taak. -->
+      <div id="ai-grade-status-pill" class="hidden" onclick="openAiGradePopup()"
+           style="display:none;cursor:pointer;font-size:0.8rem;padding:4px 10px;border-radius:999px;
+             background:#ede9fe;color:#5b21b6;border:1px solid #ddd6fe;white-space:nowrap;"></div>
+    </div>
   </div>
 
   <div class="review-layout">
@@ -94,14 +106,98 @@
   </div>
 </div>
 
+<!-- Sprint 51-ai: popup voor AI-verbeteren -->
+<div id="ai-grade-modal" class="modal-overlay hidden" style="position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:200;display:none;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border-radius:14px;padding:24px;max-width:480px;width:92%;max-height:85vh;overflow-y:auto;">
+    <h2 style="margin:0 0 4px;">🤖 AI verbeteren</h2>
+    <p class="muted" style="font-size:0.85rem;margin:0 0 16px;">
+      Beoordeelt open- en code-vragen (ook onderdelen van samengestelde vragen) automatisch via
+      een lokale AI. Keuzevragen zijn al automatisch scoorbaar en worden hier niet aangeraakt.
+    </p>
+    <div id="ai-grade-check-msg"></div>
+    <div id="ai-grade-form" style="display:none;">
+      <div style="margin-bottom:12px;">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:6px;">
+          <input type="radio" name="ai-grade-scope" value="klas" checked onchange="toggleAiGradeStudentList()"> Hele klas
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:600;">
+          <input type="radio" name="ai-grade-scope" value="specifiek" onchange="toggleAiGradeStudentList()"> Specifieke leerlingen
+        </label>
+      </div>
+      <div id="ai-grade-student-list" style="display:none;max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:12px;"></div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;margin-bottom:16px;">
+        <input type="checkbox" id="ai-grade-overwrite"> Ook al beoordeelde antwoorden opnieuw laten nakijken (overschrijft bestaande scores)
+      </label>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-primary" onclick="startAiGrade()">Starten</button>
+        <button class="btn btn-muted" onclick="closeAiGradePopup()">Annuleren</button>
+      </div>
+    </div>
+    <div id="ai-grade-progress" style="display:none;">
+      <p id="ai-grade-progress-text" style="font-weight:600;"></p>
+      <div style="background:var(--surface-soft);border-radius:8px;height:10px;overflow:hidden;margin:10px 0;">
+        <div id="ai-grade-progress-bar" style="background:var(--primary);height:100%;width:0%;transition:width .3s;"></div>
+      </div>
+      <!-- Sprint 51-fix: gedetailleerd log i.p.v. enkel een percentage — toont per vraag/
+           onderdeel wie er verbeterd werd en met welke score, zodat je kan meevolgen wat
+           er precies gebeurt. -->
+      <div id="ai-grade-log" style="max-height:220px;overflow-y:auto;background:var(--surface-soft);
+        border-radius:8px;padding:8px 10px;font-size:0.8rem;font-family:Consolas,monospace;
+        margin-bottom:10px;display:flex;flex-direction:column-reverse;"></div>
+      <p class="muted" style="font-size:0.8rem;">Dit kan even duren — je mag dit venster sluiten, het loopt gewoon door op de achtergrond.</p>
+      <button class="btn btn-muted" onclick="closeAiGradePopup()">Sluiten (blijft op de achtergrond lopen)</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sprint 51-ai (v4): kleine popup om feedback te geven op een AI-score/commentaar
+     ("goed" of "kon beter" met een korte, eigen verbetering). Verdwijnt uit de vraag-
+     weergave zodra er feedback gegeven is voor dat specifieke item. -->
+<div id="ai-feedback-modal" class="modal-overlay hidden" style="position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:210;display:none;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border-radius:14px;padding:22px;max-width:420px;width:90%;">
+    <h3 style="margin:0 0 4px;">🤖 Feedback op deze AI-score</h3>
+    <p class="muted" style="font-size:0.82rem;margin:0 0 14px;">
+      Helpt de AI om deze specifieke vraag de volgende keer beter te beoordelen.
+    </p>
+    <div style="display:flex;gap:10px;margin-bottom:12px;">
+      <button class="btn btn-soft" style="flex:1;" onclick="setAiFeedbackVerdict('goed')" id="ai-feedback-btn-goed">👍 Goed</button>
+      <button class="btn btn-soft" style="flex:1;" onclick="setAiFeedbackVerdict('kon_beter')" id="ai-feedback-btn-kon_beter">👎 Kon beter</button>
+    </div>
+    <div id="ai-feedback-improvement-wrap" style="display:none;margin-bottom:14px;">
+      <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">
+        Wat had beter gemoeten? <span class="muted" style="font-weight:normal;">(kort, wordt als voorbeeld gebruikt bij een volgende AI-verbeterbeurt van deze vraag)</span>
+      </label>
+      <textarea id="ai-feedback-improvement-text" placeholder="bv. de uitvoer klopte niet exact maar kreeg toch de volle punten…" style="width:100%;min-height:70px;"></textarea>
+
+      <!-- Sprint 51-ai (v5): optioneel, voor wie het exacte juiste antwoord meteen wil
+           vastleggen — vooral nuttig als je dit ooit als trainingsdata wil gebruiken
+           (pycodeflow.sh → AI-training). Helemaal optioneel: de notitie hierboven volstaat
+           voor de gewone "volgende-keer-beter"-werking. -->
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
+        <label style="font-size:0.8rem;color:var(--muted);display:block;margin-bottom:6px;">
+          Optioneel — wat had de exacte, juiste score/commentaar moeten zijn?
+        </label>
+        <div style="display:flex;gap:8px;align-items:flex-start;">
+          <input type="number" id="ai-feedback-corrected-score" placeholder="score" style="width:80px;"/>
+          <textarea id="ai-feedback-corrected-comment" placeholder="Correcte commentaar…" style="flex:1;min-height:44px;"></textarea>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-primary" onclick="submitAiFeedback()">Versturen</button>
+      <button class="btn btn-muted" onclick="closeAiFeedbackModal()">Annuleren</button>
+    </div>
+  </div>
+</div>
+
 <!-- Sprint 43.10: UMD-libs vóór Monaco's AMD-loader (zie quiz-student.html) -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="/vendor/marked/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.29"></script>
+<script src="/code-highlight.js?v=v2026.2.51.34"></script>
 <script src="/vendor/dompurify/purify.min.js"></script>
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/app.js?v=v2026.2.51.29"></script>
-<script src="/quiz-review.js?v=v2026.2.51.29"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.29"></script></body>
+<script src="/app.js?v=v2026.2.51.34"></script>
+<script src="/quiz-review.js?v=v2026.2.51.34"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.34"></script></body>
 </html>

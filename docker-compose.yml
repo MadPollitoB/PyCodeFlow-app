@@ -27,6 +27,13 @@ services:
       - "3000:3000"
     env_file:
       - .env
+    # Sprint 51-ai: nodig om vanuit de container een lokale AI (Ollama) op de NAS/host zelf
+    # te kunnen bereiken via OLLAMA_URL=http://host.docker.internal:<poort>. Zonder deze
+    # regel bestaat "host.docker.internal" niet op de meeste Linux-hosts (het werkt out-
+    # of-the-box enkel op Docker Desktop/Mac/Windows) — deze standaard-Compose-regel maakt
+    # het ook op Linux/NAS-installaties beschikbaar, ongeacht of Ollama gebruikt wordt.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,6 +74,33 @@ services:
     mem_limit: 256m
     cpus: 1.0
 
+  # Sprint 51-ai: lokale AI voor "AI verbeteren" — volledig OPTIONEEL. Start enkel mee als
+  # het "ollama"-profiel actief is (COMPOSE_PROFILES=ollama in .env, gezet door
+  # pycodeflow.sh → configureer_ollama() zodra de gebruiker installatie via het beheerscript
+  # kiest). Geen profiel actief → deze service bestaat wel in dit bestand, maar draait niet
+  # en verbruikt geen resources. Zit in hetzelfde netwerk als 'web', bereikbaar op
+  # http://ollama:11434 — geen host.docker.internal-omweg nodig voor deze aanpak.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: pycodeflow-ollama-1
+    restart: unless-stopped
+    profiles:
+      - ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - pycodeflow
+    # Ruime maar veilige grens op een NAS zonder GPU (CPU-only inferentie) — pas gerust
+    # aan in dit bestand als je hardware/gebruik daarom vraagt.
+    mem_limit: 10g
+    cpus: 4.0
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: pycodeflow-cloudflared-1
@@ -86,3 +120,4 @@ networks:
 
 volumes:
   pgdata:
+  ollama_data:
