@@ -4035,11 +4035,14 @@ app.put('/api/quiz/:code/general-comment/:studentId', requireTeacherAuth, requir
 
 app.post('/api/quiz/:code/release', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   const code = req.params.code.toUpperCase();
-  await dbModule.releaseQuizResults(code);
+  // Sprint 51-fix: enabled=false trekt een eerdere vrijgave weer in — voorheen kon dit
+  // enkel aangezet worden, nooit meer terug.
+  const enabled = req.body?.enabled !== false;
+  await dbModule.releaseQuizResults(code, enabled);
   const session = sessions.get(code);
   if (session) io.to(session.code).emit('quiz_results_released');
   const actor = getActorFromReq(req);
-  dbModule.auditLog(actor, 'results_released', code, {}, req.ip).catch(() => {});
+  dbModule.auditLog(actor, enabled ? 'results_released' : 'results_release_revoked', code, {}, req.ip).catch(() => {});
   res.json({ ok: true });
 });
 

@@ -2802,6 +2802,13 @@ module.exports = {
       params.push(studentIds);
       studentFilter = `AND a.student_id = ANY($2)`;
     }
+    // Sprint 51-fix: een leerling die "gewettigd afwezig" gemarkeerd is (via de aparte
+    // assignment_student_status-tabel — LOS van submitted_by, dat gaat over wat er per
+    // antwoord daadwerkelijk gebeurde) mag NOOIT door de AI verbeterd worden, ongeacht wat
+    // er toevallig al ingevuld stond. Voorheen filterde deze query enkel op submitted_by
+    // ('geen_deelname'), wat de roster-status volledig negeerde — een leerling die eerst
+    // normaal meedeed en pas achteraf gewettigd afwezig gemarkeerd werd, bleef zo gewoon in
+    // de AI-verbeter-lijst staan.
     const r = await query(
       `SELECT a.id AS answer_id, a.session_code, a.student_id, a.student_name, a.code,
               a.score, a.teacher_comment, a.part_answers, a.part_scores, a.submitted_by,
@@ -2812,8 +2819,11 @@ module.exports = {
          JOIN quiz_question_snapshots q ON q.id = a.question_id
          LEFT JOIN quiz_general_comments gc
                 ON gc.session_code = a.session_code AND gc.student_id = a.student_id
+         LEFT JOIN assignment_student_status ass
+                ON ass.session_code = a.session_code AND ass.student_id = a.student_id
         WHERE a.session_code = $1 ${studentFilter}
           AND a.submitted_by NOT IN ('geen_deelname')
+          AND (ass.status IS NULL OR ass.status != 'gewettigd')
         ORDER BY a.student_name, q.order_index`,
       params
     );
@@ -3133,8 +3143,12 @@ module.exports = {
     return templateId;
   },
 
-  async releaseQuizResults(sessionCode) {
-    await query(`UPDATE assignment_bank SET results_released = true WHERE session_code = $1`, [sessionCode]);
+  // Sprint 51-fix: was voorheen enkel "aan" te zetten, nooit meer terug — eenmaal
+  // vrijgegeven bleef een toets dus voor altijd in de "Mijn resultaten"-lijst van elke
+  // leerling staan, ook als de leerkracht dat achteraf niet meer wilde (bv. een gigantisch
+  // opgestapelde lijst). enabled=false zet results_released terug op false.
+  async releaseQuizResults(sessionCode, enabled = true) {
+    await query(`UPDATE assignment_bank SET results_released = $2 WHERE session_code = $1`, [sessionCode, !!enabled]);
   },
 
   // ── Sprint 51e: leerling ziet zijn eigen VRIJGEGEVEN toetsen/taken ───────────
@@ -3159,11 +3173,14 @@ module.exports = {
     // dan helemaal niet meer bij, ook al was nakijken uitdrukkelijk opengesteld.
     const r = await query(
       `SELECT DISTINCT s.code, s.name AS session_name, ab.type, ab.review_mode,
-              ab.access_until, ab.target_class, c.name AS class_name, c.school_year
+              ab.access_until, ab.target_class, c.name AS class_name, c.school_year,
+              ass.status AS handmatige_status
        FROM quiz_answers qa
        JOIN sessions s          ON s.code = qa.session_code
        JOIN assignment_bank ab  ON ab.session_code = s.code
        LEFT JOIN classes c      ON c.id = ab.target_class
+       LEFT JOIN assignment_student_status ass
+              ON ass.session_code = s.code AND ass.student_id = qa.student_id
        WHERE qa.student_id = $1
          AND (ab.results_released = true OR ab.review_mode = true)
          AND ab.is_teacher_preview = false
@@ -3173,6 +3190,11 @@ module.exports = {
     // Score-totaal per opdracht meegeven.
     const out = [];
     for (const row of r.rows) {
+      // Sprint 51-fix: een leerling die "gewettigd afwezig" gemarkeerd werd, mag hier NOOIT
+      // een score tonen — voor het systeem (klasgemiddelde e.d.) blijft dit intern gewoon 0,
+      // maar de leerling zelf moet dat duidelijk als "gewettigd afwezig" te zien krijgen,
+      // niet als een onverklaarde 0.
+      const gewettigdAfwezig = row.handmatige_status === 'gewettigd';
       const tot = await query(
         `SELECT COALESCE(SUM(a.score),0) AS behaald,
                 COALESCE(SUM(q.points),0) AS maximum,
@@ -3186,8 +3208,10 @@ module.exports = {
         reviewMode: row.review_mode === true,
         className: row.class_name || '', schoolYear: row.school_year || '',
         deadline: row.access_until != null ? Number(row.access_until) : null,
-        behaald: Number(tot.rows[0].behaald), maximum: Number(tot.rows[0].maximum),
+        behaald: gewettigdAfwezig ? null : Number(tot.rows[0].behaald),
+        maximum: Number(tot.rows[0].maximum),
         volledigVerbeterd: tot.rows[0].volledig_verbeterd === true,
+        gewettigdAfwezig,
       });
     }
     return out;
@@ -3199,9 +3223,12 @@ module.exports = {
   async getReleasedResultDetail(studentId, sessionCode) {
     const meta = await query(
       `SELECT ab.review_mode, ab.results_released, ab.is_teacher_preview, ab.type,
-              s.name AS session_name, ab.target_class
+              s.name AS session_name, ab.target_class,
+              ass.status AS handmatige_status
        FROM assignment_bank ab JOIN sessions s ON s.code = ab.session_code
-       WHERE ab.session_code = $1`, [sessionCode]);
+       LEFT JOIN assignment_student_status ass
+              ON ass.session_code = ab.session_code AND ass.student_id = $2
+       WHERE ab.session_code = $1`, [sessionCode, studentId]);
     if (!meta.rows.length) return { ok: false, reason: 'Niet gevonden.' };
     const m = meta.rows[0];
     // Sprint 51z (bugfix): zelfde correctie als listReleasedResultsForStudent hierboven —
@@ -3219,9 +3246,14 @@ module.exports = {
       [sessionCode, studentId]);
     if (!deelgenomen.rows.length) return { ok: false, reason: 'Geen toegang.' };
     const reviewMode = m.review_mode === true;
+    // Sprint 51-fix: q.answer_parts + a.part_answers/part_scores/part_comments toegevoegd —
+    // ontbraken hier volledig, waardoor een samengestelde vraag in dit (vereenvoudigde)
+    // overzicht enkel de TOTAALscore + het (nu lege) vraag-niveau commentaar toonde, zonder
+    // de per-onderdeel-uitsplitsing die wél al in het volledige nakijkscherm stond.
     const rows = await query(
-      `SELECT q.order_index, q.text_snapshot, q.points, q.question_type,
-              a.score, a.teacher_comment, a.code, a.selected_choices, q.choices_json
+      `SELECT q.order_index, q.text_snapshot, q.points, q.question_type, q.answer_parts,
+              a.score, a.teacher_comment, a.code, a.selected_choices, q.choices_json,
+              a.part_answers, a.part_scores, a.part_comments
        FROM quiz_answers a
        JOIN quiz_question_snapshots q ON q.id = a.question_id
        WHERE a.session_code = $1 AND a.student_id = $2
@@ -3231,17 +3263,37 @@ module.exports = {
       [sessionCode, studentId]);
     return {
       ok: true, name: m.session_name, type: m.type || 'toets', reviewMode,
+      gewettigdAfwezig: m.handmatige_status === 'gewettigd',
       generalComment: gen.rows[0]?.comment || '',
-      questions: rows.rows.map(q => ({
-        orderIndex: q.order_index, text: q.text_snapshot, points: q.points,
-        questionType: q.question_type,
-        score: q.score != null ? Number(q.score) : null,
-        comment: q.teacher_comment || '',
-        // Volledige toets (eigen code + keuzes) enkel bij review_mode:
-        code: reviewMode ? (q.code || '') : null,
-        selectedChoices: reviewMode ? q.selected_choices : null,
-        choicesJson: reviewMode ? q.choices_json : null,
-      })),
+      questions: rows.rows.map(q => {
+        const basis = {
+          orderIndex: q.order_index, text: q.text_snapshot, points: q.points,
+          questionType: q.question_type,
+          score: q.score != null ? Number(q.score) : null,
+          comment: q.teacher_comment || '',
+          // Volledige toets (eigen code + keuzes) enkel bij review_mode:
+          code: reviewMode ? (q.code || '') : null,
+          selectedChoices: reviewMode ? q.selected_choices : null,
+          choicesJson: reviewMode ? q.choices_json : null,
+        };
+        if (q.question_type !== 'composite') return basis;
+        // Sprint 51-fix: per-onderdeel uitsplitsing voor een samengestelde vraag — score en
+        // (bij review_mode) het antwoord + commentaar van elk onderdeel apart.
+        let delen = [];
+        try { delen = JSON.parse(q.answer_parts || '[]'); } catch { delen = []; }
+        let partAnswers = {}, partScores = {}, partComments = {};
+        try { partAnswers = JSON.parse(q.part_answers || '{}'); } catch { /* leeg */ }
+        try { partScores = JSON.parse(q.part_scores || '{}'); } catch { /* leeg */ }
+        try { partComments = JSON.parse(q.part_comments || '{}'); } catch { /* leeg */ }
+        basis.onderdelen = delen.map(deel => ({
+          id: deel.id, type: deel.type, label: deel.label || '',
+          punten: deel.points,
+          score: partScores[deel.id] !== undefined ? Number(partScores[deel.id]) : null,
+          antwoord: reviewMode ? (partAnswers[deel.id] ?? '') : null,
+          comment: partComments[deel.id] || '',
+        }));
+        return basis;
+      }),
     };
   },
 
@@ -3529,13 +3581,20 @@ module.exports = {
     // Sprint 51e: algemene commentaar per leerling mee terugstuwen (LEFT JOIN op
     // quiz_general_comments). Vroeger stond ze in een aparte tabel maar werd ze niet in
     // deze lijst opgenomen, waardoor de verbeterpagina de commentaar niet toonde bij heropenen.
+    // Sprint 51-fix: ook de handmatige "gewettigd afwezig"-status meegeven — die stond al
+    // wel in het roster/voortgangsoverzicht, maar de verbeterpagina zelf had er geen weet
+    // van, waardoor een gewettigd-afwezige leerling daar gewoon als "niet deelgenomen"
+    // (met een 0) getoond werd, zonder onderscheid.
     const r = await query(
       `SELECT a.*, q.text_snapshot, q.subject, q.points, q.order_index,
-              gc.comment AS general_comment
+              gc.comment AS general_comment,
+              ass.status AS student_status
        FROM quiz_answers a
        JOIN quiz_question_snapshots q ON q.id = a.question_id
        LEFT JOIN quiz_general_comments gc
               ON gc.session_code = a.session_code AND gc.student_id = a.student_id
+       LEFT JOIN assignment_student_status ass
+              ON ass.session_code = a.session_code AND ass.student_id = a.student_id
        WHERE a.session_code = $1
        ORDER BY a.student_name, q.order_index`,
       [sessionCode]

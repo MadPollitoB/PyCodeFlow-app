@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Mijn klassen</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.34"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.35"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .klas-kaart { background:var(--surface); border:1.5px solid var(--border); border-radius:14px; padding:18px 20px; margin-bottom:18px; }
@@ -24,7 +24,10 @@
   #code-modal { position:fixed; inset:0; background:rgba(15,23,42,.92); display:none;
     align-items:center; justify-content:center; flex-direction:column; gap:20px; z-index:50; cursor:zoom-out; }
   #code-modal .grote-code { font-family:monospace; font-weight:900; color:#fff; font-size:16vw; letter-spacing:1.5vw; }
-  #code-modal .uitleg { color:#cbd5e1; font-size:1.3rem; }
+  /* Sprint 51-fix: schaalde voorheen niet mee met het scherm (vaste 1.3rem) — op een groot
+     scherm/beamer was dit naast de enorme code hierboven amper leesbaar voor leerlingen die
+     de URL moeten overtypen. Nu ook viewport-schalend, met een leesbare ondergrens. */
+  #code-modal .uitleg { color:#cbd5e1; font-size:clamp(1.3rem, 3vw, 2.4rem); text-align:center; padding:0 2vw; }
 </style>
 </head><body>
 <div class="topbar"><div class="topbar-inner">
@@ -92,7 +95,7 @@ open of sluit het registratievenster, en <strong>aanvaard</strong> wachtende lee
   <div class="uitleg" id="modal-uitleg"></div>
 </div>
 
-<script src="/app.js?v=v2026.2.51.34"></script>
-<script src="/mijn-klassen.js?v=v2026.2.51.34"></script>
+<script src="/app.js?v=v2026.2.51.35"></script>
+<script src="/mijn-klassen.js?v=v2026.2.51.35"></script>
 <script src="/nav-rechten.js"></script>
-<script src="/privacy.js?v=v2026.2.51.34"></script></body></html>
+<script src="/privacy.js?v=v2026.2.51.35"></script></body></html>

@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Waar wil je naartoe?</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.34"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.35"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .blok { border:1.5px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
@@ -239,9 +239,27 @@ async function laadResultaten() {
     }
     doel.innerHTML = lijst.map(res => {
       const icoon = res.type === 'taak' ? '📝' : '🧪';
-      const score = res.volledigVerbeterd
-        ? `<span class="res-score">${res.behaald}/${res.maximum}</span>`
-        : '<span class="res-score muted" style="font-weight:600;">nog niet volledig verbeterd</span>';
+      // Sprint 51-fix: een leerling die gewettigd afwezig was, moet dat DUIDELIJK zien —
+      // nooit gewoon een onverklaarde 0. Voor het systeem blijft dit intern een 0 (zie
+      // db/database.js), maar hier tonen we expliciet "Gewettigd afwezig", geen score.
+      const score = res.gewettigdAfwezig
+        ? `<span class="res-score" style="color:#1e40af;">Gewettigd afwezig</span>`
+        : res.volledigVerbeterd
+          ? `<span class="res-score">${res.behaald}/${res.maximum}</span>`
+          : '<span class="res-score muted" style="font-weight:600;">nog niet volledig verbeterd</span>';
+      // Sprint 51-fix: zachte kleurindicatie langs de linkerkant — snel, luchtig overzicht
+      // voor de leerling (transparant, geen harde kleuren): blauw bij gewettigd afwezig,
+      // groen bij geslaagd (≥ helft), rood bij niet geslaagd. Enkel als er al een volledige,
+      // vergelijkbare score is — "nog niet volledig verbeterd" krijgt bewust geen kleur.
+      let kleurStijl = '';
+      if (res.gewettigdAfwezig) {
+        kleurStijl = 'border-left:5px solid #93c5fd; background:rgba(147,197,253,0.12);';
+      } else if (res.volledigVerbeterd && res.maximum > 0) {
+        const geslaagd = res.behaald >= res.maximum / 2;
+        kleurStijl = geslaagd
+          ? 'border-left:5px solid #86efac; background:rgba(134,239,172,0.12);'
+          : 'border-left:5px solid #fca5a5; background:rgba(252,165,165,0.12);';
+      }
       // Sprint 51-fix: "Toets openen" geeft de VOLLEDIGE toets in readonly (hergebruikt het
       // bestaande nakijk-scherm) — de inline kaart hieronder toont voortaan enkel nog de
       // score per vraag + commentaar, zoals gevraagd; niet langer de volledige antwoorden.
@@ -249,7 +267,7 @@ async function laadResultaten() {
         ? `<button class="btn btn-primary small" style="margin-top:6px;"
              onclick="event.stopPropagation(); openToetsReadonly('${escR(res.code)}')">📖 Toets openen</button>`
         : '';
-      return `<div class="res-kaart" onclick="toggleResultaat('${escR(res.code)}', this)">
+      return `<div class="res-kaart" style="${kleurStijl}" onclick="toggleResultaat('${escR(res.code)}', this)">
         <div class="titel">${icoon} ${escR(res.name)} ${score}</div>
         <div class="muted" style="font-size:0.78rem;margin-top:3px;">${escR(res.className)}</div>
         ${openKnop}
@@ -277,6 +295,22 @@ async function openToetsReadonly(code) {
   }
 }
 
+// Sprint 51-fix: de vraagtekst bevat vaak een markdown-codeblok (```python ... ```) — dat
+// werd hier tot nu toe als platte tekst getoond, inclusief de letterlijke ```-tekens. Geen
+// volledige markdown-rendering nodig (dit is een korte preview, geen volledige weergave) —
+// enkel codeblokken herkenbaar stylen (monospace, donkere achtergrond, niet-uitvoerbaar).
+function renderTekstMetCode(tekst) {
+  const delen = String(tekst || '').split(/```(?:\w+)?\n?([\s\S]*?)```/g);
+  // split met een capture-group levert om en om: [tekst, code, tekst, code, ..., tekst]
+  return delen.map((deel, i) => {
+    if (i % 2 === 1) {
+      return `<pre style="background:#1e1e1e;color:#d4d4d4;padding:8px 10px;border-radius:6px;
+        overflow-x:auto;font-size:0.78rem;margin:4px 0;white-space:pre-wrap;">${escR(deel.trim())}</pre>`;
+    }
+    return escR(deel);
+  }).join('');
+}
+
 async function toggleResultaat(code, kaart) {
   const detail = kaart.querySelector('.res-detail');
   if (detail.style.display === 'block') { detail.style.display = 'none'; return; }
@@ -287,21 +321,49 @@ async function toggleResultaat(code, kaart) {
     const d = await r.json();
     if (!r.ok) { detail.innerHTML = '<p class="muted" style="color:#991b1b;">' + escR(d.error || 'Geen toegang.') + '</p>'; return; }
     let html = '';
+    if (d.gewettigdAfwezig) {
+      html += `<div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:0.85rem;color:#1e40af;">
+        🔵 Je was gewettigd afwezig voor deze toets — er is dus geen score.</div>`;
+      detail.innerHTML = html;
+      return;
+    }
     if (d.generalComment) {
       html += `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:0.85rem;">
         <strong>Commentaar leerkracht:</strong><br>${escR(d.generalComment)}</div>`;
     }
-    // Sprint 51-fix: enkel nog score + per-vraag commentaar — de volledige antwoorden
-    // (code, gekozen opties, ...) staan nu achter de expliciete "Toets openen"-knop
-    // hierboven, die het bestaande, VOLLEDIGE readonly-scherm hergebruikt (met correcte
-    // ondersteuning voor elk vraagtype, incl. samengestelde vragen — dat kon deze inline
-    // weergave nooit, ze toonde enkel het antwoord van een gewone code-vraag).
+    // Sprint 51-fix: samengestelde vragen tonen nu ook hun onderdelen apart (score +
+    // commentaar per onderdeel) i.p.v. enkel de totaalscore + één, vaak niet-representatief
+    // vraag-niveau commentaar — dat commentaarveld wordt voor zo'n vraag nooit gebruikt (zie
+    // db/database.js), dus stond hier voorheen altijd leeg terwijl de leerling net WEL
+    // per-onderdeel feedback kreeg.
     html += d.questions.map((q, i) => {
       const sc = q.score != null ? `${q.score}/${q.points}` : `?/${q.points}`;
+      const vraagtekst = renderTekstMetCode((q.text || '').slice(0, 160));
+      if (q.questionType === 'composite' && Array.isArray(q.onderdelen)) {
+        const onderdelenHtml = q.onderdelen.map(o => {
+          const osc = o.score != null ? `${o.score}/${o.punten}` : `?/${o.punten}`;
+          const olabel = o.type === 'code' ? '🐍 Code' : escR(o.label || 'Onderdeel');
+          const ocomm = o.comment ? `<div style="font-size:0.8rem;color:#334155;margin-top:2px;">💬 ${escR(o.comment)}</div>` : '';
+          const oantwoord = (o.antwoord !== null && o.antwoord !== undefined && String(o.antwoord).trim())
+            ? (o.type === 'code'
+                ? `<pre style="background:#1e1e1e;color:#d4d4d4;padding:6px 8px;border-radius:6px;overflow-x:auto;font-size:0.76rem;margin:3px 0;white-space:pre-wrap;">${escR(o.antwoord)}</pre>`
+                : `<div style="font-size:0.8rem;color:#1f2937;margin-top:2px;">${escR(o.antwoord)}</div>`)
+            : '';
+          return `<div style="margin:6px 0 0 12px;padding:4px 0 4px 8px;border-left:2px solid #e2e8f0;">
+            <div style="display:flex;gap:8px;align-items:baseline;font-size:0.82rem;">
+              <strong>${olabel}</strong><span style="margin-left:auto;">${osc}</span>
+            </div>${oantwoord}${ocomm}</div>`;
+        }).join('');
+        return `<div class="vraag-blok">
+          <div style="display:flex;gap:8px;align-items:baseline;">
+            <strong>Vraag ${i + 1}</strong><span class="muted" style="font-size:0.8rem;">${vraagtekst}</span>
+            <span style="margin-left:auto;font-weight:700;">${sc}</span>
+          </div>${onderdelenHtml}</div>`;
+      }
       const comm = q.comment ? `<div style="font-size:0.82rem;color:#334155;margin-top:4px;">💬 ${escR(q.comment)}</div>` : '';
       return `<div class="vraag-blok">
         <div style="display:flex;gap:8px;align-items:baseline;">
-          <strong>Vraag ${i + 1}</strong><span class="muted" style="font-size:0.8rem;">${escR((q.text||'').slice(0,80))}</span>
+          <strong>Vraag ${i + 1}</strong><span class="muted" style="font-size:0.8rem;">${vraagtekst}</span>
           <span style="margin-left:auto;font-weight:700;">${sc}</span>
         </div>${comm}</div>`;
     }).join('');
@@ -316,4 +378,4 @@ async function toggleResultaat(code, kaart) {
 
 laad();
 </script>
-<script src="/privacy.js?v=v2026.2.51.34"></script></body></html>
+<script src="/privacy.js?v=v2026.2.51.35"></script></body></html>

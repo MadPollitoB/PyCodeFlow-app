@@ -1,3 +1,59 @@
+## v2026.2.51.35 — Negen bugs/features n.a.v. gebruikersfeedback
+
+### Samengestelde vragen — structuur en weergave
+- De overbodige, niet-doorkomende "Algemene opmerking bij deze vraag" is verwijderd bij
+  samengestelde vragen — commentaar staat nu enkel en correct per onderdeel.
+- De 🤖 AI-badge staat nu ook bovenaan een samengestelde vraag als minstens één onderdeel
+  door de AI beoordeeld is (zonder feedback-knop daar — die staat al per onderdeel).
+- **Leerling-resultaten**: een samengestelde vraag toonde voorheen enkel de totaalscore met
+  één (leeg) commentaar. Nu wordt elk onderdeel apart getoond, met eigen score en
+  commentaar — zowel in het volledige nakijkscherm als in de vereenvoudigde
+  "Mijn resultaten"-lijst.
+- Code in die vereenvoudigde lijst (zowel de vraagtekst als het leerling-antwoord) wordt nu
+  herkenbaar als code gestyld (monospace, donkere achtergrond) i.p.v. platte tekst met
+  zichtbare markdown-tekens.
+
+### AI-verbeteren sluit niet-deelnemers nu volledig uit
+Een leerling die niet deelnam werd al uitgesloten van AI-verbeteren via zijn
+antwoord-status. Maar een leerling die **achteraf** als "gewettigd afwezig" gemarkeerd werd
+(een aparte status, los van wat er per antwoord gebeurde) bleef tot nu toe gewoon in de
+AI-verbeter-lijst staan. Nu sluit de AI-taak zo iemand ook altijd uit — geen zichtbare knop,
+en bij klassikaal verbeteren wordt hij stilzwijgend overgeslagen. Bevestigd met een
+end-to-end-test: de AI-taak verwerkte de andere leerlingen normaal, maar liet de gewettigd-
+afwezige leerling volledig ongemoeid.
+
+### "Gewettigd afwezig" nu overal duidelijk
+- Op de verbeterpagina: een aparte, blauwe indicator in de leerlingenlijst en een duidelijke
+  melding bij het openen van die leerling's toets — niet langer dezelfde, verwarrende
+  melding als bij een leerling die gewoon niet kwam opdagen.
+- Bij de leerling zelf: de toets staat gewoon in zijn resultatenlijst, maar toont
+  "Gewettigd afwezig" in plaats van een (onterechte) 0.
+
+### Kleurcodering resultatenlijst
+Elke kaart in "Mijn resultaten" krijgt nu een zachte, transparante kleurindicatie: groen bij
+geslaagd, rood bij niet geslaagd, blauw bij gewettigd afwezig — een snel, luchtig overzicht
+voor de leerling.
+
+### Vrijgeven kan nu weer ingetrokken worden
+"Vrijgeven" was voorheen een one-way-knop — eenmaal aangezet, bleef een toets voor altijd in
+de resultatenlijst van elke leerling staan, ook als dat niet meer gewenst was. Nu een echte
+toggle, net als de bestaande "Nakijken"-knop.
+
+### Klascode-scherm: grotere URL
+Op het volledig-scherm-klascode-display (bv. op een beamer) schaalde enkel de code zelf mee
+met het scherm — de registratie-URL eronder bleef piepklein. Nu schaalt die tekst ook mee.
+
+**Getest:** volledige end-to-end-tests met een mock-Ollama-server en een mock-runner-service,
+plus browsertests van alle visuele wijzigingen (screenshots bevestigen composite-badges,
+kleurcodering, en de gewettigd-afwezig-weergave op zowel de verbeterpagina als bij de
+leerling zelf). Volledige testsuite: 324/324 groen.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/lib/review-result.js` ·
+`web/public/quiz-review.html` · `web/public/quiz-review.js` · `web/public/student-thuis.html` ·
+`web/public/mijn-klassen.html` · `VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.34 — Sprint 51-ai (v5): echte AI-training, periodiek en handmatig
 
 Vervolg op het feedback-mechanisme: het materiaal dat je met de 👍/👎-knopjes verzamelt kan

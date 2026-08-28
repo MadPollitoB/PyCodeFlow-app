@@ -13,6 +13,7 @@ let _templates = [];
 let _simWarnings = [];
 let _editMode = false;   // "Aanpassen & testen" modus
 let _reviewMode = false; // 37d: staat nakijken open voor leerlingen?
+let _resultsReleased = false; // sprint 51-fix: staan resultaten open, ook opnieuw te sluiten
 let _originalCode = '';
 // Sprint 51-ai (v4): welke answerId(+partId)-combinaties al feedback kregen — gebruikt om
 // het feedback-knopje te verbergen bij items die al een verdict hebben.
@@ -43,7 +44,9 @@ async function init() {
   const { session, questions, meta } = await qr.json();
   _questions = questions || [];
   _reviewMode = meta?.review_mode === true;
+  _resultsReleased = meta?.results_released === true;
   updateReviewModeBtn();
+  updateReleaseBtn();
   document.getElementById('review-title').textContent =
     (session?.name || 'Toets') + ' — Verbeteren';
 
@@ -100,9 +103,14 @@ function renderStudentList() {
     // Sprint 51o: leerlingen die nooit gestart zijn (aangevuld bij het stoppen/deadline)
     // krijgen een duidelijke "niet deelgenomen"-badge i.p.v. een misleidende score.
     const nietDeelgenomen = studentAnswers.length > 0 && studentAnswers.every(a => a.submitted_by === 'geen_deelname');
-    const scoreChip = nietDeelgenomen
-      ? `<span style="color:var(--error-fg,#b91c1c);">❌ niet deelgenomen</span>`
-      : `${scored}/${total} ✓ ${scored === total ? `· ${totalScore}/${maxScore}pt` : ''}`;
+    // Sprint 51-fix: gewettigd afwezig krijgt een eigen, blauwe indicator — voorheen zag je
+    // in de lijst geen enkel onderscheid met een leerling die gewoon niet kwam opdagen.
+    const gewettigdAfwezig = studentAnswers.some(a => a.student_status === 'gewettigd');
+    const scoreChip = gewettigdAfwezig
+      ? `<span style="color:#1e40af;">🔵 gewettigd afwezig</span>`
+      : nietDeelgenomen
+        ? `<span style="color:var(--error-fg,#b91c1c);">❌ niet deelgenomen</span>`
+        : `${scored}/${total} ✓ ${scored === total ? `· ${totalScore}/${maxScore}pt` : ''}`;
     return `<div class="student-row ${isActive ? 'active' : ''}" onclick="selectStudent('${s.id}')">
       <div><strong>${esc(s.name)}</strong></div>
       <div style="font-size:0.78rem;color:${isActive?'rgba(255,255,255,0.7)':'var(--muted)'};">${esc(s.class || '')}</div>
@@ -227,24 +235,41 @@ async function selectQuestion(idx) {
   const isAutoScored = ans?.auto_scored;
   // Sprint 51s: duidelijke banner wanneer deze score automatisch op 0 gezet is bij het
   // stoppen — zodat het onderscheid met een leerkracht-gegeven 0 helder blijft.
-  const autoZeroHtml = ans?.submitted_by === 'geen_deelname'
-    ? `<div class="similarity-warning" style="background:#fef3c7;border-color:#fde68a;">⚪ Deze leerling heeft niet deelgenomen — score automatisch op 0 gezet bij het stoppen.</div>`
-    : ans?.submitted_by === 'niet_beantwoord'
-      ? `<div class="similarity-warning" style="background:#fef3c7;border-color:#fde68a;">⚪ Deze vraag werd niet beantwoord — score automatisch op 0 gezet bij het stoppen.</div>`
-      : '';
+  // Sprint 51-fix: een gewettigd-afwezige leerling kreeg hier voorheen dezelfde, generieke
+  // "niet deelgenomen"-melding als iemand die gewoon spijbelde — geen onderscheid. Nu een
+  // eigen, duidelijk blauw bericht (analoog aan het leerling-eigen resultatenscherm).
+  const autoZeroHtml = ans?.student_status === 'gewettigd'
+    ? `<div class="similarity-warning" style="background:#eff6ff;border-color:#93c5fd;color:#1e40af;">🔵 Deze leerling was gewettigd afwezig — geen score, telt niet mee in het klasgemiddelde.</div>`
+    : ans?.submitted_by === 'geen_deelname'
+      ? `<div class="similarity-warning" style="background:#fef3c7;border-color:#fde68a;">⚪ Deze leerling heeft niet deelgenomen — score automatisch op 0 gezet bij het stoppen.</div>`
+      : ans?.submitted_by === 'niet_beantwoord'
+        ? `<div class="similarity-warning" style="background:#fef3c7;border-color:#fde68a;">⚪ Deze vraag werd niet beantwoord — score automatisch op 0 gezet bij het stoppen.</div>`
+        : '';
   // Sprint 51-ai: kleine, leerkracht-only banner zodat je meteen ziet welke scores door de
   // AI gezet zijn en steekproefsgewijs kan controleren — de leerling ziet dit nooit (zie
   // db/database.js: ai_graded wordt uitsluitend hier, in het leerkracht-endpoint, meegestuurd).
   // Sprint 51-ai (v4): feedback-knopje ernaast — verdwijnt zodra er al feedback gegeven is
   // voor dit specifieke antwoord (voorkomt herhaalde feedback op hetzelfde item).
+  // Sprint 51-fix: bij een samengestelde vraag stond deze badge nooit bovenaan — enkel per
+  // onderdeel (want ai_graded op vraagniveau wordt voor zo'n vraag nooit gezet, dat gebeurt
+  // per onderdeel via part_ai_graded). Toon 'm hier ook als MINSTENS één onderdeel
+  // AI-beoordeeld is — zonder feedback-knop, want die staat al bij elk onderdeel apart.
   const aiFeedbackKey = ans?.id + '::';
+  let compositeHeeftAiOnderdeel = false;
+  if (qType === 'composite') {
+    let vroegePartAiFlags = {};
+    try { vroegePartAiFlags = JSON.parse(ans?.part_ai_graded || '{}'); } catch { vroegePartAiFlags = {}; }
+    compositeHeeftAiOnderdeel = Object.values(vroegePartAiFlags).some(v => v === true);
+  }
   const aiGradedHtml = ans?.ai_graded === true
     ? `<div class="similarity-warning" style="background:#ede9fe;border-color:#ddd6fe;display:flex;align-items:center;justify-content:space-between;gap:10px;">
         <span>🤖 Deze score/commentaar is door de lokale AI gegenereerd. Controleer gerust en pas aan indien nodig.</span>
         ${_aiFeedbackGegeven.has(aiFeedbackKey) ? '<span class="muted" style="font-size:0.78rem;white-space:nowrap;">✓ feedback gegeven</span>'
           : `<button class="btn btn-muted small" style="white-space:nowrap;" onclick="openAiFeedbackModal('${esc(ans.id)}', null, '${esc(q.id)}')">📝 Feedback</button>`}
       </div>`
-    : '';
+    : compositeHeeftAiOnderdeel
+      ? `<div class="similarity-warning" style="background:#ede9fe;border-color:#ddd6fe;">🤖 Eén of meer onderdelen van deze vraag zijn door de lokale AI beoordeeld — zie de badges hieronder per onderdeel.</div>`
+      : '';
 
   // Bouw antwoordweergave per vraagtype
   let answerHtml = '';
@@ -415,11 +440,6 @@ async function selectQuestion(idx) {
           Totaal: ${totaal} / ${q.points}
         </div>
         <button class="btn btn-soft small" style="margin-top:8px;" onclick="savePartScores('${ans?.id||''}', ${idx})">💾 Onderdeelscores &amp; opmerkingen opslaan</button>
-      </div>
-      <div class="card" style="padding:12px;margin-bottom:14px;">
-        <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Algemene opmerking bij deze vraag <span class="muted" style="font-weight:normal;">(los van de onderdelen hierboven)</span></label>
-        <textarea id="comment-input" placeholder="Opmerking...">${esc(comment)}</textarea>
-        <button class="btn btn-muted small" style="margin-top:6px;" onclick="saveScore('${ans?.id||''}', ${idx}, '${q.id}')">💾 Algemene opmerking opslaan</button>
       </div>`;
     })() : `
     <div class="score-row">
@@ -685,10 +705,41 @@ async function loadSimilarityWarnings() {
   } catch (e) { console.warn('[quiz-review] fout:', e.message); }
 }
 
+// Sprint 51-fix: was voorheen enkel "aan" te zetten — een leerkracht kon vrijgave nooit
+// meer intrekken, waardoor een toets voor altijd in de "Mijn resultaten"-lijst van elke
+// leerling bleef staan, ook als dat achteraf niet meer gewenst was. Nu een echte toggle,
+// analoog aan de bestaande "Nakijken"-knop.
+function updateReleaseBtn() {
+  const btn = document.getElementById('release-btn');
+  if (!btn) return;
+  btn.textContent = _resultsReleased ? '🔒 Vrijgave intrekken' : '🔓 Vrijgeven';
+  btn.classList.toggle('btn-soft', _resultsReleased);
+  btn.classList.toggle('btn-muted', !_resultsReleased);
+  btn.title = _resultsReleased
+    ? 'Leerlingen zien nu hun score en commentaar. Klik om dit weer te sluiten.'
+    : 'Leerlingen kunnen dan hun score en commentaar bekijken.';
+}
+
 async function releaseResults() {
-  if (!await pyConfirm({ title: 'Resultaten vrijgeven', body: 'Leerlingen kunnen dan hun score en commentaar bekijken.', confirmLabel: 'Vrijgeven' })) return;
-  await (window.apiFetch||fetch)(`/api/quiz/${sessionCode}/release`, { method:'POST' });
-  pyToast('Resultaten vrijgegeven. Leerlingen kunnen ze bekijken via de sessiecode.', 'success', 5000);
+  const aanzetten = !_resultsReleased;
+  if (aanzetten) {
+    if (!await pyConfirm({ title: 'Resultaten vrijgeven', body: 'Leerlingen kunnen dan hun score en commentaar bekijken.', confirmLabel: 'Vrijgeven' })) return;
+  } else {
+    if (!await pyConfirm({ title: 'Vrijgave intrekken', body: 'Leerlingen zien dit resultaat dan niet langer in hun lijst (tenzij "Nakijken" apart aanstaat).', confirmLabel: 'Intrekken' })) return;
+  }
+  try {
+    const r = await (window.apiFetch||fetch)(`/api/quiz/${sessionCode}/release`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: aanzetten }),
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'Mislukt');
+    _resultsReleased = aanzetten;
+    updateReleaseBtn();
+    pyToast(aanzetten ? 'Resultaten vrijgegeven. Leerlingen kunnen ze bekijken via de sessiecode.' : 'Vrijgave ingetrokken.', 'success', 5000);
+  } catch (e) {
+    if (window.pyAlert) pyAlert('Fout: ' + e.message, 'error');
+  }
 }
 
 // 37d: nakijk-modus. Zolang die aan staat, kunnen leerlingen met hun naam + klas
