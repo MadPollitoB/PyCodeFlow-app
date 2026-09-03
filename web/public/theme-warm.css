@@ -1,0 +1,146 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   theme-warm.css — EXPERIMENTEEL warm kleurenthema (geïnspireerd op de hub-/
+   cursus-webapps), NOG NIET goedgekeurd.
+
+   Bewust een volledig apart bestand, los van styles.css:
+   - Overschrijft ENKEL de bestaande CSS-variabelen uit :root in styles.css,
+     en dat ook nog eens ENKEL wanneer <html data-theme="warm"> staat (gezet
+     door het schuifknopje — zie theme-toggle.js). Zonder dat attribuut (of met
+     data-theme="classic") verandert er dus LETTERLIJK NIETS: de bestaande,
+     huidige stijl (styles.css) blijft overal het enige dat telt.
+   - Wordt voorlopig enkel op student-start.html ingeladen — nergens anders.
+   - Als dit thema wordt afgekeurd: verwijder gewoon dit bestand + de
+     <link>-tag + theme-toggle.js + de toggle-knop in de betrokken HTML.
+     Als het wordt goedgekeurd: verhuis deze waarden naar de :root van
+     styles.css (en verwijder dan pas de OUDE waarden daar), en schrijf dit
+     bestand + de toggle weg.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+html[data-theme="warm"] {
+  --bg: #faf8f4;
+  --surface: #ffffff;
+  --surface-soft: #f6f4ee;
+  --border: #e4ddd0;
+  --text: #1f2b3d;
+  --muted: #6b6456;
+  --primary: #2d9d5f;
+  --primary-soft: #e1f0e6;
+  --accent: #a3241f;
+  --gold: #f4b536;
+  --success-bg: #e1f0e6;
+  --success-fg: #1e7a47;
+  --warn-bg: #fdf3d1;
+  --warn-fg: #8a6d00;
+  --error-bg: #fdeaea;
+  --error-fg: #a3241f;
+  --shadow: 0 12px 40px rgba(31, 43, 59, 0.10);
+}
+
+/* ── Het schuifknopje zelf (structuur, geen thema-kleur) — hoort ook bij dit
+   experiment en verhuist/verdwijnt samen met de rest van dit bestand. ── */
+.theme-toggle-wrap {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.78rem; color: var(--muted);
+}
+.theme-toggle-switch {
+  position: relative; display: inline-block; width: 42px; height: 24px;
+  flex: 0 0 auto; appearance: none; -webkit-appearance: none;
+  background: var(--border); border-radius: 999px; cursor: pointer;
+  transition: background 0.15s;
+}
+.theme-toggle-switch::before {
+  content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+  border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  transition: transform 0.15s;
+}
+.theme-toggle-switch:checked { background: #2d9d5f; }
+.theme-toggle-switch:checked::before { transform: translateX(18px); }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Vanaf hier: render B — meerkleurig, geïnspireerd op de kaartjes en het logo
+   van GO! Atheneum Hoboken (groen/blauw/paars/oranje, elk gekoppeld aan een
+   eigen blok i.p.v. overal dezelfde kleur). Enkel actief onder data-theme=warm.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Titel "Deelnemen": schoolblauw, en iets kleiner — compenseert de hogere
+   header/footer hieronder zodat het geheel niet hoger uitvalt dan nodig. */
+html[data-theme="warm"] .screen h1 {
+  color: #26398a;
+  font-size: 1.8rem;
+}
+
+/* ── Header (topbar) iets hoger + leesbaarder lettertype ──────────────────── */
+html[data-theme="warm"] .topbar-inner {
+  min-height: 92px;
+}
+html[data-theme="warm"] .logo-group {
+  font-size: 1.35rem;
+}
+html[data-theme="warm"] .top-actions .btn.small {
+  font-size: 1rem;
+  padding: 10px 16px;
+}
+
+/* ── Footer iets hoger + leesbaarder lettertype ────────────────────────────
+   (de "Privacy"-footer onderaan; zie .footer-note in student-start.html) */
+html[data-theme="warm"] .footer-note {
+  font-size: 1rem;
+  padding: 24px 0;
+}
+
+/* ── Gekleurde blokken, geïnspireerd op de kaartjes van de schoolwebsite ──── */
+html[data-theme="warm"] .panel-accent-green {
+  background: #fff; border: 2px solid #3a9d43;
+}
+html[data-theme="warm"] .panel-accent-green h2 { color: #2f7d33; }
+
+html[data-theme="warm"] .panel-accent-blue {
+  background: #fff; border: 2px solid #3f6fc4;
+}
+html[data-theme="warm"] .panel-accent-blue h2 { color: #2d4f96; }
+
+/* Inlogschermen (student-login.html, teacher-login.html): zelfde blauw als het
+   "Account"-blok op het Deelnemen-scherm, maar dan met een h1 i.p.v. h2, en de
+   knop expliciet marineblauw (i.p.v. het standaard-groene --primary) — "inloggen"
+   hoort bij hetzelfde blauwe accent als op het Deelnemen-scherm, niet bij groen. */
+html[data-theme="warm"] .auth-card h1,
+html[data-theme="warm"] .login-card h1 { color: #2d4f96; }
+html[data-theme="warm"] .auth-card .btn-primary,
+html[data-theme="warm"] .login-btn { background: #26398a; }
+html[data-theme="warm"] .login-btn:hover:not(:disabled) { background: #1c2f6e; }
+
+html[data-theme="warm"] .panel-accent-red {
+  background: #fff; border: 2px solid #c8431a;
+}
+html[data-theme="warm"] .panel-accent-red h2 { color: #a8380f; }
+
+/* ── Knoppen: elk blok zijn eigen, donkere (leesbare) accentkleur i.p.v. de
+   standaard bleke .btn-muted-pil ── */
+html[data-theme="warm"] .btn-account-primary {
+  background: #26398a; color: #fff;
+}
+html[data-theme="warm"] .btn-account-secondary {
+  background: #3f6fc4; color: #fff;
+}
+html[data-theme="warm"] .btn-free-accent {
+  background: #c8431a; color: #fff;
+}
+
+/* Dun kleurstaafje onderaan het scherm — knipoog naar het eigen PyCodeFlow-logo
+   (navy → goud → oranje/roodoranje), i.p.v. naar de schoolkaartjes: dat bleek met
+   paars niet bij het merk zelf te passen. Lege <div class="accent-strip"> in de
+   HTML; enkel zichtbaar/met hoogte onder dit thema. */
+html[data-theme="warm"] .accent-strip {
+  height: 4px; border-radius: 4px; margin-top: 18px;
+  background: linear-gradient(90deg,
+    #3a9d43 0 25%, #3f6fc4 25% 50%, #c8431a 50% 75%, #f4b536 75% 100%);
+}
+
+/* Bugfix: de pagina-achtergrond (buiten de witte kaart) was hard gecodeerd in
+   styles.css (body { background: linear-gradient(...) }) i.p.v. via var(--bg) —
+   bleef dus overal koelgrijs, ook onder dit warme thema. bg-page op
+   teacher-login.html is exact dezelfde hard gecodeerde kleur. */
+html[data-theme="warm"] body,
+html[data-theme="warm"] .bg-page {
+  background: var(--bg);
+}

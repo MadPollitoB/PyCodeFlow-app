@@ -2,11 +2,11 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Wachtwoord herstellen</title>
-<link rel="stylesheet" href="/styles.css?v=52"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.55"/>
 <link rel="icon" href="/assets/favicon.png" type="image/png">
 <style>
   .auth-wrap { max-width: 440px; margin: 44px auto; padding: 0 18px; }
-  .auth-card { background: var(--surface); border: 1.5px solid var(--border); border-radius: 16px; padding: 26px; }
+  .auth-card { border-radius: 16px; padding: 26px; }
   .auth-card h1 { margin: 0 0 4px; font-size: 1.4rem; }
   .auth-card p.sub { margin: 0 0 20px; color: var(--muted); font-size: 0.9rem; }
   .field { margin-bottom: 13px; }
@@ -19,13 +19,14 @@
   .auth-foot { margin-top: 16px; text-align:center; font-size: 0.85rem; color: var(--muted); }
   .btn-full { width:100%; justify-content:center; }
 </style>
-</head><body>
+</head><body class="compact-page">
 <div class="topbar"><div class="topbar-inner">
   <div class="logo-group"><img src="/assets/pycodeflow-logo.png" class="logo-small" alt=""/><span>PyCodeFlow</span></div>
+  <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a></div>
 </div></div>
 
 <div class="auth-wrap">
-  <div class="auth-card">
+  <div class="auth-card panel-accent-blue">
     <h1>Wachtwoord herstellen</h1>
     <p class="sub">Vraag je leerkracht eerst om een <strong>reset</strong>. Daarna herstel je hier met de
       <strong>klascode</strong> en je <strong>e-mailadres</strong>.</p>
@@ -40,6 +41,7 @@
     <button class="btn btn-primary btn-full" id="btn" onclick="herstel()">Nieuw wachtwoord bewaren</button>
     <div class="auth-foot"><a href="/student-login.html">← Terug naar inloggen</a></div>
   </div>
+  <div class="accent-strip"></div>
 </div>
 
 <script>
@@ -57,4 +59,5 @@ async function herstel(){
 }
 document.addEventListener('keydown',function(e){ if(e.key==='Enter') herstel(); });
 </script>
-<script src="/privacy.js?v=v2026.2.51.35"></script></body></html>
+<script src="/footer-note.js?v=v2026.2.51.55"></script>
+<script src="/privacy.js?v=v2026.2.51.55"></script></body></html>

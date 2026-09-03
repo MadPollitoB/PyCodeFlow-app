@@ -542,9 +542,25 @@ const server = http.createServer(app);
 const io = new Server(server, {
   // Fix SEC-4: maximale payload 64KB — voldoende voor schoolcode
   maxHttpBufferSize: 64 * 1024,
-  // Voorkom dat socket.io pingTimeout te lang is
-  pingTimeout: 20000,
-  pingInterval: 25000,
+  // Bugfix (sprint 62.1): met pingTimeout 20000 + pingInterval 25000 kon de server
+  // een STIL weggevallen verbinding (bv. een kortstondige wifi-hapering zonder
+  // nette TCP-afsluiting — heel gewoon op een druk klaslokaal-netwerk) tot 45
+  // seconden lang als "nog verbonden" blijven beschouwen. Zolang dat duurde, gingen
+  // ALLE server->leerling-meldingen (run/code vrijgeven of blokkeren, de
+  // "leerkracht niet ingelogd"-melding, …) gewoon nergens heen: student.socketId
+  // wees nog naar die dode verbinding. Pas zodra de server de dode verbinding
+  // eindelijk opmerkte (en de leerling-kant automatisch herverbond — sinds sprint
+  // 60.2 met een verse student_reconnect) kwam alles in één keer door. Fors
+  // strakker gezet: een dode verbinding wordt nu binnen ~5s opgemerkt i.p.v. tot
+  // 45s, zonder overdreven agressief te worden (wat net valse disconnects zou
+  // kunnen triggeren bij normale netwerkschommelingen).
+  // Bugfix (sprint 62.2): 10s (pingTimeout 5000 + pingInterval 5000) voelde nog
+  // steeds traag aan. Verder verstrakt naar een worst-case van ~5s. Bewust niet
+  // extremer (bv. 1-2s): té agressief zou net VALSE disconnects triggeren bij heel
+  // gewone netwerkschommelingen (korte latency-piek op druk klaslokaal-wifi), wat
+  // averechts zou werken (leerlingen zouden dan onnodig vaak herverbinden).
+  pingTimeout: 2500,
+  pingInterval: 2500,
 });
 
 // parseCookieHeader nu in lib/auth.js (sprint 34a)
@@ -1413,6 +1429,31 @@ app.post('/api/admin/free-practice/block', requireTeacherAuth, requireBeheer, re
 
 app.delete('/api/admin/free-practice/block/:ip', requireTeacherAuth, requireBeheer, requireSysteem, requireCsrf, async (req, res) => {
   await dbModule.unblockFreePractice(req.params.ip);
+  res.json({ ok: true });
+});
+
+// Bugfix: "te veel mislukte inlogpogingen" is in werkelijkheid een IP-gebaseerde, in-memory
+// blokkade (authFailures — geldt voor leerkracht- én leerlingaanmelding/-registratie op
+// hetzelfde IP), GEEN aparte teller per leerling-account. Voor testdoeleinden moet een
+// beheerder zo'n blokkade kunnen zien en vrijgeven — meestal is dat gewoon het eigen
+// (test)toestel dat na een paar mislukte pogingen geblokkeerd raakte.
+app.get('/api/admin/auth-blocks', requireTeacherAuth, requireBeheer, requireSysteem, async (req, res) => {
+  const now = Date.now();
+  const lijst = [];
+  for (const [ip, state] of authFailures.entries()) {
+    const remainingMs = state.blockedUntil > now ? state.blockedUntil - now : 0;
+    if (!state.failures.length && !remainingMs) continue;
+    lijst.push({ ip, failures: state.failures.length, blockedUntil: state.blockedUntil || 0, remainingMs });
+  }
+  lijst.sort((a, b) => b.remainingMs - a.remainingMs);
+  res.json({ blocks: lijst });
+});
+
+app.delete('/api/admin/auth-blocks/:ip', requireTeacherAuth, requireBeheer, requireSysteem, requireCsrf, async (req, res) => {
+  const ip = String(req.params.ip || '').trim();
+  if (!ip) return res.status(400).json({ error: 'IP is verplicht.' });
+  clearAuthFailures(ip);
+  dbModule.auditLog(getActorFromReq(req), 'login_blokkade_vrijgegeven', ip, {}, req.ip).catch(() => {});
   res.json({ ok: true });
 });
 
@@ -2682,9 +2723,22 @@ app.post('/api/admin/students/:id/reset-password', requireTeacherAuth, requireCs
   }
 });
 
-app.delete('/api/admin/students/:id', requireTeacherAuth, requireBeheer, requireCsrf, async (req, res) => {
-  const ok = await dbModule.deleteStudent(req.params.id);
-  res.json({ ok });
+// Bugfix: enkel beheerders konden een leerling verwijderen (requireBeheer); een gewone
+// klasleerkracht kon enkel blokkeren. Nu — net als bij status/klas/notities hierboven —
+// mag elke leerkracht dit voor leerlingen in zijn EIGEN klassen; beheerders mogen het
+// schoolbreed (magDezeLeerling regelt dat onderscheid al).
+app.delete('/api/admin/students/:id', requireTeacherAuth, requireCsrf, async (req, res) => {
+  if (!(await magDezeLeerling(req, req.params.id))) {
+    return res.status(403).json({ error: 'Deze leerling zit niet in een van jouw klassen.' });
+  }
+  try {
+    const ok = await dbModule.deleteStudent(req.params.id);
+    dbModule.auditLog(getActorFromReq(req), 'leerling_verwijderd', req.params.id, {}, req.ip).catch(() => {});
+    res.json({ ok });
+  } catch (e) {
+    log.error('[student delete] fout:', e.message);
+    res.status(500).json({ error: 'Verwijderen mislukt.' });
+  }
 });
 
 // Sprint 12c: CSV import
@@ -5761,6 +5815,19 @@ app.get("/api/sessions", requireTeacherAuth, async (req, res) => {
     .map(sessionSummary)
     .sort((a,b) => b.createdAt - a.createdAt);
 
+  // Bugfix: het sessieoverzicht toonde nergens welke klassen toegang hebben tot een
+  // sessie (13a). We vullen dat hier bij, in bulk (één query voor alle zichtbare
+  // sessies i.p.v. per sessie een round-trip). classNames = null → alle klassen van de
+  // leerkracht (geen restrictie); classNames = [...] → enkel die klassen.
+  try {
+    const klasNamenPerCode = await dbModule.getSessionClassNamesBulk(activeList.map(s => s.code));
+    for (const s of activeList) {
+      s.classNames = klasNamenPerCode.has(s.code) ? klasNamenPerCode.get(s.code) : null;
+    }
+  } catch (e) {
+    log.warn('[sessions] klasnamen ophalen mislukt:', e.message);
+  }
+
   if (!includeClosed) return res.json(activeList);
 
   // Sprint 11B: voeg gesloten sessies toe vanuit SQLite
@@ -6308,15 +6375,33 @@ app.post("/api/sessions/:code/block-toggle", requireTeacherAuth, requireSessionA
   res.json(sessionSummary(session));
 });
 
-app.delete("/api/sessions/:code", requireTeacherAuth, requireSessionAccess, requireCsrf, (req, res) => {
+app.delete("/api/sessions/:code", requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   const code = String(req.params.code || "").toUpperCase();
   const session = sessions.get(code);
-  if (!session) return res.status(404).json({ error: "not_found" });
+  // Bugfix: hieronder werd de sessie enkel uit het in-memory geheugen gehaald — nooit
+  // in de databank als verwijderd gemarkeerd. Omdat sessies bij een herstart nooit opnieuw
+  // in het geheugen geladen worden, bleef zo'n "verwijderde" sessie in de DB gewoon als
+  // open/actief staan en dook ze permanent terug op in de dropdown van leerlingen
+  // (listOpenSessionsForStudent filtert enkel op sessions.deleted = 0). We markeren de
+  // sessie daarom ALTIJD in de DB als deleted, ook als ze (bv. na een herstart) niet meer
+  // in het geheugen zit.
+  if (!session) {
+    const bestaatInDb = await dbModule.query(`SELECT 1 FROM sessions WHERE code = $1`, [code]);
+    if (!bestaatInDb.rows.length) return res.status(404).json({ error: "not_found" });
+    await dbModule.markSessionDeleted(code);
+    return res.json({ ok: true });
+  }
   for (const student of getActiveStudents(session)) {
     if (student.socketId) io.to(student.socketId).emit("force_landing");
   }
   if (session.teacherSocketId) io.to(session.teacherSocketId).emit("teacher_go_sessions");
+  session.deleted = true;
   sessions.delete(code);
+  try {
+    await dbModule.markSessionDeleted(code);
+  } catch (e) {
+    log.error('[sessions] markSessionDeleted fout bij verwijderen:', e.message);
+  }
   res.json({ ok: true });
 });
 
@@ -6441,6 +6526,11 @@ function emitStudentState(session, student) {
     : student.personalCanEdit !== false;
   io.to(student.socketId).emit("student_state", {
     session: { ...sessionSummary(session), classWorkspaceMode: session.classWorkspaceMode || "shared" },
+    // Sprint 60: leerling-kant moet weten of de leerkracht nu effectief
+    // ingelogd is op DEZE sessie (session.teacherSocketId) — anders blokkeert
+    // het scherm met een melding (zie student-app.html). Enkel relevant voor
+    // gewone klas-/examensessies; toets-/taaksessies gebruiken dit event niet.
+    teacherOnline: !!session.teacherSocketId,
     student: {
       id: student.id,
       name: student.name,
@@ -6855,7 +6945,9 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
   socketCsrfNonces.set(socket.id, socketNonce);
   socket.emit('csrf_nonce', { nonce: socketNonce });
 
-  socket.on("teacher_create_session", ({ name, mode, editorAssist, templateCode }) => {
+  // Bugfix (13a): classIds = null/undefined/[] → "ALLE klassen van de leerkracht" (bestaand
+  // gedrag); een array met id's → enkel die klassen krijgen deze sessie te zien.
+  socket.on("teacher_create_session", async ({ name, mode, editorAssist, templateCode, classIds }) => {
     if (!socketIsTeacherAuthorized(socket)) return socket.emit("error_message", "Leerkracht-authenticatie vereist");
     const code = makeCode();
 
@@ -6904,7 +6996,28 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       statusType: "success"
     };
     sessions.set(code, session);
-    persistNow(session); // Direct opslaan — nieuwe sessie
+    try {
+      // Bugfix (13a): eerst de sessie zelf effectief in de DB wegschrijven (i.p.v. de
+      // gebruikelijke fire-and-forget persistNow) — session_classes heeft een FK naar
+      // sessions(code) en zou anders bij de allereerste, snelle aanmaak kunnen falen.
+      await dbModule.persistSession(session);
+      if (Array.isArray(classIds) && classIds.length) {
+        // Enkel klassen aanvaarden waar deze leerkracht ook echt aan gekoppeld is (of alle
+        // klassen, voor een beheerder) — anders zou een leerkracht een sessie kunnen
+        // "lekken" naar een klas die niet van hem is.
+        const zichtbaar = await dbModule.listClassesVisibleTo({
+          teacherId: socket.data.teacher?.id || null,
+          isAdmin: authLib.isBeheerder(socket.data.teacher),
+          includeArchived: false,
+          actieveSchoolId: socket.data.teacher?.activeSchoolId || null,
+        });
+        const toegelaten = new Set(zichtbaar.map(c => c.id));
+        const veiligeIds = classIds.filter(id => toegelaten.has(id));
+        await dbModule.setSessionClasses(code, veiligeIds);
+      }
+    } catch (e) {
+      log.error('[sessions] aanmaken/klaskoppeling fout:', e.message);
+    }
     socket.join(code);
     socketToUser.set(socket.id, { role: "teacher", code });
     socket.emit("session_created", { code, mode: session.mode });
@@ -7006,6 +7119,25 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     setStatus(session, `Sessie-instellingen toegepast (${applied})`, 'info');
   });
 
+  // Sprint 60.1 (bugfix): een leerkracht die een sessie AANMAAKT en daarna gewoon op
+  // het sessieoverzicht blijft staan (zonder ooit op "Open" te klikken, of na een
+  // navigatie die om wat voor reden dan ook geen 'disconnect' triggerde) hield
+  // session.teacherSocketId onterecht bezet — leerlingen zagen dan nooit de
+  // "leerkracht niet ingelogd"-melding, ook al zat de leerkracht helemaal niet in de
+  // sessie zelf. teacher-sessions.html (de lijst-pagina, GEEN specifieke sessie) roept
+  // dit nu expliciet aan bij het laden: "voor alle duidelijkheid, ik zit nergens in".
+  socket.on("teacher_leave_all_sessions", () => {
+    if (!socketIsTeacherAuthorized(socket)) return;
+    for (const session of sessions.values()) {
+      if (session.teacherSocketId === socket.id) {
+        session.teacherSocketId = null;
+        for (const s of getActiveStudents(session)) emitStudentState(session, s);
+      }
+    }
+    const ctx = socketToUser.get(socket.id);
+    if (ctx && ctx.role === "teacher") socketToUser.delete(socket.id);
+  });
+
   socket.on("teacher_join_session", ({ code }) => {
     if (!socketIsTeacherAuthorized(socket)) return socket.emit("error_message", "Leerkracht-authenticatie vereist");
     const session = sessions.get((code || "").toUpperCase());
@@ -7017,10 +7149,44 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       return socket.emit("error_message", "Deze sessie is van een andere leerkracht.");
     }
     session.teacherSocketId = socket.id;
+    // Sprint 60: bij het (opnieuw) inloggen op een gewone klassessie DIE op dat
+    // moment in klasmodus staat (gedeelde code, niet individueel), resetten we
+    // voor de veiligheid ALLE leerlingen naar "geen code, geen run" — ongeacht
+    // wat daarvoor ingesteld stond. Zo kan een leerling nooit per ongeluk nog
+    // rechten "meeslepen" van vóór een verbindingsonderbreking. Staat de sessie
+    // op individuele werkmodus, dan raken we niets aan.
+    if (session.mode === "class" && (session.classWorkspaceMode || "shared") === "shared") {
+      for (const s of Object.values(session.students)) {
+        if (!s) continue;
+        s.classCanRun = false;
+        s.classCanEdit = false;
+      }
+    }
     socket.join(session.code);
     socketToUser.set(socket.id, { role: "teacher", code: session.code });
     resumeRunIfNeeded(session.teacherRunId);
     emitTeacherSession(session);
+    // Sprint 60: alle leerlingen op de hoogte brengen dat de leerkracht er weer
+    // is (sluit hun eventuele "leerkracht niet ingelogd"-melding) én, indien
+    // van toepassing, van de reset hierboven.
+    for (const s of getActiveStudents(session)) emitStudentState(session, s);
+  });
+
+  // Sprint 60.2 (bugfix): de "leerkracht niet ingelogd"-popup bleek soms lang (tot
+  // ~10s) te blijven hangen nadat de leerkracht al terug online was — vermoedelijk
+  // door de standaard socket.io-reconnectievertraging (exponentiële backoff) bij een
+  // kortstondige verbindingshapering, ongeacht of onze broadcast zelf perfect werkte.
+  // Dit lichtgewichte, side-effect-vrije controle-event laat de leerling-kant, zolang
+  // de popup zichtbaar is, actief elke paar seconden de actuele status opvragen —
+  // een zelfcorrigerend vangnet bovenop de broadcast, zodat het nooit langer dan een
+  // paar seconden fout kan blijven staan, zonder dat een handmatige F5 nodig is.
+  socket.on("student_check_status", () => {
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "student") return;
+    const session = sessions.get(ctx.code);
+    const student = session?.students?.[ctx.studentId];
+    if (!session || !student) return;
+    emitStudentState(session, student);
   });
 
   socket.on("student_join", async ({ name, code, className, resumeId }) => {
@@ -8739,6 +8905,12 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     if (ctx.role === "teacher") {
       if (session.teacherSocketId === socket.id) session.teacherSocketId = null;
       scheduleRunDisconnect(session.teacherRunId);
+      // Sprint 60: leerlingen die nu in de sessie zitten moeten meteen weten dat
+      // de leerkracht weg is (blokkerende melding client-side) — dit dekt élke
+      // manier waarop de leerkracht wegvalt (Sessieoverzicht, Afmelden, Home, of
+      // gewoon de verbinding verliezen), want die lopen in deze niet-SPA-opzet
+      // allemaal via een gewone paginanavigatie, dus via deze disconnect.
+      for (const s of getActiveStudents(session)) emitStudentState(session, s);
     } else {
       const s = session.students[ctx.studentId];
       if (s) {

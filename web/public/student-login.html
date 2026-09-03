@@ -2,11 +2,11 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Inloggen</title>
-<link rel="stylesheet" href="/styles.css?v=52"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.55"/>
 <link rel="icon" href="/assets/favicon.png" type="image/png">
 <style>
   .auth-wrap { max-width: 420px; margin: 48px auto; padding: 0 18px; }
-  .auth-card { background: var(--surface); border: 1.5px solid var(--border); border-radius: 16px; padding: 26px; }
+  .auth-card { border-radius: 16px; padding: 26px; }
   .auth-card h1 { margin: 0 0 4px; font-size: 1.4rem; }
   .auth-card p.sub { margin: 0 0 20px; color: var(--muted); font-size: 0.9rem; }
   .field { margin-bottom: 13px; }
@@ -20,13 +20,15 @@
   .btn-full { width:100%; justify-content:center; }
   #changeStep { display:none; }
 </style>
-</head><body>
+</head><body class="compact-page">
 <div class="topbar"><div class="topbar-inner">
   <div class="logo-group"><img src="/assets/pycodeflow-logo.png" class="logo-small" alt=""/><span>PyCodeFlow</span></div>
+  <!-- Bugfix: hier stond geen enkele manier om terug naar de startpagina te gaan. -->
+  <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a></div>
 </div></div>
 
 <div class="auth-wrap">
-  <div class="auth-card">
+  <div class="auth-card panel-accent-blue">
     <div class="msg" id="msg"></div>
 
     <div id="loginStep">
@@ -47,6 +49,7 @@
       <button class="btn btn-primary btn-full" id="changeBtn" onclick="wijzig()">Bewaren en doorgaan</button>
     </div>
   </div>
+  <div class="accent-strip"></div>
 </div>
 
 <script>
@@ -83,4 +86,5 @@ document.addEventListener('keydown',function(e){
   if(document.getElementById('changeStep').style.display==='block') wijzig(); else login();
 });
 </script>
-<script src="/privacy.js?v=v2026.2.51.35"></script></body></html>
+<script src="/footer-note.js?v=v2026.2.51.55"></script>
+<script src="/privacy.js?v=v2026.2.51.55"></script></body></html>

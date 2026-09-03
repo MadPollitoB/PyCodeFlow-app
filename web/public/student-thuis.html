@@ -2,10 +2,10 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Waar wil je naartoe?</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.35"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.55"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
-  .blok { border:1.5px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .blok { border-radius:12px; padding:16px; margin-bottom:16px; }
   .blok label.kop { display:block; font-weight:600; font-size:0.92rem; margin-bottom:5px; }
   .blok select, .blok input { width:100%; padding:12px 14px; border:1.5px solid var(--border);
     border-radius:12px; font-size:1rem; background:var(--surface); color:var(--text); box-sizing:border-box; }
@@ -34,8 +34,8 @@
 </div></div>
 
 <div class="page">
-  <div class="card screen" style="max-width:600px;margin:0 auto;">
-    <h1 style="margin:0;">Waar wil je naartoe?</h1>
+  <div class="card screen" style="max-width:1120px;margin:0 auto;">
+    <h1 class="titel-compact" style="margin:0;">Waar wil je naartoe?</h1>
     <div class="banner" id="banner">Laden…</div>
 
     <div class="tabs">
@@ -43,26 +43,33 @@
       <button id="tab-btn-resultaten" onclick="toonTab('resultaten')">📊 Mijn resultaten</button>
     </div>
 
+    <!-- Bugfix: dit stond voorheen allemaal in ÉÉN smalle kolom (max-breedte 600px) —
+         net als bij het Deelnemen-scherm voor gasten (student-start.html) hergebruiken
+         we hier hetzelfde bredere, responsieve grid (.start-grid: 2 kolommen vanaf 980px,
+         1 kolom eronder) met dezelfde groen/blauw/roodoranje-kleurencombinatie. -->
     <div id="tab-deelnemen">
-      <div class="blok" id="blok-lessen">
-        <label class="kop">🟢 Open lessen van jouw klas</label>
-        <div id="lessen-inhoud"><p class="muted" style="margin:0;font-size:0.88rem;">Laden…</p></div>
-      </div>
-
-      <div class="blok">
-        <label class="kop">🔢 Ik heb een sessiecode</label>
-        <p class="muted" style="font-size:0.8rem;margin:0 0 8px;">
-          Voor een <strong>toets of taak</strong>, of een les die hierboven niet staat.</p>
-        <div class="code-rij">
-          <input id="code" placeholder="vb.: AB12CD" autocomplete="off"
-                 onkeydown="if(event.key==='Enter')gaMetCode()"/>
-          <button class="btn btn-muted" onclick="gaMetCode()">Ga</button>
+      <div class="start-grid" style="margin-top:6px;">
+        <div class="blok panel-accent-green" id="blok-lessen">
+          <label class="kop">🟢 Open lessen van jouw klas</label>
+          <div id="lessen-inhoud"><p class="muted" style="margin:0;font-size:0.88rem;">Laden…</p></div>
+          <div id="lessen-fout" class="muted" style="font-size:0.82rem;margin-top:8px;color:#991b1b;"></div>
         </div>
-        <div id="code-fout" class="muted" style="font-size:0.82rem;margin-top:8px;color:#991b1b;"></div>
+
+        <div class="blok panel-accent-blue">
+          <label class="kop">🔢 Ik heb een sessiecode</label>
+          <p class="muted" style="font-size:0.8rem;margin:0 0 8px;">
+            Voor een <strong>toets of taak</strong>, of een les die hierboven niet staat.</p>
+          <div class="code-rij">
+            <input id="code" placeholder="vb.: AB12CD" autocomplete="off"
+                   onkeydown="if(event.key==='Enter')gaMetCode()"/>
+            <button class="btn btn-muted btn-account-primary" onclick="gaMetCode()">Ga</button>
+          </div>
+          <div id="code-fout" class="muted" style="font-size:0.82rem;margin-top:8px;color:#991b1b;"></div>
+        </div>
       </div>
 
-      <div class="blok" id="blok-oefenen" style="border-style:dashed;">
-        <button class="btn btn-soft" style="width:100%;justify-content:center;" onclick="vrijOefenen()">🐍 Vrij oefenen</button>
+      <div class="blok panel-accent-red" id="blok-oefenen" style="margin-top:22px;">
+        <button class="btn btn-soft btn-free-accent" style="width:100%;justify-content:center;" onclick="vrijOefenen()">🐍 Vrij oefenen</button>
         <p class="muted" style="font-size:0.8rem;margin:8px 0 0;text-align:center;">
           Onder je eigen naam — je leerkracht ziet je in het overzicht.</p>
       </div>
@@ -73,6 +80,8 @@
         Je vrijgegeven toetsen en taken van je huidige klas. Klik een resultaat open voor de details.</p>
       <div id="resultaten-inhoud"><p class="muted" style="margin:0;font-size:0.88rem;">Laden…</p></div>
     </div>
+
+    <div class="accent-strip"></div>
   </div>
 </div>
 
@@ -80,6 +89,14 @@
 <script>
 'use strict';
 let MIJ = null;
+// Bugfix: onthoudt via welk pad de leerling probeert deel te nemen (de dropdown met
+// "open lessen", of het handmatige sessiecode-veld), zodat een foutmelding op de juiste
+// plek verschijnt — vroeger belandde ELKE foutmelding altijd in #code-fout (bij het
+// codeveld), ook wanneer de leerling via de dropdown een ondertussen door de leerkracht
+// verwijderde les probeerde te openen. Dan gebeurde er zichtbaar he­le­maal niets: de
+// melding stond wel ergens op de pagina, maar niet bij het blok waar de leerling net op
+// klikte.
+let _joinBron = 'code';
 
 // Sprint 50 (bug 4): het keuzescherm joint voortaan via dezelfde socket-flow als het
 // startscherm. Zo beslist de SERVER wat de code is: een gewone les → 'student_state'
@@ -112,9 +129,20 @@ socket.on('redirect_to_quiz', function (data) {
 
 socket.on('error_message', function (msg) {
   _joinBezig(false);
-  const fout = document.getElementById('code-fout');
-  if (fout) fout.textContent = msg || 'Er ging iets mis. Probeer opnieuw.';
-  else if (window.pyAlert) window.pyAlert(msg || 'Er ging iets mis.', 'warn');
+  const tekst = msg || 'Er ging iets mis. Probeer opnieuw.';
+  if (_joinBron === 'dropdown') {
+    const fout = document.getElementById('lessen-fout');
+    if (fout) fout.textContent = tekst;
+    else if (window.pyAlert) window.pyAlert(tekst, 'warn');
+    // Bugfix: de gekozen les bestaat blijkbaar niet meer (bv. door de leerkracht
+    // ondertussen verwijderd) — de dropdown herladen zodat de verouderde/niet meer
+    // bestaande les niet nog eens gekozen kan worden en de lijst weer klopt.
+    laad();
+  } else {
+    const fout = document.getElementById('code-fout');
+    if (fout) fout.textContent = tekst;
+    else if (window.pyAlert) window.pyAlert(tekst, 'warn');
+  }
 });
 
 function _joinBezig(bezig) {
@@ -191,9 +219,11 @@ function naarSessie(code) {
 
 function gaNaarLes() {
   const sel = document.getElementById('les-keuze');
-  const fout = document.getElementById('code-fout');
+  const fout = document.getElementById('lessen-fout');
   if (fout) fout.textContent = '';
-  if (sel && sel.value) naarSessie(sel.value);
+  const codeFout = document.getElementById('code-fout');
+  if (codeFout) codeFout.textContent = '';
+  if (sel && sel.value) { _joinBron = 'dropdown'; naarSessie(sel.value); }
 }
 
 function gaMetCode() {
@@ -201,6 +231,9 @@ function gaMetCode() {
   const fout = document.getElementById('code-fout');
   if (!code) { if (fout) fout.textContent = 'Vul eerst een sessiecode in.'; return; }
   if (fout) fout.textContent = '';
+  const lessenFout = document.getElementById('lessen-fout');
+  if (lessenFout) lessenFout.textContent = '';
+  _joinBron = 'code';
   naarSessie(code);
 }
 
@@ -263,13 +296,19 @@ async function laadResultaten() {
       // Sprint 51-fix: "Toets openen" geeft de VOLLEDIGE toets in readonly (hergebruikt het
       // bestaande nakijk-scherm) — de inline kaart hieronder toont voortaan enkel nog de
       // score per vraag + commentaar, zoals gevraagd; niet langer de volledige antwoorden.
+      // Sprint 51-fix: datum van de deadline (enkel datum, geen uur — niet relevant hier)
+      // ontbrak volledig op de kaart. res.deadline is een timestamp in ms (of null als er
+      // nooit een deadline ingesteld was).
+      const datumTekst = res.deadline
+        ? new Date(res.deadline).toLocaleDateString('nl-BE', { day: 'numeric', month: 'numeric', year: 'numeric' })
+        : '';
       const openKnop = res.reviewMode
         ? `<button class="btn btn-primary small" style="margin-top:6px;"
              onclick="event.stopPropagation(); openToetsReadonly('${escR(res.code)}')">📖 Toets openen</button>`
         : '';
       return `<div class="res-kaart" style="${kleurStijl}" onclick="toggleResultaat('${escR(res.code)}', this)">
         <div class="titel">${icoon} ${escR(res.name)} ${score}</div>
-        <div class="muted" style="font-size:0.78rem;margin-top:3px;">${escR(res.className)}</div>
+        <div class="muted" style="font-size:0.78rem;margin-top:3px;">${escR(res.className)}${datumTekst ? ' · ' + datumTekst : ''}</div>
         ${openKnop}
         <div class="res-detail" style="display:none;"></div>
       </div>`;
@@ -378,4 +417,4 @@ async function toggleResultaat(code, kaart) {
 
 laad();
 </script>
-<script src="/privacy.js?v=v2026.2.51.35"></script></body></html>
+<script src="/privacy.js?v=v2026.2.51.55"></script></body></html>

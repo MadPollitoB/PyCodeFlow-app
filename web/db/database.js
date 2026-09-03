@@ -328,6 +328,18 @@ async function initSchema() {
       PRIMARY KEY (teacher_id, class_id)
     );
 
+    -- Bugfix: welke klas(sen) hebben toegang tot een gewone (klas)sessie. Zonder rijen hier
+    -- voor een sessie = "alle klassen van de leerkracht" (het gedrag zoals het al was, en
+    -- ook wat de leerkracht bedoelt met "ALLE" in de pop-up bij het aanmaken) — met rijen =
+    -- enkel die specifieke klas(sen). ON DELETE CASCADE aan beide kanten: verdwijnt de
+    -- sessie of de klas, dan is de koppeling zinloos geworden.
+    CREATE TABLE IF NOT EXISTS session_classes (
+      session_code TEXT NOT NULL REFERENCES sessions(code) ON DELETE CASCADE,
+      class_id     TEXT NOT NULL REFERENCES classes(id)    ON DELETE CASCADE,
+      PRIMARY KEY (session_code, class_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_session_classes_class ON session_classes(class_id);
+
     -- Sprint 12c: leerlingen (de PERSOON — bestaat één keer, los van schooljaar)
     CREATE TABLE IF NOT EXISTS students (
       id           TEXT PRIMARY KEY,
@@ -2362,9 +2374,39 @@ module.exports = {
     await query(`UPDATE students SET notes = $1 WHERE id = $2`, [notes.slice(0, 500), id]);
   },
 
+  // Bugfix: een leerling verwijderen liet vroeger overal wees-data achter — enkel
+  // class_memberships, student_sessions en assignment_students hebben een echte FK met
+  // ON DELETE CASCADE naar students(id); alle andere tabellen die aan een leerling hangen
+  // (code-snapshots, quizantwoorden, opmerkingen, volgorde, uitvoergeschiedenis, taakstatus,
+  // vrij-oefenen-blokkades/-log) gebruiken enkel een los student_id-veld zonder constraint.
+  // Bij "ALLES wat eraan hangt" verwijderen hoort dat dus expliciet mee opgeruimd te worden.
+  // Alles gebeurt in één transactie: ofwel verdwijnt de leerling volledig, ofwel niets.
   async deleteStudent(id) {
-    const r = await query(`DELETE FROM students WHERE id = $1`, [id]);
-    return r.rowCount > 0;
+    return await withTransaction(async (client) => {
+      // ai_grade_feedback/-corrections hangen niet rechtstreeks aan student_id, maar aan
+      // answer_id (= quiz_answers.id) — eerst de betrokken answer-id's opzoeken.
+      const antwoorden = await client.query(
+        `SELECT id FROM quiz_answers WHERE student_id = $1`, [id]);
+      const answerIds = antwoorden.rows.map(r => r.id);
+      if (answerIds.length) {
+        await client.query(
+          `DELETE FROM ai_grade_feedback WHERE answer_id = ANY($1::text[])`, [answerIds]);
+        await client.query(
+          `DELETE FROM ai_grade_corrections WHERE answer_id = ANY($1::text[])`, [answerIds]);
+      }
+      await client.query(`DELETE FROM quiz_answers WHERE student_id = $1`, [id]);
+      await client.query(`DELETE FROM quiz_general_comments WHERE student_id = $1`, [id]);
+      await client.query(`DELETE FROM quiz_student_order WHERE student_id = $1`, [id]);
+      await client.query(`DELETE FROM quiz_run_history WHERE student_id = $1`, [id]);
+      await client.query(`DELETE FROM code_snapshots WHERE student_id = $1`, [id]);
+      await client.query(`DELETE FROM assignment_student_status WHERE student_id = $1`, [id]);
+      await client.query(`DELETE FROM free_practice_student_blocks WHERE student_id = $1`, [id]);
+      await client.query(`DELETE FROM free_practice_log WHERE student_id = $1`, [id]);
+      // class_memberships, student_sessions, assignment_students: ON DELETE CASCADE,
+      // verdwijnen automatisch mee met de DELETE hieronder.
+      const r = await client.query(`DELETE FROM students WHERE id = $1`, [id]);
+      return r.rowCount > 0;
+    });
   },
 
   async getStudentByGoogleEmail(email) {
@@ -3465,6 +3507,12 @@ module.exports = {
   // toetsen/taken). De bruikbare band is dus: sessies van leerkrachten die aan een van
   // MIJN klassen gekoppeld zijn (teacher_classes). Dat geeft precies "de lessen van mijn
   // eigen leerkrachten" en lekt niets van andere klassen of scholen.
+  // Bugfix: een leerling zag voorheen ALLE open sessies van elke leerkracht die hem/haar
+  // in ÉÉN van zijn klassen lesgeeft — ook sessies die die leerkracht voor een heel andere
+  // klas aanmaakte. We filteren nu bijkomend via session_classes (13a): heeft de sessie
+  // daar rijen, dan moet de klas van de leerling er expliciet bij staan; heeft de sessie
+  // er GEEN (oude sessies van vóór deze fix, of bewust "ALLE klassen" gekozen), dan geldt
+  // het oude gedrag (alle klassen van de leerkracht) als veilige terugval.
   async listOpenSessionsForStudent(studentId) {
     const r = await query(
       `SELECT DISTINCT s.code, s.name, s.created_at,
@@ -3476,8 +3524,59 @@ module.exports = {
          JOIN classes c           ON c.id = tc.class_id
          JOIN class_memberships m ON m.class_id = c.id AND m.student_id = $1
         WHERE s.closed = 0 AND s.deleted = 0 AND s.mode <> 'quiz'
+          AND (
+            NOT EXISTS (SELECT 1 FROM session_classes sc WHERE sc.session_code = s.code)
+            OR EXISTS (
+              SELECT 1 FROM session_classes sc
+               WHERE sc.session_code = s.code AND sc.class_id = c.id
+            )
+          )
         ORDER BY s.created_at DESC`, [studentId]);
     return r.rows;
+  },
+
+  // Bugfix (13a): welke klassen zijn gekoppeld aan een sessie (leeg = alle klassen van de
+  // leerkracht). Voor het vooraf aanvinken van de pop-up bij het bewerken/opnieuw aanmaken.
+  // Bugfix (13a-vervolg): welke klassen zijn gekoppeld aan sessie, MÉT naam — voor het
+  // sessieoverzicht (Bug: leerkracht zag nergens welke klassen toegang hebben). Werkt in
+  // bulk voor een lijst codes i.p.v. per sessie een aparte round-trip. Geeft een Map
+  // terug: code -> array klasnamen (ontbreekt de code in de Map, dan gelden ALLE klassen
+  // van de leerkracht — dezelfde terugval als overal elders bij session_classes).
+  async getSessionClassNamesBulk(sessionCodes) {
+    const codes = Array.isArray(sessionCodes) ? sessionCodes.filter(Boolean) : [];
+    const result = new Map();
+    if (!codes.length) return result;
+    const r = await query(
+      `SELECT sc.session_code, c.name
+         FROM session_classes sc
+         JOIN classes c ON c.id = sc.class_id
+        WHERE sc.session_code = ANY($1::text[])
+        ORDER BY c.name`, [codes]);
+    for (const row of r.rows) {
+      if (!result.has(row.session_code)) result.set(row.session_code, []);
+      result.get(row.session_code).push(row.name);
+    }
+    return result;
+  },
+
+  async getSessionClasses(sessionCode) {
+    const r = await query(
+      `SELECT class_id FROM session_classes WHERE session_code = $1`, [sessionCode]);
+    return r.rows.map(row => row.class_id);
+  },
+
+  // Bugfix (13a): koppel een sessie aan specifieke klassen. classIds = null/leeg array
+  // betekent "ALLE klassen van de leerkracht" (= geen rijen, de bestaande terugval).
+  async setSessionClasses(sessionCode, classIds) {
+    await withTransaction(async (client) => {
+      await client.query(`DELETE FROM session_classes WHERE session_code = $1`, [sessionCode]);
+      const ids = Array.isArray(classIds) ? [...new Set(classIds.filter(Boolean))] : [];
+      for (const classId of ids) {
+        await client.query(
+          `INSERT INTO session_classes (session_code, class_id) VALUES ($1, $2)
+           ON CONFLICT DO NOTHING`, [sessionCode, classId]);
+      }
+    });
   },
 
   // ── Sprint 71: alle toetsen/taken van één klas + schooljaar (voor de matrix) ─

@@ -2,12 +2,23 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Leerling</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.35"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.55"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 </head><body>
+<!-- Sprint 60: blokkerende melding wanneer de leerkracht niet (meer) ingelogd is op
+     deze sessie. Standaard verborgen; wordt getoond/verborgen door
+     updateTeacherOnlineOverlay() in app.js op basis van student_state.teacherOnline. -->
+<div id="teacher-offline-overlay" class="teacher-offline-overlay" style="display:none;" role="alertdialog" aria-modal="true" aria-labelledby="teacher-offline-title">
+  <div class="teacher-offline-box">
+    <div class="teacher-offline-spinner" aria-hidden="true"></div>
+    <div id="teacher-offline-title" class="teacher-offline-title">Je leerkracht is nog niet ingelogd</div>
+    <p class="teacher-offline-text">Zodra je leerkracht deze sessie opent, kan je verder. Je kan hier wachten, of terugkeren naar je overzicht.</p>
+    <button class="btn btn-muted" id="teacher-offline-close-btn" type="button">Terug naar mijn overzicht</button>
+  </div>
+</div>
 <div class="topbar"><div class="topbar-inner">
   <div class="logo-group"><img src="/assets/pycodeflow-logo.png" class="logo-small" alt="PyCodeFlow logo"/><span>PyCodeFlow</span></div>
-  <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a></div>
+  <div class="top-actions"><a href="/student-thuis.html" class="btn btn-muted small">Mijn overzicht</a><a href="/index.html" class="btn btn-muted small">Home</a></div>
 </div></div>
 <div class="page">
 
@@ -70,4 +81,4 @@
   </div>
 </div>
 </div><script src="/socket.io/socket.io.js"></script><script src="/monaco-env.js"></script>
-<script src="/monaco/min/vs/loader.js"></script><script src="/app.js?v=v2026.2.51.35"></script><script src="/privacy.js?v=v2026.2.51.35"></script></body></html>
+<script src="/monaco/min/vs/loader.js"></script><script src="/app.js?v=v2026.2.51.55"></script><script src="/privacy.js?v=v2026.2.51.55"></script></body></html>

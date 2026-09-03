@@ -85,6 +85,7 @@ function leerlingRij(s, klasId) {
       ${s.status !== 'active' ? `<button class="btn btn-success small" onclick="zetStatus('${s.id}','active')">✓ Aanvaarden</button>` : ''}
       ${s.status !== 'blocked' ? `<button class="btn btn-muted small" onclick="blokkeer('${s.id}','${esc(s.name)}')">✕ Blokkeren</button>` : ''}
       ${s.email ? `<button class="btn btn-muted small" title="Reset klaarzetten — de leerling kiest zelf een nieuw wachtwoord via de klascode" onclick="resetWw('${s.id}','${esc(s.name)}')">🔑 Reset</button>` : ''}
+      <button class="btn btn-danger small" title="Leerling definitief verwijderen (incl. al zijn/haar resultaten)" onclick="verwijder('${s.id}','${esc(s.name)}')">🗑 Verwijderen</button>
     </span>
   </div>`;
 }
@@ -141,6 +142,23 @@ async function resetWw(id, naam) {
     await window.pyAlert('Reset staat klaar. Geef de leerling de klascode; die herstelt via "Wachtwoord vergeten".', 'success');
     laadKlassen();
   } else foutmelding(d, r);
+}
+
+async function verwijder(id, naam) {
+  // Bugfix: leerkrachten konden voorheen enkel blokkeren, nooit écht verwijderen — een
+  // dubbel aangemaakte leerling (bv. per ongeluk tweemaal ingevoerd) bleef dan voorgoed
+  // in de lijst staan. Verwijderen is definitief en neemt ALLE data van de leerling mee
+  // (resultaten, code-geschiedenis, opmerkingen, …), dus een expliciete, zware bevestiging.
+  const ok = await window.pyConfirm({
+    title: 'Leerling verwijderen',
+    body: `"${naam}" definitief verwijderen? Dit kan niet ongedaan gemaakt worden en verwijdert ALLES wat aan deze leerling hangt: resultaten, code-geschiedenis en opmerkingen — in al zijn/haar klassen.`,
+    confirmLabel: 'Definitief verwijderen',
+    danger: true,
+  });
+  if (!ok) return;
+  const r = await window.apiFetch(`/api/admin/students/${id}`, { method: 'DELETE' });
+  const d = await r.json().catch(() => ({}));
+  if (r.ok && d.ok) laadKlassen(); else foutmelding(d, r);
 }
 
 async function voegToe(klasId) {

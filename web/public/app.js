@@ -6,9 +6,25 @@
                         'quiz-review.html', 'index.html', 'student-start.html', 'student', ''];
   const _currentPage = location.pathname.split('/').pop() || 'index.html';
   const socket = _socketPages.includes(_currentPage) && typeof io !== 'undefined'
-    ? io()
+    // Bugfix (sprint 62.1): standaard begint socket.io-client pas na 1s met
+    // herverbinden, oplopend tot 5s tussen pogingen — bovenop de tragere
+    // dode-verbinding-detectie die we nu ook al aan de serverkant verstrakt hebben.
+    // Sneller instellen zodat een herverbinding (en dus elke server->leerling-
+    // melding die daarop wachtte) merkbaar rapper hersteld is.
+    ? io({ reconnectionDelay: 200, reconnectionDelayMax: 1200 })
     : { on: () => {}, emit: () => {}, off: () => {}, connected: false };
   const page = location.pathname.split('/').pop() || 'index.html';
+
+  // Bugfix (sprint 62.2): "mijn-klassen.html mist een footer" — en potentieel andere
+  // pagina's ook, afhankelijk van of er verderop in dit bestand ooit een fout optreedt
+  // voor een specifiek scherm (bv. een ontbrekend DOM-element waar geen qs()-check op
+  // staat). Zo'n fout stopt de rest van DEZE synchrone scriptuitvoering, waardoor de
+  // (voorheen helemaal onderaan geregistreerde) footer-opbouw nooit meer aan de beurt
+  // kwam. injectFooter() is een function-declaratie (dus gehoist binnen deze IIFE) —
+  // door de registratie hier, meteen bovenaan, te zetten i.p.v. onderaan, gebeurt ze
+  // vóór al de rest, en blijft de footer dus gegarandeerd verschijnen ongeacht wat er
+  // verderop in het bestand misloopt op een specifieke pagina.
+  window.addEventListener('DOMContentLoaded', injectFooter);
 
   // Sprint 10T: verbindingsstatus indicator
   function updateConnectionStatus(status) {
@@ -832,7 +848,7 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
           <strong style="font-size:1rem;">${escapeHtml(s.name)}</strong>
           <span class="badge ${s.status === 'geblokkeerd' ? 'badge-warn' : 'badge-success'}" style="font-size:0.75rem;flex-shrink:0;">${s.status}</span>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px;">
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:12px;">
           <div style="background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:6px 10px;">
             <div style="font-size:0.72rem;color:var(--muted);font-weight:700;margin-bottom:2px;">Type</div>
             <div style="font-size:0.85rem;font-weight:700;">${s.mode === 'exam' ? 'Examen' : 'Klas'}</div>
@@ -848,6 +864,10 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
           <div style="background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:6px 10px;">
             <div style="font-size:0.72rem;color:var(--muted);font-weight:700;margin-bottom:2px;">Codehulp</div>
             <div style="font-size:0.85rem;font-weight:700;">${s.editorAssist ? 'Aan' : 'Uit'}</div>
+          </div>
+          <div style="background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:6px 10px;" title="${s.classNames && s.classNames.length ? escapeHtml(s.classNames.join(', ')) : 'Alle klassen van jou hebben toegang'}">
+            <div style="font-size:0.72rem;color:var(--muted);font-weight:700;margin-bottom:2px;">Klassen</div>
+            <div style="font-size:0.85rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.classNames && s.classNames.length ? escapeHtml(s.classNames.join(', ')) : 'Alle klassen'}</div>
           </div>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -1563,6 +1583,12 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
   };
 
   if (page === 'teacher-sessions.html') {
+    // Bugfix (sprint 60.1): dit is de LIJST-pagina, geen specifieke sessie — laat de
+    // server expliciet weten dat deze leerkracht-socket nergens "in" zit. Dekt het
+    // geval waarbij een leerkracht net een sessie aanmaakte en op deze lijst blijft
+    // staan zonder ooit op "Open" te klikken (dan bleef teacherSocketId anders onterecht
+    // bezet, en zagen leerlingen nooit de "leerkracht niet ingelogd"-melding).
+    socket.emit('teacher_leave_all_sessions');
     // Sprint 43.2b/43.7: rechtstreeks naar de toetsen-/takenbank via ?tab=quizzes(&type=toets|taak)
     if (new URLSearchParams(location.search).get('tab') === 'quizzes') {
       const t = new URLSearchParams(location.search).get('type');
@@ -1618,16 +1644,31 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       });
     });
     updateCreateAssistBadge();
-    qs('create-session-btn')?.addEventListener('click', () => {
+    // Bugfix (13a): vóór het aanmaken van een gewone (klas)sessie eerst vragen welke
+    // klassen er toegang toe krijgen. Bij examenmodus slaan we dit bewust over — een
+    // examensessie werkt via de sessiecode, niet via de klassen-dropdown van leerlingen.
+    qs('create-session-btn')?.addEventListener('click', async () => {
       const templateSel = qs('template-select');
       const templateCode = templateSel?.value
         ? (templateSel.options[templateSel.selectedIndex]?.dataset?.code || '')
         : '';
+      let classIds = null;
+      if (selectedMode !== 'exam') {
+        let klassen = [];
+        try {
+          const r = await apiFetch('/api/classes');
+          if (r.ok) klassen = await r.json();
+        } catch (e) { /* geen klassen kunnen laden → gewoon "alle klassen" */ }
+        const keuze = await window.pyClassPicker(klassen);
+        if (keuze === undefined) return; // geannuleerd
+        classIds = keuze; // null = alle klassen, of een array met gekozen klas-id's
+      }
       socket.emit('teacher_create_session', {
         name: qs('session-name').value.trim() || 'Nieuwe sessie',
         mode: selectedMode,
         editorAssist: selectedEditorAssist,
         templateCode: templateCode || undefined,
+        classIds,
       });
     });
     socket.on('session_created', ({ code }) => {
@@ -2402,24 +2443,44 @@ function getStudentVisibleWorkspace(data = studentWorkspaceState) {
 
 function updateStudentRunAvailability(data = studentWorkspaceState) {
   const btn = qs('student-run-btn');
-  if (!btn) return;
-  const visible = getStudentVisibleWorkspace(data);
-  const activeWorkspace = data.activeWorkspace || 'shared';
-  let runDisabled = true;
-  if (data.mode === 'exam') {
-    runDisabled = !(data.personalCanRun !== false);
-  } else if (activeWorkspace === 'personal') {
-    runDisabled = !(data.personalCanRun !== false);
-  } else {
-    if (visible === 'shared') {
-      runDisabled = !(data.classCanRun !== false);
-    } else if (visible === 'personal') {
-      runDisabled = true;
+  if (btn) {
+    const visible = getStudentVisibleWorkspace(data);
+    const activeWorkspace = data.activeWorkspace || 'shared';
+    let runDisabled = true;
+    if (data.mode === 'exam') {
+      runDisabled = !(data.personalCanRun !== false);
+    } else if (activeWorkspace === 'personal') {
+      runDisabled = !(data.personalCanRun !== false);
     } else {
-      runDisabled = true;
+      if (visible === 'shared') {
+        runDisabled = !(data.classCanRun !== false);
+      } else if (visible === 'personal') {
+        runDisabled = true;
+      } else {
+        runDisabled = true;
+      }
     }
+    btn.disabled = runDisabled;
   }
-  btn.disabled = runDisabled;
+  updateStudentActionButtonsAvailability(data);
+}
+
+// Sprint (bugfix): "Klaar" en "Hand opsteken" horen enkel te kunnen op het EIGEN werkblad —
+// niet terwijl de klascode actief staat (dan werkt iedereen samen op hetzelfde gedeelde
+// scherm en heeft "ik ben klaar"/"ik heb een vraag over MIJN code" geen betekenis). Zodra
+// de leerkracht klascode aanzet, grijzen we de knoppen uit; op het eigen werkblad (of in
+// examenmodus, die altijd op 'personal' werkt) blijven ze gewoon bruikbaar.
+function updateStudentActionButtonsAvailability(data = studentWorkspaceState) {
+  const eigenWerkblad = data.mode === 'exam' ? true : ((data.activeWorkspace || 'shared') === 'personal');
+  const doneBtn = qs('student-done-btn');
+  const handBtn = qs('student-raise-hand-btn');
+  [doneBtn, handBtn].forEach(btn => {
+    if (!btn) return;
+    btn.disabled = !eigenWerkblad;
+    btn.title = eigenWerkblad
+      ? (btn === doneBtn ? 'Meld aan de leerkracht dat je klaar bent' : 'Steek je hand op')
+      : 'Enkel beschikbaar op je eigen werkblad (niet terwijl de klascode actief staat)';
+  });
 }
 
 function refreshStudentWorkspaceUi(data) {
@@ -2523,7 +2584,18 @@ async function applyStudentEditorFromState() {
     if (!state) { go('/student-start.html'); return; }
     const code = getLS('studentSessionCode');
     const studentId = getLS('studentId');
-    socket.emit('student_reconnect', { code, studentId });
+    // Bugfix (sprint 60.2): dit werd voorheen maar ÉÉN keer verstuurd, bij het laden
+    // van de pagina — niet telkens de socket zelf herverbindt (bv. na een korte
+    // netwerkhapering, zonder dat de leerling de pagina herlaadt). socket.io geeft de
+    // herverbonden socket een NIEUW id; zonder een nieuwe student_reconnect bleef de
+    // server dan naar de oude, dode verbinding wijzen (student.socketId), waardoor
+    // GEEN enkele server->leerling-melding (incl. de "leerkracht niet
+    // ingelogd"-popup) nog aankwam — pas een volledige F5 (die dit blok opnieuw
+    // uitvoert) herstelde het. 'connect' vuurt zowel bij de EERSTE verbinding als bij
+    // elke latere herverbinding, dus dit dekt nu ook stille reconnects.
+    socket.on('connect', () => {
+      socket.emit('student_reconnect', { code, studentId });
+    });
 
     qs('student-run-btn')?.addEventListener('click', () => {
       saveStudentLocalDraft();
@@ -2681,6 +2753,32 @@ async function applyStudentState(data) {
   }
   updateAnnouncement('student', data.announcement || '');
   updateStudentRunAvailability(studentWorkspaceState);
+  updateTeacherOnlineOverlay(data.teacherOnline);
+}
+
+// Sprint 60: blokkerende melding tonen/verbergen op basis van of de leerkracht
+// effectief ingelogd is op deze sessie (session.teacherSocketId). Enkel relevant op
+// student-app.html (gewone klas-/examensessie) — quiz-student.html luistert niet
+// naar 'student_state' en krijgt deze melding dus sowieso nooit te zien.
+// Sprint 60.2 (bugfix): zelfcorrigerend vangnet — zolang de "leerkracht niet
+// ingelogd"-popup zichtbaar is, vragen we elke paar seconden actief de actuele status
+// op (naast de gewone broadcast), zodat een gemiste/vertraagde melding (bv. door
+// socket.io's eigen reconnectievertraging) zichzelf binnen enkele seconden herstelt —
+// geen handmatige F5 meer nodig.
+let _teacherOfflinePollInterval = null;
+function updateTeacherOnlineOverlay(teacherOnline) {
+  const overlay = qs('teacher-offline-overlay');
+  if (!overlay) return;
+  const offline = teacherOnline === false;
+  overlay.style.display = offline ? 'flex' : 'none';
+  if (offline && !_teacherOfflinePollInterval) {
+    _teacherOfflinePollInterval = setInterval(() => {
+      if (socket && socket.connected) socket.emit('student_check_status');
+    }, 3000);
+  } else if (!offline && _teacherOfflinePollInterval) {
+    clearInterval(_teacherOfflinePollInterval);
+    _teacherOfflinePollInterval = null;
+  }
 }
 
     if (state) applyStudentState(state);
@@ -2689,6 +2787,12 @@ async function applyStudentState(data) {
     updateCopyButtonLabel('student');
     // Sprint 10U: auto-scroll
     setupAutoScroll('student-output-panel');
+
+    // Sprint 60: "Terug naar mijn overzicht" op de blokkerende "leerkracht niet
+    // ingelogd"-melding.
+    qs('teacher-offline-close-btn')?.addEventListener('click', () => {
+      window.location.href = '/student-thuis.html';
+    });
 
     // Sprint 11C: leerling ziet eigen code-history
     qs('student-history-btn')?.addEventListener('click', async () => {
@@ -2722,6 +2826,15 @@ async function applyStudentState(data) {
       setLS('studentId', data.student.id);
       setLS('studentName', data.student.name);
       await applyStudentState(data);
+    });
+
+    // Sprint 60.2: bij een herverbinding (na een kortstondige netwerkhapering) meteen
+    // de actuele status opvragen i.p.v. te wachten op de eerstvolgende poll — sneller
+    // herstel van de "leerkracht niet ingelogd"-popup als die intussen achterhaald is.
+    socket.on('connect', () => {
+      if (qs('teacher-offline-overlay')?.style.display === 'flex') {
+        socket.emit('student_check_status');
+      }
     });
 
     // Lichtgewicht event: alleen de opdrachttekst bijwerken, zonder volledige state-reset
@@ -3103,7 +3216,8 @@ async function applyStudentState(data) {
   document.body.appendChild(footer);
 }
 
-window.addEventListener('DOMContentLoaded', injectFooter);
+// (De aanroep van injectFooter() gebeurt bovenaan dit bestand, via
+// window.addEventListener('DOMContentLoaded', injectFooter) — zie sprint 62.2.)
 
 // ── Sprint 26: globale window-exports — alle functies bereikbaar vanuit HTML ──
 // app.js zit in een IIFE-closure; functies die vanuit onclick/onchange worden
@@ -3325,6 +3439,58 @@ window.pyPrompt = function(opties) {
   });
 };
 
+// Bugfix (13a): pop-up met vinkjes bij het aanmaken van een gewone sessie — welke klas(sen)
+// mogen deze sessie zien? "Alle klassen" (default aangevinkt) schakelt de losse vinkjes uit.
+// Geeft een Promise<string[]|null> terug: een array van gekozen classId's, null voor "alle
+// klassen" (of wanneer de leerkracht geen klassen heeft), of resolve(undefined) bij Annuleren.
+window.pyClassPicker = function(classes) {
+  return new Promise(function (resolve) {
+    if (!classes || !classes.length) { resolve(null); return; }
+    var existing = document.getElementById('py-modal-overlay');
+    if (existing) existing.parentNode.removeChild(existing);
+    var overlay = document.createElement('div');
+    overlay.id = 'py-modal-overlay';
+    var rijen = classes.map(function (c) {
+      return '<label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;">' +
+        '<input type="checkbox" class="py-klas-vink" value="' + c.id + '" checked disabled/>' +
+        '<span>' + (c.name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span></label>';
+    }).join('');
+    overlay.innerHTML =
+      '<div id="py-modal-box">' +
+        '<div id="py-modal-title">Welke klassen krijgen toegang?</div>' +
+        '<div id="py-modal-body">' +
+          '<label style="display:flex;align-items:center;gap:8px;padding:6px 0 10px;border-bottom:1px solid var(--border);margin-bottom:6px;cursor:pointer;font-weight:700;">' +
+            '<input type="checkbox" id="py-klas-alle" checked/><span>Alle klassen</span></label>' +
+          '<div id="py-klas-lijst" style="max-height:260px;overflow-y:auto;">' + rijen + '</div>' +
+        '</div>' +
+        '<div id="py-modal-actions">' +
+          '<button id="py-modal-cancel" class="btn btn-muted small">Annuleren</button>' +
+          '<button id="py-modal-confirm" class="btn btn-primary small">Sessie aanmaken</button>' +
+        '</div>' +
+      '</div>';
+    function close(result) {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    }
+    function onKey(e) { if (e.key === 'Escape') close(undefined); }
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(undefined); });
+    document.body.appendChild(overlay);
+    document.addEventListener('keydown', onKey);
+    var alleVink = document.getElementById('py-klas-alle');
+    var vinkjes = Array.prototype.slice.call(overlay.querySelectorAll('.py-klas-vink'));
+    alleVink.addEventListener('change', function () {
+      vinkjes.forEach(function (v) { v.disabled = alleVink.checked; if (alleVink.checked) v.checked = true; });
+    });
+    document.getElementById('py-modal-cancel').addEventListener('click', function () { close(undefined); });
+    document.getElementById('py-modal-confirm').addEventListener('click', function () {
+      if (alleVink.checked) { close(null); return; }
+      var gekozen = vinkjes.filter(function (v) { return v.checked; }).map(function (v) { return v.value; });
+      if (!gekozen.length) { if (window.pyAlert) pyAlert('Kies minstens één klas, of "Alle klassen".', 'warn'); return; }
+      close(gekozen);
+    });
+  });
+};
 
 // ── Sprint 25g: pyAlert — blokkerende notificatie-modal ─────────────────────
 window.pyAlert = function(message, type) {

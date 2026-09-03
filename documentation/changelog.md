@@ -1,3 +1,579 @@
+## v2026.2.51.55 — Bugfix: footer ontbrak op bijna alle schermen + groene selectie-indicatie + ping verder verstrakt
+
+### De echte oorzaak van de ontbrekende footer
+`injectFooter()` (de functie die overal de standaardfooter opbouwt: "© 2026 PyCodeFlow
+— ontwikkeld door B. Claes • vX.X.X.X • Privacy") was in `app.js` wél **gedefinieerd**,
+maar werd nergens **aangeroepen** — dode code. Daardoor kregen alle pagina's die enkel
+app.js laden en zelf geen eigen footer-oplossing hebben — `mijn-klassen.html`,
+`klasmatrix.html`, `admin.html`, `monitoring.html`, `teacher-app.html`,
+`teacher-sessions.html`, `student-thuis.html`, `sjablonen.html`, alle `quiz-*.html`,
+`taak-/toets-overzicht.html`, `free-editor.html`, `teacher-grid.html` — helemaal geen
+footer. Nu wordt `injectFooter()` bovenaan het bestand geregistreerd op
+`DOMContentLoaded`, zodat de footer gegarandeerd verschijnt, ongeacht wat er verderop
+in het bestand op een specifiek scherm eventueel misloopt. `teacher-grid.html` (dat
+zelfs geen app.js laadt) kreeg er `footer-note.js` bij voor dezelfde standaardfooter.
+
+### Groene selectie-indicatie op mijn-klassen.html en klasmatrix.html
+De sub-navigatiebalk gebruikt CSS-regel `.subnav a.active` om de huidige pagina te
+markeren — maar deze twee pagina's gebruikten per ongeluk `class="actief"` (Nederlands)
+in plaats van `class="active"` (Engels), een naam die nergens mee overeenkwam. Simpele
+tikfout, nu gecorrigeerd; de huidige pagina krijgt voortaan overal dezelfde groene
+markering in de sub-navigatie.
+
+### Ping-timing verder verstrakt
+Na de vorige verstrakking (~10s) voelde dat nog steeds traag. Verder aangedraaid naar
+een worst-case van **~5 seconden** voor het detecteren van een stil weggevallen
+verbinding, plus een nog snellere clientherverbinding. Bewust niet extremer: te
+agressief zou net valse disconnects kunnen triggeren bij doodgewone
+netwerkschommelingen op een druk klaslokaal-netwerk.
+
+**Getest:** volledige testsuite (338 tests) blijft 100% groen; de gecorrigeerde
+`class="active"` bevestigd aanwezig in de uitgeserveerde HTML via een live, ingelogde
+serverronde. De footer zelf wordt door JavaScript in de browser toegevoegd (niet
+zichtbaar in de kale server-HTML) — dat stuk is dus gecontroleerd via grondige
+codereview (functie correct gedefinieerd, exact één keer aangeroepen, geen
+syntaxfouten) in plaats van een directe visuele test, omdat hier geen browser
+beschikbaar is om dat te renderen.
+
+**Betrokken bestanden:** `web/public/app.js` · `web/public/teacher-grid.html` ·
+`web/public/klasmatrix.html` · `web/public/mijn-klassen.html` · `web/server.js` ·
+`VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.54 — Bugfix: 30-40s vertraging (of geheel geen doorkomen) bij run/code vrijgeven of blokkeren
+
+### De oorzaak
+socket.io stond ingesteld op `pingTimeout: 20000` + `pingInterval: 25000` — bij een
+STIL weggevallen verbinding (bv. een kortstondige wifi-hapering zonder nette
+TCP-afsluiting, heel gewoon op een druk klaslokaal-netwerk met veel toestellen) kon de
+server tot **45 seconden** blijven denken dat een leerling nog verbonden was.
+Zolang dat duurde, gingen ALLE server→leerling-meldingen (run/code vrijgeven of
+blokkeren, individueel of "voor iedereen", de "leerkracht niet ingelogd"-melding, …)
+gewoon nergens heen: `student.socketId` op de server wees nog naar die dode
+verbinding. Pas zodra de server dat eindelijk opmerkte — of een handmatige F5 het
+kortsloot — kwam alles in één keer door. Dit verklaart zowel de vertraging (~30-40s,
+dicht bij de 45s-limiet) als "soms werkt het niet" (als de video net afliep vóór de
+timeout verstreek).
+
+### De fix
+- Server: dode verbindingen worden nu binnen **~10 seconden** opgemerkt in plaats van
+  tot 45s (`pingTimeout`/`pingInterval` fors verstrakt, zonder overdreven agressief te
+  worden — dat zou net valse disconnects kunnen triggeren bij normale
+  netwerkschommelingen).
+- Client: de herverbindingsvertraging na een gedetecteerde disconnect is verkort, zodat
+  de herverbinding zelf (en dus elke wachtende melding) merkbaar sneller hersteld is.
+
+Samen met de sprint 60.2-fix (`student_reconnect` bij elke herverbinding i.p.v. enkel
+bij paginalading) zou een écht weggevallen verbinding zich nu binnen enkele seconden
+moeten herstellen in plaats van tot 45 seconden.
+
+**Getest:** volledige testsuite (338 tests) blijft 100% groen; server opgestart en
+bevestigd foutloos met de nieuwe instellingen. De exacte, real-world timing van een
+stille verbindingsonderbreking is inherent moeilijk in enkele seconden te simuleren in
+een geautomatiseerde test — laat gerust weten of dit in de praktijk voldoende
+verbetert, of dat de instellingen nog verder bijgesteld moeten worden.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/app.js` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.53 — Leerkrachtenscherm herschikt: Leerlingen over volle hoogte
+
+Onder de code-editor stonden Leerlingen/Status/Systeem/Sessie voorheen in ÉÉN kolom
+gestapeld — omdat de Leerlingenlijst van nature langer is dan de andere drie, bleef er
+rechts steeds lege ruimte over onderaan. Nieuwe indeling (CSS Grid met expliciete
+rij/kolomplaatsing):
+
+- **Sessie** (iets smaller, meer hoogte voor o.a. de countdown-timer) onder de
+  code-editor, links.
+- **Status** en **Systeem** ernaast, gestapeld onder elkaar.
+- **Leerlingen** rechts, over de volle hoogte van editor + Sessie samen — kan nu
+  groeien zonder dat de rest uitgerekt of te laag wordt.
+
+Op smalle schermen (onder 980px) valt alles gewoon terug naar één kolom, in dezelfde
+volgorde als voorheen.
+
+**Getest:** volledige testsuite (338 tests) blijft 100% groen (zuiver layout, geen
+backend-impact); bevestigd via een live, ingelogde serverronde dat de nieuwe
+grid-structuur en -klassen effectief in de uitgeserveerde pagina staan.
+
+**Betrokken bestanden:** `web/public/teacher-app.html` · `web/public/styles.css` ·
+`VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.52 — Bugfix: "leerkracht niet ingelogd"-popup bleef soms ~10s hangen (F5 nodig)
+
+### De échte oorzaak
+`student_reconnect` — het event dat de server vertelt "dit is DEZE leerling, koppel me
+aan hun sessie" — werd voorheen maar **één keer** verstuurd, meteen bij het laden van
+`student-app.html`. Niet telkens de onderliggende socket zelf herverbindt (bv. na een
+korte netwerkhapering, wifi-hapering, of gewoon socket.io's eigen periodieke
+herverbinding — zónder dat de leerling de pagina herlaadt). socket.io geeft een
+herverbonden socket een NIEUW id; zonder een nieuwe `student_reconnect` bleef de server
+dan naar de oude, dode verbinding wijzen (`student.socketId`) — waardoor **geen enkele**
+server→leerling-melding meer aankwam, inclusief de nieuwe "leerkracht niet
+ingelogd"-popup uit v2026.2.51.48. Pas een volledige F5 (die dit stuk code opnieuw
+uitvoert) herstelde de koppeling.
+
+### De fix
+`student_reconnect` wordt nu verstuurd bij **elke** `'connect'`-gebeurtenis — die vuurt
+zowel bij de allereerste verbinding als bij elke latere, stille herverbinding.
+Bijkomend, als extra vangnet: zolang de "leerkracht niet ingelogd"-popup zichtbaar is,
+vraagt de leerling-kant elke 3 seconden actief de actuele status op (nieuw, side-effect-
+vrij server-event `student_check_status`) — zodat een eventuele gemiste melding zich
+sowieso binnen enkele seconden zelf corrigeert, ongeacht de precieze oorzaak.
+
+**Getest:** een end-to-end socket.io-smoketest die het exacte scenario naspeelt (sessie
+aangemaakt → leerkracht verlaat meteen → leerling joint, ziet popup → leerling-socket
+valt weg en herverbindt ZONDER paginaherlading → leerkracht logt écht in) bevestigt dat
+de herverbonden leerling meteen de correcte, live status krijgt — geen F5 meer nodig.
+Volledige testsuite (338 tests) blijft daarnaast 100% groen.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/app.js` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.51 — Bugfix: gekleurde randen ontbraken + kleurenlayout leerkrachten-sessieoverzicht
+
+### Waarom de gekleurde randen niet zichtbaar waren
+Op `student-login.html`, `student-register.html` en `student-thuis.html` was de
+`panel-accent-*`-kleurklasse wel netjes toegevoegd, maar zonder zichtbaar effect: elke
+pagina heeft een eigen, pagina-lokale `<style>`-blok dat óók een `border` instelt op
+diezelfde `.auth-card`/`.blok`-klasse — en omdat dat lokale blok ná `styles.css` in de
+broncode staat, won die (kleurloze) rand bij gelijke CSS-specificiteit altijd. Opgelost
+door de `border`(/`background`)-declaratie uit die 3 pagina-lokale stijlen te
+verwijderen; `panel-accent-*` in `styles.css` bepaalt nu overal de rand.
+
+### Nieuw: kleurenlayout voor het leerkrachten-sessieoverzicht
+`teacher-sessions.html` krijgt dezelfde 3-kleurenbehandeling als het leerlingenscherm:
+**Nieuwe sessie** (groen), **Lopende sessies** (blauw), **Vrije sessie** (roodoranje) —
+plus de kleurstaaf onderaan. Terloops ook de vastgeklikte topbalk-afstand (`subnav`)
+bijgewerkt naar de nieuwe, hogere topbalk (was nog op de oude 72px afgestemd).
+
+**Getest:** volledige testsuite (338 tests) blijft 100% groen; alle 4 gewijzigde
+bestanden bevestigd via een live serverronde (incl. ingelogde sessie voor
+teacher-sessions.html) — geen pagina-lokale `border:` meer op de betrokken klassen, en
+de 3 kleurklassen + kleurstaaf effectief aanwezig in de uitgeserveerde HTML.
+
+**Betrokken bestanden:** `web/public/student-login.html` ·
+`web/public/student-register.html` · `web/public/student-thuis.html` ·
+`web/public/teacher-sessions.html` · `VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.50 — Bugfix: leerkracht-blokkade werkte niet als de leerkracht enkel op het sessieoverzicht stond
+
+### Het echte probleem
+De vorige fix (v2026.2.51.48) verwittigde leerlingen correct wanneer de leerkracht
+**disconnect**e (bv. de browser sluit, of de verbinding valt echt weg). Maar `session.
+teacherSocketId` wordt AL bij het **aanmaken** van een sessie gezet op de socket van de
+makende leerkracht — en als die leerkracht nadien gewoon op het sessieoverzicht blijft
+staan (zoals in het gemelde geval: sessie "actief", maar nooit op "Open" geklikt), blijft
+diezelfde socket-verbinding gewoon bestaan. Er gebeurt dan geen disconnect, dus
+`teacherSocketId` bleef onterecht bezet — leerlingen zagen nooit de melding, ook al zat
+er niemand écht "in" de sessie.
+
+### De fix
+Nieuw, expliciet signaal `teacher_leave_all_sessions`: `teacher-sessions.html` (de
+lijst-pagina, nooit een specifieke sessie) stuurt dit meteen bij het laden. De server
+zoekt dan alle sessies waar deze socket nog als `teacherSocketId` geregistreerd staat,
+zet die terug op leeg, en verwittigt de leerlingen — ongeacht OF er een échte disconnect
+plaatsvond. Dit dekt zowel "sessie aangemaakt en op de lijst blijven staan" als eventuele
+andere gevallen waarbij een disconnect om wat voor reden dan ook niet (tijdig) doorkwam.
+
+**Getest:** een gerichte end-to-end socket.io-smoketest die exact het gemelde scenario
+naspeelt (leerkracht maakt sessie aan, blijft verbonden zonder te disconnecten, leerling
+joint) bevestigde eerst de bug (`teacherOnline:true` terwijl de leerkracht enkel op het
+overzicht stond) en daarna de fix (`teacherOnline:false` na `teacher_leave_all_sessions`).
+Volledige testsuite (338 tests) blijft daarnaast 100% groen.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/app.js` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.49 — Nieuwe stijl doorgevoerd op index, registratie, sessiekeuze
+
+Vervolg op de warme-stijl-omslag (v2026.2.51.47): vijf bijkomende schermen krijgen
+dezelfde behandeling.
+
+### Index (rol-keuzescherm)
+Blauwe accentkleur (zoals het leerkrachten-inlogscherm) op de hero-kaart; "Ik ben
+leerkracht" is nu een effen marineblauwe knop i.p.v. een bleke pil; kleurstaaf onderaan;
+de bestaande, server-side ingevulde footer (`{{APP_VERSION}}`) is nu via de gedeelde
+`.footer-note`-stijl consistent met de rest van de app.
+
+### Account aanmaken (registratie) + inloggen (leerlingen)
+Beide kregen dezelfde blauwe accentkleur, een "Home"-knop in de kop, de correcte
+standaardfooter (`student-register.html` laadde voorheen `footer-note.js` niet eens en
+had ook geen "Home"-knop — hetzelfde euvel als eerder bij `student-login.html`), en de
+kleurstaaf onderaan. Ook de twee inlogschermen (leerling én leerkracht) kregen alsnog
+de kleurstaaf, want die ontbrak er nog.
+
+### Sessiekeuze (student-thuis.html — "Waar wil je naartoe?")
+Zelfde herstructurering als bij het gastenscherm (student-start.html, v2026.2.51.40):
+de twee hoofdopties — **Open lessen van jouw klas** (dropdown) en **Ik heb een
+sessiecode** (voor een toets/taak) — staan nu naast elkaar in een breder, responsief
+grid (2 kolommen vanaf 980px, erna 1 kolom), met **Vrij oefenen** als apart, volle-
+breedte blok eronder. Zelfde groen/blauw/roodoranje-kleurencombinatie als op het
+gastenscherm, plus de kleurstaaf onderaan.
+
+**Betrokken bestanden:** `web/public/index.html` · `web/public/student-register.html` ·
+`web/public/student-login.html` · `web/public/teacher-login.html` ·
+`web/public/student-thuis.html` · `web/public/styles.css` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.48 — Leerling-blokkade wanneer leerkracht niet ingelogd is + reset-logica
+
+### Het probleem
+Een leerling kon een gewone (klas-/examen)sessie gewoon "binnen", zelfs als de
+leerkracht daar helemaal niet (meer) op ingelogd was — `session.teacherSocketId` werd
+wel `null` gezet bij het wegvallen van de leerkracht, maar dat werd nergens naar de
+leerling doorgestuurd. Diens scherm bleef gewoon staan zoals het was (code zichtbaar,
+soms zelfs nog "run" aan), zonder enige aanwijzing dat er niemand meer aan het stuur zat.
+
+### Blokkerende melding bij de leerling
+Zodra `session.teacherSocketId` leeg is, toont `student-app.html` nu een **fixed
+overlay-popup** ("Je leerkracht is nog niet ingelogd") bovenop het scherm (dat blijft
+erachter zichtbaar/geladen). De leerling kan:
+- **wachten** — de popup verdwijnt automatisch zodra de leerkracht opnieuw inlogt op de
+  sessie, of
+- **de popup sluiten** via "Terug naar mijn overzicht" → `student-thuis.html`.
+
+Dit werkt zowel bij het **joinen** (leerling komt binnen terwijl de leerkracht al weg
+is) als **live** (leerkracht valt weg terwijl de leerling al aan het werk is) — beide
+paden sturen nu een bijgewerkte `student_state` (met het nieuwe `teacherOnline`-veld)
+naar alle actieve leerlingen in de sessie.
+
+### Reset-logica bij het (opnieuw) inloggen van de leerkracht
+Bij elke `teacher_join_session` op een sessie **die op dat moment in klasmodus staat**
+(gedeelde code, `classWorkspaceMode === 'shared'`) worden ALLE leerlingen teruggezet
+naar **geen recht op code, geen recht op run** — ongeacht wat daarvoor ingesteld stond.
+Staat de sessie op **individuele werkmodus**, dan wordt niets aangeraakt. Dit dekt élke
+manier waarop de leerkracht terugkeert na Sessieoverzicht, Afmelden, Home, of een
+verbindingsonderbreking — die lopen in deze niet-SPA-opzet allemaal via dezelfde
+`teacher_join_session`. **Geldt uitdrukkelijk niet voor toets-/taaksessies** (die
+gebruiken een eigen, apart controlesysteem).
+
+**Getest:** een volledige end-to-end socket.io-smoketest (leerkracht maakt sessie aan →
+leerling joint → rechten expliciet aangezet → leerkracht valt weg (bevestigd:
+`teacherOnline:false`, rechten blijven ongewijzigd) → leerkracht logt opnieuw in
+(bevestigd: `teacherOnline:true` én rechten teruggezet naar false)) — alle beweringen
+geslaagd. Volledige testsuite (338 tests) blijft daarnaast 100% groen.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/app.js` ·
+`web/public/student-app.html` · `web/public/styles.css` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.47 — Warme stijl definitief, schuifknopje weg, leerkrachten-inlog groter
+
+### De nieuwe stijl is nu de enige, permanente stijl
+Het experiment (schuifknopje "Nieuwe stijl proberen" / "Te verfrissend? → oude look")
+is afgerond en goedgekeurd. Alle inhoud van `theme-warm.css` is samengevoegd in
+`styles.css` zelf (onvoorwaardelijk, geen `data-theme`-attribuut meer nodig).
+`theme-warm.css` en `theme-toggle.js` zijn verwijderd, samen met het schuifknopje op
+alle drie de betrokken schermen (Deelnemen, leerling-inlog, leerkracht-inlog).
+
+**De oude (koel-blauwe) stijl blijft volledig bewaard** in het nieuwe
+`web/public/styles-classic-archief.css` — een niet-ingeladen archiefbestand met alle
+oorspronkelijke waarden. Wil je ooit terugkeren: kopieer de inhoud terug naar
+`styles.css`.
+
+### Hoogte-bug op de inlogschermen
+Op beide inlogschermen (leerling én leerkracht) zorgde de sitebrede regel
+`html, body { min-height:100% }` ervoor dat de pagina altijd minstens de volledige
+vensterhoogte kreeg, met een leeg gat tussen het (korte) kaartje en de footer op elk
+venster dat hoger is dan de eigenlijke inhoud. Nieuwe `body.compact-page`-klasse
+schakelt dat specifiek op deze twee schermen uit — de footer volgt nu meteen na de
+kaart, net zoals op het leerling-platform.
+
+### Leerkrachten-inlogscherm ~15% groter
+Kaart, logo, titel, invoervelden en de aanmeld-knop zijn ongeveer 15% vergroot,
+getoetst tegen een 1366×768 chromebookscherm (totale paginahoogte komt daarmee op
+ongeveer 700px — past nog ruim).
+
+### Terloops
+- De titel "Deelnemen" behoudt haar kleinere formaat via een nieuwe, specifieke
+  `.titel-compact`-klasse i.p.v. een generieke `.screen h1`-regel — zo blijven alle
+  ANDERE pagina-titels in de app op hun gewone formaat.
+- De pagina-achtergrond (`body`, en `.bg-page` op het leerkrachtenscherm) gebruikt nu
+  overal `var(--bg)` in plaats van een hard gecodeerde kleur.
+
+**Betrokken bestanden:** `web/public/styles.css` ·
+`web/public/styles-classic-archief.css` (nieuw, archief) ·
+`web/public/student-start.html` · `web/public/student-login.html` ·
+`web/public/teacher-login.html` · `web/public/theme-warm.css` (verwijderd) ·
+`web/public/theme-toggle.js` (verwijderd) · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.46 — Te veel lege ruimte op het leerkrachten-inlogscherm
+
+Het inlogkaartje werd verticaal gecentreerd over (bijna) de volle vensterhoogte
+(`calc(100vh - 220px)`) — op een normaal, hoog browservenster gaf dat een veel te grote
+lege ruimte boven en onder het kaartje. Nu, net als bij het leerling-inlogscherm, gewoon
+een vaste bovenmarge in plaats van verticaal centreren over de hele resterende hoogte.
+
+**Betrokken bestanden:** `web/public/teacher-login.html` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.45 — Volgorde "Account" en "Snel deelnemen" verwisseld
+
+Op het Deelnemen-scherm stond "Snel deelnemen" (gast, zonder account) links en "Account"
+rechts. Omgedraaid: "Account" staat nu eerst (links) — normaal gezien loggen leerlingen
+in via hun account; "Snel deelnemen" is de uitzondering voor wie (nog) geen account
+heeft, niet de standaard.
+
+**Betrokken bestanden:** `web/public/student-start.html` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.44 — Footer-bug gefixt + header/footer voor beide inlogschermen + nieuwe stijl als standaard
+
+### Footer-bug (echte oorzaak gevonden)
+De footer op het "Deelnemen"-scherm bleek onvolledig — enkel "· Privacy", zonder de
+standaard "© 2026 PyCodeFlow — ontwikkeld door B. Claes • vX.X.X.X" ervoor. Oorzaak: ik
+had daar zelf een LEGE `<div class="footer-note">` klaargezet "voor privacy.js" —
+maar `app.js` z'n eigen `injectFooter()` slaat het aanmaken van de footer juist over
+zodra er al een `.footer-note` bestaat (bedoeld om dubbele footers te vermijden). Mijn
+lege div bleef dus leeg op de Privacy-link na. Opgelost door die vooraf-lege div gewoon
+weer te verwijderen: `app.js` (al geladen op deze pagina) bouwt de STANDAARD footer nu
+zelf, exact zoals op elk ander scherm.
+
+### Nieuw: leerkrachten- en leerling-inlogscherm kregen kop en voet
+- `teacher-login.html` was een volledig losstaand fullscreen-overlayscherm zonder enige
+  kop of voet. Herstructureerd naar een gewone pagina: sticky header bovenaan (logo +
+  "Home"), het inlogkaartje gecentreerd ertussenin, standaard footer onderaan. Kaart,
+  velden en alle bestaande JS/gedrag blijven functioneel ongewijzigd.
+- `student-login.html` had al een kop maar geen footer — zelfde soort probleem als
+  hierboven (geen `.footer-note` → povere fallback van privacy.js na 8s). Nu ook een
+  "Home"-knop in de kop en een correcte standaardfooter.
+- Nieuw gedeeld bestand `footer-note.js`: exact dezelfde footer-opbouw als `app.js`'
+  `injectFooter()`, voor de lichte inlogschermen die app.js zelf niet laden.
+
+### Warm thema uitgebreid naar beide inlogschermen — en nu de standaard
+- Beide inlogschermen kregen dezelfde blauwe accentstijl als het "Account"-blok op het
+  Deelnemen-scherm (kader + titel + knop), met het schuifknopje rechtsboven.
+- **De nieuwe (warme) stijl is nu overal de standaard-weergave** (was voorheen opt-in).
+  Het schuifknopje is daarom omgedraaid naar een opt-OUT: **"Te verfrissend? → oude
+  look"**. Wie nog nooit koos, ziet voortaan de nieuwe stijl; wie expliciet terugschakelt
+  (onthouden per browser), ziet de klassieke stijl.
+- Terloops meegenomen: de pagina-achtergrond (buiten de witte kaart) was hard gecodeerd
+  in `styles.css`/`teacher-login.html` i.p.v. via de themavariabele, en bleef daardoor
+  ook onder het warme thema koelgrijs — nu correct via `var(--bg)`.
+
+**Betrokken bestanden:** `web/public/footer-note.js` (nieuw) ·
+`web/public/theme-warm.css` · `web/public/theme-toggle.js` ·
+`web/public/student-start.html` · `web/public/student-login.html` ·
+`web/public/teacher-login.html` · `VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.43 — Paars vervangen door roodoranje uit het PyCodeFlow-logo
+
+Het paars van "Vrij oefenen" paste niet echt bij het merk. Het PyCodeFlow-logo zelf
+gebruikt navy, goud en oranje/roodoranje — géén paars. "Vrij oefenen" krijgt daarom nu een
+diep roodoranje (`#c8431a`, geleend van de roodoranje hoek van het logo) i.p.v. paars, en
+het kleurstaafje onderaan eindigt nu op het logo-goud i.p.v. schoolwebsite-oranje: groen →
+blauw → roodoranje → goud.
+
+**Betrokken bestanden:** `web/public/theme-warm.css` · `web/public/student-start.html` ·
+`VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.42 — Warm thema: meerkleurig (render B) + leesbaarder header/footer
+
+Vervolg op v2026.2.51.41, enkel op `student-start.html`, nog steeds volledig achter het
+"Nieuwe stijl proberen"-schuifknopje:
+
+- **Meerkleurig, geïnspireerd op GO! Atheneum Hoboken** (het gekozen 2de renderconcept):
+  elk blok krijgt zijn eigen accentkleur i.p.v. overal dezelfde — "Snel deelnemen" groen,
+  "Account" blauw ("Inloggen" in het diepere schoolblauw, "Account aanmaken" lichter
+  blauw), "Vrij oefenen" paars. Onderaan een dun kleurstaafje (groen→blauw→paars→oranje)
+  als knipoog naar de 4-kleurige kaartjes-indeling van de schoolwebsite. Titel "Deelnemen"
+  in het schoolblauw.
+- **Header (topbar) iets hoger + groter lettertype** — was te krap/moeilijk leesbaar.
+- **Footer iets hoger + groter lettertype.** Bijkomend: er stond op deze pagina nog geen
+  eigen footer-element, waardoor `privacy.js` na 8 seconden zelf een minimale
+  fallback-footer aanmaakte met een vaste, moeilijk leesbare inline stijl (0.8rem,
+  lichtgrijs) — nu staat er een echte `.footer-note`, die meteen (niet pas na 8s) de
+  Privacy-link krijgt én via CSS (dus ook aanpasbaar/groter onder het warme thema) gestyled
+  wordt i.p.v. via een ingebakken inline waarde.
+- **Titel "Deelnemen" iets kleiner** om de extra hoogte van header/footer te compenseren.
+
+Alle overige onderdelen (lay-out van de blokken, teksten, gedrag) blijven ongewijzigd.
+
+**Bewuste scheiding blijft behouden**: alles zit in `theme-warm.css`
+(`html[data-theme="warm"] ...`), niets in `styles.css` zelf gewijzigd; classic-thema
+(schuifknopje uit) blijft pixel-voor-pixel hetzelfde als voorheen.
+
+**Betrokken bestanden:** `web/public/theme-warm.css` · `web/public/student-start.html` ·
+`VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.41 — Experimenteel warm kleurenthema met schuifknopje (enkel op het instapscherm)
+
+Een werkend, uitprobeerbaar thema-schuifknopje rechtsboven op het instapscherm
+(`student-start.html`): "Nieuwe stijl proberen" wisselt live tussen het huidige koele
+kleurenschema en een warmer schema geïnspireerd op de hub-/cursus-webapps (cremekleurige
+achtergrond, marineblauwe tekst, salie-groen als primaire actiekleur, terracotta voor
+foutmeldingen). De keuze wordt onthouden per browser (localStorage), niet server-kant.
+
+**Bewuste, strikte scheiding voor eenvoudige opruiming achteraf:**
+- `web/public/theme-warm.css` (nieuw) — overschrijft ENKEL de bestaande CSS-variabelen
+  uit `styles.css`, en dat ook nog eens uitsluitend onder `html[data-theme="warm"]`.
+  Zonder dat attribuut verandert er niets.
+- `web/public/theme-toggle.js` (nieuw) — los van `app.js`, regelt enkel het
+  aan/uitzetten en onthouden van het thema.
+- Beide bestanden voorlopig enkel ingeladen op `student-start.html`.
+- Wordt dit afgekeurd: verwijder gewoon die twee bestanden + de 4 regels die ernaar
+  verwijzen in `student-start.html`. Wordt het goedgekeurd: verhuis de waarden naar
+  `:root` in `styles.css` en verwijder pas dan de oude waarden daar.
+
+**Betrokken bestanden:** `web/public/theme-warm.css` (nieuw) ·
+`web/public/theme-toggle.js` (nieuw) · `web/public/student-start.html` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.40 — Startscherm leerling gebruikt de beschikbare breedte
+
+Het instapscherm (`student-start.html`) stond alles — naam/code, inloggen/account maken,
+vrij oefenen — voorheen in ÉÉN smalle kolom (max-breedte 760px), ook op een breed
+chromebookscherm. Alles stond daardoor onnodig compact op elkaar. Nu twee gelijkwaardige
+blokken naast elkaar zodra er plaats is — **Snel deelnemen** (naam + sessiecode) en
+**Account** (inloggen/account maken) — met **Vrij oefenen** als apart, volle-breedte blok
+eronder. Op smallere schermen (chromebook rechtop, tablet, telefoon) vallen de twee
+blokken automatisch terug naar één kolom (zelfde responsieve patroon als de bestaande
+`.mode-cards`, breekpunt 980px).
+
+**Betrokken bestanden:** `web/public/student-start.html` · `web/public/styles.css` ·
+`VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.39 — Klassen zichtbaar in sessieoverzicht + leerling kan altijd terug naar eigen overzicht
+
+### Klassen niet zichtbaar in het sessieoverzicht
+Bij het aanmaken van een sessie kon je al kiezen welke klassen toegang krijgen (sprint 59),
+maar in het sessieoverzicht zelf was nergens te zien welke klas(sen) dat dan waren. Elke
+sessiekaart toont nu een extra veld "Klassen": de gekoppelde klasnamen, of "Alle klassen"
+wanneer er geen restrictie is.
+
+### Leerling kon niet terug naar zijn eigen overzicht
+Vanuit een lopende les (leerling-app) of vrij oefenen kon een leerling niet rechtstreeks
+terug naar "Mijn overzicht" (student-thuis.html, met zijn open lessen en resultaten) —
+enkel een algemene "Home"/"Stoppen"-knop naar de generieke rol-keuzepagina. Er staat nu
+een directe knop **Mijn overzicht** naast Home/Stoppen op de leerling-app en de
+vrij-oefenen-pagina.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/public/app.js` ·
+`web/public/student-app.html` · `web/public/free-editor.html` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.38 — Drie bugs n.a.v. screenshots: melding bij verwijderde les, layout-sprong, knoppen-uitlijning
+
+### Geen melding bij deelnemen aan een ondertussen verwijderde les
+Koos een leerling in de dropdown "Open lessen van jouw klas" een les die de leerkracht
+intussen al verwijderd had, dan gebeurde er zichtbaar niets: de server stuurde wel een
+foutmelding terug, maar die verscheen altijd in het (ongerelateerde) veld bij "Ik heb een
+sessiecode" — niet bij de dropdown waar de leerling net op klikte. Er verschijnt nu een
+duidelijke melding vlak bij de dropdown zelf, en de lijst wordt meteen daarna herladen
+zodat de verdwenen les niet opnieuw gekozen kan worden.
+
+### Layout sprong bij "Start individuele werkfase"
+Op het leerkrachtenplatform stonden "Sessieoverzicht" en de modus-knop in dezelfde
+flex-rij als de titel en de sessiecode-badge; of ze wel of niet naar een eigen regel
+verhuisden, hing af van de tekstlengte van de knop ("Start individuele werkfase" vs
+"Terug naar klasmodus") — vandaar de zichtbare "sprong" bij het wisselen van modus. Die
+knoppenrij staat nu altijd op een eigen, vaste regel, in beide modi identiek (de
+klasmodus-layout, zoals gevraagd).
+
+### Topbalk-knoppen niet altijd uiterst rechts
+Op pagina's met een extra topbalk-element (de groene verbindingsstatus-stip op het
+leerkrachtenplatform) duwde de bestaande centrering ("space-between" met 3 elementen)
+de knoppen ("Home", "Sessieoverzicht", "Afmelden") naar het midden i.p.v. helemaal
+rechts. De knoppen staan nu altijd zo ver mogelijk naar rechts, ongeacht hoeveel andere
+elementen er in de balk staan.
+
+**Betrokken bestanden:** `web/public/student-thuis.html` · `web/public/teacher-app.html` ·
+`web/public/styles.css` · `VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.37 — Zeven gemelde bugs: leerling verwijderen, klas-gebonden sessies, UI-consistentie, opruiming
+
+### Leerling écht verwijderen
+Leerkrachten (en admins/superadmins) konden een leerling voorheen enkel blokkeren, nooit
+écht verwijderen — een per ongeluk dubbel aangemaakte leerling bleef dan voorgoed staan.
+Verwijderen is nu mogelijk vanaf "Mijn klassen" (voor eigen klassen) en Beheer, en ruimt
+in een transactie ALLES op wat aan de leerling hangt (resultaten, code-geschiedenis,
+opmerkingen, taakstatus, …) — niet enkel de tabellen met een echte FK-constraint zoals
+voorheen.
+
+### Sessie ↔ klas-koppeling
+Bij het aanmaken van een gewone sessie verschijnt nu een pop-up: welke klas(sen) krijgen
+toegang (of "Alle klassen")? Leerlingen zien voortaan enkel de sessies die aan hun eigen
+klas gekoppeld zijn, in plaats van alle sessies van elke leerkracht die hen in ÉÉN van hun
+klassen lesgeeft.
+
+### Consistente topbalk
+Rechtsbovenaan staan nu op elke leerkracht-/admin-/superadminpagina dezelfde twee acties:
+**Sessieoverzicht** en **Afmelden** — behalve op het sessieoverzicht zelf, waar enkel
+Afmelden nog zin heeft.
+
+### Klaar / Hand opsteken enkel op eigen werkblad
+Deze knoppen staan nu automatisch grijs zodra de klascode actief staat, en worden pas
+weer bruikbaar op het eigen werkblad (of in examenmodus).
+
+### Login-blokkade vrijgeven
+Nieuw paneel op de Systeem-pagina toont welke IP-adressen momenteel geblokkeerd zijn na
+te veel mislukte inlogpogingen, met een knop om zo'n blokkade meteen vrij te geven —
+handig om snel opnieuw te kunnen testen.
+
+### Verwijderde sessie bleef zweven
+Een verwijderde gewone sessie verdween voorheen enkel uit het geheugen van de server,
+nooit uit de databank — na een herstart dook ze daardoor gewoon weer op in de lessenlijst
+van leerlingen. Dat is nu gefixt; de knop markeert de sessie ook effectief in de DB.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/public/app.js` ·
+`web/public/mijn-klassen.js` · `web/public/monitoring.js` · `web/public/monitoring.html` ·
+`web/public/nav-rechten.js` · `web/tests/bugfixes-2026-09.test.js` (nieuw) · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.36 — Datumvermelding op "Mijn resultaten"
+
+Elke kaart in "Mijn resultaten" toont nu de deadline-datum van de toets/taak (enkel de
+datum, geen uur — bv. "26/8/2026") naast de klasnaam. Toetsen zonder deadline tonen gewoon
+geen datum.
+
+De sortering (meest recente deadline eerst) stond al server-kant correct ingesteld, maar
+werd nooit zichtbaar gemaakt op de kaart zelf — bevestigd met een test met twee
+verschillende deadlines: de nieuwste (26/8/2026) verschijnt boven de oudere (23/7/2026).
+
+**Betrokken bestanden:** `web/public/student-thuis.html` · `VERSION` · overige
+`web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.35 — Negen bugs/features n.a.v. gebruikersfeedback
 
 ### Samengestelde vragen — structuur en weergave

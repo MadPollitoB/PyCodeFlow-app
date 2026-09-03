@@ -4,30 +4,37 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Aanmelden</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.35"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.55"/>
 <style>
-  /* Volledig scherm overlay — blokkeert alles erachter */
+  /* Bugfix: dit scherm had voorheen GEEN header en GEEN footer — een losse
+     fixed-overlay bovenop een lege achtergrond. Nu een gewone pagina: sticky
+     header bovenaan (met "Home"), het inlogkaartje gecentreerd ertussenin, en de
+     standaard footer onderaan (via footer-note.js, want deze pagina laadt geen
+     app.js). De kaart zelf, de velden en alle JS/ID's blijven functioneel
+     ongewijzigd. */
+  /* Bugfix: eerst verticaal gecentreerd over (bijna) de volle vensterhoogte
+     (calc(100vh - 220px)) — op een normaal, hoog browservenster gaf dat een
+     ENORME lege ruimte boven/onder het kaartje. Nu, net als bij het
+     leerling-inlogscherm (.auth-wrap: margin 48px auto), gewoon een vaste
+     bovenmarge i.p.v. verticaal centreren over de hele resterende hoogte. */
   .login-overlay {
-    position: fixed;
-    inset: 0;
-    background: linear-gradient(135deg, rgba(35,58,99,0.55) 0%, rgba(51,78,162,0.40) 100%);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 9999;
-    padding: 24px;
+    margin-top: 48px;
+    padding: 0 24px;
   }
 
-  /* Het login-card zelf */
+  /* Het login-card zelf — Sprint 59.10: ~15% groter (gevraagd), getoetst tegen een
+     1366×768 chromebookscherm: header (~92px) + bovenmarge (48px) + kaart (~500px) +
+     footer (~60px) ≈ 700px, past nog net ruim binnen 768px beeldhoogte. */
   .login-card {
     background: #fff;
     border-radius: 28px;
     box-shadow: 0 24px 64px rgba(35,58,99,0.22), 0 2px 8px rgba(35,58,99,0.08);
-    padding: 48px 44px 40px;
+    padding: 55px 51px 46px;
     width: 100%;
-    max-width: 420px;
+    max-width: 483px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -41,16 +48,16 @@
   }
 
   .login-logo {
-    width: 64px;
-    height: 64px;
-    border-radius: 16px;
+    width: 74px;
+    height: 74px;
+    border-radius: 18px;
     margin-bottom: 20px;
     background: var(--primary-soft);
   }
 
   .login-card h1 {
-    font-size: 1.35rem;
-    color: var(--text);
+    font-size: 1.55rem;
+    color: #2d4f96;
     margin: 0 0 4px;
     text-align: center;
     font-weight: 800;
@@ -58,7 +65,7 @@
 
   .login-card .login-sub {
     color: var(--muted);
-    font-size: 0.92rem;
+    font-size: 1.05rem;
     margin-bottom: 32px;
     text-align: center;
   }
@@ -72,7 +79,7 @@
   }
 
   .login-fields label {
-    font-size: 0.82rem;
+    font-size: 0.94rem;
     font-weight: 700;
     color: var(--muted);
     display: block;
@@ -84,10 +91,10 @@
   .login-fields input,
   .login-fields select {
     width: 100%;
-    padding: 12px 16px;
+    padding: 14px 18px;
     border: 1.5px solid var(--border);
     border-radius: 12px;
-    font-size: 1rem;
+    font-size: 1.15rem;
     color: var(--text);
     background: var(--surface-soft);
     outline: none;
@@ -102,19 +109,20 @@
 
   .login-btn {
     width: 100%;
-    padding: 13px;
-    background: var(--primary);
+    padding: 15px;
+    background: #26398a;
     color: #fff;
     border: none;
     border-radius: 14px;
-    font-size: 1rem;
+    font-size: 1.15rem;
     font-weight: 700;
     cursor: pointer;
     transition: background 0.15s, transform 0.1s;
     letter-spacing: 0.01em;
   }
 
-  .login-btn:hover:not(:disabled) { background: #253d8a; }
+  .login-btn:hover:not(:disabled) { background: #1c2f6e; }
+
   .login-btn:active:not(:disabled) { transform: scale(0.98); }
   .login-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
@@ -162,22 +170,29 @@
 
   .login-back a:hover { text-decoration: underline; }
 
-  /* Subtiele achtergrondpagina zichtbaar achter overlay */
+  /* Subtiele achtergrond over de hele pagina (header/footer erbuiten, die hebben
+     hun eigen, gewone witte achtergrond uit styles.css). */
   .bg-page {
     position: fixed;
     inset: 0;
-    background: linear-gradient(180deg, #f7f8fb 0%, #fefefe 100%);
-    z-index: 0;
+    background: var(--bg);
+    z-index: -1;
   }
 </style>
   <link rel="icon" href="/assets/favicon.png" type="image/png">
 </head>
-<body>
-<!-- Achtergrond zodat het niet leeg is achter de overlay -->
+<body class="compact-page">
+<!-- Achtergrond zodat het niet leeg is -->
 <div class="bg-page"></div>
 
-<div class="login-overlay" id="login-overlay" role="dialog" aria-modal="true" aria-labelledby="login-title">
-  <div class="login-card">
+<div class="topbar"><div class="topbar-inner">
+  <div class="logo-group"><img src="/assets/pycodeflow-logo.png" class="logo-small" alt=""/><span>PyCodeFlow</span></div>
+  <!-- Bugfix: hier stond geen enkele manier om terug naar de startpagina te gaan. -->
+  <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a></div>
+</div></div>
+
+<div class="login-overlay" id="login-overlay">
+  <div class="login-card panel-accent-blue">
     <img src="/assets/pycodeflow-logo.png" class="login-logo" alt="PyCodeFlow logo"/>
     <h1 id="login-title">Leerkrachtenplatform</h1>
     <p class="login-sub">Meld je aan om sessies te beheren.</p>
@@ -226,11 +241,11 @@
 
     <div class="login-error" id="login-error">Gebruikersnaam of wachtwoord onjuist.</div>
     <div class="login-blocked" id="login-blocked">Te veel mislukte pogingen. Probeer later opnieuw.</div>
-
-    <p class="login-back"><a href="/index.html">← Terug naar startpagina</a></p>
+    <div class="accent-strip" style="width:100%;"></div>
   </div>
 </div>
 
-<script src="/teacher-login.js?v=v2026.2.51.35"></script>
-<script src="/privacy.js?v=v2026.2.51.35"></script></body>
+<script src="/teacher-login.js?v=v2026.2.51.55"></script>
+<script src="/footer-note.js?v=v2026.2.51.55"></script>
+<script src="/privacy.js?v=v2026.2.51.55"></script></body>
 </html>

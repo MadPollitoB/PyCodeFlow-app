@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.35**
+**Huidige versie: v2026.2.51.55**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -215,6 +215,25 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 84 | **58** | **Brandingfix** — `/api/school-info` las de leerkracht-cookie, waardoor een leerling op een gedeelde computer de school van de leerkracht zag; leerling-modus kijkt enkel naar de leerling-sessie | v2026.2.49.0 |
 | 85 | **50** | **5 bugfixes** — (1) toets/taak enkel voor eigen, niet-gearchiveerde klassen (`/api/classes` + server-validatie); (2) toets/taak **aanpassen** (nieuw, enkel zolang niemand gestart is, type onveranderlijk); (3) `/logout`-fout hersteld; (4) leerlingcode stuurt correct door + toets/taak enkel voor ingelogde, aanvaarde leerlingen; (5) schaalbare leerling-picker met zoek/kolommen. Projectmap opgeruimd naar `OLDIES/`. | v2026.2.50.0 |
 | 86 | **51** | **Propere mappenstructuur** — alle scripts → `scripts/app` + `scripts/general`; alle docs → `documentation/`; hoofdmap enkel nog config+Docker. **OLDIES-opruiming** ingebouwd in de rebuild (menu 5) met 2 extra j/n-vragen; rommel gaat naar `OLDIES/v<versie>/` met structuur. | v2026.2.51.0 |
+| 87 | **59** | **Zeven gemelde bugs** — leerling écht verwijderen (volledige cascade, ook voor gewone leerkrachten); sessie ↔ klas-koppeling (`session_classes`) met vinkjes-popup bij het aanmaken; leerling ziet enkel sessies van zijn eigen klas; consistente topbalk (Sessieoverzicht + Afmelden); Klaar/Hand-opsteken enkel op eigen werkblad; admin kan een login-blokkade (te veel pogingen) vrijgeven; verwijderde sessie blijft niet langer zweven in de DB. | v2026.2.51.37 |
+| 88 | **59.1** | **Drie bugs n.a.v. screenshots** — melding + dropdown-refresh bij deelnemen aan een ondertussen verwijderde les; layout-sprong bij "Start individuele werkfase" verholpen (knoppenrij altijd op eigen regel); topbalk-knoppen altijd uiterst rechts uitgelijnd, ook met een 3e element (verbindingsstip) in de balk. | v2026.2.51.38 |
+| 89 | **59.2** | **Klassen zichtbaar in sessieoverzicht** — elke sessiekaart toont nu welke klas(sen) toegang hebben (of "Alle klassen"); **leerling kan altijd terug naar "Mijn overzicht"** vanuit een lopende les of vrij oefenen (nieuwe knop naast Home/Stoppen). | v2026.2.51.39 |
+| 90 | **59.3** | **Startscherm leerling breder benut** — "Snel deelnemen" en "Account" naast elkaar op brede schermen (chromebook), "Vrij oefenen" als apart volle-breedte blok eronder; valt terug naar 1 kolom onder 980px. | v2026.2.51.40 |
+| 91 | **59.4** | **Experimenteel warm kleurenthema + schuifknopje** — enkel op student-start.html, strikt gescheiden in `theme-warm.css`/`theme-toggle.js` (`html[data-theme="warm"]`) zodat het na goed-/afkeuring in één beweging te verhuizen of te verwijderen is. | v2026.2.51.41 |
+| 92 | **59.5** | **Warm thema afgewerkt: meerkleurig + leesbaarder header/footer** — render B (groen/blauw/paars per blok, geïnspireerd op GO! Atheneum Hoboken) doorgevoerd; header/footer iets hoger met groter lettertype; titel "Deelnemen" iets kleiner ter compensatie; echte `.footer-note` i.p.v. privacy.js' povere fallback. | v2026.2.51.42 |
+| 93 | **59.6** | **Paars → roodoranje uit het eigen logo** — "Vrij oefenen" en het kleurstaafje gebruiken nu roodoranje/goud uit het PyCodeFlow-logo i.p.v. paars, dat niet bij het merk paste. | v2026.2.51.43 |
+| 94 | **59.7** | **Footer-bug gefixt (echte oorzaak) + kop/voet voor beide inlogschermen + nieuwe stijl nu standaard.** Lege vooraf-`.footer-note` blokkeerde app.js' eigen footer-opbouw — verwijderd; nieuw `footer-note.js` voor pagina's zonder app.js. `teacher-login.html` volledig herstructureerd (was fixed-overlay zonder kop/voet) naar een gewone pagina met header+footer. Schuifknopje overal omgedraaid naar opt-OUT ("Te verfrissend? → oude look"), warme stijl is nu de standaard. | v2026.2.51.44 |
+| 95 | **59.8** | **"Account" en "Snel deelnemen" verwisseld** — Account staat nu eerst (links), aangezien leerlingen normaal via hun account inloggen. | v2026.2.51.45 |
+| 96 | **59.9** | **Te veel lege ruimte op leerkrachten-inlogscherm** — kaartje werd verticaal gecentreerd over bijna de volle vensterhoogte; nu een vaste bovenmarge, net als bij het leerling-inlogscherm. | v2026.2.51.46 |
+| 97 | **59.10** | **Warme stijl definitief + schuifknopje weg + leerkrachten-inlog 15% groter.** theme-warm.css samengevoegd in styles.css (onvoorwaardelijk); oude stijl bewaard in styles-classic-archief.css; hoogte-bug (`html,body{min-height:100%}`) opgelost met `body.compact-page` op beide inlogschermen; leerkrachten-inlog vergroot, getoetst tegen 1366×768. | v2026.2.51.47 |
+| 98 | **60** | **Leerling-blokkade + reset bij leerkracht niet ingelogd.** Blokkerende popup op student-app.html zodra `session.teacherSocketId` leeg is (join én live), met wachten-of-terug-naar-overzicht; bij elke `teacher_join_session` op een sessie in klasmodus resetten ALLE leerlingen naar geen code/run-rechten (individuele werkmodus blijft ongemoeid); nooit bij toets-/taaksessies. Bevestigd met een volledige socket.io end-to-end-smoketest. | v2026.2.51.48 |
+| 99 | **61** | **Nieuwe stijl op index, registratie, sessiekeuze.** index.html + student-register.html + student-thuis.html krijgen de warme stijl (blauw accent, geïnspireerd op teacher-login); student-thuis.html herstructureerd naar hetzelfde 2-koloms-grid + vrij-oefenen-eronder-patroon als student-start.html; kleurstaaf onderaan toegevoegd op alle 5 betrokken schermen + de 2 bestaande inlogschermen. | v2026.2.51.49 |
+| 100 | **60.1** | **Bugfix leerkracht-blokkade**: werkte niet als de leerkracht een sessie aanmaakte en op het sessieoverzicht bleef staan (nooit "Open" geklikt) — `teacherSocketId` bleef dan bezet zonder echte disconnect. Nieuw signaal `teacher_leave_all_sessions`, verstuurd bij het laden van teacher-sessions.html. Bevestigd met een gerichte end-to-end-smoketest die exact dit scenario naspeelt. | v2026.2.51.50 |
+| 101 | **61.1** | **Bugfix gekleurde randen + kleurenlayout leerkrachten-sessieoverzicht.** Pagina-lokale `border`-regels op student-login/-register/-thuis wonnen van `panel-accent-*` — verwijderd. teacher-sessions.html kreeg dezelfde 3-kleurenbehandeling (groen/blauw/roodoranje) + kleurstaaf; sticky subnav-afstand bijgewerkt naar de nieuwe topbalkhoogte. | v2026.2.51.51 |
+| 102 | **60.2** | **Bugfix: leerkracht-blokkade-popup bleef ~10s hangen (F5 nodig).** `student_reconnect` werd maar één keer verstuurd (bij paginalading), niet bij elke stille socket-herverbinding — nu op elke `'connect'`. Extra vangnet: elke 3s actief de status opvragen (`student_check_status`) zolang de popup zichtbaar is. Bevestigd met een end-to-end-smoketest die het exacte scenario naspeelt. | v2026.2.51.52 |
+| 103 | **62** | **Leerkrachtenscherm herschikt.** Sessie/Status/Systeem/Leerlingen niet langer in één gestapelde kolom — Sessie onder de editor (links), Status+Systeem ernaast gestapeld, Leerlingen rechts over de volle hoogte van editor+Sessie samen (CSS Grid, expliciete rij/kolomplaatsing, valt terug naar 1 kolom onder 980px). | v2026.2.51.53 |
+| 104 | **62.1** | **Bugfix: 30-40s vertraging (of geen doorkomen) bij run/code vrijgeven/blokkeren.** socket.io's pingTimeout+pingInterval (tot 45s) liet een stil weggevallen leerling-verbinding lang "verbonden" lijken — geen enkele server→leerling-melding kwam dan door. Verstrakt naar ~10s detectie + snellere clientherverbinding. | v2026.2.51.54 |
+| 105 | **62.2** | **Bugfix: footer ontbrak overal + groene selectie-indicatie + ping verder verstrakt.** `injectFooter()` was gedefinieerd maar nooit aangeroepen (dode code) — nu op `DOMContentLoaded`; `mijn-klassen.html`/`klasmatrix.html` gebruikten per ongeluk `class="actief"` i.p.v. `class="active"` in de sub-nav; ping-timing verder naar ~5s worst-case. | v2026.2.51.55 |
 
 > **Nummering:** Sprint 50 is qua nummer ouder dan 51-58 maar werd later uitgevoerd
 > (bugfix-sprint). Het staat daarom onderaan de uitvoeringsvolgorde.
@@ -224,6 +243,55 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 59 — Zeven gemelde bugs (leerling verwijderen, klas-gebonden sessies, UI-consistentie, opruiming) — ✅ AFGEROND (v2026.2.51.37)
+
+Zeven onafhankelijke bugfixes n.a.v. gebruikersfeedback, elk apart getest tegen een
+sandbox-PostgreSQL (schema + 344 tests, incl. 6 nieuwe integratietests) en met een
+end-to-end smoketest (echte HTTP/socket.io-round-trips, inclusief CSRF).
+
+1. **Leerling écht verwijderen.** `deleteStudent()` cascadeerde voorheen enkel via de 3
+   tabellen met een echte FK (`class_memberships`, `student_sessions`,
+   `assignment_students`) — code-snapshots, taakstatus, opmerkingen enz. bleven als
+   wees-data achter. Nu ruimt een transactie ALLE gekoppelde tabellen op. De route
+   (`DELETE /api/admin/students/:id`) was bovendien enkel voor beheerders (`requireBeheer`)
+   bereikbaar; nu mag elke leerkracht dit voor leerlingen in zijn **eigen** klassen
+   (`magDezeLeerling`, hetzelfde patroon als status/klas/notities). Nieuwe
+   "Verwijderen"-knop op het "Mijn klassen"-scherm; audit-log-regel toegevoegd.
+2. **Sessie ↔ klas-koppeling.** Nieuwe tabel `session_classes` (leeg = alle klassen van de
+   leerkracht, bestaand gedrag). Bij het aanmaken van een gewone sessie verschijnt nu een
+   pop-up (`pyClassPicker` in `app.js`) met vinkjes per klas + "Alle klassen".
+3. **Leerling ziet enkel sessies van zijn klas.** `listOpenSessionsForStudent` filtert nu
+   bijkomend via `session_classes` i.p.v. enkel "alle klassen van de leerkracht"
+   (`teacher_classes`).
+4. **Consistente topbalk.** `nav-rechten.js` normaliseert nu op elke leerkrachtpagina de
+   `.top-actions`-knoppen: altijd "Sessieoverzicht" + "Afmelden", behalve enkel "Afmelden"
+   op het sessieoverzicht zelf. Pagina-specifieke extra knoppen (Home, ← Sessies, …)
+   blijven gewoon staan.
+5. **Klaar/Hand-opsteken enkel op eigen werkblad.** Beide knoppen grijzen nu automatisch
+   uit zodra de klascode actief staat (`activeWorkspace !== 'personal'`) en zijn actief op
+   het eigen werkblad of in examenmodus.
+6. **Login-blokkade vrijgeven.** "Te veel mislukte pogingen" is een IP-gebaseerde,
+   in-memory blokkade (`authFailures`) — geen aparte teller per leerling-account. Nieuw
+   paneel op de Systeem-pagina (naast vrij-oefenen-blokkades) toont geblokkeerde IP's met
+   een vrijgeef-knop; nieuwe endpoints `GET/DELETE /api/admin/auth-blocks`.
+7. **Verwijderde sessie bleef zweven.** `DELETE /api/sessions/:code` haalde een sessie
+   enkel uit het in-memory geheugen, nooit uit de DB (`sessions.deleted` bleef 0) — en
+   omdat sessies bij een herstart wél degelijk herladen worden (`loadPersistedSessions`),
+   dook zo'n "verwijderde" sessie na een herstart gewoon weer op. De route markeert de
+   sessie nu ook in de DB. **Bewust geen automatische opruimmigratie** voor de bestaande
+   spooksessies: sessies herladen bij opstart op exact hetzelfde `deleted=0 AND closed=0`-
+   criterium, dus een blanket "markeer alles als verwijderd" zou ook échte, nog lopende
+   lessen vernietigen — niet aanvaardbaar tegen een live productiedatabase. De 3 bestaande
+   spooksessies verschijnen na deze update gewoon terug in het sessieoverzicht van de
+   leerkracht en kunnen daar met de (nu correct werkende) knop verwijderd worden.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/public/app.js` ·
+`web/public/mijn-klassen.js` · `web/public/monitoring.js` · `web/public/monitoring.html` ·
+`web/public/nav-rechten.js` · `web/tests/bugfixes-2026-09.test.js` (nieuw) · `VERSION` ·
+alle `web/public/*.html` (cache-bust)
+
+---
 
 ### Sprint 51-ai (v5) — Echte AI-training via periodiek fine-tune-traject — ✅ AFGEROND (v2026.2.51.34)
 

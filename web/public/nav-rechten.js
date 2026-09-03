@@ -11,6 +11,41 @@
     me = await r.json();
   } catch (e) { return; }
 
+  // ── Bugfix: rechtsbovenaan altijd dezelfde acties — "Sessieoverzicht" + "Afmelden" ──
+  // Elke leerkrachtpagina bouwde tot nu toe zijn eigen top-actions-blokje, met wisselende
+  // (en soms ontbrekende) knoppen. We laten pagina-specifieke knoppen (bv. "Home", "← Sessies")
+  // gewoon staan, maar zorgen ervoor dat Sessieoverzicht + Afmelden er ALTIJD en ENKEL EEN KEER
+  // bij staan — behalve op het sessieoverzicht zelf, waar Sessieoverzicht overbodig is.
+  (function normaliseerTopActions() {
+    const container = document.querySelector('.top-actions');
+    if (!container) return; // pagina zonder deze structuur (bv. teacher-grid.html) → niets doen
+    const isSessieoverzicht = /\/?teacher-sessions\.html$/.test(location.pathname);
+
+    // Verwijder eerder aanwezige Sessieoverzicht-/Afmelden-links (voorkomt duplicaten,
+    // ongeacht hoe de pagina ze zelf al benoemde of stylede).
+    container.querySelectorAll('a').forEach(a => {
+      const href = a.getAttribute('href') || '';
+      if (href === '/teacher-sessions.html' || href === 'teacher-sessions.html'
+          || href === '/api/teacher-logout') {
+        a.remove();
+      }
+    });
+
+    if (!isSessieoverzicht) {
+      const overzichtLink = document.createElement('a');
+      overzichtLink.href = '/teacher-sessions.html';
+      overzichtLink.className = 'btn btn-muted small';
+      overzichtLink.textContent = 'Sessieoverzicht';
+      container.appendChild(overzichtLink);
+    }
+
+    const afmeldLink = document.createElement('a');
+    afmeldLink.href = '/api/teacher-logout';
+    afmeldLink.className = 'btn btn-muted small';
+    afmeldLink.textContent = 'Afmelden';
+    container.appendChild(afmeldLink);
+  })();
+
   // ── 55: navigatie-items verbergen ──
   document.querySelectorAll('a[href="/admin.html"], a[href="admin.html"]').forEach(a => {
     if (me.magBeheer === false) a.remove();

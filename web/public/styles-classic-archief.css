@@ -1,29 +1,35 @@
 /* ════════════════════════════════════════════════════════════════════════════
-   Sprint 59.10: de warme stijl (voorheen het experiment achter het
-   "Nieuwe stijl proberen"-schuifknopje, sprint 59.4 t.e.m. 59.9) is
-   goedgekeurd en is nu de ENIGE, permanente stijl — het schuifknopje,
-   theme-warm.css en theme-toggle.js zijn overal verwijderd.
-   De oorspronkelijke (koel-blauwe) waarden staan nog volledig bewaard in
-   styles-classic-archief.css (niet ingeladen, puur als terugvalpositie).
+   styles-classic-archief.css — ARCHIEF, NIET INGELADEN.
+
+   Dit is de volledige, oorspronkelijke (koel-blauwe) stijl van vóór de
+   overstap naar de warme stijl (sprint 59.4 t.e.m. 59.9 — het experiment met
+   het schuifknopje "Nieuwe stijl proberen" / "Te verfrissend? → oude look").
+   Bewaard als terugvalpositie: als de nieuwe stijl ooit teruggedraaid moet
+   worden, kopieer je de inhoud van dit bestand terug naar styles.css.
+
+   Dit bestand wordt door GEEN ENKELE pagina ingeladen — het dient enkel als
+   referentie/archief. Veilig te verwijderen zodra je zeker weet dat je niet
+   meer wil terugkeren naar de oude stijl.
    ════════════════════════════════════════════════════════════════════════════ */
+
 :root {
-  --bg: #faf8f4;
+  --bg: #f5f7fb;
   --surface: #ffffff;
-  --surface-soft: #f6f4ee;
-  --border: #e4ddd0;
-  --text: #1f2b3d;
-  --muted: #6b6456;
-  --primary: #2d9d5f;
-  --primary-soft: #e1f0e6;
-  --accent: #a3241f;
+  --surface-soft: #fbfcfe;
+  --border: #d9e0ec;
+  --text: #233a63;
+  --muted: #5f7392;
+  --primary: #334ea2;
+  --primary-soft: #e8edfb;
+  --accent: #e25830;
   --gold: #f4b536;
-  --success-bg: #e1f0e6;
-  --success-fg: #1e7a47;
-  --warn-bg: #fdf3d1;
-  --warn-fg: #8a6d00;
-  --error-bg: #fdeaea;
-  --error-fg: #a3241f;
-  --shadow: 0 12px 40px rgba(31, 43, 59, 0.10);
+  --success-bg: #e8f8ee;
+  --success-fg: #166534;
+  --warn-bg: #fff7ed;
+  --warn-fg: #9a3412;
+  --error-bg: #fee2e2;
+  --error-fg: #991b1b;
+  --shadow: 0 12px 40px rgba(35, 58, 99, 0.10);
   --radius: 24px;
 }
 
@@ -44,7 +50,7 @@
 html, body { margin: 0; min-height: 100%; }
 body {
   font-family: Arial, Helvetica, sans-serif;
-  background: var(--bg);
+  background: linear-gradient(180deg, #f7f8fb 0%, #fefefe 100%);
   color: var(--text);
 }
 button, input, textarea { font: inherit; }
@@ -159,8 +165,8 @@ button { cursor: pointer; }
 .hero-panel { border-radius:22px; min-height:620px; }
 .hero-left {
   padding:38px;
-  background:linear-gradient(135deg, rgba(244,181,54,.22) 0%, rgba(255,255,255,1) 56%, rgba(38,57,138,.10) 100%);
-  border:1px solid rgba(38,57,138,.18); display:flex; flex-direction:column; justify-content:center;
+  background:linear-gradient(135deg, rgba(244,181,54,.22) 0%, rgba(255,255,255,1) 56%, rgba(51,78,162,.10) 100%);
+  border:1px solid rgba(51,78,162,.18); display:flex; flex-direction:column; justify-content:center;
 }
 .hero-right { background:#1f2f57; color:white; overflow:hidden; display:flex; flex-direction:column; }
 .hero-left h1 { margin:0 0 14px; font-size:clamp(2.2rem, 4vw, 4.2rem); line-height:1.05; }
@@ -466,97 +472,9 @@ kbd { background:var(--surface-soft); border:1px solid var(--border); border-rad
   .session-meta-grid { grid-template-columns:1fr; }
 }
 
-/* Sprint 60: blokkerende melding op student-app.html wanneer de leerkracht niet
-   (meer) ingelogd is op de sessie. Fixed overlay boven het scherm; het scherm zelf
-   blijft erachter zichtbaar/geladen (bewust geen volledig wit scherm). */
-.teacher-offline-overlay {
-  position: fixed; inset: 0; z-index: 9999;
-  background: rgba(31, 43, 59, 0.55);
-  display: flex; align-items: center; justify-content: center;
-  padding: 24px;
-}
-.teacher-offline-box {
-  background: var(--surface); border-radius: var(--radius);
-  box-shadow: var(--shadow); padding: 36px 32px;
-  max-width: 420px; width: 100%; text-align: center;
-}
-.teacher-offline-spinner {
-  width: 32px; height: 32px; margin: 0 auto 16px;
-  border: 3px solid var(--border); border-top-color: var(--primary);
-  border-radius: 50%; animation: teacher-offline-spin 0.9s linear infinite;
-}
-@keyframes teacher-offline-spin { to { transform: rotate(360deg); } }
-.teacher-offline-title { font-size: 1.2rem; font-weight: 800; color: var(--text); margin-bottom: 8px; }
-.teacher-offline-text { font-size: 0.92rem; color: var(--muted); margin: 0 0 22px; line-height: 1.5; }
-
 /* 33d: tag-chips in de vragenbank */
 .q-tags { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
 .tag-chip {
   font-size:0.7rem; background:#f1f5f9; color:#475569;
   border-radius:10px; padding:2px 8px; white-space:nowrap;
 }
-
-/* ════════════════════════════════════════════════════════════════════════════
-   Sprint 59.10 — samengevoegd uit het voormalige theme-warm.css (het
-   experiment achter het "Nieuwe stijl proberen"-schuifknopje). Nu permanent
-   en onvoorwaardelijk (geen html[data-theme=warm]-voorwaarde meer nodig, want
-   er is nog maar één stijl). Zie styles-classic-archief.css voor de oude
-   waarden als ooit een terugkeer nodig is.
-   ════════════════════════════════════════════════════════════════════════════ */
-
-/* ── Header (topbar) iets hoger + leesbaarder lettertype ──────────────────── */
-.topbar-inner { min-height: 92px; }
-.logo-group { font-size: 1.35rem; }
-.top-actions .btn.small { font-size: 1rem; padding: 10px 16px; }
-
-/* ── Footer iets hoger + leesbaarder lettertype ──────────────────────────── */
-.footer-note { font-size: 1rem; padding: 24px 0; }
-
-/* ── Gekleurde blokken (Deelnemen-scherm, en herbruikbaar elders) ─────────── */
-.panel-accent-green { background: #fff; border: 2px solid #3a9d43; }
-.panel-accent-green h2 { color: #2f7d33; }
-
-.panel-accent-blue { background: #fff; border: 2px solid #3f6fc4; }
-.panel-accent-blue h2 { color: #2d4f96; }
-
-.panel-accent-red { background: #fff; border: 2px solid #c8431a; }
-.panel-accent-red h2 { color: #a8380f; }
-
-/* Inlogschermen (student-login.html, teacher-login.html): zelfde blauw als het
-   "Account"-blok op het Deelnemen-scherm, maar met een h1 i.p.v. h2, en de knop
-   expliciet marineblauw i.p.v. het standaard-groene --primary — "inloggen" hoort
-   bij hetzelfde blauwe accent, niet bij groen. */
-.auth-card h1, .login-card h1 { color: #2d4f96; }
-.auth-card .btn-primary, .login-btn { background: #26398a; }
-.login-btn:hover:not(:disabled) { background: #1c2f6e; }
-
-/* ── Knoppen: elk blok zijn eigen, donkere (leesbare) accentkleur i.p.v. de
-   standaard bleke .btn-muted-pil ── */
-.btn-account-primary { background: #26398a; color: #fff; }
-.btn-account-secondary { background: #3f6fc4; color: #fff; }
-.btn-free-accent { background: #c8431a; color: #fff; }
-
-/* Dun kleurstaafje — knipoog naar het PyCodeFlow-logo (navy → goud →
-   oranje/roodoranje). Lege <div class="accent-strip"> in de HTML. */
-.accent-strip {
-  height: 4px; border-radius: 4px; margin-top: 18px;
-  background: linear-gradient(90deg,
-    #3a9d43 0 25%, #3f6fc4 25% 50%, #c8431a 50% 75%, #f4b536 75% 100%);
-}
-
-/* Titel "Deelnemen": schoolblauw, en iets kleiner — compenseert de hogere
-   header/footer hierboven. Bewust een APARTE klasse (i.p.v. gewoon ".screen h1")
-   zodat dit ENKEL dat ene scherm raakt, en niet elke andere paginatitel in de
-   app plots verkleint. */
-.screen h1.titel-compact { color: #26398a; font-size: 1.8rem; }
-
-/* Bugfix (sprint 59.11): op de korte, kaart-in-het-midden schermen (de twee
-   inlogschermen) zorgde de sitebrede regel "html, body { min-height:100% }"
-   (verderop in dit bestand) ervoor dat de <body> altijd minstens de volledige
-   vensterhoogte kreeg — met een leeg gat tussen het (korte) kaartje en de
-   footer op elk venster dat hoger is dan de eigenlijke inhoud. Op deze
-   schermen heeft niets baat bij die volle-hoogte-achtergrond (er is toch geen
-   los decoratief element dat de ruimte moet vullen), dus schakelen we 'm hier
-   specifiek uit: de pagina wordt dan gewoon zo hoog als haar inhoud, en de
-   footer volgt meteen na de kaart — net als bij een kort scherm elders. */
-body.compact-page { min-height: auto; }

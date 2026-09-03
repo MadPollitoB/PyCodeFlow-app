@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Sessies</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.35"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.55"/>
 <style>
   .free-session-panel { margin-top: 32px; }
   .free-student-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
@@ -19,7 +19,7 @@
   .subnav {
     background: var(--surface-soft);
     border-bottom: 1px solid var(--border);
-    position: sticky; top: 72px; z-index: 90;
+    position: sticky; top: 92px; z-index: 90;
   }
   .subnav-inner {
     width: min(1320px, calc(100% - 32px));
@@ -75,7 +75,7 @@
   <h1>Sessies</h1>
   <p class="muted">Maak een nieuwe sessie aan of open een lopende sessie.</p>
   <div class="grid-2" style="margin-top:24px;">
-    <div class="panel">
+    <div class="panel panel-accent-green">
       <h2>Nieuwe sessie</h2>
       <div class="input-group">
         <label for="session-name">Naam van sessie</label>
@@ -117,7 +117,7 @@
         <button class="btn btn-primary" id="create-session-btn">Sessie maken</button>
       </div>
     </div>
-    <div class="panel">
+    <div class="panel panel-accent-blue">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
         <h2 style="margin:0;" id="sessions-panel-title">Lopende sessies</h2>
         <div style="display:flex; align-items:center; gap:8px;">
@@ -162,7 +162,7 @@
   </div>
 
   <!-- Vrije sessie sectie -->
-  <div class="free-session-panel panel" style="margin-top:32px;">
+  <div class="free-session-panel panel panel-accent-red" style="margin-top:32px;">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
       <div>
         <h2 style="margin:0 0 4px;">Vrije sessie</h2>
@@ -175,5 +175,6 @@
     </div>
   </div>
 
+  <div class="accent-strip"></div>
 </div>
-</div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=v2026.2.51.35"></script><script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.35"></script></body></html>
+</div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=v2026.2.51.55"></script><script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.55"></script></body></html>

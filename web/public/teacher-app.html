@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Sessie actief</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.35"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.55"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .runner-health-bar-track {
@@ -155,11 +155,16 @@
         <strong id="teacher-session-code-top">----</strong>
       </span>
     </div>
+  </div>
 
-    <div class="top-actions">
-      <a href="/teacher-sessions.html" class="btn btn-muted">Sessieoverzicht</a>
-      <button class="btn btn-muted" id="teacher-toggle-workspace-btn" title="Wissel tussen gedeelde klascode en individuele werkfase per leerling">Start individuele werkfase</button>
-    </div>
+  <!-- Bugfix: dit stond eerst mee in de flex-`.row` hierboven, waardoor de layout
+       "sprong" naargelang de tekstlengte van de modus-knop (flex-wrap besliste
+       telkens anders of dit blok wel of niet naar een eigen regel verhuisde,
+       afhankelijk van "Start individuele werkfase" vs "Terug naar klasmodus").
+       Nu staat dit ALTIJD op een eigen regel, in beide modi identiek. -->
+  <div class="top-actions session-actions-row" style="margin-top:10px;">
+    <a href="/teacher-sessions.html" class="btn btn-muted">Sessieoverzicht</a>
+    <button class="btn btn-muted" id="teacher-toggle-workspace-btn" title="Wissel tussen gedeelde klascode en individuele werkfase per leerling">Start individuele werkfase</button>
   </div>
 
   <div class="card announcement-compose" style="margin-top:20px;">
@@ -222,8 +227,11 @@
       </div>
     </div>
 
-    <div class="sidebar">
-      <div class="panel">
+    <!-- Sprint 62: was voorheen één .sidebar-kolom met alle 4 panelen gestapeld —
+         nu 3 losse grid-kinderen (zie .workspace hierboven) zodat Leerlingen over de
+         volle hoogte van editor+Sessie kan lopen i.p.v. altijd even hoog te zijn als
+         Status+Systeem samen. -->
+    <div class="panel teacher-leerlingen-col">
         <h2>Leerlingen</h2>
         <div style="margin-bottom:10px;">
           <input id="student-filter-input" type="text" placeholder="Zoek leerling…"
@@ -247,7 +255,9 @@
         <div id="teacher-student-list" class="student-list" style="margin-top:16px;"></div>
         <!-- Sprint 10N: grid overzicht panel (verborgen standaard) -->
         <div id="teacher-grid-view-panel" class="hidden" style="margin-top:16px;"></div>
-      </div>
+    </div>
+
+    <div class="teacher-status-systeem-col">
       <div class="panel">
         <h2>Status</h2>
         <div id="teacher-status-box" class="status-box status-info">Sessie actief</div>
@@ -265,7 +275,9 @@
           </a>
         </div>
       </div>
-      <div class="panel">
+    </div>
+
+    <div class="panel teacher-sessie-col">
         <h2>Sessie</h2>
         <div class="badges">
           <span class="badge" id="teacher-session-code">----</span>
@@ -288,7 +300,6 @@
           <button class="btn btn-soft small" id="teacher-export-btn" title="Exporteer sessiegegevens als CSV-bestand">⬇ Export</button>
           <button class="btn btn-danger small" id="teacher-close-session-btn" title="Sluit de sessie — leerlingen kunnen daarna niet meer inloggen">Sessie afsluiten</button>
         </div>
-      </div>
     </div>
   </div>
 </div>
@@ -392,5 +403,5 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/app.js?v=v2026.2.51.35"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.35"></script></body></html>
+<script src="/app.js?v=v2026.2.51.55"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.55"></script></body></html>

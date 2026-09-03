@@ -916,3 +916,34 @@ async function zoekAccountBlokkade() {
 }
 
 document.addEventListener('DOMContentLoaded', laadVrijOefenen);
+
+// ── Bugfix: login-blokkades (te veel mislukte pogingen) bekijken/vrijgeven ─────────────
+async function laadLoginBlokkades() {
+  const doel = document.getElementById('login-blokkades-inhoud');
+  if (!doel) return;
+  try {
+    const r = await fetch('/api/admin/auth-blocks');
+    if (!r.ok) { doel.innerHTML = '<p class="muted">Geen toegang tot deze gegevens.</p>'; return; }
+    const d = await r.json();
+    const blocks = d.blocks || [];
+    doel.innerHTML = blocks.length
+      ? `<table class="admin-table"><thead><tr><th>IP</th><th>Mislukte pogingen</th><th>Geblokkeerd tot</th><th></th></tr></thead>
+         <tbody>${blocks.map(b => `<tr>
+           <td><code>${_esc(b.ip)}</code></td>
+           <td>${b.failures}</td>
+           <td>${b.remainingMs > 0 ? _dt(b.blockedUntil) : '<span class="muted">niet (meer) geblokkeerd)</span>'}</td>
+           <td><button class="btn btn-muted small" onclick="deblokkeerAuth('${_esc(b.ip)}')">Vrijgeven</button></td>
+         </tr>`).join('')}</tbody></table>`
+      : '<p class="muted">Op dit moment is geen enkel IP-adres geblokkeerd.</p>';
+  } catch (e) {
+    doel.innerHTML = '<p class="muted">Kon de gegevens niet laden.</p>';
+  }
+}
+
+async function deblokkeerAuth(ip) {
+  const r = await apiFetch('/api/admin/auth-blocks/' + encodeURIComponent(ip), { method: 'DELETE' });
+  if (!r.ok) await pyAlert('Vrijgeven mislukt.', 'error');
+  laadLoginBlokkades();
+}
+
+document.addEventListener('DOMContentLoaded', laadLoginBlokkades);
