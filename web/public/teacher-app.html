@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Sessie actief</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.55"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.75"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .runner-health-bar-track {
@@ -167,19 +167,28 @@
     <button class="btn btn-muted" id="teacher-toggle-workspace-btn" title="Wissel tussen gedeelde klascode en individuele werkfase per leerling">Start individuele werkfase</button>
   </div>
 
+  <!-- Sprint 66: ankerpunt om .announcement-compose terug op zijn plaats te zetten
+       bij het verlaten van de fullscreen-modus (die verhuist het element tijdelijk). -->
+  <div id="tfs-anchor-announcement" style="display:none;"></div>
   <div class="card announcement-compose" style="margin-top:20px;">
     <div class="announcement-compose-grid">
       <div>
         <label class="announcement-label" for="teacher-announcement-input">Opdracht voor leerlingen</label>
         <textarea id="teacher-announcement-input" class="announcement-textarea" placeholder="Bijv. Maak oefening 3 zelfstandig en gebruik een for-lus."></textarea>
+        <!-- Sprint 67: meerdere voorbereide oefeningen kunnen ingeven en erdoor bladeren,
+             i.p.v. de vorige "geschiedenis van verstuurde teksten"-chips (verwarrend
+             volgens feedback). Zuiver een schrijfblok voor de leerkracht — puur
+             client-side bijgehouden, "Sturen" stuurt telkens gewoon de zichtbare tekst. -->
+        <div class="announcement-nav">
+          <button type="button" class="btn btn-muted small" id="announcement-nav-prev-btn" title="Vorige oefening">◀ Vorige</button>
+          <span id="announcement-nav-pos">1 / 1</span>
+          <button type="button" class="btn btn-muted small" id="announcement-nav-next-btn" title="Volgende oefening">Volgende ▶</button>
+          <button type="button" class="btn btn-soft small" id="announcement-nav-add-btn" title="Nieuwe, lege oefening toevoegen">+ Nieuwe oefening</button>
+        </div>
       </div>
       <div class="announcement-actions">
-        <button class="btn btn-primary" id="teacher-announcement-send-btn" title="Stuur opdracht naar alle leerlingen">Sturen</button>
-        <button class="btn btn-muted" id="teacher-announcement-clear-btn" title="Wis de huidige opdracht bij alle leerlingen">Wissen</button>
-      </div>
-      <div id="announcement-history-wrap" class="hidden" style="margin-top:8px;">
-        <div style="font-size:0.78rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Vorige aankondigingen</div>
-        <div id="announcement-history-list"></div>
+        <button class="btn btn-primary" id="teacher-announcement-send-btn" title="Stuur de zichtbare opdracht naar alle leerlingen">Sturen</button>
+        <button class="btn btn-muted" id="teacher-announcement-clear-btn" title="Wis de tekst van deze oefening (en bij alle leerlingen als ze zichtbaar was)">Wissen</button>
       </div>
     </div>
   </div>
@@ -190,6 +199,8 @@
   </div>
 
   <div class="workspace" style="margin-top:20px;">
+    <!-- Sprint 66: ankerpunt voor het terugzetten van .editor-shell na fullscreen. -->
+    <div id="tfs-anchor-editor" style="display:none;"></div>
     <div class="card editor-shell">
       <div class="tabs">
         <button class="tab-btn active" data-tab="code" data-owner="teacher">Code</button>
@@ -208,6 +219,9 @@
                 <button id="teacher-copy-btn" title="Kopieer code" aria-label="Kopieer code" onclick="if(window.copyContextual) copyContextual('teacher', this)" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;">📋</button>
         <button title="Sneltoetsen (Ctrl+?)" onclick="if(window.toggleShortcutsOverlay) toggleShortcutsOverlay()" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;font-weight:bold;">?</button>
         <button class="btn btn-soft small" id="teacher-run-btn" title="Voer de code uit voor alle leerlingen (Ctrl+Enter)">Run</button>
+        <!-- Sprint 66: fullscreen-modus. -->
+        <button id="teacher-fullscreen-btn" title="Fullscreen-modus (Esc om terug te keren)"
+          style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;">⛶</button>
       </div>
       <div id="teacher-code-panel" class="editor-frame-wrap">
         <div class="editor-frame">
@@ -400,8 +414,79 @@
   <button class="btn btn-muted small" style="margin-top:8px;width:100%;" onclick="document.getElementById('teacher-annotation-panel').classList.add('hidden')">Sluiten</button>
 </div>
 
+<!-- Sprint 66/66.1: fullscreen-modus. Leeg bij het laden — de code-editor en de
+     opdracht-invoer worden er bij het aanzetten in verplaatst (zie app.js), en bij
+     het uitzetten weer teruggezet naar hun ankerpunt hierboven. Groene "Klaar"- en
+     gele "Hand"-balken worden telkens opnieuw opgebouwd vanuit de laatst ontvangen
+     sessiedata. Sprint 66.1: editor neemt de volle hoogte links; alle andere
+     blokjes staan in een kolom rechts — belangrijk op de vrij korte (HD) schermen
+     van de chromebooks waarop dit gebruikt wordt. -->
+<div id="teacher-fullscreen-overlay" class="hidden">
+  <!-- Hier verhuist .card.editor-shell naartoe — volle hoogte, links. -->
+  <div id="tfs-editor-slot" class="tfs-editor-slot"></div>
+
+  <!-- Sprint 66.2: sleepbare scheidingslijn — versleep om de breedteverdeling zelf te bepalen. -->
+  <div id="tfs-divider" class="tfs-divider" title="Sleep om de breedte aan te passen"></div>
+
+  <div class="tfs-sidebar">
+    <div class="tfs-topbar">
+      <!-- Sprint 66.2: duidelijke 2-knops-schakelaar i.p.v. één knop met wisselende
+           tekst — in één oogopslag zichtbaar in welke modus je zit, en beide
+           richtingen (klas → individueel, en terug) zijn hier expliciet aanwezig. -->
+      <div class="tfs-mode-switch">
+        <button class="tfs-mode-btn" id="tfs-mode-class-btn" title="Terug naar gedeelde klascode">Klasmodus</button>
+        <button class="tfs-mode-btn" id="tfs-mode-personal-btn" title="Start individuele werkfase per leerling">Individueel</button>
+      </div>
+      <button class="btn btn-muted small" id="tfs-exit-btn" title="Terug naar normale weergave (Esc)">✕ Esc</button>
+    </div>
+    <span id="tfs-student-count" class="tfs-student-count">0 online</span>
+
+    <!-- Sprint 66.2: timerblok, verplaatst mee naar fullscreen (was voorheen enkel in
+         de normale weergave zichtbaar). Bij aflopen keert de klas — indien op dat
+         moment in individuele werkfase — automatisch terug naar klasmodus
+         (afgehandeld server-side, zie teacher_start_timer). -->
+    <div class="tfs-timer-block">
+      <div class="tfs-timer-label">⏱ Countdown timer</div>
+      <div class="tfs-timer-row">
+        <input id="tfs-timer-input" type="number" min="1" max="90" value="10"/>
+        <span class="tfs-timer-unit">min</span>
+        <button class="btn btn-soft small" id="tfs-timer-start-btn" title="Start de countdown timer">Start</button>
+        <button class="btn btn-muted small" id="tfs-timer-stop-btn" title="Stop de countdown timer">Stop</button>
+        <strong id="tfs-timer-display">—</strong>
+      </div>
+    </div>
+
+    <!-- Naam-pillen, alfabetisch — klik geeft die leerling exclusief run+bewerkrecht. -->
+    <!-- Sprint 68: los van elkaar in- en uitschakelbaar per leerling (run/code), i.p.v.
+         "alles-of-niets"-controle geven. Reuse van de al bestaande, exclusieve
+         per-veld-logica in teacher_toggle_student (één "run"-leerling tegelijk, los
+         van één "code"-leerling tegelijk). -->
+    <div class="tfs-pills-group" id="tfs-pills-group-run">
+      <div class="tfs-pills-label">Run</div>
+      <div id="tfs-pills-row-run" class="tfs-pills-row"></div>
+    </div>
+    <div class="tfs-pills-group" id="tfs-pills-group-code">
+      <div class="tfs-pills-label">Code</div>
+      <div id="tfs-pills-row-code" class="tfs-pills-row"></div>
+    </div>
+    <!-- Hier verhuist .card.announcement-compose naartoe. -->
+    <div id="tfs-announcement-slot"></div>
+    <!-- Groene "Klaar"-balk: een pil per leerling die klaar is; rechts een knop om de
+         Klaar-status van IEDEREEN te resetten; klik op een pil zelf reset enkel die ene. -->
+    <div id="tfs-done-bar" class="tfs-status-bar tfs-status-bar-done hidden">
+      <div id="tfs-done-pills" class="tfs-status-pills"></div>
+      <button class="btn btn-muted small" id="tfs-done-reset-all-btn" title="Klaar-status van iedereen resetten">↺ Reset</button>
+    </div>
+    <!-- Gele "Hand"-balk: zelfde opzet als de groene balk hierboven. -->
+    <div id="tfs-hand-bar" class="tfs-status-bar tfs-status-bar-hand hidden">
+      <div id="tfs-hand-pills" class="tfs-status-pills"></div>
+      <button class="btn btn-muted small" id="tfs-hand-reset-all-btn" title="Alle opgestoken handen laten zakken">↺ Reset</button>
+    </div>
+  </div>
+</div>
+
 <script src="/socket.io/socket.io.js"></script>
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/app.js?v=v2026.2.51.55"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.55"></script></body></html>
+<script src="/app.js?v=v2026.2.51.75"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.75"></script></body></html>

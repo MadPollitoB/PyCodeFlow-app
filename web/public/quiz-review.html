@@ -4,7 +4,8 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets verbeteren</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.55"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.75"/>
+  <link rel="stylesheet" href="/flowchart-widget.css?v=v2026.2.51.75"/>
   <style>
     .review-layout { display:grid; grid-template-columns:280px 1fr; gap:20px; }
     @media(max-width:900px){ .review-layout { grid-template-columns:1fr; } }
@@ -97,6 +98,15 @@
     <div>
       <div style="font-size:0.82rem;color:var(--muted);margin-bottom:8px;">Leerlingen</div>
       <div class="student-sidebar" id="student-list"></div>
+
+      <!-- Sprint 64: testaccounts staan hier volledig apart — geen verbeterverplichting,
+           tellen niet mee in de statistieken. Standaard verborgen als er geen zijn. -->
+      <div id="test-account-block" style="display:none;margin-top:18px;">
+        <div style="font-size:0.82rem;font-weight:700;color:#8a6d00;margin-bottom:8px;">
+          🧪 Testaccounts <span style="font-weight:400;color:var(--muted);">(niet verplicht na te kijken)</span>
+        </div>
+        <div class="student-sidebar" id="test-account-list"></div>
+      </div>
     </div>
 
     <!-- Verbeterpaneel -->
@@ -193,11 +203,12 @@
 <!-- Sprint 43.10: UMD-libs vóór Monaco's AMD-loader (zie quiz-student.html) -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="/vendor/marked/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.55"></script>
+<script src="/code-highlight.js?v=v2026.2.51.75"></script>
 <script src="/vendor/dompurify/purify.min.js"></script>
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/app.js?v=v2026.2.51.55"></script>
-<script src="/quiz-review.js?v=v2026.2.51.55"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.55"></script></body>
+<script src="/flowchart-widget.js?v=v2026.2.51.75"></script>
+<script src="/app.js?v=v2026.2.51.75"></script>
+<script src="/quiz-review.js?v=v2026.2.51.75"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.75"></script></body>
 </html>

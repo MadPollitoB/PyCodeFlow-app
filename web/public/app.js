@@ -2071,6 +2071,238 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
     qs('toggle-run-all-btn')?.addEventListener('click', () => socket.emit('teacher_toggle_all', { field: 'run' }));
     qs('teacher-toggle-workspace-btn')?.addEventListener('click', () => socket.emit('teacher_toggle_class_workspace'));
     qs('toggle-code-all-btn')?.addEventListener('click', () => socket.emit('teacher_toggle_all', { field: 'code' }));
+
+    // ── Sprint 66: fullscreen-modus ──────────────────────────────────────────
+    let _tfsActive = false;
+    let _tfsCurrentIsPersonal = false; // Sprint 66.2: laatst gekende modus, voor de 2-knops-schakelaar
+    function tfsRender(dataOverride) {
+      if (!_tfsActive) return;
+      // Bugfix (sprint 66.3): deze functie werd voorheen aangeroepen via een socket-
+      // listener die AL VÓÓR de listener stond die window._lastTeacherSessionData zelf
+      // bijwerkt (socket.io roept listeners in registratievolgorde aan) — hierdoor zag
+      // elke render altijd de data van de VORIGE gebeurtenis, nooit de nieuwste. Bv.:
+      // klik op naam A → server bevestigt A → deze render draait nog met de data van
+      // VÓÓR die klik (dus A niet gemarkeerd) → pas bij de VOLGENDE gebeurtenis (klik op
+      // B) toont de render eindelijk dat A de controle had gekregen. Nu wordt de data
+      // rechtstreeks meegegeven vanuit het event zelf, ongeacht listener-volgorde.
+      const data = dataOverride || window._lastTeacherSessionData;
+      if (!data) return;
+      const students = (data.students || []).filter(s => !s.removed);
+
+      // Topbalk: 2-knops modusschakelaar — actieve modus gemarkeerd, enkel zichtbaar
+      // in klasmodus-sessies (in examenmodus is er geen klas/individueel-onderscheid).
+      const isPersonal = data.session.classWorkspaceMode === 'personal';
+      _tfsCurrentIsPersonal = isPersonal;
+      const classBtn = qs('tfs-mode-class-btn');
+      const personalBtn = qs('tfs-mode-personal-btn');
+      if (classBtn && personalBtn) {
+        const zichtbaar = data.session.mode === 'class';
+        classBtn.classList.toggle('hidden', !zichtbaar);
+        personalBtn.classList.toggle('hidden', !zichtbaar);
+        classBtn.classList.toggle('tfs-mode-active', !isPersonal);
+        personalBtn.classList.toggle('tfs-mode-active', isPersonal);
+      }
+      const onlineCount = students.filter(s => s.online).length;
+      const countEl = qs('tfs-student-count');
+      if (countEl) countEl.textContent = `${onlineCount} online`;
+
+      // Sprint 68: aparte, onafhankelijke pillenrijen voor Run en Code — hergebruikt
+      // de al bestaande, exclusieve per-veld-logica in teacher_toggle_student (één
+      // "run"-leerling tegelijk, los van één "code"-leerling tegelijk).
+      const gesorteerd = [...students].sort((a, b) => a.name.localeCompare(b.name, 'nl'));
+      const runHost = qs('tfs-pills-row-run');
+      if (runHost) {
+        runHost.innerHTML = gesorteerd.map(s => `<button type="button" class="tfs-pill tfs-pill-run ${s.canRun ? 'tfs-pill-active' : ''}"
+          title="${s.canRun ? 'Heeft momenteel run-recht' : 'Klik om enkel run-recht te geven'}"
+          onclick="window._tfsToggleField('${s.id}','run')">${escapeHtml(s.name)}</button>`).join('');
+      }
+      const codeHost = qs('tfs-pills-row-code');
+      if (codeHost) {
+        codeHost.innerHTML = gesorteerd.map(s => `<button type="button" class="tfs-pill tfs-pill-code ${s.canEdit ? 'tfs-pill-active' : ''}"
+          title="${s.canEdit ? 'Heeft momenteel bewerkrecht' : 'Klik om enkel bewerkrecht te geven'}"
+          onclick="window._tfsToggleField('${s.id}','code')">${escapeHtml(s.name)}</button>`).join('');
+      }
+
+      // Groene "Klaar"-balk.
+      const klaarLeerlingen = students.filter(s => s.isDone);
+      const doneBar = qs('tfs-done-bar');
+      if (doneBar) {
+        doneBar.classList.toggle('hidden', klaarLeerlingen.length === 0);
+        qs('tfs-done-pills').innerHTML = klaarLeerlingen.map(s =>
+          `<button type="button" class="tfs-status-pill" title="Klaar-status van ${escapeHtml(s.name)} resetten"
+            onclick="window._tfsResetDone('${s.id}')">✓ ${escapeHtml(s.name)}</button>`).join('');
+      }
+
+      // Gele "Hand"-balk.
+      const handLeerlingen = students.filter(s => s.handRaised);
+      const handBar = qs('tfs-hand-bar');
+      if (handBar) {
+        handBar.classList.toggle('hidden', handLeerlingen.length === 0);
+        qs('tfs-hand-pills').innerHTML = handLeerlingen.map(s =>
+          `<button type="button" class="tfs-status-pill" title="Hand van ${escapeHtml(s.name)} laten zakken"
+            onclick="window._tfsLowerHand('${s.id}')">✋ ${escapeHtml(s.name)}</button>`).join('');
+      }
+    }
+    // Elke nieuwe sessiedata (komt sowieso al binnen voor de normale weergave)
+    // ook meteen naar de fullscreen-weergave laten doorstromen, indien actief.
+    socket.on('teacher_session_data', (data) => tfsRender(data));
+
+    // Sprint 68: vervangt window._tfsGrantControl — die zette run+code altijd
+    // SAMEN aan/uit; nu onafhankelijk per veld via het bestaande, al geteste
+    // teacher_toggle_student-event.
+    window._tfsToggleField = (studentId, field) => socket.emit('teacher_toggle_student', { studentId, field });
+    window._tfsResetDone = (studentId) => socket.emit('teacher_reset_done', { studentId });
+    window._tfsLowerHand = (studentId) => socket.emit('teacher_lower_hand', { studentId });
+
+    function enterFullscreen() {
+      if (_tfsActive) return;
+      _tfsActive = true;
+      // De echte, levende elementen verhuizen (niet dupliceren) — zo blijft alle
+      // bestaande logica (Monaco-editor, opdracht versturen, ...) gewoon intact.
+      qs('tfs-editor-slot')?.appendChild(document.querySelector('.workspace .editor-shell'));
+      qs('tfs-announcement-slot')?.appendChild(document.querySelector('.announcement-compose'));
+      // Bugfix (sprint 66.5): de CSS-override (.tfs-sidebar .announcement-compose-grid)
+      // bleek — om een reden die ik via codereview alleen niet kon vaststellen (mogelijk
+      // cascade/caching) — niet altijd door te komen: de Sturen/Wissen-knoppen bleven
+      // naast het tekstvak staan i.p.v. eronder. Nu rechtstreeks als inline stijl
+      // opgelegd op het moment van verplaatsen — dat wint altijd, ongeacht CSS-cascade
+      // of caching, en wordt bij het verlaten weer netjes verwijderd (zie exitFullscreen).
+      const announcementGrid = document.querySelector('.announcement-compose-grid');
+      if (announcementGrid) {
+        announcementGrid.style.display = 'flex';
+        announcementGrid.style.flexDirection = 'column';
+        announcementGrid.style.gap = '10px';
+        // Bugfix (sprint 67.1): enkel de GRID zelf op flex-column zetten volstond niet
+        // — er bleef een brede, lege ruimte staan vóór het opdrachtveld. De eerste
+        // rechtstreekse child (het blokje met label + tekstvak + navigatie) kreeg tot nu
+        // toe géén expliciete breedte, en bleef blijkbaar smaller dan de beschikbare
+        // ruimte in bepaalde gevallen. Nu elk onderdeel afzonderlijk, expliciet op volle
+        // breedte gezet — geen enkele CSS-regel kan dit nog tegenhouden.
+        Array.from(announcementGrid.children).forEach(child => {
+          child.style.width = '100%';
+          child.style.boxSizing = 'border-box';
+          child.style.display = 'block';
+        });
+      }
+      const announcementLabel = document.querySelector('.announcement-label');
+      if (announcementLabel) { announcementLabel.style.width = '100%'; announcementLabel.style.display = 'block'; }
+      const announcementTextarea = document.getElementById('teacher-announcement-input');
+      if (announcementTextarea) { announcementTextarea.style.width = '100%'; announcementTextarea.style.boxSizing = 'border-box'; }
+      const announcementNav = document.querySelector('.announcement-nav');
+      if (announcementNav) { announcementNav.style.width = '100%'; announcementNav.style.display = 'flex'; }
+      const announcementActions = document.querySelector('.announcement-actions');
+      if (announcementActions) {
+        announcementActions.style.width = '100%';
+        announcementActions.style.display = 'flex';
+        announcementActions.querySelectorAll('.btn').forEach(btn => { btn.style.flex = '1'; });
+      }
+      qs('teacher-fullscreen-overlay')?.classList.remove('hidden');
+      // Monaco moet expliciet weten dat zijn container van grootte veranderde.
+      setTimeout(() => editorStore.teacher?.layout(), 30);
+      tfsRender();
+      // Best-effort: echte browser-fullscreen, maar niet essentieel — sommige
+      // omgevingen (bv. ingebed in een iframe) staan dit niet toe.
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    }
+    function exitFullscreen() {
+      if (!_tfsActive) return;
+      _tfsActive = false;
+      const editorShell = qs('tfs-editor-slot')?.querySelector('.editor-shell');
+      if (editorShell) qs('tfs-anchor-editor')?.insertAdjacentElement('afterend', editorShell);
+      const announcement = qs('tfs-announcement-slot')?.querySelector('.announcement-compose');
+      if (announcement) qs('tfs-anchor-announcement')?.insertAdjacentElement('afterend', announcement);
+      // Sprint 66.5/67.1: de bij het binnengaan opgelegde inline stijlen weer
+      // opruimen, zodat de normale (niet-fullscreen) weergave er weer precies als
+      // voorheen uitziet.
+      const announcementGrid2 = document.querySelector('.announcement-compose-grid');
+      if (announcementGrid2) {
+        announcementGrid2.style.display = '';
+        announcementGrid2.style.flexDirection = '';
+        announcementGrid2.style.gap = '';
+        Array.from(announcementGrid2.children).forEach(child => {
+          child.style.width = ''; child.style.boxSizing = ''; child.style.display = '';
+        });
+      }
+      const announcementLabel2 = document.querySelector('.announcement-label');
+      if (announcementLabel2) { announcementLabel2.style.width = ''; announcementLabel2.style.display = ''; }
+      const announcementTextarea2 = document.getElementById('teacher-announcement-input');
+      if (announcementTextarea2) { announcementTextarea2.style.width = ''; announcementTextarea2.style.boxSizing = ''; }
+      const announcementNav2 = document.querySelector('.announcement-nav');
+      if (announcementNav2) { announcementNav2.style.width = ''; announcementNav2.style.display = ''; }
+      const announcementActions2 = document.querySelector('.announcement-actions');
+      if (announcementActions2) {
+        announcementActions2.style.width = '';
+        announcementActions2.style.display = '';
+        announcementActions2.querySelectorAll('.btn').forEach(btn => { btn.style.flex = ''; });
+      }
+      qs('teacher-fullscreen-overlay')?.classList.add('hidden');
+      setTimeout(() => editorStore.teacher?.layout(), 30);
+      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    }
+    qs('teacher-fullscreen-btn')?.addEventListener('click', enterFullscreen);
+    qs('tfs-exit-btn')?.addEventListener('click', exitFullscreen);
+    // Sprint 66.2: 2 aparte knoppen i.p.v. één wisselende — enkel emitten als de klik
+    // effectief een wissel betekent (de server-kant is een pure toggle, geen "zet op").
+    qs('tfs-mode-class-btn')?.addEventListener('click', () => {
+      if (_tfsCurrentIsPersonal) socket.emit('teacher_toggle_class_workspace');
+    });
+    qs('tfs-mode-personal-btn')?.addEventListener('click', () => {
+      if (!_tfsCurrentIsPersonal) socket.emit('teacher_toggle_class_workspace');
+    });
+    qs('tfs-done-reset-all-btn')?.addEventListener('click', () => socket.emit('teacher_reset_all_done'));
+    qs('tfs-hand-reset-all-btn')?.addEventListener('click', () => socket.emit('teacher_lower_all_hands'));
+
+    // Sprint 66.2: timerblok — eigen knoppen/invoerveld, dezelfde socket-events als
+    // het origineel in de normale weergave, dus geen dubbele logica nodig.
+    qs('tfs-timer-start-btn')?.addEventListener('click', () => {
+      const minutes = parseInt(qs('tfs-timer-input')?.value || '5', 10);
+      if (!minutes || minutes < 1) return;
+      socket.emit('teacher_start_timer', { durationMs: minutes * 60 * 1000 });
+    });
+    qs('tfs-timer-stop-btn')?.addEventListener('click', () => socket.emit('teacher_stop_timer'));
+    socket.on('timer_update', ({ remainingMs, running }) => {
+      const display = qs('tfs-timer-display');
+      if (!display) return;
+      if (!running || remainingMs <= 0) { display.textContent = '—'; display.style.color = 'var(--text)'; return; }
+      const m = Math.floor(remainingMs / 60000);
+      const s = Math.floor((remainingMs % 60000) / 1000);
+      display.textContent = `${m}:${String(s).padStart(2, '0')}`;
+      display.style.color = remainingMs < 60000 ? 'var(--accent)' : 'var(--text)';
+    });
+
+    // Sprint 66.2: sleepbare scheidingslijn tussen editor en zijkolom.
+    (function setupTfsDivider() {
+      const divider = qs('tfs-divider');
+      const overlay = qs('teacher-fullscreen-overlay');
+      if (!divider || !overlay) return;
+      let slepen = false;
+      divider.addEventListener('mousedown', (e) => {
+        slepen = true;
+        divider.classList.add('tfs-dragging');
+        e.preventDefault();
+      });
+      document.addEventListener('mousemove', (e) => {
+        if (!slepen) return;
+        // Breedte van de zijkolom = afstand van de muis tot de rechterrand van het venster.
+        const nieuweBreedte = Math.min(560, Math.max(220, window.innerWidth - e.clientX - 18));
+        overlay.style.setProperty('--tfs-sidebar-w', nieuweBreedte + 'px');
+      });
+      document.addEventListener('mouseup', () => {
+        if (!slepen) return;
+        slepen = false;
+        divider.classList.remove('tfs-dragging');
+        setTimeout(() => editorStore.teacher?.layout(), 30);
+      });
+    })();
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && _tfsActive) exitFullscreen();
+    });
+    // Verlaat een browser-fullscreen (bv. via de eigen Esc-afhandeling van de browser
+    // zelf, buiten onze eigen listener om) → ook onze overlay netjes sluiten.
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement && _tfsActive) exitFullscreen();
+    });
     qs('teacher-close-session-btn')?.addEventListener('click', () => {
       const online = (window._lastTeacherSessionData?.students || []).filter(s => s.online).length;
       const msg = online > 0
@@ -2281,6 +2513,13 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
     // Sprint 10V: keyboard navigatie leerlingenlijst (leerkracht-app)
     let _focusedStudentIdx = -1;
     document.addEventListener('keydown', e => {
+      // Bugfix (sprint 67): dit luisterde voorheen op het HELE document, ongeacht
+      // welk element de focus had — daardoor werkte de Enter-toets niet meer in bv.
+      // het opdrachtveld (een nieuwe regel typen was onmogelijk, want deze listener
+      // greep de toets af vóór de tekstarea zijn eigen standaardgedrag kon uitvoeren).
+      // Nu enkel actief als de focus NIET in een tekstveld ligt.
+      const actief = document.activeElement;
+      if (actief && (actief.tagName === 'TEXTAREA' || actief.tagName === 'INPUT' || actief.isContentEditable)) return;
       const host = qs('teacher-student-list');
       if (!host) return;
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
@@ -2295,11 +2534,48 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
         items[_focusedStudentIdx].querySelector('[data-live-control]')?.click();
       }
     });
+    // Sprint 67: meerdere voorbereide oefeningen — puur client-side bijgehouden
+    // schrijfblok, "Sturen" verstuurt telkens gewoon de op dat moment zichtbare tekst.
+    let _announcementDrafts = [''];
+    let _announcementDraftIdx = 0;
+    function announcementNavRender() {
+      const posEl = qs('announcement-nav-pos');
+      if (posEl) posEl.textContent = `${_announcementDraftIdx + 1} / ${_announcementDrafts.length}`;
+      const prevBtn = qs('announcement-nav-prev-btn');
+      const nextBtn = qs('announcement-nav-next-btn');
+      if (prevBtn) prevBtn.disabled = _announcementDraftIdx === 0;
+      if (nextBtn) nextBtn.disabled = _announcementDraftIdx === _announcementDrafts.length - 1;
+    }
+    qs('teacher-announcement-input')?.addEventListener('input', () => {
+      _announcementDrafts[_announcementDraftIdx] = qs('teacher-announcement-input').value;
+    });
+    qs('announcement-nav-prev-btn')?.addEventListener('click', () => {
+      if (_announcementDraftIdx === 0) return;
+      _announcementDraftIdx--;
+      qs('teacher-announcement-input').value = _announcementDrafts[_announcementDraftIdx];
+      announcementNavRender();
+    });
+    qs('announcement-nav-next-btn')?.addEventListener('click', () => {
+      if (_announcementDraftIdx >= _announcementDrafts.length - 1) return;
+      _announcementDraftIdx++;
+      qs('teacher-announcement-input').value = _announcementDrafts[_announcementDraftIdx];
+      announcementNavRender();
+    });
+    qs('announcement-nav-add-btn')?.addEventListener('click', () => {
+      _announcementDrafts.push('');
+      _announcementDraftIdx = _announcementDrafts.length - 1;
+      qs('teacher-announcement-input').value = '';
+      qs('teacher-announcement-input').focus();
+      announcementNavRender();
+    });
+    announcementNavRender();
+
     qs('teacher-announcement-send-btn')?.addEventListener('click', () => {
       socket.emit('teacher_send_announcement', { text: qs('teacher-announcement-input').value });
     });
     qs('teacher-announcement-clear-btn')?.addEventListener('click', () => {
       qs('teacher-announcement-input').value = '';
+      _announcementDrafts[_announcementDraftIdx] = '';
       socket.emit('teacher_send_announcement', { text: '' });
     });
     qs('teacher-send-input-btn')?.addEventListener('click', () => {
@@ -2354,39 +2630,11 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       else layoutEditor('teacher');
       qs('teacher-output-panel').textContent = data.view.output || '';
 
-      // Overschrijf de announcement-input NIET als de leerkracht er op dit moment in typt
-      const announcementInput = qs('teacher-announcement-input');
-      if (announcementInput && document.activeElement !== announcementInput) {
-        announcementInput.value = data.announcement || '';
-      }
+      // Sprint 67: de announcement-input wordt niet langer overschreven vanuit de
+      // server — dat is nu een puur client-side beheerd schrijfblok met meerdere
+      // oefeningen (zie announcementDrafts hierboven), losstaand van wat op dit
+      // moment effectief bij de leerlingen zichtbaar staat.
       updateAnnouncement('teacher', data.announcement || '');
-
-      // Aankondigingsgeschiedenis — compact chip-grid
-      const histWrap = qs('announcement-history-wrap');
-      const histHost = qs('announcement-history-list');
-      if (histHost && histWrap) {
-        const history = data.announcementHistory || [];
-        if (history.length > 0) {
-          const historyItems = history.slice().reverse();
-          histHost.innerHTML = historyItems.map((h, i) => `
-            <button class="announcement-chip" data-idx="${i}" title="${escapeHtml(h)}">
-              ${escapeHtml(h.length > 40 ? h.slice(0, 40) + '…' : h)}
-            </button>`).join('');
-          histHost.querySelectorAll('.announcement-chip').forEach(chip => {
-            chip.addEventListener('click', () => {
-              const raw = historyItems[parseInt(chip.dataset.idx, 10)];
-              const input = qs('teacher-announcement-input');
-              if (input && raw !== undefined) {
-                input.value = raw;
-                input.focus();
-              }
-            });
-          });
-          histWrap.classList.remove('hidden');
-        } else {
-          histWrap.classList.add('hidden');
-        }
-      }
 
       setStatusBox(qs('teacher-status-box'), data.statusText, data.statusType);
       // Run all / Code all zijn niet van toepassing in examenmodus:

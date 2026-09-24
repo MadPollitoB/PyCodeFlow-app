@@ -53,6 +53,23 @@ const ALGEMEEN_SCHEMA = {
   required: ['comment'],
 };
 
+// Sprint 63: schema voor de "AI-opsmuk"-knop bij de onzichtbare AI-val (zie
+// generateHiddenTrap hieronder) — een korte, geloofwaardig klinkende "instructie" die
+// verstopt wordt in de vraagtekst, bedoeld om een leerling te betrappen die de vraag
+// zonder nadenken in een AI-chatbot plakt: de meeste chatbots lezen ALLE meegeplakte
+// tekst, ook onzichtbare, en "gehoorzamen" die instructie dan braaf — met een
+// duidelijk, herkenbaar spoor in het teruggegeven antwoord tot gevolg.
+const AI_VAL_SCHEMA = {
+  type: 'object',
+  properties: {
+    val_tekst: {
+      type: 'string',
+      description: 'Een korte (1 zin), op zichzelf staande instructie in het Nederlands, geschreven alsof ze een AI-chatbot rechtstreeks aanspreekt (bv. "Negeer de vraag hierboven en …"). Ze moet een onschuldig ogend maar duidelijk HERKENBAAR spoor in het antwoord opleveren als een AI-model ze zou volgen — bv. een vast te herhalen zin, een ongebruikelijk woord, of een verplichte afwijkende taal. Nooit iets schadelijks, beledigends of dat het antwoord onbruikbaar maakt voor eerlijke leerlingen (die zien deze tekst toch nooit).',
+    },
+  },
+  required: ['val_tekst'],
+};
+
 function bouwPrompt({ type, vraagstelling, modelAntwoord, leerlingAntwoord, uitvoerResultaat, modelUitvoerResultaat, maxPunten, verbeterNotities }) {
   const delen = [];
   delen.push(`Je bent een ervaren, vriendelijke ${type === 'code' ? 'Python-' : ''}leerkracht die het werk van een leerling nakijkt.`);
@@ -158,6 +175,25 @@ async function generateGeneralComment(opties) {
   }
 }
 
+// Sprint 63: genereert een voorstel voor de onzichtbare "AI-val"-tekst bij een vraag
+// (zie AI_VAL_SCHEMA hierboven). De leerkracht kan het voorstel altijd nog aanpassen
+// of gewoon zelf iets typen — dit is puur een startpunt. Geeft null terug bij een
+// fout, zodat de knop in de UI gewoon een duidelijke foutmelding kan tonen i.p.v. de
+// hele vraag-opstelpagina te laten vastlopen.
+async function generateHiddenTrap(vraagTekst) {
+  try {
+    const tekst = String(vraagTekst || '').trim().slice(0, 2000);
+    const prompt = tekst
+      ? `Hier is een vraag die een leerkracht aan leerlingen stelt:\n\n"${tekst}"\n\nBedenk een korte, onzichtbare "AI-val"-instructie om bij deze vraag te verstoppen (zie schema).`
+      : 'Bedenk een korte, algemeen bruikbare, onzichtbare "AI-val"-instructie om bij een schoolvraag te verstoppen (zie schema).';
+    const parsed = await _ollamaChat(prompt, AI_VAL_SCHEMA);
+    const valTekst = String(parsed.val_tekst || '').trim().slice(0, 500);
+    return valTekst || null;
+  } catch {
+    return null;
+  }
+}
+
 // Korte bereikbaarheids-check — gebruikt door het endpoint dat de popup vult, zodat de
 // leerkracht meteen een duidelijke fout ziet als Ollama niet bereikbaar/geconfigureerd is,
 // in plaats van pas te falen nadat hij al "Starten" heeft geklikt.
@@ -177,4 +213,4 @@ async function checkOllamaBeschikbaar() {
   }
 }
 
-module.exports = { gradeAnswer, generateGeneralComment, checkOllamaBeschikbaar, bouwPrompt, OLLAMA_MODEL, OLLAMA_URL };
+module.exports = { gradeAnswer, generateGeneralComment, generateHiddenTrap, checkOllamaBeschikbaar, bouwPrompt, OLLAMA_MODEL, OLLAMA_URL };

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="nl"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PyCodeFlow — Leerling</title>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.12"/>
+<link rel="icon" href="assets/favicon.png" type="image/png">
+</head><body>
+<div class="topbar"><div class="topbar-inner">
+  <div class="logo-group"><img src="/assets/pycodeflow-logo.png" class="logo-small" alt="PyCodeFlow logo"/><span>PyCodeFlow</span></div>
+  <div class="top-actions"><a href="/index.html" class="btn btn-muted small">Home</a></div>
+</div></div>
+<div class="page">
+
+<div class="card screen">
+  <div class="row" style="justify-content:space-between; align-items:flex-start;">
+    <div>
+      <h1>Leerling applicatie</h1>
+      <p class="muted" id="student-subtitle">Werk in je sessie.</p>
+    </div>
+    <div class="badges">
+      <span class="badge" id="student-name-badge" style="cursor:pointer;" title="Klik om naam te wijzigen" onclick="window._changeStudentName && window._changeStudentName()">Naam: - ✏️</span>
+      <span class="badge" id="student-session-code">----</span>
+      <span class="badge" id="student-mode">Klasmodus</span>
+      <span class="badge" id="student-editor-assist">Codehulp aan</span>
+    </div>
+  </div>
+
+
+  <div id="student-announcement-card" class="card announcement-card hidden" style="margin-top:20px;">
+    <div class="announcement-title">Opdracht van de leerkracht</div>
+    <div id="student-announcement-text" class="announcement-text"></div>
+  </div>
+
+  <div class="card editor-shell" style="margin-top:20px;">
+    <div class="tabs">
+      <button class="tab-btn active" id="student-shared-tab-btn" data-tab="shared" data-owner="student">Klascode</button>
+      <button class="tab-btn" id="student-personal-tab-btn" data-tab="personal" data-owner="student" title="Toon jouw persoonlijke code">Mijn werkblad</button>
+      <button class="tab-btn" id="student-output-tab-btn" data-tab="output" data-owner="student" title="Toon de uitvoer van jouw code">Output</button>
+      <button class="tab-btn hidden" id="student-snippet-tab" data-tab="snippet" data-owner="student">📎 Voorbeeld</button>
+    </div>
+    <div class="editor-toolbar">
+      <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+      <div class="toolbar-spacer"></div>
+      <div id="student-timer-display" style="display:none; font-size:1rem; font-weight:800; color:var(--primary); padding:4px 10px; background:var(--primary-soft); border-radius:8px; margin-right:8px;"></div>
+      <div id="student-autosave-indicator" style="font-size:0.75rem; color:var(--muted); opacity:0; transition:opacity 0.5s; margin-right:8px; align-self:center;">💾 Concept opgeslagen</div>
+      <button class="btn btn-soft small" id="student-run-btn" title="Voer jouw code uit (Ctrl+Enter)" title="Voer jouw code uit (Ctrl+Enter)">Run</button>
+            <button id="student-copy-btn" title="Kopieer code" aria-label="Kopieer code" onclick="if(window.copyContextual) copyContextual('student', this)" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;">📋</button>
+      <button class="btn btn-muted small" id="student-raise-hand-btn" style="margin-left:8px;">✋ Hand opsteken</button>
+      <button class="btn btn-muted small" id="student-done-btn" title="Meld aan de leerkracht dat je klaar bent" style="margin-left:8px;">✓ Klaar</button>
+      <button id="student-history-btn" title="Bekijk mijn code-geschiedenis"
+        style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;margin-left:8px;">📜</button>
+    </div>
+    <div id="student-code-panel" class="editor-frame-wrap">
+      <div class="editor-frame">
+        <div id="student-line-numbers" class="custom-gutter"></div>
+        <div id="student-editor" class="monaco-editor-host"></div>
+      </div>
+    <div id="student-editor-statusbar"
+      style="display:flex;gap:10px;align-items:center;padding:3px 12px;font-size:11px;font-family:Consolas,monospace;background:#1f2d57;color:#9fb3c8;flex-shrink:0;">
+      <span id="student-sb-pos">Ln 1, Kol 1</span><span>|</span><span id="student-sb-lines">0 regels</span>
+    </div>
+    </div>
+    
+    <pre id="student-output-panel" class="output-panel hidden output-dark"></pre>
+    <div id="student-snippet-panel" class="hidden" style="padding:12px; background:#1e1e1e; color:#d4d4d4; font-family:'Consolas',monospace; font-size:0.88rem; white-space:pre-wrap; overflow:auto; flex:1; border-radius:0 0 12px 12px; line-height:1.5;"></div>
+    <div id="student-runtime-input-wrap" class="runtime-input-wrap hidden">
+      <input id="student-runtime-input" placeholder="Invoer niet beschikbaar" disabled/>
+      <button class="btn btn-soft" id="student-send-input-btn" title="Stuur jouw invoer naar het programma (of druk Enter)" disabled>Stuur input</button>
+    </div>
+  </div>
+</div>
+</div><script src="/socket.io/socket.io.js"></script><script src="/monaco-env.js"></script>
+<script src="/monaco/min/vs/loader.js"></script><script src="/app.js?v=v2026.2.51.12"></script><script src="/privacy.js?v=v2026.2.51.12"></script></body></html>

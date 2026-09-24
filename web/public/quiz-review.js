@@ -5,6 +5,7 @@ const params = new URLSearchParams(location.search);
 const sessionCode = params.get('code') || prompt('Toetscode:');
 let _questions = [];
 let _students = [];      // unieke leerlingen
+let _testAccounts = [];  // Sprint 64: testaccounts, apart gehouden (geen verbeterverplichting)
 let _answers = [];       // alle antwoorden
 let _scores = {};        // { answerId: { score, comment } }
 let _currentStudent = null;
@@ -64,14 +65,19 @@ async function init() {
 
   // Unieke leerlingen
   const seen = new Set();
-  _students = _answers.filter(a => {
+  const alleLeerlingen = _answers.filter(a => {
     if (seen.has(a.student_id)) return false;
     seen.add(a.student_id); return true;
-  }).map(a => ({ id: a.student_id, name: a.student_name, class: a.student_class }));
+  }).map(a => ({ id: a.student_id, name: a.student_name, class: a.student_class, isTestAccount: a.is_test_account === true }));
+
+  // Sprint 64: testaccounts staan volledig apart — geen verbeterverplichting, tellen
+  // niet mee in de statistieken hieronder.
+  _students = alleLeerlingen.filter(s => !s.isTestAccount);
+  _testAccounts = alleLeerlingen.filter(s => s.isTestAccount);
 
   renderStudentList();
 
-  // Statistieken
+  // Statistieken (testaccounts tellen bewust niet mee)
   const total = _students.length;
   const scored = _students.filter(s =>
     _answers.filter(a => a.student_id === s.id).every(a => a.score !== null)
@@ -93,7 +99,7 @@ async function init() {
 }
 
 function renderStudentList() {
-  document.getElementById('student-list').innerHTML = _students.map(s => {
+  function bouwRij(s) {
     const studentAnswers = _answers.filter(a => a.student_id === s.id);
     const scored = studentAnswers.filter(a => a.score !== null).length;
     const total = _questions.length;
@@ -116,11 +122,22 @@ function renderStudentList() {
       <div style="font-size:0.78rem;color:${isActive?'rgba(255,255,255,0.7)':'var(--muted)'};">${esc(s.class || '')}</div>
       <div class="score-chip">${scoreChip}</div>
     </div>`;
-  }).join('');
+  }
+  document.getElementById('student-list').innerHTML = _students.map(bouwRij).join('');
+
+  // Sprint 64: testaccounts in hun eigen, apart blokje — enkel getoond als er ook
+  // effectief eentje aanwezig is in deze toets/taak.
+  const taBlok = document.getElementById('test-account-block');
+  if (_testAccounts.length) {
+    taBlok.style.display = 'block';
+    document.getElementById('test-account-list').innerHTML = _testAccounts.map(bouwRij).join('');
+  } else {
+    taBlok.style.display = 'none';
+  }
 }
 
 function selectStudent(studentId) {
-  _currentStudent = _students.find(s => s.id === studentId);
+  _currentStudent = _students.find(s => s.id === studentId) || _testAccounts.find(s => s.id === studentId);
   _currentQIdx = 0;
   _editMode = false;
   renderStudentList();
@@ -280,6 +297,15 @@ async function selectQuestion(idx) {
         background:var(--surface-soft);border-radius:8px;min-height:60px;">
         ${ans?.code ? esc(ans.code) : '<span style="color:var(--muted);font-style:italic;">(geen antwoord)</span>'}
       </div></div>`;
+  } else if (qType === 'stroomdiagram') {
+    // Sprint 63: weergave-alleen — het mounten van de widget zelf gebeurt hieronder, ná
+    // het inspuiten van deze HTML (de widget heeft een al bestaand DOM-element nodig).
+    answerHtml = `<div class="card" style="padding:14px;margin-bottom:14px;">
+      <div style="font-size:0.78rem;color:var(--muted);margin-bottom:6px;">🔀 Ingediend stroomdiagram:</div>
+      ${ans?.answer_flowchart_json
+        ? `<div id="quiz-review-flowchart"></div>`
+        : '<div style="font-size:0.9rem;color:var(--muted);font-style:italic;padding:10px;">(geen antwoord ingediend)</div>'}
+      </div>`;
   } else if (qType === 'single' || qType === 'multiple') {
     try {
       const choices = JSON.parse(q.choices_json || '[]');
@@ -355,6 +381,10 @@ async function selectQuestion(idx) {
     ${aiGradedHtml}
     <div style="background:var(--surface-soft);border-radius:10px;padding:12px 14px;margin-bottom:12px;">
       <strong>Vraag ${idx+1}:</strong><div class="md-preview" style="margin:4px 0 8px;">${renderMarkdown(q.text_snapshot || q.text || '')}</div>
+      ${q.hidden_ai_trap ? `<div style="background:#fdf3d1;border:1.5px solid #e6c860;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:0.82rem;">
+        🔒 <strong>Onzichtbare AI-val bij deze vraag</strong> <span class="muted">(leerlingen zagen dit nooit)</span>:
+        <em>${esc(q.hidden_ai_trap)}</em>
+      </div>` : ''}
       <span class="muted" style="font-size:0.82rem;">
         ${esc(q.subject || '')} · Max ${q.points} punten
         ${ans ? ` · Ingediend ${new Date(Number(ans.submitted_at||ans.saved_at)).toLocaleTimeString('nl-BE',{hour:'2-digit',minute:'2-digit'})}
@@ -482,6 +512,13 @@ async function selectQuestion(idx) {
     // editor nooit gemount was → de code bleef onzichtbaar.
     await ensureEditor('quiz', code || '// Geen antwoord ingediend', false, true);
     setQuizEditorReadOnly(true);
+  } else if (qType === 'stroomdiagram') {
+    // Sprint 63: weergave-alleen widget mounten op de host die net in answerHtml
+    // hierboven is ingespoten (bestaat pas nu, na de innerHTML-toewijzing).
+    const host = document.getElementById('quiz-review-flowchart');
+    if (host && ans?.answer_flowchart_json) {
+      FlowchartWidget.mount(host, { editable: false, data: ans.answer_flowchart_json });
+    }
   } else if (qType === 'composite') {
     // Sprint 51j: het code-onderdeel (indien aanwezig) gebruikt dezelfde, altijd uitvoerbare
     // editor. De code staat in part_answers[codePart.id], niet in de 'code'-kolom van ans.

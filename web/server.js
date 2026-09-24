@@ -700,9 +700,17 @@ async function requireTeacherAuth(req, res, next) {
     return next();
   }
 
-  // Stuur de browser door naar de custom login-pagina i.p.v. de native browser-popup
-  // te tonen via WWW-Authenticate. De ?next= parameter zorgt voor de juiste redirect
-  // na succesvolle authenticatie.
+  // Bugfix: dit stuurde ALTIJD een redirect naar de HTML-inlogpagina terug, ook bij een
+  // API-aanroep (fetch()) vanuit JavaScript — bv. wanneer de sessie verliep terwijl je al
+  // een tijdje op een scherm aan het werken was, en dan op een knop klikte die een API-call
+  // doet. fetch() volgt zo'n redirect gewoon en krijgt de HTML van de inlogpagina terug;
+  // de aanroepende code doet dan `await r.json()` op die HTML, wat crasht met een cryptische
+  // "Unexpected token '<'"-foutmelding i.p.v. een duidelijke "log opnieuw in". Nu: voor
+  // /api/-routes een nette JSON-401 i.p.v. een redirect; voor gewone paginabezoeken blijft
+  // het bestaande redirect-gedrag ongewijzigd.
+  if (req.path.startsWith('/api/')) {
+    return res.status(401).json({ error: 'Je sessie is verlopen of je bent niet (meer) ingelogd. Log opnieuw in.' });
+  }
   const dest = encodeURIComponent(req.path);
   return res.redirect(`/teacher-login.html?next=${dest}`);
 }
@@ -2252,6 +2260,7 @@ app.get('/api/mijn-klassen', requireTeacherAuth, async (req, res) => {
         students: leerlingen.map(s => ({
           id: s.id, name: s.name, email: s.email || null, status: s.status,
           mustChangePassword: s.must_change_password === true,
+          isTestAccount: s.is_test_account === true,
         })),
       });
     }
@@ -2649,6 +2658,18 @@ app.put('/api/admin/students/:id/status', requireTeacherAuth, requireCsrf, async
   res.json({ ok: true });
 });
 
+// Sprint 64: testaccount aan/uit — enkel de leerkracht(en) van de klas van deze
+// leerling (of een beheerder), zelfde eigenaarschapscontrole als hierboven.
+app.put('/api/admin/students/:id/test-account', requireTeacherAuth, requireCsrf, async (req, res) => {
+  if (!(await magDezeLeerling(req, req.params.id))) {
+    return res.status(403).json({ error: 'Deze leerling zit niet in een van jouw klassen.' });
+  }
+  const isTestAccount = req.body?.isTestAccount === true;
+  await dbModule.updateStudentTestAccount(req.params.id, isTestAccount);
+  dbModule.auditLog(getActorFromReq(req), isTestAccount ? 'testaccount_ingeschakeld' : 'testaccount_uitgeschakeld', req.params.id, {}, req.ip).catch(() => {});
+  res.json({ ok: true });
+});
+
 app.put('/api/admin/students/:id/class', requireTeacherAuth, requireCsrf, async (req, res) => {
   if (!(await magDezeLeerling(req, req.params.id))) {
     return res.status(403).json({ error: 'Deze leerling zit niet in een van jouw klassen.' });
@@ -2956,12 +2977,26 @@ app.get('/api/quiz/bank/subjects', requireTeacherAuth, async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Sprint 63: "AI-opsmuk"-knop bij het opstellen van een vraag — laat de bestaande,
+// lokale Ollama-koppeling (web/lib/ai-grading.js) een voorstel doen voor de onzichtbare
+// AI-val-tekst. De leerkracht kan het voorstel altijd nog aanpassen of gewoon zelf iets
+// intypen; dit endpoint slaat niets op, het genereert enkel een suggestie.
+app.post('/api/quiz/bank/ai-trap-suggestie', requireTeacherAuth, requireCsrf, async (req, res) => {
+  try {
+    const valTekst = await aiGrading.generateHiddenTrap(req.body?.text || '');
+    if (!valTekst) return res.status(502).json({ error: 'De AI kon geen voorstel genereren. Controleer of Ollama bereikbaar is, of typ het zelf in.' });
+    res.json({ ok: true, valTekst });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => {
-  const { text, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer, answerParts } = req.body || {};
+  const { text, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer, answerParts, flowchartJson, hiddenAiTrap } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: 'Vraagstelling is verplicht.' });
   if (text.length > 5000) return res.status(400).json({ error: 'Vraagstelling te lang (max 5000 tekens).' });
   // Sprint 51j: 'composite' = meerdere antwoordonderdelen (enkel open/code combineerbaar).
-  const validTypes = ['code', 'open', 'multiple', 'single', 'composite'];
+  const validTypes = ['code', 'open', 'multiple', 'single', 'composite', 'stroomdiagram'];
   const qType = validTypes.includes(questionType) ? questionType : 'code';
   // Valideer choices bij meerkeuze/single
   if (['multiple', 'single'].includes(qType)) {
@@ -3001,13 +3036,15 @@ app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => 
       createdBy: req.teacher?.id || null,
       schoolId: schrijfSchoolVoor(req.teacher),   // Sprint 48c2
       answerParts: qType === 'composite' ? JSON.stringify(answerParts) : '[]',
+      flowchartJson: String(flowchartJson || '').slice(0, 200000),
+      hiddenAiTrap: String(hiddenAiTrap || '').slice(0, 500),
     });
     res.json({ ok: true, id });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) => {
-  const { text, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer, answerParts } = req.body || {};
+  const { text, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer, answerParts, flowchartJson, hiddenAiTrap } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: 'Vraagstelling is verplicht.' });
   // Sprint 51c: enkel de eigenaar (of admin/legacy) mag een vraag bewerken.
   const bestaande = await dbModule.getQuizQuestionById(req.params.id);
@@ -3015,7 +3052,7 @@ app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) 
   if (!magSessieBeheren(req.teacher, bestaande.created_by)) {
     return res.status(403).json({ error: 'Je kan enkel je eigen vragen bewerken.' });
   }
-  const validTypes = ['code', 'open', 'multiple', 'single', 'composite'];
+  const validTypes = ['code', 'open', 'multiple', 'single', 'composite', 'stroomdiagram'];
   const qType = validTypes.includes(questionType) ? questionType : 'code';
   if (qType === 'composite' && (!Array.isArray(answerParts) || answerParts.length < 1)) {
     return res.status(400).json({ error: 'Een samengestelde vraag heeft minstens 1 antwoordonderdeel nodig.' });
@@ -3035,6 +3072,8 @@ app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) 
     tags: (tags || '').slice(0, 200),
     modelAnswer: String(modelAnswer || '').slice(0, 10000),
     answerParts: qType === 'composite' ? JSON.stringify(answerParts) : '[]',
+    flowchartJson: String(flowchartJson || '').slice(0, 200000),
+    hiddenAiTrap: String(hiddenAiTrap || '').slice(0, 500),
   });
   res.json({ ok });
 });
@@ -3237,6 +3276,8 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
           choicesJson: bank?.choices_json || '[]',
           modelAnswer: bank?.model_answer || '',
           answerParts: bank?.answer_parts || '[]',
+          flowchartJson: bank?.flowchart_json || '',
+          hiddenAiTrap: bank?.hidden_ai_trap || '',
         };
       }),
       randomize: randomize !== false,
@@ -3360,6 +3401,7 @@ app.get('/api/quiz/:code/edit', requireTeacherAuth, requireSessionAccess, async 
       questions: snaps.map(q => ({
         id: q.bank_question_id, text: q.text_snapshot, subject: q.subject || '',
         points: q.points, question_type: q.question_type, choices_json: q.choices_json,
+        flowchart_json: q.flowchart_json || '', hidden_ai_trap: q.hidden_ai_trap || '',
       })),
       studentIds,
     });
@@ -3425,6 +3467,8 @@ app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf
           choicesJson: bank?.choices_json || q.choices_json || '[]',
           modelAnswer: bank?.model_answer || '',
           answerParts: bank?.answer_parts || q.answer_parts || '[]',
+          flowchartJson: bank?.flowchart_json || q.flowchart_json || '',
+          hiddenAiTrap: bank?.hidden_ai_trap || q.hidden_ai_trap || '',
         };
       }),
       randomize: randomize !== false,
@@ -3496,6 +3540,8 @@ app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireSessionAccess, 
       modelAnswer: q.model_answer || '',
       // Sprint 51j: antwoordonderdelen (composite) ook meekopiëren
       answerParts: q.answer_parts || '[]',
+      flowchartJson: q.flowchart_json || '',
+      hiddenAiTrap: q.hidden_ai_trap || '',
     })),
     randomize: meta.randomize,
     noTimer: meta.no_timer || false,
@@ -3771,6 +3817,7 @@ app.post('/api/library/templates/:id/materialize', requireTeacherAuth, requireCs
         bankId: q.id, orderIndex: i, text: q.text, subject: q.subject, points: q.max_points,
         questionType: q.question_type || 'code', choicesJson: q.choices_json || '[]',
         modelAnswer: q.model_answer || '', answerParts: q.answer_parts || '[]',
+        flowchartJson: q.flowchart_json || '', hiddenAiTrap: q.hidden_ai_trap || '',
       })),
       randomize: tpl.randomize,
       noTimer: tpl.no_timer || false,
@@ -4907,6 +4954,12 @@ async function generateQuizPDF(sessionCode, type, studentId = null, scored = fal
     doc.y = y0 + 22;
 
     let totalScores = [];
+    // Sprint 64: testaccounts tellen niet mee in het klasgemiddelde. quiz_answers houdt
+    // geen link met de students-tabel bij deze PDF (enkel losse naam/klas-tekst), dus
+    // hier een kleine, gerichte opzoeking op basis van de betrokken student-ID's.
+    const testAccountIds = new Set(
+      (await dbModule.getTestAccountIds(students.map(s => s.id))).filter(Boolean)
+    );
     students.forEach((stud, si) => {
       const y = doc.y;
       if (y > 750) { doc.addPage(); }
@@ -4914,7 +4967,7 @@ async function generateQuizPDF(sessionCode, type, studentId = null, scored = fal
       doc.fillColor('#000').fontSize(8).font('Helvetica');
       const studAnswers = allAnswers.filter(a => a.student_id === stud.id);
       let total = 0;
-      doc.text(stud.name, 54, y + 4, { width: nameW, lineBreak: false });
+      doc.text(testAccountIds.has(stud.id) ? `🧪 ${stud.name} (testaccount)` : stud.name, 54, y + 4, { width: nameW, lineBreak: false });
       questions.forEach((q, i) => {
         const ans = studAnswers.find(a => a.question_id === q.id);
         const s = ans?.score !== null && ans?.score !== undefined ? ans.score : '—';
@@ -4923,7 +4976,7 @@ async function generateQuizPDF(sessionCode, type, studentId = null, scored = fal
       });
       doc.font('Helvetica-Bold').text(total > 0 ? `${total}/${maxScore}` : '—',
         54 + nameW + questions.length * colW, y + 4, { width: 60, align: 'right', lineBreak: false });
-      totalScores.push(total);
+      if (!testAccountIds.has(stud.id)) totalScores.push(total);
       doc.y = y + 18;
     });
 
@@ -6115,7 +6168,7 @@ async function bouwKlasMatrix(classId, schoolYear) {
     const gemiddelde = metScore.length
       ? Math.round((metScore.reduce((n, c) => n + c.score, 0) / metScore.length) * 100) / 100
       : null;
-    return { id: l.id, naam: l.name, cellen, gemiddelde, meegeteld: meetellend.length };
+    return { id: l.id, naam: l.name, cellen, gemiddelde, meegeteld: meetellend.length, isTestAccount: l.is_test_account === true };
   });
 
   const klas = leerlingen[0] || {};
@@ -6199,9 +6252,13 @@ app.get('/api/klasmatrix/export.xlsx', requireTeacherAuth, async (req, res) => {
       });
       kopRij.getCell(1).alignment = { vertical: 'middle', horizontal: 'left' };
 
-      m.rijen.forEach((r, i) => {
+      // Sprint 64: testaccounts staan onderaan, duidelijk gemarkeerd — ze telden al niet
+      // mee in de servergegevens (m.rijen komt uit dezelfde bron als het scherm/PDF), dit
+      // is enkel de visuele volgorde/markering in de Excel-export.
+      const gesorteerdeRijen = [...m.rijen].sort((a, b) => (a.isTestAccount === b.isTestAccount) ? 0 : (a.isTestAccount ? 1 : -1));
+      gesorteerdeRijen.forEach((r, i) => {
         const cellenVoorBlad = kolommen.map(k => r.cellen.find(c => c.code === k.code));
-        const waarden = [r.naam].concat(cellenVoorBlad.map(c => {
+        const waarden = [r.isTestAccount ? `🧪 ${r.naam} (testaccount)` : r.naam].concat(cellenVoorBlad.map(c => {
           if (!c) return '';
           // Cijfer als er verbeterd is, anders het icoon van de status.
           if (c.score !== null && (c.status === 'op_tijd' || c.status === 'te_laat')) return c.score;
@@ -6496,8 +6553,15 @@ function buildTeacherData(session) {
     annotations: session.annotations || [],
     statusText: session.statusText || "Sessie actief",
     statusType: session.statusType || "info",
-    allRunEnabled: getActiveStudents(session).length > 0 && getActiveStudents(session).every(s => s.classCanRun !== false),
-    allCodeEnabled: getActiveStudents(session).length > 0 && getActiveStudents(session).every(s => s.classCanEdit !== false),
+    // Bugfix (sprint 66): met 0 leerlingen verbonden toonde dit altijd "uit"
+    // (de `.length > 0`-wacht forceerde dat), ongeacht wat er via de Run all/Code
+    // all-knop was ingesteld — nu valt dit terug op de echte sessie-brede standaard.
+    allRunEnabled: getActiveStudents(session).length > 0
+      ? getActiveStudents(session).every(s => s.classCanRun !== false)
+      : session.defaultClassCanRun === true,
+    allCodeEnabled: getActiveStudents(session).length > 0
+      ? getActiveStudents(session).every(s => s.classCanEdit !== false)
+      : session.defaultClassCanEdit === true,
     // Sprint 13A: sessie-config meesturen
     config: session.config || {},
   };
@@ -6562,25 +6626,24 @@ function emitStudentState(session, student) {
 // Stuur gedeelde klascode naar alle leerlingen behalve de verzender.
 // notifyTeacher=false wanneer de leerkracht zelf typt (die heeft de code al).
 function broadcastClassCode(session, exceptSocketId = null, notifyTeacher = true) {
-  const isPersonalPhase = (session.classWorkspaceMode || "shared") === "personal";
-  for (const student of getActiveStudents(session)) {
-    if (student.socketId && student.socketId !== exceptSocketId) {
-      // In de individuele werkfase heeft een broadcast van de gedeelde code geen effect
-      // op de actieve editor van de leerling (die werkt in zijn persoonlijk werkblad).
-      // Stuur in dat geval een lichtgewicht shared_code_update in plaats van de volledige
-      // student_state — zo wordt applyStudentState (en dus setValue + cursor-reset) niet
-      // getriggerd terwijl de leerling aan het typen is.
-      if (isPersonalPhase) {
-        io.to(student.socketId).emit("shared_code_update", {
-          sharedCode: session.sharedCode,
-          sharedCodeRevision: session.sharedCodeRevision || 0,
-          sharedCodeSourceSocketId: session.sharedCodeSourceSocketId || null,
-        });
-      } else {
-        emitStudentState(session, student);
-      }
-    }
-  }
+  // Bugfix (sprint 63): kamer-brede uitzending i.p.v. een lus die elke leerling
+  // individueel aansprak via het OPGESLAGEN student.socketId — bij meerdere
+  // leerlingen tegelijk (getest met 15) volstond één kortstondige, stille
+  // verbindingshapering bij ÉÉN leerling om precies DIE leerling de code-update te
+  // laten missen (opgeslagen ID niet meer geldig), tot een F5 of de automatische
+  // herverbinding het inhaalde. Een kamer-uitzending hangt niet af van een per-
+  // leerling opgeslagen ID, enkel van kameraanwezigheid (bijgehouden door socket.io
+  // zelf via socket.join(), zie student_join/student_reconnect) — robuuster. Het
+  // lichtgewicht shared_code_update-event was al fase-onafhankelijk correct (de
+  // client past de editor enkel toe als de leerling ook echt het Klascode-tabblad
+  // bekijkt), dus geldt nu voor beide fases, niet enkel de individuele werkfase.
+  // .except() sluit enkel de verzendende socket uit (die heeft de code al).
+  const doelgroep = exceptSocketId ? io.to(session.code).except(exceptSocketId) : io.to(session.code);
+  doelgroep.emit("shared_code_update", {
+    sharedCode: session.sharedCode,
+    sharedCodeRevision: session.sharedCodeRevision || 0,
+    sharedCodeSourceSocketId: session.sharedCodeSourceSocketId || null,
+  });
   if (notifyTeacher) emitTeacherSession(session);
 }
 
@@ -7312,7 +7375,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       className: normalizedClass || '',       // Sprint 13B: klas opgeslagen
       joinBadge: joinBadge,                   // Sprint 13B: null|'new'|'pending'|'guest'
       dbStudentId: studentRecord?.id || null, // Sprint 13B: link naar students tabel
-      classCanRun: false, classCanEdit: false,
+      classCanRun: session.defaultClassCanRun === true, classCanEdit: session.defaultClassCanEdit === true,
       personalCanRun: true, personalCanEdit: true, removed: false,
       code: session.mode === "class" ? session.sharedCode : 'print("Hallo")\n',
       personalCode: '',
@@ -7727,9 +7790,11 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       if (!s.removed) {
         s.isDone = false;
         s.doneAt = null;
-        if (s.socketId) io.to(s.socketId).emit("done_reset_by_teacher");
       }
     }
+    // Bugfix (sprint 63): kamer-brede uitzending i.p.v. een lus per opgeslagen
+    // socket-ID (zie broadcastClassCode hierboven).
+    socket.to(session.code).emit("done_reset_by_teacher");
     emitTeacherSession(session);
   });
 
@@ -7755,6 +7820,16 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
         clearInterval(session.timerInterval);
         session.timerInterval = null;
         session.timerRunning = false;
+        // Sprint 66.2: bij het aflopen van de timer, indien de klas op dat moment in
+        // individuele werkfase staat, automatisch terug naar klasmodus — zelfde
+        // effectieve logica als de manuele teacher_toggle_class_workspace-knop.
+        if (session.mode === "class" && session.classWorkspaceMode === "personal") {
+          session.classWorkspaceMode = "shared";
+          io.to(session.code).emit("force_workspace", { workspace: "shared", panel: "code" });
+          for (const s of getActiveStudents(session)) emitStudentState(session, s);
+          // setStatus() roept emitTeacherSession() zelf al aan.
+          setStatus(session, "Timer afgelopen — automatisch terug naar klascode", "success");
+        }
       }
     };
     broadcast();
@@ -7811,6 +7886,53 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     emitTeacherSession(session);
   });
 
+  // Sprint 66: "alle handen laten zakken" — de fullscreen-modus toont een gele balk
+  // met alle opgestoken handen en een reset-knop rechts (naast het bestaande
+  // per-leerling teacher_lower_hand), naar analogie met teacher_reset_all_done.
+  socket.on("teacher_lower_all_hands", () => {
+    if (!socketIsTeacherAuthorized(socket)) return;
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "teacher") return;
+    const session = sessions.get(ctx.code);
+    if (!session) return;
+    for (const s of getActiveStudents(session)) {
+      if (s.handRaised) {
+        s.handRaised = false;
+        s.handRaisedAt = null;
+        if (s.socketId) io.to(s.socketId).emit("hand_lowered_by_teacher");
+      }
+    }
+    emitTeacherSession(session);
+  });
+
+  // Sprint 66: fullscreen-modus — klik op een leerlingnaam-pil geeft die leerling
+  // EXCLUSIEF run- én bewerkrecht (en zet iedereen anders expliciet uit), i.p.v. de
+  // toggle-semantiek van teacher_toggle_student (die enkel omschakelt en dus zou
+  // kunnen UITzetten als de leerling toevallig al aan stond).
+  socket.on("teacher_grant_control", ({ studentId }) => {
+    if (!socketIsTeacherAuthorized(socket)) return;
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "teacher") return;
+    const session = sessions.get(ctx.code);
+    if (!session) return;
+    if (session.mode === "exam") return;
+    const target = session.students[studentId];
+    if (!target || target.removed) return;
+    // Bugfix (sprint 66.4): dit zette de aangeklikte leerling ALTIJD op "aan", ongeacht
+    // de huidige stand — een klik op wie al de controle had, deed dus zichtbaar niets
+    // (bleef gewoon gemarkeerd, rechten bleven aan). Nu een echte aan/uit-schakelaar:
+    // klik je op wie al de (exclusieve) controle heeft, dan trek je die net in.
+    const heeftAlControle = target.classCanRun !== false && target.classCanEdit !== false;
+    for (const s of getActiveStudents(session)) {
+      s.classCanRun = !heeftAlControle && (s.id === studentId);
+      s.classCanEdit = !heeftAlControle && (s.id === studentId);
+      emitStudentState(session, s);
+    }
+    setStatus(session, heeftAlControle
+      ? `Controle van ${target.name} ingetrokken`
+      : `${target.name} kreeg volledige controle`, "info");
+  });
+
   // ── Leerkrachtannotatie ────────────────────────────────────────────────────
   socket.on("teacher_send_annotation", ({ startLine, endLine, message, color }) => {
     if (!socketIsTeacherAuthorized(socket)) return;
@@ -7836,10 +7958,9 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     session.annotations.push(annotation);
     // Persisteer in SQLite
     dbModule.saveAnnotations(session.code, session.annotations).catch(()=>{});
-    // Stuur naar alle leerlingen
-    for (const s of getActiveStudents(session)) {
-      if (s.socketId) io.to(s.socketId).emit('annotation_added', annotation);
-    }
+    // Bugfix (sprint 63): kamer-brede uitzending i.p.v. een lus per opgeslagen
+    // socket-ID (zie broadcastClassCode hierboven).
+    socket.to(session.code).emit('annotation_added', annotation);
   });
 
   socket.on("teacher_clear_annotations", () => {
@@ -7851,9 +7972,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     session.annotations = [];
     // Persisteer lege array
     dbModule.saveAnnotations(session.code, []).catch(()=>{});
-    for (const s of getActiveStudents(session)) {
-      if (s.socketId) io.to(s.socketId).emit('annotations_cleared');
-    }
+    socket.to(session.code).emit('annotations_cleared');
   });
 
   // ── Read-only snippet broadcasten ─────────────────────────────────────────
@@ -7865,15 +7984,12 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     if (!session) return;
     session.snippet = String(code || '').slice(0, 50000); // max 50KB
     session.snippetVersion = (session.snippetVersion || 0) + 1;
-    // Broadcast naar alle leerlingen
-    for (const s of getActiveStudents(session)) {
-      if (s.socketId) {
-        io.to(s.socketId).emit("snippet_update", {
-          code: session.snippet,
-          version: session.snippetVersion,
-        });
-      }
-    }
+    // Bugfix (sprint 63): kamer-brede uitzending i.p.v. een lus per opgeslagen
+    // socket-ID (zie broadcastClassCode hierboven).
+    socket.to(session.code).emit("snippet_update", {
+      code: session.snippet,
+      version: session.snippetVersion,
+    });
     emitTeacherSession(session);
   });
 
@@ -7885,9 +8001,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     if (!session) return;
     session.snippet = '';
     session.snippetVersion = (session.snippetVersion || 0) + 1;
-    for (const s of getActiveStudents(session)) {
-      if (s.socketId) io.to(s.socketId).emit("snippet_update", { code: '', version: session.snippetVersion });
-    }
+    socket.to(session.code).emit("snippet_update", { code: '', version: session.snippetVersion });
   });
 
   // ── Tab-detectie (examenmodus) ────────────────────────────────────────────
@@ -8060,13 +8174,10 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     } else {
       setStatus(session, "Opdrachtbericht gewist", "info");
     }
-    // Stuur alleen het announcement-veld, niet de volledige student_state.
-    // Dit voorkomt dat de editor van de leerling reset tijdens het typen.
-    for (const s of getActiveStudents(session)) {
-      if (s.socketId) {
-        io.to(s.socketId).emit("announcement_update", { text: session.announcement });
-      }
-    }
+    // Bugfix (sprint 63): kamer-brede uitzending i.p.v. een lus per leerling met een
+    // opgeslagen socket-ID (zie broadcastClassCode hierboven voor de volledige uitleg).
+    // .except() sluit de leerkracht zelf uit (diens eigen scherm heeft de tekst al).
+    socket.to(session.code).emit("announcement_update", { text: session.announcement });
     emitTeacherSession(session);
   });
 
@@ -8094,13 +8205,13 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       for (const s of getActiveStudents(session)) {
         s.personalCanRun = true;
         s.personalCanEdit = true;
-        if (s.socketId) io.to(s.socketId).emit("force_workspace", { workspace: "personal", panel: "code" });
       }
+      // Bugfix (sprint 63): kamer-brede uitzending i.p.v. een lus per opgeslagen
+      // socket-ID (zie broadcastClassCode hierboven).
+      socket.to(session.code).emit("force_workspace", { workspace: "personal", panel: "code" });
       setStatus(session, "Individuele werkfase gestart", "warning");
     } else {
-      for (const s of getActiveStudents(session)) {
-        if (s.socketId) io.to(s.socketId).emit("force_workspace", { workspace: "shared", panel: "code" });
-      }
+      socket.to(session.code).emit("force_workspace", { workspace: "shared", panel: "code" });
       setStatus(session, "Terug naar klascode", "success");
     }
     for (const s of getActiveStudents(session)) emitStudentState(session, s);
@@ -8161,10 +8272,21 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     // Niet van toepassing in examenmodus.
     if (session.mode === "exam") return;
     const students = getActiveStudents(session);
-    const allEnabled = field === "run"
-      ? students.every(s => s.classCanRun !== false)
-      : students.every(s => s.classCanEdit !== false);
-    const newValue = !allEnabled;
+    // Bugfix (sprint 66): met 0 verbonden leerlingen is students.every(...) altijd
+    // (vacuously) waar, ongeacht wat er ooit ingesteld stond — de knop keek dus enkel
+    // naar wie er *nu net* toevallig verbonden is, in plaats van naar een echte,
+    // aanhoudende sessie-instelling. Daardoor had de knop bv. helemaal geen effect als
+    // je 'm indrukte vóór er leerlingen binnenkwamen: er was niemand om te wijzigen, EN
+    // een nieuw binnenkomende leerling kreeg gewoon de vaste standaard (uit) — nooit
+    // wat de leerkracht net had ingesteld. Nu bepaalt een echte sessie-brede vlag
+    // (session.defaultClassCanRun/-Edit) de nieuwe waarde, en gebruiken NIEUW
+    // binnenkomende leerlingen die vlag ook meteen als hun startwaarde (zie student_join).
+    const huidigeStandaard = field === "run"
+      ? session.defaultClassCanRun === true
+      : session.defaultClassCanEdit === true;
+    const newValue = !huidigeStandaard;
+    if (field === "run") session.defaultClassCanRun = newValue;
+    if (field === "code") session.defaultClassCanEdit = newValue;
     for (const s of students) {
       if (field === "run") { s.classCanRun = newValue; }
       if (field === "code") { s.classCanEdit = newValue; }
@@ -8495,25 +8617,45 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       });
     }
 
-    // Sprint 43.4: leerling-selectie afdwingen. Is er een expliciete selectie vastgelegd,
-    // dan mag enkel wie erin staat starten. Sprint 52i: een ingelogde leerling toetsen we
-    // op zijn account-id (robuust); een gast blijft op naam binnen de gekoppelde klas.
-    // Preview-toetsen zijn vrijgesteld: die dienen net om als leerkracht zelf te testen.
+    // Sprint 43.4: leerling-selectie afdwingen. Sprint 52i: een ingelogde leerling
+    // toetsen we op zijn account-id (robuust); een gast blijft op naam binnen de
+    // gekoppelde klas. Preview-toetsen zijn vrijgesteld: die dienen net om als
+    // leerkracht zelf te testen.
     try {
       if (!meta.is_teacher_preview) {
         const allowedIds = await dbModule.listAssignmentStudents(normalizedCode);
-        if (allowedIds.length && meta.target_class) {
-          let toegestaan = false;
+        let toegestaan = true; // standaard: geen enkele beperking ingesteld voor deze toets/taak
+        if (allowedIds.length) {
+          // Expliciete, leerling-per-leerling-selectie is leidend.
           if (socket.data.student?.id) {
             toegestaan = allowedIds.includes(socket.data.student.id);
-          } else {
+          } else if (meta.target_class) {
             const klas = await dbModule.listStudents(meta.target_class);
             const match = klas.find(s => String(s.name).trim().toLowerCase() === studentName.toLowerCase());
             toegestaan = !!(match && allowedIds.includes(match.id));
+          } else {
+            // Geen account én geen klas om een gast tegen te matchen — bij een
+            // expliciete selectie kunnen we zo iemand niet valideren.
+            toegestaan = false;
           }
-          if (!toegestaan) {
-            return socket.emit('error_message', 'Je bent niet geselecteerd voor deze toets/taak. Vraag je leerkracht om toegang.');
+        } else if (meta.target_class) {
+          // BUGFIX (KRITIEK, sprint 73): dit ontbrak volledig. Een toets/taak die
+          // enkel aan een klas gekoppeld is (verreweg het meest voorkomende geval —
+          // een leerkracht kiest doorgaans gewoon een klas, zonder daar bovenop ook
+          // nog een aparte leerling-per-leerling selectie te doen) had HELEMAAL GEEN
+          // toegangscontrole: wie de sessiecode maar kende of onderschepte kon
+          // meedoen, ook een leerling van een compleet andere klas. Nu wordt, ook
+          // zonder expliciete selectie, altijd gecontroleerd of de leerling
+          // daadwerkelijk tot de gekoppelde klas behoort.
+          const klas = await dbModule.listStudents(meta.target_class);
+          if (socket.data.student?.id) {
+            toegestaan = klas.some(s => s.id === socket.data.student.id);
+          } else {
+            toegestaan = klas.some(s => String(s.name).trim().toLowerCase() === studentName.toLowerCase());
           }
+        }
+        if (!toegestaan) {
+          return socket.emit('error_message', 'Je bent niet geselecteerd voor deze toets/taak. Vraag je leerkracht om toegang.');
         }
       }
     } catch (e) { log.warn('[quiz_start] leerling-selectie check mislukt:', e.message); }
@@ -8614,7 +8756,22 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
         ? savedOrder.map(o => questions.find(q => q.id === o.question_id)).filter(Boolean)
         : questions,
       savedAnswers: savedAnswers.reduce((acc, a) => {
-        acc[a.question_id] = { code: a.code, runCount: a.run_count };
+        // Bugfix (MAJOR, sprint 70.1): dit gaf voorheen enkel code/runCount/
+        // answerFlowchartJson terug — selected_choices (single/multiple-choice) en
+        // part_answers (samengestelde vraag) werden wél correct opgeslagen in de
+        // databank, maar NOOIT teruggegeven bij het (opnieuw) ophalen van de
+        // quiz-status. Een leerling die antwoordde, navigeerde, en dan terugkwam (of
+        // wiens verbinding tussentijds herstartte) zag zijn antwoord dus gewoon
+        // verdwijnen — terwijl het intussen wél degelijk in de databank stond.
+        let selectedChoices = [];
+        try { selectedChoices = JSON.parse(a.selected_choices || '[]'); } catch { selectedChoices = []; }
+        let partAnswers = undefined;
+        try { const pa = JSON.parse(a.part_answers || '{}'); if (pa && Object.keys(pa).length) partAnswers = pa; } catch { /* laat undefined */ }
+        acc[a.question_id] = {
+          code: a.code, runCount: a.run_count,
+          answerFlowchartJson: a.answer_flowchart_json || '',
+          selectedChoices, partAnswers,
+        };
         return acc;
       }, {}),
       config: session.config || {},
@@ -8640,7 +8797,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
   });
 
   socket.on('quiz_save_answer', async (data) => {
-    const { questionId, code, runCount, firstVisitAt, firstRunAt, currentQuestion, partAnswers } = data || {};
+    const { questionId, code, runCount, firstVisitAt, firstRunAt, currentQuestion, partAnswers, answerFlowchartJson } = data || {};
     const ctx = socketToUser.get(socket.id);
     if (!ctx || ctx.role !== 'quiz_student') return;
     const session = sessions.get(ctx.code);
@@ -8649,13 +8806,15 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
 
     // Sla op in-memory
     student.quizAnswers[questionId] = { code, runCount, firstVisitAt, firstRunAt,
-      selectedChoices: data?.selectedChoices || [], partAnswers: partAnswers || undefined };
+      selectedChoices: data?.selectedChoices || [], partAnswers: partAnswers || undefined,
+      answerFlowchartJson: answerFlowchartJson || undefined };
     student.quizCurrentQuestion = currentQuestion;
 
     // Sprint 19a: 15s backup interval voor quiz (was 60s)
     // Sla direct op in DB bij elke navigatie
     // 23a: selectedChoices meesturen zodat keuze-antwoorden persistent zijn
     // 51j: partAnswers meesturen voor composite-vragen (JSON {partId: waarde})
+    // 63: answerFlowchartJson voor vraagtype 'stroomdiagram' (JSON van flowchart-widget.js)
     dbModule.saveQuizAnswer({
       sessionCode: ctx.code, studentId: ctx.studentId,
       studentName: student.name, studentClass: student.className || '',
@@ -8664,6 +8823,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       firstVisitAt: firstVisitAt || null, firstRunAt: firstRunAt || null,
       selectedChoices: JSON.stringify(data?.selectedChoices || []),
       partAnswers: partAnswers ? JSON.stringify(partAnswers) : undefined,
+      answerFlowchartJson: answerFlowchartJson !== undefined ? answerFlowchartJson : undefined,
     }).catch(e => log.error('[quiz] saveQuizAnswer:', e.message));
 
     socket.emit('quiz_answer_saved', { questionId });
@@ -8705,6 +8865,12 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     for (const q of quizQuestions) questionMap[q.id] = q;
 
     // Sla alle antwoorden op in DB + auto-score meerkeuze/single
+    // Bugfix (kritiek, sprint 74): saveQuizAnswer's fout werd hier stil geslikt
+    // (.catch(() => {})) — als de opslag om welke reden dan ook faalde, kreeg de
+    // leerling toch gewoon "ingediend" te zien, zonder dat er ergens een spoor van
+    // die mislukking bleef. Nu wordt elke fout gelogd én bijgehouden, zodat de
+    // leerling — en de leerkracht, via de voortgangsmelding — hier altijd van weet.
+    const mislukteVragen = [];
     for (const [questionId, ans] of Object.entries(answers || {})) {
       const q = questionMap[questionId];
       // Sprint 34a: auto-scoring via lib/scoring.js (getest in tests/)
@@ -8721,7 +8887,13 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
         // doorgegeven, waardoor saveQuizAnswer's ON CONFLICT-tak de al tussentijds
         // opgeslagen onderdeel-antwoorden van een composite-vraag met '{}' overschreef.
         partAnswers: ans.partAnswers ? JSON.stringify(ans.partAnswers) : undefined,
-      }).catch(() => {});
+        // Sprint 63: zelfde reden als partAnswers hierboven — anders overschrijft het
+        // finale "indienen" een tussentijds al opgeslagen stroomdiagram-antwoord met leeg.
+        answerFlowchartJson: ans.answerFlowchartJson !== undefined ? ans.answerFlowchartJson : undefined,
+      }).catch((e) => {
+        log.error(`[quiz_submit_all] opslaan van antwoord mislukt (sessie ${ctx.code}, leerling ${student.name}, vraag ${questionId}):`, e.message);
+        mislukteVragen.push(questionId);
+      });
 
       // Sla auto-score op als berekend
       if (autoScored && autoScore !== null) {
@@ -8764,6 +8936,11 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     socket.emit('quiz_submitted_ok', {
       name: student.name,
       answeredCount: Object.keys(answers || {}).length,
+      // Bugfix (kritiek, sprint 74): laat de leerling nu ook effectief weten als
+      // er, ondanks de indiening zelf die wél doorging, een antwoord NIET correct
+      // kon worden opgeslagen — voorheen kreeg de leerling altijd gewoon "ingediend"
+      // te zien, ook als dit misging.
+      mislukteVragen: mislukteVragen.length ? mislukteVragen : undefined,
     });
 
     // Notificeer leerkracht
@@ -8915,6 +9092,16 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       const s = session.students[ctx.studentId];
       if (s) {
         s.socketId = null;
+        // Bugfix (sprint 63.2): dit zette socketId wel op null, maar NOOIT s.online op
+        // false — waardoor een leerling die de verbinding verliest voor de rest van de
+        // levensduur van het serverproces als "online" bleef doorgaan. Dat brak drie
+        // dingen die stuk voor stuk op s.online vertrouwen, niet op socketId: (1) de
+        // dubbele-verbinding-check bij een toets/taak (quiz_start) blokkeerde dan een
+        // eerlijke herverbinding onder dezelfde naam met "er is al een verbinding
+        // actief"; (2) dezelfde naam-botsing-check bij een gewone klassessie
+        // (student_join); (3) het "X online"-telertje in het toetsoverzicht van de
+        // leerkracht bleef te hoog staan. Nu consistent teruggezet.
+        s.online = false;
         scheduleRunDisconnect(s.runId);
       }
     }

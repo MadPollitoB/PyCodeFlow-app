@@ -4,7 +4,8 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.55"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.75"/>
+  <link rel="stylesheet" href="/flowchart-widget.css?v=v2026.2.51.75"/>
   <style>
     .quiz-topbar { background:var(--primary); color:#fff; padding:10px 20px;
       display:flex; align-items:center; justify-content:space-between; }
@@ -14,10 +15,13 @@
     .quiz-nav { display:flex; gap:6px; flex-wrap:wrap; margin:12px 16px; }
     .qnav-btn { width:36px; height:36px; border-radius:8px; border:2px solid var(--border);
       background:var(--surface); cursor:pointer; font-weight:700; font-size:0.88rem; position:relative; }
-    .qnav-btn.visited  { border-color:var(--primary); color:var(--primary); }
-    .qnav-btn.saved    { background:var(--primary); color:#fff; border-color:var(--primary); }
-    .qnav-btn.no-run   { background:#fef3c7; border-color:#d97706; color:#92400e; }
-    .qnav-btn.current  { box-shadow:0 0 0 3px rgba(37,99,235,0.35); }
+    /* Sprint 71: nog maar 2 fases (geel = bezocht, niets ingevuld; groen = iets
+       ingevuld) — enkel als gekleurde RAND, nooit als volledig gevulde knop (dat
+       zag er voorheen bij "saved"/"no-run" uit als een verwarrende 3de status).
+       .current komt daar los bovenop (dikke lichtblauwe rand), niet in plaats van. */
+    .qnav-btn.visited  { border-color:#d97706; color:#92400e; }
+    .qnav-btn.answered { border-color:var(--primary); color:var(--primary); }
+    .qnav-btn.current  { box-shadow:0 0 0 3px rgba(37,99,235,0.45); border-color:#2563eb; }
     .quiz-question { margin:0 16px 12px; padding:14px 16px;
       background:var(--surface-soft); border-radius:12px; border-left:4px solid var(--primary); }
     .quiz-question h3 { margin:0 0 6px; font-size:0.95rem; color:var(--muted); }
@@ -126,6 +130,7 @@
   <div class="quiz-question" id="quiz-question" style="display:none;">
     <h3 id="q-header"></h3>
     <p id="q-text"></p>
+    <div id="q-flowchart-stem" style="display:none;margin:10px 0 16px;"></div>
   </div>
   <div class="quiz-editor-wrap">
 
@@ -163,9 +168,12 @@
           border-top:2px solid #93c5fd;color:#1e40af;font-weight:700;font-size:0.92rem;">
           ⌨️ Wacht op jouw invoer...
         </div>
-        <div id="quiz-input-wrap" style="display:none;padding:10px 16px;border-top:1px solid var(--border);">
-          <input id="quiz-input-field" style="width:100%;padding:8px;border:1.5px solid var(--border);
+        <div id="quiz-input-wrap" style="display:none;padding:10px 16px;border-top:1px solid var(--border);gap:8px;align-items:center;">
+          <input id="quiz-input-field" style="flex:1;padding:8px;border:1.5px solid var(--border);
             border-radius:8px;font-family:Consolas,monospace;font-size:1rem;"/>
+          <!-- Bugfix: enter was de enige manier om in te voeren — niet iedereen weet dat.
+               Een expliciete knop ernaast maakt dit duidelijker. -->
+          <button class="btn btn-primary small" id="quiz-input-send-btn" onclick="sendInput()">Invoeren</button>
         </div>
         <div id="quiz-output-panel" class="output-panel output-dark hidden"></div>
       </div><!-- /editor-shell -->
@@ -192,6 +200,14 @@
       <div class="card" style="padding:16px;">
         <div id="choice-hint" style="font-size:0.85rem;color:var(--muted);margin-bottom:12px;"></div>
         <div id="quiz-choices-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+      </div>
+    </div>
+
+    <!-- Sprint 63: antwoordtype 'stroomdiagram' — de leerling tekent zelf het antwoord. -->
+    <div id="panel-flowchart" style="display:none;">
+      <div class="card" style="padding:16px;">
+        <label style="font-size:0.85rem;color:var(--muted);display:block;margin-bottom:8px;">Teken hier je antwoord:</label>
+        <div id="quiz-flowchart-answer"></div>
       </div>
     </div>
 
@@ -246,11 +262,12 @@
      ("Can only have one anonymous define call" + "io is not defined"). -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="/vendor/marked/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.55"></script>
+<script src="/code-highlight.js?v=v2026.2.51.75"></script>
 <script src="/vendor/dompurify/purify.min.js"></script>
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/app.js?v=v2026.2.51.55"></script>
-<script src="/quiz-student.js?v=v2026.2.51.55"></script>
-<script src="/privacy.js?v=v2026.2.51.55"></script></body>
+<script src="/flowchart-widget.js?v=v2026.2.51.75"></script>
+<script src="/app.js?v=v2026.2.51.75"></script>
+<script src="/quiz-student.js?v=v2026.2.51.75"></script>
+<script src="/privacy.js?v=v2026.2.51.75"></script></body>
 </html>

@@ -971,7 +971,7 @@ actie_logs() {
               UNION ALL SELECT 'sessions', COUNT(*) FROM sessions
               UNION ALL SELECT 'students', COUNT(*) FROM students
               UNION ALL SELECT 'classes', COUNT(*) FROM classes
-              UNION ALL SELECT 'quiz_bank', COUNT(*) FROM quiz_bank
+              UNION ALL SELECT 'question_bank', COUNT(*) FROM question_bank
               UNION ALL SELECT 'quiz_answers', COUNT(*) FROM quiz_answers
               ORDER BY tabel;" 2>/dev/null             || warn "Sommige tabellen bestaan nog niet (schema nog niet aangemaakt)"
         else
@@ -1980,7 +1980,7 @@ actie_db_beheer() {
         stap "Database statistieken"
         echo ""
         PG_PW=$(grep "^POSTGRES_PASSWORD=" "$BASE/.env" 2>/dev/null | cut -d= -f2-)
-        for tbl in teachers classes students sessions quiz_bank quiz_meta quiz_answers audit_log free_audit_log log_entries; do
+        for tbl in teachers classes students sessions question_bank assignment_bank quiz_answers audit_log free_practice_log; do
           COUNT=$(docker exec pycodeflow-postgres-1 \
             psql "postgresql://pycodeflow:${PG_PW}@localhost/pycodeflow" \
             -tAc "SELECT COUNT(*) FROM $tbl;" 2>/dev/null | tr -d '[:space:]' || echo "?")

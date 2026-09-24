@@ -1,3 +1,700 @@
+## v2026.2.51.75 — Toets/taak: mislukte opslag bij indienen kon stil verdwijnen (nooit meer)
+
+### Aanleiding
+Vraag: "wordt de laatste vraag ook opgeslagen, want daar heb ik enkel de knop
+Indienen?" Codereview + end-to-end testen bevestigen: **ja**, de laatste vraag
+wordt wél degelijk correct opgeslagen bij het indienen (bevestigd met een echte
+toets). Bij het grondig natrekken kwam echter een apart, ernstiger robuustheids-
+probleem aan het licht.
+
+### Het gevonden probleem
+Als het opslaan van een antwoord bij het definitief indienen om een of andere
+reden toch zou mislukken (bv. een tijdelijk databankprobleem), werd die fout
+**volledig stil geslikt** — geen logregel, geen melding aan de leerling, niets. De
+leerling zag gewoon het normale "Toets ingediend"-scherm, zonder ooit te weten dat
+er iets fout ging. Bovendien wachtte het "ingediend"-scherm sowieso nooit op een
+bevestiging van de server — het verscheen altijd meteen bij het versturen.
+
+### De fix
+- Elke opslagfout bij het indienen wordt nu gelogd (met sessie, leerling en vraag).
+- De server rapporteert eventuele mislukte vragen expliciet terug aan de leerling.
+- De leerling ziet, mocht dit ooit voorkomen, een duidelijke rode waarschuwing op
+  het indien-scherm: "Let op: X van je antwoorden kon(den) niet correct opgeslagen
+  worden — verwittig onmiddellijk je leerkracht."
+
+**Getest:**
+- Volledige testsuite (338 tests) blijft 100% groen.
+- Het NORMALE pad end-to-end bevestigd: een toets met een code-vraag én een open
+  vraag als laatste vraag, allebei ingediend via `quiz_submit_all` met de echte
+  vraag-snapshot-ID's — beide antwoorden, inclusief de laatste vraag, correct
+  teruggevonden in de databank.
+- Het FOUTPAD apart end-to-end getest: een kunstmatig veroorzaakte opslagfout wordt
+  nu correct gelogd op de server én expliciet teruggerapporteerd naar de leerling,
+  in plaats van stilzwijgend te verdwijnen — terwijl de overige, wél geldige
+  antwoorden gewoon normaal correct opgeslagen blijven.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/quiz-student.js` ·
+`VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.74 — 🔴🔴 KRITIEK BEVEILIGINGSLEK: toets/taak koppeling aan een klas werd niet gecontroleerd
+
+### Het probleem (gemeld door een leerling)
+Een leerling uit 5BW kon een toets/taak starten die aan klas 4BW gekoppeld was,
+gewoon door de sessiecode te onderscheppen — ondanks dat de toets expliciet aan een
+andere klas was toegewezen.
+
+### De oorzaak
+Er bestaan twee, onafhankelijke manieren om te bepalen wie een toets/taak mag
+starten: een koppeling aan een KLAS (`target_class`), en optioneel — daar
+bovenop — een EXPLICIETE, leerling-per-leerling selectie (een aparte tabel,
+`assignment_students`). De controlecode ging er ten onrechte van uit dat de
+klas-koppeling enkel gecontroleerd moest worden ALS er ook een expliciete
+leerling-selectie bestond (`if (allowedIds.length && meta.target_class)`). Maakt
+een leerkracht een toets echter gewoon aan voor een klas, zónder daarbovenop nog
+een aparte leerling-selectie te doen — verreweg de meest voorkomende manier van
+toewijzen — dan bleef `allowedIds` leeg, en werd de HELE controle overgeslagen:
+wie de sessiecode maar kende, kon meedoen, ongeacht klas.
+
+### De fix
+Is er geen expliciete leerling-selectie, maar wél een klas-koppeling, dan wordt nu
+alsnog gecontroleerd of de leerling die start daadwerkelijk lid is van die klas
+(via zijn account-id bij een ingelogde leerling, via naam-matching bij een gast).
+
+**Getest — écht end-to-end, met het reële, gemelde scenario:**
+Een echte toets aangemaakt, gekoppeld aan een klas, zonder aparte leerling-selectie
+(exact het meest voorkomende, kwetsbare geval). Vervolgens getest met TWEE echt
+ingelogde leerling-accounts (geen gasten): een leerling uit een ANDERE klas werd
+correct geweigerd met "Je bent niet geselecteerd voor deze toets/taak", terwijl een
+leerling uit de JUISTE klas gewoon normaal toegang kreeg. Volledige testsuite
+(338 tests) blijft daarnaast 100% groen — geen regressies op de rest van de
+bestaande selectie-/preview-logica.
+
+**Betrokken bestanden:** `web/server.js` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.73 — Toets/taak: "X van Y vragen beantwoord" telde verkeerd na indienen
+
+Rechtstreeks vervolg op v2026.2.51.72 — bij het grondig doorzoeken van de rest van
+het bestand na die fix, vond ik nog **drie bijkomende plekken** met dezelfde soort
+telfout, die ik bij de vorige fix over het hoofd had gezien:
+
+1. **Na het effectief indienen** ("Toets ingediend"-scherm): telde nog met de oude,
+   onvolledige check — een leerling die bv. 10 keuzevragen volledig invulde, zag hier
+   "2 van 10" of "3 van 10" staan i.p.v. "10 van 10", terwijl alles wel degelijk
+   correct werd ingediend en opgeslagen. Dit is exact het gemelde probleem.
+2. **Bij het heropenen van een al-ingediende toets** (bv. na een herlading): telde
+   ELKE bezochte vraag mee (er komt al een lege antwoord-rij zodra je een vraag
+   opent), niet enkel de effectief beantwoorde — dit gaf net een te HOOG aantal.
+3. **Bij een gedwongen inlevering** (tijd verstreken, of door de leerkracht/systeem
+   afgesloten): dezelfde overtelling als bij punt 2.
+
+Alle drie gebruiken nu dezelfde centrale, vraagtype-bewuste telling uit de vorige
+fix.
+
+**Getest:** volledige testsuite (338 tests) blijft 100% groen; het exacte gemelde
+scenario nagebootst (10 vragen, mix van alle 5 types, allemaal beantwoord) — de oude
+telling gaf hierbij "2 van 10", de nieuwe geeft correct "10 van 10". Alle drie
+plekken bevestigd gefixt in de live uitgeserveerde `quiz-student.js` (geen enkele
+overblijvende foutieve telling meer aanwezig, enkel nog een verklarend
+commentaarregeltje).
+
+**Betrokken bestanden:** `web/public/quiz-student.js` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.72 — Toets/taak: vragennavigatie toonde verkeerde status bij keuze-/samengestelde vragen
+
+### Het probleem (gemeld met screenshots)
+Bovenaan een toets/taak toonden de genummerde navigatie-knopjes soms een
+inconsistente of verkeerde status: een correct beantwoorde vraag kon toch als
+"onbeantwoord" oplichten, en sommige knopjes verschenen als volledig gevulde,
+solide gekleurde knop i.p.v. een gewone gekleurde rand — dat laatste mocht nooit
+gebeuren.
+
+### De oorzaak
+De logica die bepaalt "is deze vraag beantwoord?" stond dubbel in de code
+(bovenaan de navigatieknopjes, én in het indienscherm) en was op BEIDE plekken
+onvolledig: ze hield enkel rekening met `code`- en keuzevraag-antwoorden, maar
+**niet met samengestelde (composite) vragen of stroomdiagram-antwoorden**. Een
+leerling die zo'n vraagtype correct beantwoordde, zag die dus ten onrechte als
+"bezocht maar geen keuze" (indienscherm) of als onbeantwoord (bovenaan) getoond
+worden. Daarnaast stond de kleurstatus van de HUIDIGE vraag voorheen in een
+if/else-keten met de beantwoord-status, waardoor de huidige vraag zijn eigen
+kleur gewoon KWIJTRAAKTE zolang je erop stond (in plaats van de blauwe
+"huidige vraag"-rand er gewoon bovenop te krijgen).
+
+### De fix
+- Eén centrale, vraagtype-bewuste functie (`heeftAntwoord`) die alle 5 vraagtypes
+  correct herkent (code, open, single/multiple choice, composite, stroomdiagram) —
+  nu op de enige plek gebruikt door zowel de navigatieknopjes als het indienscherm.
+- Nog maar 2 kleurfases: geel (bezocht, niets ingevuld) of groen (iets ingevuld) —
+  altijd als gekleurde RAND, nooit meer als volledig gevulde knop.
+- De huidige vraag behoudt voortaan gewoon zijn geel/groene status, met de dikke
+  lichtblauwe rand er los bovenop (i.p.v. die kleur te verliezen).
+
+**Getest:**
+- Volledige testsuite (338 tests) blijft 100% groen.
+- De nieuwe centrale detectiefunctie apart getest tegen 15 combinaties (alle 5
+  vraagtypes, telkens zowel wel- als niet-beantwoord) — allemaal correct.
+- Nieuwe CSS/JS bevestigd aanwezig in de live uitgeserveerde bestanden.
+
+**Betrokken bestanden:** `web/public/quiz-student.js` ·
+`web/public/quiz-student.html` · `VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.71 — 🔴 MAJOR BUGFIX: antwoorden verdwenen bij toets/taak (single/multiple choice + samengestelde vragen)
+
+### Het probleem
+Bij een toets of taak konden antwoorden op **single-choice, multiple-choice en
+samengestelde (composite) vragen** verdwijnen zodra de leerling opnieuw verbond (na
+een korte netwerkhapering, of een paginaherlading) — ook al werd het antwoord wél
+degelijk correct opgeslagen in de databank. Bij navigeren via "Volgende"/"Vorige"
+zónder tussentijdse verbindingsonderbreking werkte alles normaal correct.
+
+### De oorzaak
+De server-functie die de status van een toets/taak (opnieuw) opbouwt — gebruikt bij
+zowel het eerste inloggen als élke herverbinding — gaf enkel `code`, `runCount` en
+(sinds de stroomdiagram-feature) `answerFlowchartJson` terug aan de leerling. De
+kolommen `selected_choices` (keuzevragen) en `part_answers` (samengestelde vragen)
+stonden **wél** correct in de databank, maar werden simpelweg nooit meegestuurd bij
+het (opnieuw) tonen van de vraag. Een leerling die dus antwoordde op zo'n vraag, en
+vervolgens — om welke reden dan ook — een herverbinding meemaakte, zag dat antwoord
+leeg terugkomen: niet omdat het weg was, maar omdat het gewoon nooit werd
+teruggestuurd.
+
+### De fix
+`selected_choices` en `part_answers` worden nu correct mee opgenomen bij het
+(her)opbouwen van de quiz-status voor de leerling.
+
+**Getest — écht end-to-end, exact het gemelde scenario nagespeeld:**
+Een echte toets aangemaakt met alle 3 de betrokken vraagtypes (open, single-choice,
+composite) → een leerling antwoordt op elk → een verbindingsonderbreking + herverbinding
+gesimuleerd (exact het soort scenario dat dit zou triggeren) → bevestigd dat alle drie
+de antwoorden — inclusief de keuzevraag en de samengestelde vraag, de twee types die
+eerst verdwenen — correct en volledig terugkomen. Volledige testsuite (338 tests)
+blijft daarnaast 100% groen.
+
+**Betrokken bestanden:** `web/server.js` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.70 — Fullscreen: blijvend gekleurd kader rond Run/Code-groepen
+
+De Run- en Code-pillengroepen kregen al een gekleurd kader in een eerdere,
+tussentijdse versie — maar dat verscheen enkel zodra minstens één leerling dat recht
+had (een "-actief"-klasse die overigens ook nooit vanuit de JS werd aangeroepen, dus
+in de praktijk nooit zichtbaar was). Op vraag nu **altijd** zichtbaar, ongeacht de
+status: het Run-blok heeft een vast oranje kader, het Code-blok een vast groen kader
+— maakt het onderscheid tussen beide in één oogopslag duidelijker.
+
+**Getest:** volledige testsuite (338 tests) blijft 100% groen; beide vaste kaders
+bevestigd aanwezig in de live uitgeserveerde `styles.css`.
+
+**Betrokken bestanden:** `web/public/styles.css` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.69 — Fullscreen: run- en code-rechten apart per leerling instelbaar
+
+De ene naam-pillenrij (klik = run+bewerkrecht altijd samen, exclusief aan één
+leerling) is vervangen door **twee aparte, onafhankelijke pillenrijen**: één voor
+"Run" (zacht oranje wanneer actief) en één voor "Code" (groen wanneer actief). Zo kan
+bijvoorbeeld leerling A wél mogen runnen terwijl leerling B (een andere leerling)
+code-recht heeft — of zelfs beide rechten bij dezelfde leerling, los van elkaar in te
+stellen.
+
+Technisch hergebruikt dit gewoon de **al bestaande, al geteste** exclusieve
+per-veld-logica in `teacher_toggle_student` (één "run"-leerling tegelijk, los van één
+"code"-leerling tegelijk) — geen nieuwe servercode nodig, enkel de UI aangepast om
+beide velden apart te tonen en aan te sturen i.p.v. ze geforceerd samen te nemen.
+
+**Getest:**
+- Volledige testsuite (338 tests) blijft 100% groen.
+- Een gerichte end-to-end-test bevestigt het exacte gevraagde gedrag: leerling A
+  krijgt run-recht, leerling B krijgt vervolgens (apart) code-recht — en leerling A
+  behoudt daarbij gewoon haar run-recht, precies zoals bedoeld.
+- Beide nieuwe pillenrijen + kleuren bevestigd aanwezig in de live uitgeserveerde
+  bestanden.
+
+**Betrokken bestanden:** `web/public/app.js` · `web/public/styles.css` ·
+`web/public/teacher-app.html` · `VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.68 — Fullscreen: lelijke lege ruimte vóór het opdrachtveld weg
+
+Bleek een hardnekkig, terugkerend soort probleem: de CSS-override die het
+opdrachtveld-blok op volle breedte moest zetten, kwam om een niet-volledig te
+achterhalen reden niet altijd (of niet consistent) door — met een brede, lege
+ruimte vóór het veld tot gevolg. Ditmaal definitief opgelost door niet langer op de
+CSS-cascade te vertrouwen: bij het openen van fullscreen wordt nu élk afzonderlijk
+onderdeel van het opdrachtblok (het label, het tekstvak, de navigatiebalk, en hun
+gezamenlijke omvattende blokje) rechtstreeks als inline stijl op volle breedte
+gezet — dat kan door geen enkele CSS-regel meer tegengehouden worden. Bij het
+verlaten van fullscreen wordt dit netjes weer opgeruimd zodat de normale weergave
+ongewijzigd blijft.
+
+**Getest:** volledige testsuite (338 tests) blijft 100% groen; de nieuwe, volledig
+inline-stijl-gebaseerde aanpak bevestigd aanwezig in de live uitgeserveerde `app.js`.
+
+**Betrokken bestanden:** `web/public/app.js` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.67 — Enter-toets-bug (breed effect), grotere fullscreen-elementen, meerdere oefeningen ingeven
+
+### Bugfix: de Enter-toets werkte niet in het opdrachtveld (en breder)
+De échte oorzaak: een globale toetsenbord-listener voor pijltjesnavigatie in de
+leerlingenlijst luisterde op het HELE document, ongeacht welk element de focus had.
+Zat je te typen in het opdrachtveld en drukte je op Enter, dan greep deze listener
+dat af vóór het tekstvak zijn eigen standaardgedrag (een nieuwe regel) kon
+uitvoeren — vandaar "de Enter-toets werkt niet". Nu enkel actief wanneer de focus
+niet in een tekstveld ligt. Dit gold trouwens overal in de app waar dit opdrachtveld
+gebruikt wordt (normale weergave én fullscreen), niet enkel in fullscreen.
+
+### Meerdere oefeningen kunnen voorbereiden, met vorige/volgende
+De vorige "geschiedenis van verstuurde teksten"-chips (als verwarrend ervaren) zijn
+vervangen door een echte navigatiebalk: ◀ Vorige · 1/3 · Volgende ▶ · + Nieuwe
+oefening. Je kan zo meerdere oefeningen na elkaar voorbereiden/intypen en ertussen
+bladeren; "Sturen" verstuurt telkens gewoon de op dat moment zichtbare tekst. Dit is
+een puur client-side schrijfblok (geen serverwijziging nodig) en werkt zowel in de
+normale weergave als in fullscreen.
+
+### Fullscreen: leesbaarheid
+- De klas-/individueel-schakelaar en de ✕ Esc-knop bovenaan zijn iets groter.
+- De naam-pillen zijn iets groter.
+- Extra robuustheid toegevoegd (box-sizing) rond de breedte van het opdrachtveld,
+  zodat dat correct meegroeit met de sleepbare scheidingslijn.
+
+**Getest:**
+- Volledige testsuite (338 tests) blijft 100% groen.
+- Live bevestigd: de oude geschiedenis-chips zijn verdwenen, de nieuwe
+  navigatieknoppen staan er, en de Enter-toets-fix zit in de uitgeserveerde `app.js`.
+
+**Betrokken bestanden:** `web/public/app.js` · `web/public/styles.css` ·
+`web/public/teacher-app.html` · `VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.66 — Fullscreen-modus: regelnummer-balkje volgt nu ook de volle hoogte
+
+Nieuw gevonden, direct gevolg van de vorige fix (v2026.2.51.65): nu de code-editor
+écht de volle hoogte inneemt, werd zichtbaar dat het **regelnummer-balkje** (links
+van de code, met de gekleurde achtergrond) zelf óók nog een hardgecodeerde vaste
+hoogte van 540px had — dezelfde soort probleem als bij `.editor-frame` en
+`.monaco-editor-host` in de vorige levering, maar dan op een derde, apart element.
+De gekleurde achtergrond van dat balkje stopte daardoor na regel ~18, terwijl de
+code-editor zelf gewoon verder liep — precies wat op de laatste screenshot te zien
+was.
+
+**Nog niet bevestigd door mij**: of de opdracht-invoer (volle breedte) en de
+scrollbar-fix uit v2026.2.51.65 bij jou al zichtbaar zijn. Grondige codereview van
+beide vindt geen fout meer — dit wijst op een browsercache-kwestie eerder dan een
+resterende bug. Vraag: kan je een harde herlading doen (Ctrl+Shift+R) of de
+fullscreen-modus opnieuw openen na een volledige paginaherlading, en laten weten of
+dat het verschil maakt?
+
+**Getest:** volledige testsuite (338 tests) blijft 100% groen; de nieuwe CSS-regel
+bevestigd aanwezig in de live uitgeserveerde `styles.css`.
+
+**Betrokken bestanden:** `web/public/styles.css` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.65 — Fullscreen-modus: 3 lay-outbugs opgelost (hoogte editor, breedte opdracht, scrollbar)
+
+### De onderliggende oorzaak (1 en 2 hangen samen)
+De fullscreen-overlay kreeg géén expliciete rijhoogte (`grid-template-rows`) — de
+ene grid-rij nam daardoor enkel de hoogte in die zijn inhoud nodig had, niet de volle
+schermhoogte. Bovendien bleken zowel `.editor-frame` als `.monaco-editor-host` (de
+code-editor zelf) in de normale weergave een VASTE hoogte van 540px te hebben,
+nergens overschreven voor de fullscreen-weergave.
+
+1. **Python-veld neemt nu écht de volle hoogte in** — de volledige keten
+   (`.editor-shell` → `.editor-frame-wrap` → `.editor-frame` → `.monaco-editor-host`)
+   is in fullscreen nu doorlopend flex-gebaseerd i.p.v. ergens vast te lopen op een
+   hardgecodeerde 540px.
+2. **Geen scrollbar meer op het hele scherm** — met de bovenstaande fix (+ een
+   expliciete `overflow: hidden` op de overlay zelf als vangnet) loopt er niets meer
+   over de vaste schermhoogte heen. De editor regelt zijn eigen interne scroll bij
+   veel regels code, zoals bedoeld.
+3. **Opdracht-invoer nu écht op volle breedte** — bleek smaller te blijven dan de
+   rest van de zijkolom om een niet-achterhaalde reden (vermoedelijk een
+   flex-stretch die door iets specifieks werd tegengehouden); nu expliciet op
+   `width: 100%` gezet.
+
+**Getest:**
+- Volledige testsuite (338 tests) blijft 100% groen.
+- `styles.css` bevestigd correct uitgeserveerd (HTTP 200) met alle drie de fixes
+  effectief aanwezig in de live CSS.
+
+**Betrokken bestanden:** `web/public/styles.css` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.64 — Fullscreen-modus: aan/uit-schakelaar naam-pillen + opdracht-knoppen definitief onder het veld
+
+### 1. Klik op een leerling die al de controle heeft, trekt die nu net in
+Voorheen zette een klik altijd "aan", ongeacht de huidige stand — een klik op wie al
+de controle had, deed dus zichtbaar niets (bleef gewoon gemarkeerd, rechten bleven
+aan). Nu een echte aan/uit-schakelaar: klik je op wie al de (exclusieve) controle
+heeft, dan trek je die net in (iedereen komt dan weer op geen rechten te staan).
+
+### 2. Opdracht-invoer: knoppen nu écht altijd onder het tekstvak
+De vorige CSS-fix (`!important`) bleek in de praktijk niet altijd door te komen.
+Opgelost door de opmaak niet langer via CSS-cascade te laten lopen, maar rechtstreeks
+als inline stijl op te leggen op het exacte moment dat het element naar de
+fullscreen-weergave verhuist — dat wint gegarandeerd, ongeacht cascade of caching, en
+wordt bij het verlaten weer netjes opgeruimd zodat de normale weergave ongewijzigd
+blijft.
+
+**Getest:**
+- Volledige testsuite (338 tests) blijft 100% groen.
+- Punt 1 end-to-end getest tegen de sandbox-database: eerste klik geeft controle
+  (bevestigd `canRun`/`canEdit` = true), een tweede klik op dezelfde leerling trekt
+  die net in (bevestigd = false). Bij het uitwerken van deze test ontdekte en
+  corrigeerde ik trouwens een eigen testfout (een `.once()`-race die een verouderd
+  tussentijds bericht als "het antwoord" interpreteerde) — de server bleek al die
+  tijd al correct te werken, herbevestigd met een correct herschreven test.
+- Punt 2 bevestigd aanwezig in de live uitgeserveerde `app.js`.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/app.js` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.63 — Fullscreen-modus: 2 bugfixes (opdracht-knoppen + naam-pillen)
+
+### 1. Opdracht-invoer: knoppen nu onder het tekstvak (meer ruimte)
+De eerdere CSS-aanpassing (grid-template-columns overschrijven) volstond niet — de
+"Sturen"/"Wissen"-knoppen bleven naast het tekstvak staan, met te weinig ruimte tot
+gevolg. Opgelost door voor de fullscreen-weergave volledig over te schakelen naar een
+simpele, ondubbelzinnige kolomopstelling (flex-column) in plaats van verder aan de
+grid-eigenschappen te sleutelen. De knoppen delen nu ook netjes de volle breedte.
+
+### 2. Naam-pillen: highlight liep altijd één klik achter
+Een echte, herkenbare bug: de listener die de pillen opnieuw tekende was
+geregistreerd VÓÓR de listener die de gedeelde sessiedata zelf bijwerkte (socket.io
+roept listeners in registratievolgorde aan). Daardoor toonde elke herteken-beurt
+altijd de staat van de VORIGE gebeurtenis: klik op leerling A → de weergave toont nog
+de situatie van vóór die klik → pas bij de volgende gebeurtenis (bv. een klik op
+leerling B) verscheen A's markering alsnog, en niet altijd op de leerling waarop
+effectief geklikt was. Opgelost door de sessiedata rechtstreeks uit het event zelf
+door te geven aan de hertekenfunctie, onafhankelijk van listener-volgorde of een
+gedeelde, mogelijk-nog-niet-bijgewerkte variabele.
+
+**Getest:**
+- Volledige testsuite (338 tests) blijft 100% groen.
+- Een gerichte end-to-end-test bevestigt dat de server bij een klik op een leerling
+  meteen, in de eerstvolgende sessiedata, de correcte, verse status meestuurt — de
+  voorwaarde die de client-side fix net correct laat werken.
+- `teacher-app.html`, `styles.css` en `app.js` bevestigd correct uitgeserveerd (HTTP
+  200) met beide fixes effectief aanwezig.
+
+**Betrokken bestanden:** `web/public/app.js` · `web/public/styles.css` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.62 — Fullscreen-modus (klassessie) + tag-filter bij vraagselectie + bugfix Run all/Code all
+
+### 1. Bugfix: "Run all aan"/"Code all aan" verspringt niet bij klikken
+De échte oorzaak: de knop-status werd enkel berekend op basis van de leerlingen die
+op dát moment verbonden waren. Met 0 leerlingen (bv. net na het aanmaken van de
+sessie) is zo'n "iedereen"-check altijd vacuously waar, waardoor de knop hardgecodeerd
+altijd "uit" toonde, ongeacht hoe vaak je erop klikte — én een leerling die er nadien
+bijkwam, kreeg gewoon de vaste standaard (uit) i.p.v. wat de leerkracht net had
+ingesteld. Nu houdt de sessie een echte, aanhoudende instelling bij die ook meteen
+wordt toegepast op leerlingen die later binnenkomen.
+
+### 2. Tag-filter bij het samenstellen van een toets/taak
+Naast onderwerp en niveau kan je nu ook op tag filteren bij het selecteren van vragen
+uit de vragenbank. Elke vraag toont zijn tags ook als kleine badges in de lijst.
+
+### 3. Fullscreen-modus in een klassessie
+Nieuwe ⛶-knop bij de code-editor. Zet de programmeeromgeving in fullscreen, met:
+- Editor over de volle hoogte, links (belangrijk op de vrij korte HD-schermen van de
+  chromebooks waarop dit gebruikt wordt).
+- Een **sleepbare scheidingslijn** tussen editor en zijkolom — de breedteverdeling is
+  zelf aan te passen door te slepen (min. 220px, max. 560px voor de zijkolom).
+- In de zijkolom, van boven naar onder: een **duidelijke 2-knops-schakelaar**
+  ("Klasmodus" / "Individueel", de actieve gemarkeerd — i.p.v. één knop met
+  wisselende tekst) + de ✕-knop om te sluiten, "X online", een **countdown-timer**
+  (dezelfde als in de normale weergave — starten/stoppen, met aftellend display), de
+  naam-pillen (alfabetisch, klik geeft die leerling exclusief run- en bewerkrecht),
+  de opdracht-invoer (Sturen/Wissen — nu op volle breedte van de zijkolom, niet meer
+  samengeperst naast de knop), en daaronder — enkel zichtbaar zodra van toepassing —
+  een groene "Klaar"-balk en een gele "Hand"-balk (elk: een pil per leerling om enkel
+  die ene te resetten, plus een "Reset"-knop om iedereen ineens te resetten).
+- **Bij het aflopen van de timer**, indien de klas op dat moment in individuele
+  werkfase staat: automatisch en volledig terug naar klasmodus (leerlingen krijgen
+  dit ook live te zien) — dezelfde server-side afhandeling als de manuele
+  klas-/individueel-knop.
+- Op smalle schermen (portret-modus) valt dit terug naar editor boven, zijkolom
+  eronder (de scheidingslijn is dan niet van toepassing).
+- Esc (of de ✕-knop) keert terug naar de normale weergave.
+
+De bestaande code-editor en opdracht-invoer worden voor de fullscreen-weergave
+**verplaatst**, niet gedupliceerd — alle bestaande logica (Monaco, opdracht
+versturen, de timer, ...) blijft dus intact zonder verdubbelde code. Twee nieuwe,
+kleine server-events: `teacher_grant_control` (exclusieve controle aan één leerling)
+en `teacher_lower_all_hands` (alle handen tegelijk laten zakken).
+
+**Getest:**
+- Volledige testsuite (338 tests) blijft 100% groen.
+- Punt 1 en de 3 nieuwe fullscreen-server-events zijn elk apart end-to-end getest via
+  een echte socket.io-verbinding tegen de sandbox-database (incl. het exacte
+  gemelde scenario: klikken vóór er leerlingen verbonden zijn).
+- De timer-auto-terugkeer is apart, volledig end-to-end getest: leerkracht schakelt
+  naar individuele werkfase → start een korte timer → bij het aflopen bevestigd dat
+  de sessie automatisch terug op klasmodus staat, én dat de verbonden leerling dit
+  live (`force_workspace`) meekrijgt.
+- `teacher-app.html` en `styles.css` bevestigd correct uitgeserveerd (HTTP 200), met
+  de 2-koloms-lay-out, de scheidingslijn, de mode-schakelaar en het timerblok
+  effectief aanwezig in de uitgeserveerde CSS/HTML.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/app.js` ·
+`web/public/teacher-app.html` · `web/public/styles.css` ·
+`web/public/quiz-teacher.html` · `web/public/quiz-teacher.js` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.61 — Toets/taak: navigatieknoppen verbergen i.p.v. tonen, "Invoeren"-knop bij input()
+
+### Vorige/Volgende-knoppen
+- "← Vorige" stond voorheen enkel UITGESCHAKELD op de eerste vraag — nu volledig
+  verborgen.
+- "Volgende →" kreeg op de laatste vraag de tekst "Laatste vraag" maar bleef zichtbaar
+  en klikbaar — nu volledig verborgen op de laatste vraag (de "📤 Indienen"-knop
+  ernaast blijft daar uiteraard gewoon staan).
+
+### "Invoeren"-knop bij input()
+Tijdens het uitvoeren van code met `input()` kon je enkel op Enter drukken om je
+invoer te bevestigen — niet voor iedereen vanzelfsprekend. Er staat nu een expliciete
+knop **"Invoeren"** naast het invoerveld.
+
+**Getest:** volledige testsuite (338 tests) blijft 100% groen; syntax en
+HTML-structuur van de gewijzigde bestanden gecontroleerd.
+
+**Betrokken bestanden:** `web/public/quiz-student.html` ·
+`web/public/quiz-student.js` · `VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.60 — Nieuw: testaccount voor leerlingen
+
+Op "Mijn klassen" kan je per leerling nu een leerling als **testaccount** markeren (een
+schuifknopje "TA", vóór de blokkeer-knop, standaard uit). Zo'n leerling gedraagt zich
+overal exact als een gewone leerling — kan alles, ziet zijn eigen resultaten net als
+ieder ander — maar wordt bij toetsen/taken **niet meegeteld in gemiddelden en
+statistieken**, en staat bij het nakijken in een **volledig apart blokje** (geen
+verbeterverplichting).
+
+### Waar dit precies is doorgevoerd
+- **Nakijkscherm**: de leerlingenlijst is gesplitst — testaccounts staan in een eigen,
+  duidelijk gemarkeerd "🧪 Testaccounts"-blokje, apart van de gewone klas. De
+  voortgangsteller ("X/Y volledig verbeterd") telt enkel de echte leerlingen.
+- **Per-vraag statistieken** (gemiddelde score per vraag) in het nakijkscherm.
+- **Klasoverzicht/klasmatrix**: testaccounts komen in een apart, geel gemarkeerd
+  blokje onderaan het scherm, buiten de gewone tabel/gemiddelden.
+- **PDF- en Excel-export**: testaccounts krijgen een duidelijke 🧪-markering en tellen
+  niet mee in het klasgemiddelde-cijfer.
+
+### Veilige databankwijziging
+Nieuwe kolom `students.is_test_account` (`ADD COLUMN` met standaardwaarde `false`) —
+raakt geen bestaande leerling of data aan.
+
+**Getest:**
+- Volledige testsuite (338 tests) blijft 100% groen; schema-migratie getest tegen de
+  sandbox-database.
+- Een volledige end-to-end test: een leerling als testaccount gemarkeerd → een echte
+  toets aangemaakt met 2 leerlingen (1 gewoon, 1 testaccount) → beide antwoorden
+  ingediend en gescoord (8 vs. 2 punten) → rechtstreeks bevestigd dat de per-vraag
+  statistiek enkel de 8 punten van de echte leerling meetelt (gemiddelde = 8, niet 5),
+  en dat `is_test_account` correct wordt meegegeven per leerling.
+- Onderweg een subtiliteit ontdekt en correct verwerkt: bij een toets/taak is inloggen
+  verplicht, en dan is `quiz_answers.student_id` exact het echte leerling-account-ID —
+  de koppeling met testaccount-status werkt dus correct voor élke échte deelname.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` ·
+`web/public/mijn-klassen.html` · `web/public/mijn-klassen.js` ·
+`web/public/klasmatrix.js` · `web/public/quiz-review.html` ·
+`web/public/quiz-review.js` · `VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.59 — Bugfix: "Unexpected token '<'" bij API-aanroepen met verlopen sessie
+
+### De oorzaak (getriggerd via de "AI-opsmuk"-knop, maar breder dan dat)
+`requireTeacherAuth` — de bewaker die op elke leerkracht-route controleert of je
+ingelogd bent — stuurde bij een ontbrekende/verlopen sessie ALTIJD een `redirect` naar
+de HTML-inlogpagina terug, ook bij een API-aanroep (`fetch()`) vanuit JavaScript. Zo'n
+`fetch()`-aanroep volgt die redirect gewoon en krijgt de HTML van de inlogpagina terug
+i.p.v. JSON; de aanroepende code deed dan `await r.json()` op die HTML, wat crashte
+met de cryptische foutmelding **"Netwerkfout: Unexpected token '<', "..."**. Dit trof
+in theorie élke knop in de app die een API-aanroep doet op het moment dat je sessie
+verlopen is — niet specifiek de nieuwe AI-opsmuk-knop, die was gewoon de eerste die het
+zichtbaar maakte.
+
+### De fix
+Voor `/api/`-routes geeft `requireTeacherAuth` nu een nette JSON-401 terug ("Je sessie
+is verlopen of je bent niet (meer) ingelogd. Log opnieuw in.") i.p.v. een redirect.
+Gewone paginabezoeken (bv. rechtstreeks `/teacher-sessions.html` openen zonder
+ingelogd te zijn) blijven ongewijzigd gewoon doorverwijzen naar de inlogpagina.
+
+**Getest:**
+- Volledige testsuite (338 tests) blijft 100% groen.
+- Live bevestigd: een API-aanroep zonder geldige sessie geeft nu HTTP 401 met een
+  nette JSON-foutmelding; een gewone paginanavigatie zonder sessie blijft HTTP 302
+  (ongewijzigd).
+
+**Betrokken bestanden:** `web/server.js` · `VERSION` · overige `web/public/*.html`
+(cache-bust)
+
+---
+
+## v2026.2.51.58 — Bugfix: naam-botsing bij snelle herverbinding (leerling "online" bleef hangen)
+
+### De kanttekening uit de vorige levering, nu opgelost
+Bij het testen van de stroomdiagram-functionaliteit viel op dat een leerling die de
+verbinding verliest (tabblad sluit, F5, kortstondige netwerkhapering) nooit als
+"offline" geregistreerd werd in het `s.online`-veld — enkel `s.socketId` werd
+teruggezet. Dat veld wordt specifiek gebruikt door drie plekken die dus stuk voor stuk
+stil kapot waren:
+
+1. De dubbele-verbinding-check bij een toets/taak (`quiz_start`): een leerling die
+   snel herverbindt (bv. F5) onder dezelfde naam kreeg onterecht *"Er is al een
+   verbinding actief voor ..."* te zien.
+2. Dezelfde naam-botsing-check bij een gewone klassessie (`student_join`): *"Er is al
+   iemand met de naam ... in deze sessie"*.
+3. Het "X online"-telertje in het toetsoverzicht van de leerkracht bleef te hoog
+   staan (telde ook allang losgekoppelde leerlingen nog mee).
+
+Nu wordt `s.online` correct teruggezet op het moment dat de leerling écht wegvalt,
+consistent met het al langer correct werkende `socketId`-veld (dat de gewone
+online/offline-badge in het leerkrachtenscherm al aanstuurde — dié bleef dus wél
+altijd correct).
+
+**Getest:** een end-to-end socket.io-smoketest die exact het scenario naspeelt (leerling
+joint een sessie → verlaat die → herverbindt onmiddellijk onder dezelfde naam) bevestigt
+dat de herverbinding nu vlot lukt, zonder foutmelding. Volledige testsuite (338 tests)
+blijft daarnaast 100% groen.
+
+**Betrokken bestanden:** `web/server.js` · `VERSION` · overige `web/public/*.html`
+(cache-bust)
+
+---
+
+## v2026.2.51.57 — Stroomdiagram als vraagstelling én als antwoordtype
+
+Vervolg op v2026.2.51.56 (databankvoorbereiding): de eigenlijke functionaliteit is nu
+volledig gebouwd, gekoppeld en end-to-end getest.
+
+### Nieuwe, herbruikbare stroomdiagram-widget
+`web/public/flowchart-widget.js`/`.css` (nieuw) — een instantieerbare, vereenvoudigde
+versie van de stroomdiagram-builder die al bestond op de cursus-site: vormen slepen
+(Start/Einde, Stap, In-/Uitvoer, Beslissing, Tekst), verbinden met pijlen, Ja/Nee/eigen
+labels, verwijderen. **Nieuw t.o.v. het origineel**: JSON-opslag/-herlading (het
+origineel kon enkel naar PNG exporteren) en een weergave-alleen-modus. Bewust
+vereenvoudigd op enkele vlakken (rechte pijlen i.p.v. knikpunten, geen in-/uitzoomen,
+geen verslepbaar palet, geen PNG-export) om dit haalbaar te houden.
+
+### Stroomdiagram bij de vraagstelling (bij eender welk vraagtype)
+Bij het opstellen van een vraag (vragenbank) kan de leerkracht nu een stroomdiagram
+toevoegen AAN de vraagstelling zelf — los van het vraagtype, dus combineerbaar met
+open/code/single/multiple/composite. Bij de leerling verschijnt dit automatisch,
+weergave-alleen, net boven de vraagtekst.
+
+### Stroomdiagram als antwoordtype
+Nieuw vraagtype "🔀 Stroomdiagram": de leerling tekent zelf het antwoord in een
+bewerkbare widget, met automatisch opslaan (gedebouncet, zelfde patroon als elders in
+de app). Altijd manueel na te kijken (zoals 'open'), nooit automatisch gescoord. Het
+nakijkscherm toont het ingediende diagram weergave-alleen naast de vraag.
+
+**Getest:**
+- Volledige testsuite (338 tests) blijft 100% groen.
+- Een volledige end-to-end test: een stroomdiagram-vraag aangemaakt via de echte API →
+  gematerialiseerd in een echte toets → een leerling-socket ontving de vraag (type +
+  vraagstelling-diagram bevestigd correct) → een antwoord-stroomdiagram ingediend →
+  rechtstreeks in de databank bevestigd dat het exacte antwoord correct werd
+  opgeslagen.
+- Alle gewijzigde/nieuwe bestanden syntactisch gecontroleerd, HTML-structuur in
+  balans.
+
+**Terzijde ontdekt, niet aangepakt (buiten scope van deze vraag):** bij het testen
+bleek dat een toets-leerling die de verbinding verliest mogelijk nooit als "offline"
+gemarkeerd wordt, waardoor een naam-botsing bij een snelle herverbinding kan optreden.
+Dit is een bestaand, apart architectuurdetail, losstaand van deze feature.
+
+**Betrokken bestanden:** `web/public/flowchart-widget.js` (nieuw) ·
+`web/public/flowchart-widget.css` (nieuw) · `web/server.js` · `web/db/database.js` ·
+`web/public/quiz-bank.html` · `web/public/quiz-bank.js` ·
+`web/public/quiz-student.html` · `web/public/quiz-student.js` ·
+`web/public/quiz-review.html` · `web/public/quiz-review.js` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
+## v2026.2.51.56 — Kamer-brede uitzendingen (robuustheid bij meerdere leerlingen) + onzichtbare AI-val
+
+### 1. Kamer-brede uitzendingen i.p.v. kwetsbare per-leerling-lus
+Uit een test met 15 gelijktijdige leerlingen bleek dat code, een opdracht of rechten
+soms niet doorkwamen bij een leerling (herstelde met F5). Oorzaak: zowat elke
+server→leerling-melding gebeurde via een LUS die elke leerling apart aansprak op een
+**opgeslagen socket-ID** (`io.to(student.socketId).emit(...)`). Was dat opgeslagen ID
+bij ÉÉN leerling eventjes niet meer geldig (een kortstondige, stille
+verbindingshapering — met meerdere toestellen op eenzelfde klaslokaal-wifi een reële
+kans), dan miste enkel díe leerling de melding.
+
+Voor alles wat sowieso naar de HELE klas identiek moet (gedeelde code, een opdracht
+versturen, klassikale rechten aan/uit, annotaties, snippets, "klaar" resetten voor
+iedereen) gebeurt dit nu via een **kamer-brede uitzending**
+(`socket.to(sessiecode).emit(...)`), die niet afhangt van een per-leerling opgeslagen
+ID maar van de kameraanwezigheid die socket.io zelf al bijhoudt.
+
+### 2. Onzichtbare "AI-val" bij een toets-/taakvraag
+Nieuwe, optionele functionaliteit bij het opstellen van een vraag (vragenbank): een
+tekstvak "🔒 Onzichtbare AI-val" (enkel de leerkracht ziet dit) met een
+**"AI-opsmuk"-knop** die — via de al bestaande, lokale Ollama-koppeling — een
+geloofwaardig klinkend voorstel genereert. Deze tekst wordt bij de leerling volledig
+onzichtbaar (`font-size:0`) in de vraagstelling geweven: een leerling die de vraag
+gewoon leest, merkt er niets van; een leerling die de vraag in een AI-chatbot plakt,
+plakt deze tekst mee — een chatbot die de verstopte "instructie" volgt, laat daardoor
+een herkenbaar spoor na in het teruggegeven antwoord. Bij het nakijken toont het
+nakijkscherm deze val-tekst duidelijk, apart gemarkeerd, naast de vraag.
+
+Werkt voor nieuwe én bestaande toetsen/taken (aanmaken, bewerken, dupliceren, en
+sjabloon → toets/taak "materialiseren" geven dit veld nu allemaal door).
+
+**Getest:**
+- Volledige testsuite (338 tests) blijft 100% groen.
+- Een vraag met een onzichtbare AI-val aanmaken via de echte API, en rechtstreeks in
+  de databank bevestigd dat de tekst correct wordt opgeslagen.
+- De "AI-opsmuk"-knop faalt hier gracieus (geen Ollama beschikbaar in deze
+  testomgeving) met een duidelijke foutmelding (HTTP 502) i.p.v. te crashen —
+  precies het bedoelde gedrag wanneer Ollama niet bereikbaar is.
+- De kamer-brede uitzendingen zijn dezelfde robuustheidsverbetering als eerder al
+  end-to-end bevestigd voor het "leerkracht niet ingelogd"-scenario (v2026.2.51.48/52).
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` ·
+`web/lib/ai-grading.js` · `web/public/quiz-bank.html` · `web/public/quiz-bank.js` ·
+`web/public/quiz-student.js` · `web/public/quiz-review.js` · `VERSION` ·
+overige `web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.55 — Bugfix: footer ontbrak op bijna alle schermen + groene selectie-indicatie + ping verder verstrakt
 
 ### De echte oorzaak van de ontbrekende footer

@@ -238,7 +238,20 @@ textarea.code-area {
 .status-error { background:var(--error-bg); color:var(--error-fg); }
 
 /* ── Editor ──────────────────────────────────────────────────────────────────── */
-.workspace { display:grid; grid-template-columns:1.7fr .95fr; gap:22px; min-height:650px; }
+/* Sprint 62: leerkrachtenscherm herschikt — Sessie (smaller, meer hoogte) onder de
+   code-editor, Status+Systeem ernaast gestapeld, en Leerlingen over de volle hoogte
+   van editor+Sessie samen rechts ernaast — zodat een groeiende leerlingenlijst niet
+   meer voor lege ruimte onder Status/Systeem zorgt (die twee blijven compact). */
+.workspace {
+  display:grid;
+  grid-template-columns: 1.75fr 0.85fr 1.05fr;
+  grid-template-rows: auto auto;
+  gap:22px; min-height:650px;
+}
+.editor-shell { grid-column: 1 / span 2; grid-row: 1; }
+.teacher-sessie-col { grid-column: 1; grid-row: 2; }
+.teacher-status-systeem-col { grid-column: 2; grid-row: 2; display:flex; flex-direction:column; gap:18px; }
+.teacher-leerlingen-col { grid-column: 3; grid-row: 1 / span 2; }
 .editor-shell { overflow:visible; display:flex; flex-direction:column; }
 .tabs { padding:16px 16px 0; display:flex; gap:12px; }
 .tab-btn { min-height:42px; padding:10px 16px; border-radius:14px; border:1px solid var(--border); background:#eef1f5; color:#304357; font-weight:800; }
@@ -391,7 +404,16 @@ kbd { background:var(--surface-soft); border:1px solid var(--border); border-rad
 .announcement-compose { padding:18px 20px; }
 .announcement-compose-grid { display:grid; grid-template-columns:1fr auto; gap:16px; align-items:end; }
 .announcement-label { display:block; font-weight:700; margin-bottom:8px; }
-.announcement-textarea { width:100%; min-height:92px; padding:12px 14px; border-radius:14px; border:1px solid #c7d4e5; resize:vertical; font:inherit; background:#fff; }
+.announcement-textarea { width:100%; min-height:92px; padding:12px 14px; border-radius:14px; border:1px solid #c7d4e5; resize:vertical; font:inherit; background:#fff; box-sizing:border-box; }
+/* Sprint 67.1: in de smalle fullscreen-zijkolom oogde de standaard-minimumhoogte
+   (92px) als veel onnodig lege ruimte wanneer een oefening nog leeg is — hier
+   compacter, de leerkracht kan nog altijd zelf hoger slepen via de resize-greep. */
+.tfs-sidebar .announcement-textarea { min-height: 56px; }
+/* Sprint 67: navigatiebalk voor meerdere voorbereide oefeningen (vervangt de vorige,
+   als verwarrend ervaren "geschiedenis"-chips). */
+.announcement-nav { display:flex; align-items:center; gap:8px; margin-top:8px; flex-wrap:wrap; }
+.announcement-nav button:disabled { opacity:0.4; cursor:not-allowed; }
+#announcement-nav-pos { font-size:0.82rem; font-weight:700; color:var(--muted); min-width:44px; text-align:center; }
 .announcement-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
 .announcement-card { padding:18px 20px; border-left:5px solid #3b82f6; background:#f8fbff; }
 .announcement-title { font-weight:800; font-size:1rem; margin-bottom:8px; color:#183b66; }
@@ -455,6 +477,12 @@ kbd { background:var(--surface-soft); border:1px solid var(--border); border-rad
 @media (max-width: 980px) {
   .hero, .grid-2, .workspace, .mode-cards, .start-grid { grid-template-columns:1fr; }
   .screen, .hero { min-height:auto; }
+  /* Sprint 62: de expliciete grid-column/grid-row-plaatsing van .workspace (editor,
+     Sessie, Status/Systeem, Leerlingen) hoort hier gewoon terug onder elkaar te
+     vallen — zonder reset zouden ze nog naar kolom/rij-nummers verwijzen die in een
+     1-koloms-grid niet meer bestaan. */
+  .workspace { grid-template-rows: auto; }
+  .workspace > * { grid-column: 1 !important; grid-row: auto !important; }
 }
 @media (max-width: 900px) {
   .announcement-compose-grid { grid-template-columns:1fr; }
@@ -560,3 +588,150 @@ kbd { background:var(--surface-soft); border:1px solid var(--border); border-rad
    specifiek uit: de pagina wordt dan gewoon zo hoog als haar inhoud, en de
    footer volgt meteen na de kaart — net als bij een kort scherm elders. */
 body.compact-page { min-height: auto; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Sprint 66/66.1: fullscreen-modus voor de leerkracht in een klassessie.
+   66.1: editor neemt de volle hoogte links; alle andere blokjes (wisselknop,
+   naam-pillen, opdracht, Klaar-/Hand-balk) staan gestapeld in een kolom rechts —
+   op de vrij korte (HD) chromebook-schermen waarop dit gebruikt wordt, is verticaal
+   stapelen boven/onder de editor te veel verspilde hoogte.
+   ════════════════════════════════════════════════════════════════════════════ */
+#teacher-fullscreen-overlay {
+  position: fixed; inset: 0; z-index: 9000;
+  background: var(--bg);
+  display: grid; grid-template-columns: 1fr 6px var(--tfs-sidebar-w, 300px);
+  grid-template-rows: minmax(0, 1fr); gap: 0;
+  padding: 14px 18px 18px;
+  /* Bugfix (sprint 66.6): zonder een expliciete rijhoogte kreeg de ene grid-rij hier
+     enkel de hoogte die zijn INHOUD nodig had (auto) i.p.v. de volle
+     overlay-hoogte — dat liet zowel een lege zwarte strook onder de editor als een
+     onnodige scrollbar op het HELE scherm ontstaan (de rij-inhoud liep over de vaste
+     inset:0-hoogte van deze overlay heen). overflow:hidden voorkomt dat zoiets ooit
+     nog naar de pagina zelf lekt. */
+  overflow: hidden;
+}
+#teacher-fullscreen-overlay.hidden { display: none; }
+.tfs-editor-slot { min-height: 0; height: 100%; display: flex; padding-right: 12px; }
+.tfs-editor-slot .editor-shell { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.tfs-editor-slot .editor-frame-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* Bugfix (sprint 66.6): zowel .editor-frame als .monaco-editor-host hebben in de
+   normale weergave een vaste hoogte (540px, elk apart) — in fullscreen moeten beide
+   samen net de volle beschikbare hoogte innemen, anders blijft er onderin een lege
+   zwarte strook staan (de eigenlijke oorzaak van het gemelde probleem). */
+.tfs-editor-slot .editor-frame { flex: 1; height: auto !important; min-height: 0; }
+.tfs-editor-slot .monaco-editor-host { height: auto !important; min-height: 0; }
+/* Bugfix (sprint 66.7): .custom-gutter (het regelnummer-balkje links) heeft
+   dezelfde hardgecodeerde 540px als de twee hierboven — pas nu zichtbaar geworden
+   NU de editor zelf wél de volle hoogte krijgt: de gekleurde achtergrond van het
+   regelnummer-balkje stopte na 540px terwijl de code-editor gewoon doorliep. */
+.tfs-editor-slot .custom-gutter { height: auto !important; min-height: 100%; }
+
+/* Sprint 66.2: sleepbare scheidingslijn — de leerkracht kon de breedteverdeling
+   tussen editor en zijkolom voorheen niet zelf aanpassen (vaste 300px). */
+.tfs-divider {
+  cursor: col-resize; background: var(--border); border-radius: 3px;
+  position: relative; z-index: 1;
+}
+.tfs-divider:hover, .tfs-divider.tfs-dragging { background: var(--primary); }
+.tfs-divider::before {
+  /* onzichtbaar, bredere grijpzone dan de zichtbare 6px lijn zelf */
+  content: ''; position: absolute; top: 0; bottom: 0; left: -6px; right: -6px;
+}
+
+.tfs-sidebar {
+  min-height: 0; height: 100%; overflow-y: auto; padding-left: 12px;
+  display: flex; flex-direction: column; gap: 10px; box-sizing: border-box;
+}
+.tfs-topbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tfs-student-count { font-weight: 700; color: var(--text); font-size: 0.9rem; }
+
+/* Sprint 66.2: 2-knops klas/individueel-schakelaar, altijd beide zichtbaar; de
+   actieve modus is duidelijk gemarkeerd i.p.v. één knop met wisselende tekst.
+   Sprint 67: iets groter voor de leesbaarheid, op vraag. */
+.tfs-mode-switch { display: flex; border: 1.5px solid var(--border); border-radius: 8px; overflow: hidden; }
+.tfs-mode-btn {
+  border: none; background: var(--surface); color: var(--muted); font-weight: 700;
+  font-size: 0.95rem; padding: 9px 14px; cursor: pointer;
+}
+.tfs-mode-btn.tfs-mode-active { background: var(--primary); color: #fff; }
+.tfs-mode-btn.hidden { display: none; }
+/* Sprint 67: ✕ Esc-knop meegroeien in leesbaarheid met de mode-schakelaar ernaast. */
+#tfs-exit-btn { font-size: 0.95rem; padding: 9px 14px; }
+
+/* Sprint 66.2: timerblok, compacte versie van het blok uit de normale weergave. */
+.tfs-timer-block {
+  padding: 10px 12px; background: var(--surface-soft); border-radius: 12px; border: 1px solid var(--border);
+}
+.tfs-timer-label { font-size: 0.72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+.tfs-timer-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tfs-timer-row input { width: 52px; padding: 5px 8px; border: 1.5px solid var(--border); border-radius: 6px; font-size: 0.85rem; }
+.tfs-timer-unit { font-size: 0.78rem; color: var(--muted); }
+#tfs-timer-display { font-size: 1rem; min-width: 36px; }
+.tfs-pills-row { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Sprint 69: een blijvend gekleurd kader rond elke groep (niet enkel wanneer een
+   leerling dat recht heeft) — maakt het onderscheid Run/Code in één oogopslag
+   duidelijker, ongeacht de huidige status. */
+.tfs-pills-group { margin-bottom: 2px; padding: 8px; border-radius: 10px; border: 1.5px solid; }
+#tfs-pills-group-run { border-color: #e6c860; }
+#tfs-pills-group-code { border-color: var(--primary); }
+.tfs-pills-label { font-size: 0.72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+/* Sprint 67: pillen iets groter voor de leesbaarheid, op vraag.
+   Sprint 68: twee aparte kleuren — Run (zacht oranje) en Code (groen) — zodat in één
+   oogopslag duidelijk is WELK recht een leerling op dat moment heeft, los van elkaar. */
+.tfs-pill {
+  padding: 7px 15px; border-radius: 999px; border: 1.5px solid var(--border);
+  background: var(--surface); font-size: 0.9rem; font-weight: 700; cursor: pointer;
+  color: var(--text); transition: background .12s, color .12s;
+}
+.tfs-pill:hover { background: var(--primary-soft); border-color: var(--primary); }
+.tfs-pill-run.tfs-pill-active { background: #fdf3d1; color: #8a6d00; border-color: #e6c860; }
+.tfs-pill-code.tfs-pill-active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.tfs-status-bar {
+  display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+  padding: 10px 12px; border-radius: 12px;
+}
+.tfs-status-bar.hidden { display: none; }
+.tfs-status-bar-done { background: #e1f0e6; border: 1.5px solid #3a9d43; }
+.tfs-status-bar-hand { background: #fdf3d1; border: 1.5px solid #e6c860; }
+.tfs-status-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.tfs-status-pill {
+  padding: 4px 10px; border-radius: 999px; background: #fff; font-size: 0.78rem;
+  font-weight: 700; cursor: pointer; border: 1px solid rgba(0,0,0,0.08);
+}
+.tfs-status-bar-done .tfs-status-pill { color: #1e7a47; }
+.tfs-status-bar-hand .tfs-status-pill { color: #8a6d00; }
+.tfs-status-pill:hover { filter: brightness(0.95); }
+
+/* Op deze vrij korte schermen mag de opdracht-invoer geen ruimte verspillen aan een
+   apart kaartje-kader/schaduw zoals in de normale weergave — hier compact en zonder
+   overbodige buitenmarge. */
+#tfs-announcement-slot { width: 100%; }
+.tfs-sidebar .announcement-compose {
+  margin-top: 0 !important; padding: 10px !important;
+  /* Bugfix (sprint 66.6): het opdrachtveld bleef smaller dan de rest van de
+     zijkolom staan — hier expliciet op volle breedte gezet i.p.v. te vertrouwen op
+     standaard flex-stretch, die hier om een niet-achterhaalde reden niet doorkwam. */
+  width: 100% !important; box-sizing: border-box; align-self: stretch;
+}
+/* Bugfix: de opdracht-invoer gebruikt normaal een BREDE 2-koloms-grid (tekstvak naast
+   de knoppen) — in de smalle (300px) sidebar kneep de "auto"-brede knoppenkolom het
+   tekstvak bijna tot niets. De bestaande mobiele terugval (1 kolom, gestapeld) is hier
+   ook nodig, maar reageert enkel op VENSTERbreedte, niet op containerbreedte — dus
+   hier expliciet forceren, ongeacht vensterbreedte. -->
+.tfs-sidebar .announcement-compose-grid {
+  /* Bugfix (sprint 66.3): de grid-template-columns-override hierboven volstond niet
+     (de knoppen bleven naast het tekstvak staan i.p.v. eronder, met een gebrek aan
+     ruimte tot gevolg). Volledig overschakelen naar een simpele, ondubbelzinnige
+     kolomopstelling i.p.v. verder te sleutelen aan de grid-eigenschappen. */
+  display: flex !important; flex-direction: column !important; gap: 10px;
+}
+.tfs-sidebar .announcement-actions { width: 100%; }
+.tfs-sidebar .announcement-actions .btn { flex: 1; }
+
+/* Smalle schermen (portret-chromebook, tablet): editor boven, sidebar eronder i.p.v.
+   naast elkaar — de rechterkolom van 300px zou anders de editor onwerkbaar smal maken. */
+@media (max-width: 900px) {
+  #teacher-fullscreen-overlay { grid-template-columns: 1fr; grid-template-rows: 1fr 0 auto; }
+  .tfs-sidebar { max-height: 40vh; padding-left: 0; }
+  .tfs-divider { display: none; }
+}

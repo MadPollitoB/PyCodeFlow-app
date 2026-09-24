@@ -86,14 +86,25 @@ async function loadBank() {
   const sel = document.getElementById('sel-subject');
   sel.innerHTML = '<option value="">Alle onderwerpen</option>' +
     subjects.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  // Sprint 66: tags zijn een komma-gescheiden tekstveld per vraag (zie CSV-import) —
+  // hier uitgesplitst tot een unieke, gesorteerde lijst voor de dropdown.
+  const alleTags = new Set();
+  _bank.forEach(q => (q.tags || '').split(',').map(t => t.trim()).filter(Boolean).forEach(t => alleTags.add(t)));
+  const tagSel = document.getElementById('sel-tag');
+  if (tagSel) {
+    tagSel.innerHTML = '<option value="">Alle tags</option>' +
+      [...alleTags].sort().map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+  }
   filterBank();
 }
 
 function filterBank() {
   const subj = document.getElementById('sel-subject').value;
   const diff = document.getElementById('sel-difficulty').value;
+  const tag = document.getElementById('sel-tag')?.value || '';
   const filtered = _bank.filter(q =>
-    (!subj || q.subject === subj) && (!diff || q.difficulty === diff) && !q.archived
+    (!subj || q.subject === subj) && (!diff || q.difficulty === diff) && !q.archived &&
+    (!tag || (q.tags || '').split(',').map(t => t.trim()).includes(tag))
   );
   const list = document.getElementById('q-select-list');
   if (!filtered.length) {
@@ -111,6 +122,8 @@ function filterBank() {
             color:${q.difficulty==='makkelijk'?'#065f46':q.difficulty==='moeilijk'?'#991b1b':'#92400e'};">
             ${q.difficulty}</span>
           <span class="muted" style="font-size:0.78rem;">${q.max_points} pt</span>
+          ${(q.tags || '').split(',').map(t => t.trim()).filter(Boolean).map(t =>
+            `<span class="badge" style="background:var(--surface-soft);font-size:0.7rem;">#${esc(t)}</span>`).join('')}
         </div>
         <div style="font-size:0.9rem;line-height:1.5;">${esc(q.text.slice(0, 120))}${q.text.length > 120 ? '...' : ''}</div>
       </div>

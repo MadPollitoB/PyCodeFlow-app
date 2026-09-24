@@ -256,7 +256,13 @@ function editQuestion(id) {
   document.getElementById('q-points').value = q.max_points;
   document.getElementById('q-tags').value = q.tags || '';
   document.getElementById('q-model').value = q.model_answer || '';
-  document.getElementById('form-title').textContent = 'Vraag bewerken';
+  document.getElementById('q-hidden-trap').value = q.hidden_ai_trap || '';
+  // Sprint 63: stroomdiagram bij de vraagstelling herladen indien aanwezig.
+  verwijderFlowchartStem();
+  if (q.flowchart_json) {
+    toggleFlowchartStem();
+    _qStemFlowchart.setData(q.flowchart_json);
+  }
   const typeRadio = document.querySelector(`[name=q-type][value="${q.question_type||'code'}"]`);
   if (typeRadio) { typeRadio.checked = true; onTypeChange(q.question_type||'code'); }
   try { _choices = JSON.parse(q.choices_json || '[]'); } catch { _choices = []; }
@@ -292,7 +298,8 @@ function resetQuestionForm(eindTab) {
   document.getElementById('q-points').value = '4';
   document.getElementById('q-tags').value = '';
   document.getElementById('q-model').value = '';
-  document.getElementById('form-title').textContent = 'Nieuwe vraag toevoegen';
+  document.getElementById('q-hidden-trap').value = '';
+  verwijderFlowchartStem();
   const codeRadio = document.querySelector('[name=q-type][value=code]');
   if (codeRadio) { codeRadio.checked = true; onTypeChange('code'); }
   _choices = [];
@@ -532,6 +539,36 @@ async function onTypeChange(type) {
     }
     renderParts();
   }
+
+  // Sprint 63: bij vraagtype 'stroomdiagram' tekent de leerling zelf het antwoord —
+  // geen modelantwoord-veld nodig (altijd manueel na te kijken, zoals 'open').
+  const answerNote = document.getElementById('q-flowchart-answer-note');
+  if (answerNote) answerNote.style.display = type === 'stroomdiagram' ? 'block' : 'none';
+  const modelRow = modelField ? modelField.closest('.form-row') : null;
+  if (modelRow) modelRow.style.display = type === 'stroomdiagram' ? 'none' : '';
+}
+
+// Sprint 63: stroomdiagram BIJ de vraagstelling — los van het vraagtype hierboven.
+let _qStemFlowchart = null; // FlowchartWidget-instantie, of null als niet actief
+
+function toggleFlowchartStem() {
+  const wrap = document.getElementById('q-flowchart-stem-wrap');
+  const btn = document.getElementById('q-flowchart-toggle-btn');
+  if (wrap.style.display === 'none') {
+    wrap.style.display = 'block';
+    btn.style.display = 'none';
+    if (!_qStemFlowchart) {
+      _qStemFlowchart = FlowchartWidget.mount(document.getElementById('q-flowchart-stem-widget'), { editable: true });
+    }
+  }
+}
+
+function verwijderFlowchartStem() {
+  const wrap = document.getElementById('q-flowchart-stem-wrap');
+  const btn = document.getElementById('q-flowchart-toggle-btn');
+  if (_qStemFlowchart) { _qStemFlowchart.destroy(); _qStemFlowchart = null; }
+  wrap.style.display = 'none';
+  btn.style.display = '';
 }
 
 function addChoice() {
@@ -822,6 +859,8 @@ async function saveQuestion() {
     questionType: type,
     choices:      ['single','multiple'].includes(type) ? _choices : [],
     answerParts:  type === 'composite' ? _parts : [],
+    hiddenAiTrap: document.getElementById('q-hidden-trap').value.trim(),
+    flowchartJson: _qStemFlowchart ? _qStemFlowchart.getData() : '',
   };
 
   try {
@@ -832,6 +871,35 @@ async function saveQuestion() {
     if (data.ok || data.id) { cancelEdit(); loadSubjects(); loadQuestions(); }
     else await pyAlert('Fout bij opslaan: ' + data.error, "error");
   } catch(e) { await pyAlert('Netwerkfout: ' + e.message, "error"); }
+}
+
+// Sprint 63: "AI-opsmuk"-knop bij de onzichtbare AI-val — vraagt een voorstel op bij de
+// bestaande lokale Ollama-koppeling. Vult enkel het tekstvak in; de leerkracht kan het
+// voorstel nog altijd zelf aanpassen (of gewoon negeren en zelf iets typen).
+async function genereerAiVal() {
+  const btn = document.getElementById('q-ai-trap-btn');
+  const veld = document.getElementById('q-hidden-trap');
+  const vraagtekst = document.getElementById('q-text').value.trim();
+  const oudeTekst = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ Even geduld…';
+  try {
+    const r = await fetch('/api/quiz/bank/ai-trap-suggestie', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: vraagtekst }),
+    });
+    const data = await r.json();
+    if (data.ok && data.valTekst) {
+      veld.value = data.valTekst;
+    } else {
+      await pyAlert(data.error || 'De AI kon geen voorstel genereren.', 'warn');
+    }
+  } catch (e) {
+    await pyAlert('Netwerkfout: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oudeTekst;
+  }
 }
 
 // ── 22f / 23.1: Verwijderen of archiveren ────────────────────────────────────

@@ -78,10 +78,19 @@ function kaart(k) {
 function leerlingRij(s, klasId) {
   return `
   <div class="ll-rij">
-    <span class="ll-naam">${esc(s.name)}${s.mustChangePassword ? ' <span class="badge" style="background:#fef3c7;color:#92400e;" title="Wachtwoordreset staat klaar">reset</span>' : ''}</span>
+    <span class="ll-naam">${esc(s.name)}${s.mustChangePassword ? ' <span class="badge" style="background:#fef3c7;color:#92400e;" title="Wachtwoordreset staat klaar">reset</span>' : ''}${s.isTestAccount ? ' <span class="badge" style="background:#fdf3d1;color:#8a6d00;" title="Dit is een testaccount — telt niet mee in gemiddelden/statistieken bij toetsen/taken">🧪 TA</span>' : ''}</span>
     <span class="ll-mail">${s.email ? esc(s.email) : '<em>geen account</em>'}</span>
     <span class="status-${esc(s.status)}">${esc(STATUS_LABEL[s.status] || s.status)}</span>
     <span class="ll-acties">
+      <!-- Sprint 64: testaccount aan/uit — een schuifknopje i.p.v. een knop, staat
+           standaard uit. Aanzetten maakt van deze leerling een testaccount: gedraagt
+           zich verder overal als een gewone leerling, maar telt niet mee in
+           gemiddelden/statistieken bij toetsen/taken, en staat apart bij het nakijken. -->
+      <label class="ta-toggle-wrap" title="Testaccount — telt niet mee in gemiddelden/statistieken">
+        <input type="checkbox" class="ta-toggle-switch" ${s.isTestAccount ? 'checked' : ''}
+          onchange="zetTestaccount('${s.id}', this.checked)"/>
+        <span>TA</span>
+      </label>
       ${s.status !== 'active' ? `<button class="btn btn-success small" onclick="zetStatus('${s.id}','active')">✓ Aanvaarden</button>` : ''}
       ${s.status !== 'blocked' ? `<button class="btn btn-muted small" onclick="blokkeer('${s.id}','${esc(s.name)}')">✕ Blokkeren</button>` : ''}
       ${s.email ? `<button class="btn btn-muted small" title="Reset klaarzetten — de leerling kiest zelf een nieuw wachtwoord via de klascode" onclick="resetWw('${s.id}','${esc(s.name)}')">🔑 Reset</button>` : ''}
@@ -114,6 +123,16 @@ async function zetOpen(klasId, actief) {
 async function zetStatus(id, status) {
   const r = await window.apiFetch(`/api/admin/students/${id}/status`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+  const d = await r.json().catch(() => ({}));
+  if (r.ok && d.ok) laadKlassen(); else foutmelding(d, r);
+}
+
+// Sprint 64: testaccount aan/uit. Geen bevestigingsvraag nodig — dit is geen
+// destructieve actie en makkelijk terug te draaien; wél meteen de lijst herladen
+// zodat het TA-badge naast de naam bijgewerkt wordt.
+async function zetTestaccount(id, isTestAccount) {
+  const r = await window.apiFetch(`/api/admin/students/${id}/test-account`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isTestAccount }) });
   const d = await r.json().catch(() => ({}));
   if (r.ok && d.ok) laadKlassen(); else foutmelding(d, r);
 }

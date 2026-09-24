@@ -4,6 +4,8 @@
 // ── Quiz student logica ──────────────────────────────────────────────────────
 const socket = io();
 let _state = null;        // volledige quiz state van server
+let _stemFlowchartWidget = null;   // Sprint 63: weergave-widget bij de vraagstelling
+let _answerFlowchartWidget = null; // Sprint 63: bewerkbare widget bij antwoordtype 'stroomdiagram'
 let _currentIdx = 0;      // huidige vraag index (in persoonlijke volgorde)
 let _afgesloten = false;  // Sprint 70: toets automatisch of door de leerkracht afgesloten
 let _answers = {};        // { questionId: { code, runCount, firstVisitAt, firstRunAt } }
@@ -488,7 +490,14 @@ socket.on('quiz_state', async (state) => {
   document.getElementById('quiz-screen').style.display = 'block';
   document.getElementById('qs-session-name').textContent = state.sessionName;
 
-  if (state.submitted) { showDoneScreen(state.studentName, Object.keys(_answers).length); return; }
+  if (state.submitted) {
+    // Bugfix (sprint 72): telde voorheen Object.keys(_answers).length — dat telt
+    // ELKE bezochte vraag mee (er komt al een antwoord-rij zodra je een vraag
+    // opent, ook zonder iets in te vullen), niet enkel de effectief beantwoorde.
+    const aantalBeantwoord = (_state?.questions || []).filter(q => heeftAntwoord(q, _answers[q.id])).length;
+    showDoneScreen(state.studentName, aantalBeantwoord);
+    return;
+  }
   if (state.paused) document.getElementById('pause-overlay').classList.add('visible');
 
   // Verberg timer bij taken zonder tijdslimiet
@@ -524,7 +533,10 @@ socket.on('quiz_force_submit', (data) => {
   const code = getCurrentCode();
   if (_currentQuestionId) saveCurrentAnswer(code);
   _afgesloten = true;                       // blokkeert verder bewerken en opslaan
-  showDoneScreen(urlName, Object.keys(_answers).length);
+  // Bugfix (sprint 72): zelfde telfout als hierboven — enkel effectief beantwoorde
+  // vragen meetellen, niet elke bezochte vraag.
+  const aantalBeantwoord = (_state?.questions || []).filter(q => heeftAntwoord(q, _answers[q.id])).length;
+  showDoneScreen(urlName, aantalBeantwoord);
 
   const reden = (data && data.reden) || (data && data.reason) || '';
   const tekst =
@@ -650,6 +662,7 @@ function showQuestionPanel(type, hasCodePart) {
   document.getElementById('panel-code').style.display   = (type === 'code' || (isComposite && hasCodePart)) ? '' : 'none';
   document.getElementById('panel-open').style.display   = type === 'open' ? '' : 'none';
   document.getElementById('panel-choice').style.display = ['single','multiple'].includes(type) ? '' : 'none';
+  document.getElementById('panel-flowchart').style.display = type === 'stroomdiagram' ? '' : 'none';
   document.getElementById('quiz-run-btn').style.display = (type === 'code' || (isComposite && hasCodePart)) ? '' : 'none';
 }
 
@@ -725,6 +738,9 @@ function getCurrentAnswer() {
     });
     if (codePart) partAnswers[codePart.id] = getCurrentCode();
     return { code: codePart ? getCurrentCode() : '', selectedChoices: [], partAnswers };
+  } else if (type === 'stroomdiagram') {
+    // Sprint 63: het antwoord is de JSON-toestand van de widget, niet 'code'.
+    return { code: '', selectedChoices: [], answerFlowchartJson: _answerFlowchartWidget ? _answerFlowchartWidget.getData() : '' };
   } else {
     return { code: '', selectedChoices: _selectedChoices };
   }
@@ -765,18 +781,41 @@ function saveCompositeChoiceAnswer(partId, choiceId, isMultiple) {
 }
 
 // ── Navigatie ───────────────────────────────────────────────────────────────
+// Sprint 71: één centrale, vraagtype-bewuste "is dit beantwoord?"-check — voorheen
+// stond deze logica dubbel (renderNav + openSubmitScreen), telkens onvolledig (geen
+// van beide hield rekening met samengestelde vragen of stroomdiagram-antwoorden), met
+// als gevolg dat een correct beantwoorde vraag toch als "bezocht maar geen keuze"
+// werd getoond, en de navigatiepil daarboven niet meekleurde.
+function heeftAntwoord(q, ans) {
+  if (!ans) return false;
+  const qType = q.question_type || 'code';
+  if (qType === 'code' || qType === 'open') return !!(ans.code && ans.code.trim());
+  if (qType === 'composite') {
+    const pa = ans.partAnswers || {};
+    return Object.values(pa).some(v => Array.isArray(v) ? v.length > 0 : !!(v && String(v).trim()));
+  }
+  if (qType === 'stroomdiagram') {
+    if (!ans.answerFlowchartJson) return false;
+    try { const d = JSON.parse(ans.answerFlowchartJson); return Array.isArray(d.blocks) && d.blocks.length > 0; } catch { return false; }
+  }
+  return (ans.selectedChoices || []).length > 0; // single / multiple
+}
+
 function renderNav() {
   const questions = _state?.questions || [];
   const nav = document.getElementById('quiz-nav');
   nav.innerHTML = questions.map((q, i) => {
     const qid = q.id;
+    const ans = _answers[qid];
+    // Sprint 71: nog maar 2 fases — geel (bezocht, niets ingevuld) of groen (iets
+    // ingevuld) — en enkel als gekleurde RAND, nooit als volledig gevulde knop (was
+    // voorheen wél zo bij "saved"/"no-run": verwarrend, zag eruit als een aparte,
+    // 3de status i.p.v. gewoon "beantwoord"). De huidige vraag krijgt daar bovenop,
+    // los van die kleur, gewoon een dikke lichtblauwe rand (.current, ongewijzigd).
     let cls = 'qnav-btn';
+    if (heeftAntwoord(q, ans)) cls += ' answered';
+    else if (_visited.has(qid)) cls += ' visited';
     if (i === _currentIdx) cls += ' current';
-    else if (_answers[qid]?.code) {
-      cls += _runCount[qid] > 0 ? ' saved' : ' no-run';
-    } else if (_visited.has(qid)) {
-      cls += ' visited';
-    }
     // Sprint 69: bij noBack zijn eerdere vragen niet meer bereikbaar.
     const geblokkeerd = _state?.noBack && i < _currentIdx;
     if (geblokkeerd) cls += ' locked';
@@ -785,7 +824,7 @@ function renderNav() {
       : ` onclick="goToQuestion(${i})" title="Vraag ${i+1}"`}>${i+1}</button>`;
   }).join('');
   document.getElementById('qs-progress').textContent =
-    `${_currentIdx+1}/${questions.length} · ${Object.keys(_answers).filter(k=>_answers[k]?.code).length} opgeslagen`;
+    `${_currentIdx+1}/${questions.length} · ${questions.filter(q => heeftAntwoord(q, _answers[q.id])).length} opgeslagen`;
 }
 
 // Sprint 51-fix (kritieke bugfix): preprocessMarkdown/renderMarkdown stonden hiervoor per
@@ -808,6 +847,21 @@ function renderMarkdown(text) {
   var html = window.marked.parse(preprocessMarkdown(text), { breaks: true, gfm: true });
   // 28c: XSS-beveiliging — sanitize met DOMPurify (style toegestaan voor kleuren)
   return window.DOMPurify ? window.DOMPurify.sanitize(html, { ADD_ATTR: ['style', 'target'] }) : html;
+}
+
+// Sprint 63: onzichtbare "AI-val" — weeft de door de leerkracht opgestelde (of door de
+// AI-opsmuk-knop voorgestelde) tekst als volledig onzichtbaar element in de vraagtekst.
+// Bedoeld voor leerlingen die de vraag kopiëren en in een AI-chatbot plakken: kopiëren
+// pakt de tekst-INHOUD van het scherm, niet enkel wat met het oog zichtbaar is, dus deze
+// tekst gaat gewoon mee — een chatbot die de verstopte "instructie" volgt, laat daardoor
+// een herkenbaar spoor na in het teruggegeven antwoord. font-size:0 (i.p.v. bv.
+// display:none) is bewust: sommige kopieermethodes negeren display:none-elementen wél.
+function renderHiddenAiTrap(valTekst) {
+  var tekst = (valTekst || '').trim();
+  if (!tekst) return '';
+  var veilig = window.DOMPurify ? window.DOMPurify.sanitize(tekst, { ALLOWED_TAGS: [] }) : tekst;
+  return '<span style="font-size:0;line-height:0;color:transparent;user-select:text;" aria-hidden="true">'
+    + veilig + '</span>';
 }
 
 function goToQuestion(idx) {
@@ -843,16 +897,27 @@ function goToQuestion(idx) {
   const qType = q.question_type || 'code';
   if (!_state?.hideQuestionOnScreen) {
     questionEl.style.display = 'block';
-    const typeLabel = {code:'🐍 Code',open:'✏️ Open vraag',single:'◉ Single choice',multiple:'☑ Meerkeuze',composite:'🧩 Samengestelde vraag'}[qType] || '';
+    const typeLabel = {code:'🐍 Code',open:'✏️ Open vraag',single:'◉ Single choice',multiple:'☑ Meerkeuze',composite:'🧩 Samengestelde vraag',stroomdiagram:'🔀 Stroomdiagram'}[qType] || '';
     document.getElementById('q-header').textContent =
       `Vraag ${idx+1} van ${questions.length} · ${q.subject || ''} · ${q.points} punten · ${typeLabel}`;
     // Sprint 19f: Markdown rendering
     const qTextEl = document.getElementById('q-text');
     const rawText = q.text_snapshot || q.text || '';
     if (window.marked) {
-      qTextEl.innerHTML = renderMarkdown(rawText);
+      qTextEl.innerHTML = renderMarkdown(rawText) + renderHiddenAiTrap(q.hidden_ai_trap);
     } else {
       qTextEl.textContent = rawText;
+    }
+    // Sprint 63: stroomdiagram BIJ de vraagstelling — weergave-alleen, los van het
+    // vraagtype van deze vraag.
+    const stemWrap = document.getElementById('q-flowchart-stem');
+    if (_stemFlowchartWidget) { _stemFlowchartWidget.destroy(); _stemFlowchartWidget = null; }
+    if (q.flowchart_json) {
+      stemWrap.style.display = 'block';
+      _stemFlowchartWidget = FlowchartWidget.mount(stemWrap, { editable: false, data: q.flowchart_json });
+    } else {
+      stemWrap.style.display = 'none';
+      stemWrap.innerHTML = '';
     }
   } else {
     questionEl.style.display = 'none';
@@ -916,6 +981,16 @@ function goToQuestion(idx) {
       if (out) out.textContent = '';
       showQuizTab('code');
     }
+  } else if (qType === 'stroomdiagram') {
+    // Sprint 63: bewerkbaar antwoord-stroomdiagram, met autosave (debounced) via
+    // dezelfde quiz_save_answer-route als de andere antwoordtypes.
+    if (_answerFlowchartWidget) { _answerFlowchartWidget.destroy(); _answerFlowchartWidget = null; }
+    const host = document.getElementById('quiz-flowchart-answer');
+    _answerFlowchartWidget = FlowchartWidget.mount(host, {
+      editable: true,
+      data: savedAns?.answerFlowchartJson || '',
+      onChange: () => scheduleFlowchartAnswerSave(),
+    });
   } else {
     // single / multiple
     try {
@@ -925,10 +1000,11 @@ function goToQuestion(idx) {
     } catch { renderChoices([], qType, []); }
   }
 
-  // Navigatieknoppen
-  document.getElementById('quiz-prev-btn').disabled = idx === 0;
-  document.getElementById('quiz-next-btn').textContent =
-    idx === questions.length - 1 ? 'Laatste vraag' : 'Volgende →';
+  // Navigatieknoppen — Bugfix: stonden voorheen enkel UITGESCHAKELD (Vorige) of kregen
+  // een tekstwissel naar "Laatste vraag" (Volgende) i.p.v. gewoon te verdwijnen. Nu
+  // volledig verborgen wanneer ze toch niets kunnen doen.
+  document.getElementById('quiz-prev-btn').style.display = idx === 0 ? 'none' : '';
+  document.getElementById('quiz-next-btn').style.display = idx === questions.length - 1 ? 'none' : '';
 
   renderNav();
 }
@@ -958,6 +1034,7 @@ function saveCurrentAnswer(code) {
   _answers[_currentQuestionId].selectedChoices = ans.selectedChoices;
   _answers[_currentQuestionId].runCount = _runCount[_currentQuestionId] || 0;
   if (ans.partAnswers) _answers[_currentQuestionId].partAnswers = ans.partAnswers;
+  if (ans.answerFlowchartJson !== undefined) _answers[_currentQuestionId].answerFlowchartJson = ans.answerFlowchartJson;
 
   socket.emit('quiz_save_answer', {
     questionId: _currentQuestionId,
@@ -968,7 +1045,18 @@ function saveCurrentAnswer(code) {
     firstRunAt: _answers[_currentQuestionId]?.firstRunAt || null,
     currentQuestion: _currentIdx,
     partAnswers: ans.partAnswers || undefined,
+    answerFlowchartJson: ans.answerFlowchartJson !== undefined ? ans.answerFlowchartJson : undefined,
   });
+}
+
+// Sprint 63: de stroomdiagram-widget roept bij elke wijziging (blokje verschoven, tekst
+// getypt, pijl toegevoegd, ...) onChange() aan — dat zou zonder debounce tientallen keren
+// per seconde een opslag naar de server sturen tijdens het slepen. Zelfde 800ms-patroon
+// als elders in de app voor "typ/sleep-gebonden" autosaves.
+let _flowchartSaveTimer = null;
+function scheduleFlowchartAnswerSave() {
+  clearTimeout(_flowchartSaveTimer);
+  _flowchartSaveTimer = setTimeout(() => saveCurrentAnswer(), 800);
 }
 
 // ── Code uitvoeren ──────────────────────────────────────────────────────────
@@ -1015,7 +1103,7 @@ socket.on('free_run_end', () => {
 });
 socket.on('free_input_request', () => {
   document.getElementById('quiz-wait-input').style.display = 'block';
-  document.getElementById('quiz-input-wrap').style.display = 'block';
+  document.getElementById('quiz-input-wrap').style.display = 'flex';
   setTimeout(() => document.getElementById('quiz-input-field')?.focus(), 50);
 });
 
@@ -1036,22 +1124,33 @@ function openSubmitScreen() {
   list.innerHTML = questions.map((q, i) => {
     const ans = _answers[q.id];
     const qType = q.question_type || 'code';
-    const hasCode = ans?.code?.trim();
-    const hasChoices = (ans?.selectedChoices || []).length > 0;
     const hasRun = (ans?.runCount || 0) > 0;
-    const hasAnswer = qType === 'code' ? hasCode : qType === 'open' ? hasCode : hasChoices;
+    // Sprint 71: hergebruikt nu dezelfde centrale, vraagtype-bewuste check als de
+    // navigatiepilletjes bovenaan (zie heeftAntwoord) — voorheen had dit scherm zijn
+    // eigen, onvolledige logica die composite/stroomdiagram-antwoorden niet herkende,
+    // met als gevolg dat een correct beantwoorde vraag hier tóch als "bezocht maar
+    // geen keuze" verscheen.
+    const beantwoord = heeftAntwoord(q, ans);
     let icon, msg;
     if (qType === 'code') {
-      if (hasCode && hasRun) { icon = '✅'; msg = `Vraag ${i+1} — opgeslagen (${ans.runCount} run${ans.runCount !== 1?'s':''})`; }
-      else if (hasCode && !hasRun) { icon = '⚠️'; msg = `Vraag ${i+1} — opgeslagen maar nooit uitgevoerd`; }
-      else if (!hasCode && _visited.has(q.id)) { icon = '⚠️'; msg = `Vraag ${i+1} — bezocht maar geen code`; }
+      if (beantwoord && hasRun) { icon = '✅'; msg = `Vraag ${i+1} — opgeslagen (${ans.runCount} run${ans.runCount !== 1?'s':''})`; }
+      else if (beantwoord && !hasRun) { icon = '⚠️'; msg = `Vraag ${i+1} — opgeslagen maar nooit uitgevoerd`; }
+      else if (_visited.has(q.id)) { icon = '⚠️'; msg = `Vraag ${i+1} — bezocht maar geen code`; }
       else { icon = '⚠️'; msg = `Vraag ${i+1} — nog niet bezocht`; }
     } else if (qType === 'open') {
-      if (hasCode) { icon = '✅'; msg = `Vraag ${i+1} — antwoord opgeslagen`; }
+      if (beantwoord) { icon = '✅'; msg = `Vraag ${i+1} — antwoord opgeslagen`; }
       else if (_visited.has(q.id)) { icon = '⚠️'; msg = `Vraag ${i+1} — bezocht maar geen antwoord`; }
       else { icon = '⚠️'; msg = `Vraag ${i+1} — nog niet bezocht`; }
+    } else if (qType === 'composite') {
+      if (beantwoord) { icon = '✅'; msg = `Vraag ${i+1} — antwoord opgeslagen`; }
+      else if (_visited.has(q.id)) { icon = '⚠️'; msg = `Vraag ${i+1} — bezocht maar geen antwoord`; }
+      else { icon = '⚠️'; msg = `Vraag ${i+1} — nog niet bezocht`; }
+    } else if (qType === 'stroomdiagram') {
+      if (beantwoord) { icon = '✅'; msg = `Vraag ${i+1} — stroomdiagram opgeslagen`; }
+      else if (_visited.has(q.id)) { icon = '⚠️'; msg = `Vraag ${i+1} — bezocht maar geen stroomdiagram`; }
+      else { icon = '⚠️'; msg = `Vraag ${i+1} — nog niet bezocht`; }
     } else {
-      if (hasChoices) { icon = '✅'; msg = `Vraag ${i+1} — keuze opgeslagen`; }
+      if (beantwoord) { icon = '✅'; msg = `Vraag ${i+1} — keuze opgeslagen`; }
       else if (_visited.has(q.id)) { icon = '⚠️'; msg = `Vraag ${i+1} — bezocht maar geen keuze`; }
       else { icon = '⚠️'; msg = `Vraag ${i+1} — nog niet bezocht`; }
     }
@@ -1069,7 +1168,15 @@ function closeSubmitScreen() {
 function submitAll() {
   saveCurrentAnswer(getCurrentCode());
   socket.emit('quiz_submit_all', { answers: _answers });
-  showDoneScreen(urlName, Object.keys(_answers).filter(k => _answers[k]?.code).length);
+  // Bugfix (sprint 72): dit telde nog met de oude, onvolledige check (enkel .code)
+  // i.p.v. de centrale heeftAntwoord()-functie — exact dezelfde fout als eerder al
+  // gevonden in renderNav()/openSubmitScreen(), hier over het hoofd gezien. Een
+  // leerling die bv. 10 keuzevragen volledig invulde, zag hier dus "3 van 10"
+  // staan (enkel de code-/open-vragen werden meegeteld), terwijl alles wel degelijk
+  // correct werd ingediend en opgeslagen.
+  const questions = _state?.questions || [];
+  const aantalBeantwoord = questions.filter(q => heeftAntwoord(q, _answers[q.id])).length;
+  showDoneScreen(urlName, aantalBeantwoord);
 }
 
 function showDoneScreen(name, count) {
@@ -1080,6 +1187,22 @@ function showDoneScreen(name, count) {
   document.getElementById('done-info').textContent =
     `${name} · ${count} van ${_state?.questions?.length || '?'} vragen beantwoord`;
 }
+
+// Bugfix (kritiek, sprint 74): submitAll() toonde het "ingediend"-scherm voorheen
+// meteen bij het VERSTUREN van quiz_submit_all, zonder ooit te luisteren naar het
+// antwoord van de server — een mislukte opslag (bv. door een netwerkprobleem) bleef
+// zo volledig onopgemerkt, ook voor de leerling zelf. Nu wordt, zodra de server
+// effectief bevestigt, gecontroleerd of alles ook echt goed opgeslagen is.
+socket.on('quiz_submitted_ok', (data) => {
+  if (data?.mislukteVragen?.length) {
+    const waarschuwing = document.createElement('div');
+    waarschuwing.style.cssText = 'margin-top:14px;padding:12px 16px;background:#fef2f2;' +
+      'border:1.5px solid #dc2626;border-radius:10px;color:#991b1b;font-weight:600;font-size:0.92rem;';
+    waarschuwing.textContent = `⚠️ Let op: ${data.mislukteVragen.length} van je antwoorden kon(den) niet ` +
+      'correct opgeslagen worden door een technisch probleem. Verwittig onmiddellijk je leerkracht.';
+    document.getElementById('done-info')?.insertAdjacentElement('afterend', waarschuwing);
+  }
+});
 
 // ── Timer ────────────────────────────────────────────────────────────────────
 function startTimer() {

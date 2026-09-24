@@ -71,7 +71,13 @@ function tekenMatrix() {
       <br/><span class="muted" style="font-weight:400;">${new Date(k.datum).toLocaleDateString('nl-BE')}</span></th>`
   ).join('') + '<th>Gemiddelde</th></tr>';
 
-  const rijen = _matrix.rijen.map(r => {
+  // Sprint 64: testaccounts staan hier apart — geen aparte matrix-tabel nodig, wél
+  // duidelijk gescheiden van de rest (zelfde reden als bij het nakijkscherm: dit zijn
+  // geen "echte" leerlingen voor statistiekdoeleinden).
+  const gewoneRijen = _matrix.rijen.filter(r => !r.isTestAccount);
+  const testRijen = _matrix.rijen.filter(r => r.isTestAccount);
+
+  function bouwRij(r) {
     const cellen = kolommen.map(k => {
       const c = r.cellen.find(x => x.code === k.code);
       if (!c) return '<td></td>';
@@ -87,13 +93,21 @@ function tekenMatrix() {
     const gem = zichtbaar.length
       ? Math.round((zichtbaar.reduce((n, c) => n + c.score, 0) / zichtbaar.length) * 100) / 100 : '';
     return `<tr><th>${esc(r.naam)}</th>${cellen}<td><strong>${gem}</strong></td></tr>`;
-  }).join('');
+  }
+
+  const rijen = gewoneRijen.map(bouwRij).join('');
+  const testRijenHtml = testRijen.map(bouwRij).join('');
 
   doel.innerHTML = `<div class="matrix-wrap"><table class="matrix">
     <thead>${kop}</thead><tbody>${rijen}</tbody></table></div>
     <p class="muted" style="font-size:0.8rem;margin-top:8px;">
-      ${_matrix.rijen.length} leerlingen · ${kolommen.length} ${typeFilter ? esc(typeFilter) + 'en' : 'toetsen/taken'}.
-      Het gemiddelde volgt het gekozen type.</p>`;
+      ${gewoneRijen.length} leerlingen · ${kolommen.length} ${typeFilter ? esc(typeFilter) + 'en' : 'toetsen/taken'}.
+      Het gemiddelde volgt het gekozen type.</p>
+    ${testRijen.length ? `
+    <div style="margin-top:22px;padding:14px 16px;background:#fdf3d1;border:1.5px solid #e6c860;border-radius:12px;">
+      <div style="font-weight:700;margin-bottom:8px;">🧪 Testaccounts <span class="muted" style="font-weight:400;">(tellen niet mee in de gemiddelden/statistieken hierboven)</span></div>
+      <div class="matrix-wrap"><table class="matrix"><thead>${kop}</thead><tbody>${testRijenHtml}</tbody></table></div>
+    </div>` : ''}`;
 }
 
 laadKlassen();

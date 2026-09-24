@@ -382,6 +382,11 @@ async function initSchema() {
       BEGIN ALTER TABLE students ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE students ADD COLUMN first_name TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE students ADD COLUMN last_name  TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 64: testaccount — gedraagt zich overal exact als een gewone leerling
+      -- (live sessies, kan zelf zijn score zien, ...), maar telt NIET mee in
+      -- gemiddelden/statistieken bij toetsen/taken, en staat apart bij het nakijken.
+      -- ADD COLUMN met een veilige standaardwaarde (false) — raakt geen bestaande rij aan.
+      BEGIN ALTER TABLE students ADD COLUMN is_test_account BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
     -- e-mail overnemen van de oude google_email waar mogelijk (eenmalig, idempotent)
     UPDATE students SET email = google_email WHERE email IS NULL AND google_email IS NOT NULL;
@@ -644,6 +649,15 @@ async function initSchema() {
       -- 'hidden' is een admin-takedown die een publiek/gedeeld item onzichtbaar maakt voor
       -- anderen zónder dat de eigenaar het meteen opnieuw kan delen.
       BEGIN ALTER TABLE question_bank ADD COLUMN hidden BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 63: optioneel stroomdiagram BIJ de vraagstelling (los van question_type,
+      -- dus combineerbaar met eender welk type — open/code/single/multiple/composite/
+      -- stroomdiagram). JSON-structuur van de stroomdiagram-builder (blokjes + pijlen).
+      BEGIN ALTER TABLE question_bank ADD COLUMN flowchart_json TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 63: onzichtbare "AI-val"-tekst — enkel de leerkracht ziet dit bij het
+      -- opstellen/nakijken; bij het tonen aan leerlingen wordt dit onzichtbaar (font-size:0)
+      -- in de vraagtekst geweven, zodat een leerling die de vraag in een AI-chatbot plakt
+      -- een herkenbaar spoor in het teruggegeven antwoord krijgt.
+      BEGIN ALTER TABLE question_bank ADD COLUMN hidden_ai_trap TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
     CREATE INDEX IF NOT EXISTS idx_question_bank_subject ON question_bank(subject);
     CREATE INDEX IF NOT EXISTS idx_question_bank_archived ON question_bank(archived);
@@ -713,6 +727,11 @@ async function initSchema() {
       BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN choices_json TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
       -- 37b: modelantwoord bevroren bij de toets (kan per toets afwijken van de bankvraag)
       BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN model_answer TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 63: bevroren kopie van het vraagstelling-stroomdiagram en de onzichtbare
+      -- AI-val — zelfde reden als de andere kolommen hier: een toets/taak bevriest de
+      -- vraag op het moment van aanmaken, los van latere wijzigingen in de vragenbank.
+      BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN flowchart_json TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN hidden_ai_trap TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
       -- Sprint 51j: snapshot van de antwoordonderdelen bij een composite-vraag.
       BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN answer_parts TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
@@ -836,6 +855,10 @@ async function initSchema() {
       -- (of AI-gemarkeerde) opmerking per onderdeel te zien was. JSON {partId: tekst},
       -- analoog aan part_scores/part_ai_graded.
       BEGIN ALTER TABLE quiz_answers ADD COLUMN part_comments TEXT NOT NULL DEFAULT '{}'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 63: antwoord bij question_type = 'stroomdiagram' — JSON-structuur van de
+      -- stroomdiagram-builder, analoog aan het bestaande 'code'/'selected_choices'-patroon.
+      -- Altijd manueel na te kijken (zoals 'open' nu al), geen automatische score.
+      BEGIN ALTER TABLE quiz_answers ADD COLUMN answer_flowchart_json TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
     CREATE INDEX IF NOT EXISTS idx_quiz_answers_session
       ON quiz_answers(session_code);
@@ -2311,6 +2334,25 @@ module.exports = {
     await query(`UPDATE students SET status = $1 WHERE id = $2`, [status, id]);
   },
 
+  // Sprint 64: testaccount aan/uit — enkel de leerkracht(en) van de klas mag dit
+  // aanpassen (zelfde eigenaarschapscontrole als bij status/blokkeren, in de route).
+  async updateStudentTestAccount(id, isTestAccount) {
+    await query(`UPDATE students SET is_test_account = $1 WHERE id = $2`, [!!isTestAccount, id]);
+  },
+
+  // Sprint 64: welke van deze student-ID's zijn een testaccount — gebruikt op plekken
+  // (zoals de PDF-export) die geen volledige join met de students-tabel al bij de hand
+  // hebben. IDs die niet in de students-tabel voorkomen (bv. gasten) tellen niet mee.
+  async getTestAccountIds(studentIds) {
+    const ids = [...new Set((studentIds || []).filter(Boolean))];
+    if (!ids.length) return [];
+    const r = await query(
+      `SELECT id FROM students WHERE id = ANY($1::text[]) AND is_test_account = true`,
+      [ids]
+    );
+    return r.rows.map(row => row.id);
+  },
+
   // Sprint 40: "verplaats" een leerling naar een andere klas. Omdat lidmaatschap
   // nu per jaar geldt, betekent dit: koppel aan de nieuwe klas (voor haar jaar).
   // Oude lidmaatschappen blijven staan → historiek behouden.
@@ -2510,7 +2552,8 @@ module.exports = {
   async createQuizQuestion({ text, subject = '', difficulty = 'gemiddeld', maxPoints = 4,
                                questionType = 'code', choicesJson = '[]', tags = '',
                                modelAnswer = '', createdBy = null, schoolId = null,
-                               shareScope = 'private', answerParts = '[]' }) {
+                               shareScope = 'private', answerParts = '[]',
+                               flowchartJson = '', hiddenAiTrap = '' }) {
     const id = crypto.randomUUID();
     const now = Date.now();
     const scope = ['private', 'school', 'public'].includes(shareScope) ? shareScope : 'private';
@@ -2520,27 +2563,31 @@ module.exports = {
       ? parts.reduce((s, p) => s + (p.points || 0), 0) : maxPoints;
     await query(
       `INSERT INTO question_bank (id, text, subject, difficulty, max_points,
-         question_type, choices_json, tags, model_answer, share_scope, created_by, school_id, created_at, updated_at, answer_parts)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+         question_type, choices_json, tags, model_answer, share_scope, created_by, school_id, created_at, updated_at, answer_parts,
+         flowchart_json, hidden_ai_trap)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
       [id, text.trim(), subject.trim(), difficulty, punten,
        questionType, choicesJson, (tags || '').trim(), String(modelAnswer || ''), scope, createdBy, schoolId, now, now,
-       JSON.stringify(parts)]
+       JSON.stringify(parts), String(flowchartJson || ''), String(hiddenAiTrap || '').slice(0, 500)]
     );
     return id;
   },
 
   async updateQuizQuestion(id, { text, subject, difficulty, maxPoints, questionType,
-                                 choicesJson, tags, modelAnswer, answerParts }) {
+                                 choicesJson, tags, modelAnswer, answerParts,
+                                 flowchartJson = '', hiddenAiTrap = '' }) {
     const parts = normalizeAnswerParts(answerParts);
     const punten = questionType === 'composite' && parts.length
       ? parts.reduce((s, p) => s + (p.points || 0), 0) : maxPoints;
     const r = await query(
       `UPDATE question_bank SET text=$1, subject=$2, difficulty=$3, max_points=$4,
-         question_type=$5, choices_json=$6, tags=$7, model_answer=$8, updated_at=$9, answer_parts=$11
+         question_type=$5, choices_json=$6, tags=$7, model_answer=$8, updated_at=$9, answer_parts=$11,
+         flowchart_json=$12, hidden_ai_trap=$13
        WHERE id=$10`,
       [text.trim(), subject.trim(), difficulty, punten,
        questionType || 'code', choicesJson || '[]', (tags || '').trim(),
-       String(modelAnswer || ''), Date.now(), id, JSON.stringify(parts)]
+       String(modelAnswer || ''), Date.now(), id, JSON.stringify(parts),
+       String(flowchartJson || ''), String(hiddenAiTrap || '').slice(0, 500)]
     );
     return r.rowCount > 0;
   },
@@ -2807,10 +2854,11 @@ module.exports = {
         await client.query(
           `INSERT INTO quiz_question_snapshots
              (id, session_code, bank_question_id, order_index, text_snapshot, subject, points,
-              question_type, choices_json, model_answer, answer_parts)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+              question_type, choices_json, model_answer, answer_parts, flowchart_json, hidden_ai_trap)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
           [crypto.randomUUID(), sessionCode, q.bankId, q.orderIndex, q.text, q.subject, q.points,
-           q.questionType || 'code', q.choicesJson || '[]', q.modelAnswer || '', q.answerParts || '[]']
+           q.questionType || 'code', q.choicesJson || '[]', q.modelAnswer || '', q.answerParts || '[]',
+           q.flowchartJson || '', q.hiddenAiTrap || '']
         );
       }
     });
@@ -2926,10 +2974,11 @@ module.exports = {
         await client.query(
           `INSERT INTO quiz_question_snapshots
              (id, session_code, bank_question_id, order_index, text_snapshot, subject, points,
-              question_type, choices_json, model_answer, answer_parts)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+              question_type, choices_json, model_answer, answer_parts, flowchart_json, hidden_ai_trap)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
           [crypto.randomUUID(), sessionCode, q.bankId, q.orderIndex, q.text, q.subject, q.points,
-           q.questionType || 'code', q.choicesJson || '[]', q.modelAnswer || '', q.answerParts || '[]']
+           q.questionType || 'code', q.choicesJson || '[]', q.modelAnswer || '', q.answerParts || '[]',
+           q.flowchartJson || '', q.hiddenAiTrap || '']
         );
       }
       // Geen activiteit ⇒ geen echte volgordes, maar opruimen is veilig en houdt alles net.
@@ -3370,25 +3419,27 @@ module.exports = {
 
   async saveQuizAnswer({ sessionCode, studentId, studentName, studentClass,
                           questionId, personalOrder, code, runCount,
-                          firstVisitAt, firstRunAt, selectedChoices = '[]', partAnswers }) {
+                          firstVisitAt, firstRunAt, selectedChoices = '[]', partAnswers,
+                          answerFlowchartJson }) {
     const now = Date.now();
     await query(
       `INSERT INTO quiz_answers
          (id, session_code, student_id, student_name, student_class,
           question_id, personal_order, code, run_count,
-          first_visit_at, first_run_at, saved_at, selected_choices, part_answers)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+          first_visit_at, first_run_at, saved_at, selected_choices, part_answers, answer_flowchart_json)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        ON CONFLICT (session_code, student_id, question_id) DO UPDATE SET
          code             = EXCLUDED.code,
          run_count        = EXCLUDED.run_count,
          selected_choices = EXCLUDED.selected_choices,
          part_answers     = COALESCE(EXCLUDED.part_answers, quiz_answers.part_answers),
+         answer_flowchart_json = COALESCE(EXCLUDED.answer_flowchart_json, quiz_answers.answer_flowchart_json),
          first_run_at     = COALESCE(quiz_answers.first_run_at, EXCLUDED.first_run_at),
          first_visit_at   = COALESCE(quiz_answers.first_visit_at, EXCLUDED.first_visit_at),
          saved_at         = EXCLUDED.saved_at`,
       [crypto.randomUUID(), sessionCode, studentId, studentName, studentClass,
        questionId, personalOrder, code, runCount, firstVisitAt, firstRunAt, now,
-       selectedChoices, partAnswers || '{}']
+       selectedChoices, partAnswers || '{}', answerFlowchartJson || '']
     );
   },
 
@@ -3687,13 +3738,15 @@ module.exports = {
     const r = await query(
       `SELECT a.*, q.text_snapshot, q.subject, q.points, q.order_index,
               gc.comment AS general_comment,
-              ass.status AS student_status
+              ass.status AS student_status,
+              COALESCE(s.is_test_account, false) AS is_test_account
        FROM quiz_answers a
        JOIN quiz_question_snapshots q ON q.id = a.question_id
        LEFT JOIN quiz_general_comments gc
               ON gc.session_code = a.session_code AND gc.student_id = a.student_id
        LEFT JOIN assignment_student_status ass
               ON ass.session_code = a.session_code AND ass.student_id = a.student_id
+       LEFT JOIN students s ON s.id = a.student_id
        WHERE a.session_code = $1
        ORDER BY a.student_name, q.order_index`,
       [sessionCode]
@@ -4070,6 +4123,9 @@ module.exports = {
 
   async getQuizStatsDetailed(sessionCode) {
     const questions = await this.getQuizQuestions(sessionCode);
+    // Sprint 64: testaccounts tellen niet mee in gemiddelden/statistieken — join op
+    // students en sluit is_test_account uit. Leerlingen zonder account (gast, geen
+    // koppeling met students) zijn per definitie geen testaccount en tellen gewoon mee.
     const rows = await query(`
       SELECT a.question_id,
              COUNT(a.id)::int       AS answer_count,
@@ -4078,7 +4134,9 @@ module.exports = {
              MIN(a.score)           AS min_score,
              MAX(a.score)           AS max_score
       FROM quiz_answers a
+      LEFT JOIN students s ON s.id = a.student_id
       WHERE a.session_code = $1 AND a.submitted_at IS NOT NULL
+        AND COALESCE(s.is_test_account, false) = false
       GROUP BY a.question_id
     `, [sessionCode]);
 

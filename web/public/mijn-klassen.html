@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Mijn klassen</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.55"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.75"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .klas-kaart { background:var(--surface); border:1.5px solid var(--border); border-radius:14px; padding:18px 20px; margin-bottom:18px; }
@@ -17,7 +17,20 @@
   .ll-rij:nth-child(even) { background:var(--bg); }
   .ll-naam { font-weight:600; min-width:180px; }
   .ll-mail { color:var(--muted); font-size:.8rem; min-width:200px; }
-  .ll-acties { margin-left:auto; display:flex; gap:5px; flex-wrap:wrap; }
+  .ll-acties { margin-left:auto; display:flex; gap:5px; flex-wrap:wrap; align-items:center; }
+  /* Sprint 64: testaccount-schuifknopje — staat standaard uit. */
+  .ta-toggle-wrap { display:flex; align-items:center; gap:5px; font-size:.75rem; font-weight:700; color:var(--muted); margin-right:4px; }
+  .ta-toggle-switch {
+    position:relative; display:inline-block; width:34px; height:19px; flex:0 0 auto;
+    appearance:none; -webkit-appearance:none; background:var(--border); border-radius:999px;
+    cursor:pointer; transition:background .15s;
+  }
+  .ta-toggle-switch::before {
+    content:''; position:absolute; top:2px; left:2px; width:15px; height:15px; border-radius:50%;
+    background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.25); transition:transform .15s;
+  }
+  .ta-toggle-switch:checked { background:#c8431a; }
+  .ta-toggle-switch:checked::before { transform:translateX(15px); }
   .status-active{color:#166534;font-weight:700;font-size:.8rem;} .status-pending{color:#92400e;font-weight:700;font-size:.8rem;} .status-blocked{color:#991b1b;font-weight:700;font-size:.8rem;}
   .voegtoe { display:flex; gap:8px; margin-top:12px; }
   .voegtoe input { flex:1; max-width:320px; padding:8px 12px; border:1.5px solid var(--border); border-radius:9px; }
@@ -95,7 +108,7 @@ open of sluit het registratievenster, en <strong>aanvaard</strong> wachtende lee
   <div class="uitleg" id="modal-uitleg"></div>
 </div>
 
-<script src="/app.js?v=v2026.2.51.55"></script>
-<script src="/mijn-klassen.js?v=v2026.2.51.55"></script>
+<script src="/app.js?v=v2026.2.51.75"></script>
+<script src="/mijn-klassen.js?v=v2026.2.51.75"></script>
 <script src="/nav-rechten.js"></script>
-<script src="/privacy.js?v=v2026.2.51.55"></script></body></html>
+<script src="/privacy.js?v=v2026.2.51.75"></script></body></html>

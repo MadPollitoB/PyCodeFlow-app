@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>PyCodeFlow — Toets</title>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.12"/>
+  <style>
+    .quiz-topbar { background:var(--primary); color:#fff; padding:10px 20px;
+      display:flex; align-items:center; justify-content:space-between; }
+    .quiz-timer { font-size:1.4rem; font-weight:800; font-family:Consolas,monospace; }
+    .quiz-timer.warning { color:#fde68a; }
+    .quiz-timer.danger  { color:#fca5a5; }
+    .quiz-nav { display:flex; gap:6px; flex-wrap:wrap; margin:12px 16px; }
+    .qnav-btn { width:36px; height:36px; border-radius:8px; border:2px solid var(--border);
+      background:var(--surface); cursor:pointer; font-weight:700; font-size:0.88rem; position:relative; }
+    .qnav-btn.visited  { border-color:var(--primary); color:var(--primary); }
+    .qnav-btn.saved    { background:var(--primary); color:#fff; border-color:var(--primary); }
+    .qnav-btn.no-run   { background:#fef3c7; border-color:#d97706; color:#92400e; }
+    .qnav-btn.current  { box-shadow:0 0 0 3px rgba(37,99,235,0.35); }
+    .quiz-question { margin:0 16px 12px; padding:14px 16px;
+      background:var(--surface-soft); border-radius:12px; border-left:4px solid var(--primary); }
+    .quiz-question h3 { margin:0 0 6px; font-size:0.95rem; color:var(--muted); }
+    .quiz-question p  { margin:0; font-size:0.97rem; line-height:1.65; white-space:pre-wrap; }
+    .quiz-nav-row { display:flex; justify-content:space-between; align-items:center;
+      padding:10px 16px; background:var(--surface); border-top:1px solid var(--border); }
+    .warning-banner { background:#fef3c7; color:#92400e; padding:10px 16px;
+      font-weight:700; display:none; text-align:center; }
+    .warning-banner.visible { display:block; }
+    .pause-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7);
+      display:flex; align-items:center; justify-content:center; z-index:9999;
+      color:#fff; font-size:1.5rem; font-weight:800; display:none; }
+    .pause-overlay.visible { display:flex; }
+    /* Startscherm */
+    .start-screen { display:flex; align-items:center; justify-content:center;
+      min-height:80vh; padding:20px; }
+    .start-card { background:var(--surface); border:1.5px solid var(--border);
+      border-radius:20px; padding:40px; max-width:500px; width:100%; text-align:center;
+      box-shadow:var(--shadow); }
+    .start-card h2 { font-size:1.6rem; margin:0 0 8px; }
+    /* Indienpagina */
+    .submit-screen { display:none; }
+    .submit-screen.visible { display:block; }
+    .submit-checklist { list-style:none; padding:0; margin:16px 0; }
+    .submit-checklist li { padding:8px 0; border-bottom:1px solid var(--border);
+      display:flex; align-items:center; gap:10px; font-size:0.92rem; }
+    /* Bevestigingsscherm */
+    .done-screen { display:none; text-align:center; padding:60px 20px; }
+    .done-screen.visible { display:block; }
+    .done-screen .done-icon { font-size:4rem; margin-bottom:16px; }
+    /* Editor wrapper */
+    .quiz-editor-wrap { padding:0 16px; }
+
+    /* Sprint 43.12 (herzien): code en output in TABS, exact zoals de leerling gewend is
+       in een klassessie en bij vrij oefenen. Geen naast-elkaar-indeling: op een
+       Chromebook is er te weinig breedte. app.js -> setTab('quiz', ...) toont/verbergt
+       #quiz-code-panel en #quiz-output-panel via de klasse .hidden. */
+    #quiz-output-panel { min-height:320px; max-height:none; overflow-y:auto; white-space:pre-wrap;
+      font-family:Consolas,monospace; font-size:0.9rem; padding:14px 16px; }
+    @media (max-width:900px) { #quiz-output-panel { min-height:220px; } }
+  </style>
+  <link rel="icon" href="/assets/favicon.png" type="image/png">
+</head>
+<body>
+<!-- Startscherm -->
+<!-- 37d: nakijk-login. Enkel zichtbaar met ?nakijken=1 in de URL.
+     Geen localStorage: de leerling geeft naam + klas in, op om het even welk toestel. -->
+<div class="start-screen" id="review-login-screen" style="display:none;">
+  <div class="start-card">
+    <div style="font-size:3rem;margin-bottom:12px;">👁</div>
+    <h2>Toets inkijken</h2>
+    <p class="muted" style="margin:8px 0 20px;">
+      Vul je naam en klas in zoals je ze bij de toets gebruikte.
+    </p>
+    <div style="text-align:left;">
+      <label for="review-naam">Naam</label>
+      <input id="review-naam" autocomplete="name" placeholder="Bv. Jan Peeters"/>
+      <label for="review-klas" style="margin-top:10px;display:block;">Klas</label>
+      <input id="review-klas" placeholder="Bv. 3A"/>
+    </div>
+    <div id="review-login-error" class="hidden"
+      style="background:#fee2e2;color:#991b1b;border-radius:10px;padding:10px 12px;margin-top:14px;font-size:0.88rem;"></div>
+    <button id="review-login-btn" class="btn btn-primary"
+      style="width:100%;font-size:1.05rem;padding:14px;margin-top:18px;"
+      onclick="reviewLogin()">Bekijk mijn toets</button>
+  </div>
+</div>
+
+<!-- 37d: leeg nakijk-scherm. Wordt in sprint 37a gevuld met de resultaten. -->
+<div id="review-screen" style="display:none;padding:20px;"></div>
+
+<div class="start-screen" id="start-screen">
+  <div class="start-card">
+    <div style="font-size:3rem;margin-bottom:12px;">📝</div>
+    <h2 id="start-session-name">Toets laden...</h2>
+    <p class="muted" id="start-info" style="margin:8px 0 24px;"></p>
+    <div style="background:var(--surface-soft);border-radius:12px;padding:14px 16px;margin-bottom:24px;text-align:left;">
+      <strong>Jouw naam:</strong> <span id="start-student-name">—</span><br/>
+      <strong>Klas:</strong> <span id="start-student-class">—</span>
+    </div>
+    <div style="background:#fef3c7;border-radius:10px;padding:12px 14px;margin-bottom:24px;font-size:0.88rem;color:#92400e;">
+      ⏱ Jouw timer start pas als je op de knop hieronder klikt.
+    </div>
+    <button class="btn btn-primary" style="width:100%;font-size:1.1rem;padding:16px;"
+      onclick="startQuiz()">🚀 START TOETS</button>
+    <p class="muted" id="start-regels" style="font-size:0.82rem;margin-top:12px;">
+      Je kan op elk moment opslaan en terugkeren naar vorige vragen.
+    </p>
+  </div>
+</div>
+
+<!-- Pauze overlay -->
+<div class="pause-overlay" id="pause-overlay">
+  ⏸ Toets gepauzeerd door de leerkracht — wacht even...
+</div>
+
+<!-- Quiz scherm -->
+<div id="quiz-screen" style="display:none;">
+  <div class="quiz-topbar">
+    <span style="font-weight:700;">📝 <span id="qs-session-name"></span></span>
+    <div class="quiz-timer" id="quiz-timer">--:--</div>
+    <span id="qs-progress" style="font-size:0.85rem;opacity:0.85;"></span>
+  </div>
+  <div class="warning-banner" id="warning-banner"></div>
+  <div class="quiz-nav" id="quiz-nav"></div>
+  <div class="quiz-question" id="quiz-question" style="display:none;">
+    <h3 id="q-header"></h3>
+    <p id="q-text"></p>
+  </div>
+  <div class="quiz-editor-wrap">
+
+    <!-- SAMENGESTELDE vraag: open-onderdelen (labels + tekstvelden). Een eventueel
+         code-onderdeel wordt hieronder getoond in het gewone (altijd uitvoerbare) panel-code. -->
+    <div id="panel-composite-open" style="display:none;">
+      <div id="composite-open-parts" style="display:flex;flex-direction:column;gap:14px;margin-bottom:14px;"></div>
+    </div>
+
+    <!-- CODE editor (Python) -->
+    <div id="panel-code">
+      <div class="editor-shell card" style="margin-bottom:12px;">
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="code" data-owner="quiz">Code</button>
+          <button class="tab-btn" data-tab="output" data-owner="quiz">Output</button>
+        </div>
+        <div class="editor-toolbar">
+          <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+          <div class="toolbar-spacer"></div>
+          <button id="quiz-run-btn" title="Voer je Python code uit" class="btn btn-soft small">Run ▶</button>
+          <button id="quiz-copy-code-btn" title="Kopieer code"
+            style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;">📋</button>
+        </div>
+        <div id="quiz-code-panel" class="editor-frame-wrap">
+          <div class="editor-frame">
+            <div id="quiz-line-numbers" class="custom-gutter"></div>
+            <div id="quiz-editor" class="monaco-editor-host"></div>
+          </div>
+          <div id="quiz-editor-statusbar"
+            style="display:flex;gap:10px;align-items:center;padding:4px 12px;font-size:12px;font-family:Consolas,monospace;background:#007acc;color:#fff;flex-shrink:0;">
+            <span id="quiz-sb-pos">Ln 1, Kol 1</span><span>|</span><span id="quiz-sb-lines">0 regels</span><span>|</span><span>Python</span>
+          </div>
+        </div>
+        <div id="quiz-wait-input" style="display:none;padding:10px 16px;background:#eff6ff;
+          border-top:2px solid #93c5fd;color:#1e40af;font-weight:700;font-size:0.92rem;">
+          ⌨️ Wacht op jouw invoer...
+        </div>
+        <div id="quiz-input-wrap" style="display:none;padding:10px 16px;border-top:1px solid var(--border);">
+          <input id="quiz-input-field" style="width:100%;padding:8px;border:1.5px solid var(--border);
+            border-radius:8px;font-family:Consolas,monospace;font-size:1rem;"/>
+        </div>
+        <div id="quiz-output-panel" class="output-panel output-dark hidden"></div>
+      </div><!-- /editor-shell -->
+    </div>
+
+    <!-- OPEN vraag -->
+    <div id="panel-open" style="display:none;">
+      <div class="card" style="padding:16px;">
+        <label style="font-size:0.85rem;color:var(--muted);display:block;margin-bottom:8px;">Jouw antwoord:</label>
+        <textarea id="quiz-open-answer" rows="8" maxlength="2000"
+          style="width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;
+            font-size:0.95rem;font-family:inherit;resize:vertical;box-sizing:border-box;"
+          placeholder="Schrijf hier jouw antwoord..."
+          onkeydown="event.stopPropagation()"
+          oninput="updateOpenCount()"></textarea>
+        <div style="text-align:right;font-size:0.78rem;color:var(--muted);margin-top:4px;">
+          <span id="open-char-count">0</span> / 2000 tekens
+        </div>
+      </div>
+    </div>
+
+    <!-- SINGLE / MULTIPLE choice -->
+    <div id="panel-choice" style="display:none;">
+      <div class="card" style="padding:16px;">
+        <div id="choice-hint" style="font-size:0.85rem;color:var(--muted);margin-bottom:12px;"></div>
+        <div id="quiz-choices-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+      </div>
+    </div>
+
+  </div>
+  <div class="quiz-nav-row">
+    <button class="btn btn-muted small" id="quiz-prev-btn" title="Ga naar de vorige vraag" onclick="navigate(-1)">← Vorige</button>
+    <button class="btn btn-muted small" onclick="openSubmitScreen()" style="background:#fef3c7;color:#92400e;border:none;">📤 Indienen</button>
+    <button class="btn btn-soft small" id="quiz-next-btn" title="Ga naar de volgende vraag" onclick="navigate(1)">Volgende →</button>
+  </div>
+</div>
+
+<!-- Indienbevestiging -->
+<div class="screen submit-screen" id="submit-screen">
+  <div class="card" style="max-width:600px;margin:40px auto;padding:28px;">
+    <h2>📤 Toets indienen</h2>
+    <p class="muted">Controleer jouw antwoorden voor je indient:</p>
+    <ul class="submit-checklist" id="submit-checklist"></ul>
+    <p style="font-size:0.85rem;color:var(--muted);margin:12px 0 20px;">
+      Je bent zelf verantwoordelijk voor het indienen. Niet-ingevulde vragen krijgen 0 punten.
+    </p>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-muted small" onclick="closeSubmitScreen()">← Terug naar toets</button>
+      <button class="btn btn-primary small" onclick="submitAll()">✅ Definitief indienen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Te laat scherm (Sprint 19j) -->
+<div id="late-screen" style="display:none;text-align:center;padding:60px 20px;">
+  <div style="font-size:4rem;margin-bottom:16px;">⏰</div>
+  <h2 style="color:#dc2626;">Inlevertermijn verstreken</h2>
+  <div id="late-info" style="color:var(--muted);margin:12px 0 20px;font-size:0.95rem;"></div>
+  <div style="background:#fee2e2;border-radius:14px;padding:20px;max-width:500px;margin:0 auto;">
+    <strong>TAAK NIET TIJDIG INGELEVERD</strong><br/>
+    <span style="font-size:0.88rem;color:#991b1b;margin-top:8px;display:block;">
+      Neem contact op met je leerkracht.
+    </span>
+  </div>
+</div>
+
+<!-- Klaar-scherm -->
+<div class="done-screen" id="done-screen">
+  <div class="done-icon">✅</div>
+  <h2>Toets ingediend</h2>
+  <p id="done-info" class="muted"></p>
+  <p class="muted" style="margin-top:8px;">Wacht op de leerkracht. Je kan dit venster sluiten.</p>
+</div>
+
+<!-- Sprint 43.10: UMD-libs (socket.io, marked, purify) MOETEN vóór Monaco's AMD-loader staan.
+     loader.js zet een globale `define` met .amd; UMD-scripts die daarna laden registreren zich
+     als anonieme AMD-module i.p.v. window.io / window.marked / window.DOMPurify te zetten
+     ("Can only have one anonymous define call" + "io is not defined"). -->
+<script src="/socket.io/socket.io.js"></script>
+<script src="/vendor/marked/marked.min.js"></script>
+<script src="/code-highlight.js?v=v2026.2.51.12"></script>
+<script src="/vendor/dompurify/purify.min.js"></script>
+<script src="/monaco-env.js"></script>
+<script src="/monaco/min/vs/loader.js"></script>
+<script src="/app.js?v=v2026.2.51.12"></script>
+<script src="/quiz-student.js?v=v2026.2.51.12"></script>
+<script src="/privacy.js?v=v2026.2.51.12"></script></body>
+</html>
