@@ -813,6 +813,29 @@ function socketMagSessie(socket, session) {
 
 // Fix SEC-3: HTTP security headers
 app.use((req, res, next) => {
+  // ── Sprint 82: Kiosk4School toont quiz-student.html in een <iframe> ─────────
+  // binnen hun eigen portaalpagina (schooltoetsmodus op Chromebooks). Met
+  // frame-ancestors 'none' (+ X-Frame-Options DENY) werd dat ALTIJD geblokkeerd,
+  // ongeacht wie het inbedt — de browserconsole toonde letterlijk:
+  //   "Framing 'https://app.pycodeflow.org/' violates ... frame-ancestors 'none'"
+  // Dit was dus geen probleem bij Kiosk4School of een "API-blokkade", maar onze
+  // eigen clickjacking-bescherming die ELKE inbedding weigerde, ook legitieme.
+  //
+  // Fix: enkel de publieke leerling-pagina (quiz-student.html) mag ingebed
+  // worden, en enkel door *.kiosk4school.be. Alle andere pagina's — het
+  // leerkracht-dashboard, admin, login, … — blijven zoals voorheen volledig
+  // geblokkeerd voor framing (frame-ancestors 'none' + X-Frame-Options DENY).
+  const magIngebedWorden = req.path === '/quiz-student.html';
+  const frameAncestors = magIngebedWorden
+    ? "frame-ancestors 'self' https://*.kiosk4school.be;"
+    : "frame-ancestors 'none';";
+  // ── Sprint 83: optioneel cursus-zijpaneel tijdens een toets ─────────────────
+  // quiz-student.html kan (als de leerkracht dat instelde) een cursus-link tonen in
+  // een <iframe> binnen de pagina zelf. Zonder 'frame-src' valt dat terug op
+  // 'default-src self', wat elke externe link zou blokkeren. Enkel https: toegelaten
+  // (nooit http:, data: of javascript:) — dat dekt elke normale cursus-link (Drive,
+  // schoolwebsite, een gehost PDF, …) zonder de deur open te zetten voor iets anders.
+  const frameSrc = magIngebedWorden ? "frame-src 'self' https:; " : "";
   // ── CSP (sprint 30b — OPTIE A, TIJDELIJK) ────────────────────────────────────
   // Alle inline <script> BLOKKEN zijn geëxtraheerd (sprint 32a), dus scripts laden
   // via 'self'. 'unsafe-inline' in script-src blijft ENKEL nog nodig voor de ~123
@@ -835,8 +858,9 @@ app.use((req, res, next) => {
     "font-src 'self' data:; " +
     "img-src 'self' data:; " +
     "worker-src 'self' blob:; " +
+    frameSrc +
     "connect-src 'self' ws: wss:; " +
-    "frame-ancestors 'none'; " +
+    frameAncestors + " " +
     "upgrade-insecure-requests;"
   );
   // 30b Optie A: strikte CSP in REPORT-ONLY modus. Deze breekt niets, maar laat
@@ -850,11 +874,19 @@ app.use((req, res, next) => {
     "font-src 'self' data:; " +
     "img-src 'self' data:; " +
     "worker-src 'self' blob:; " +
+    frameSrc +
     "connect-src 'self' ws: wss:; " +
-    "frame-ancestors 'none';"
+    frameAncestors
   );
-  // Voorkomt dat de pagina in een iframe geladen wordt (clickjacking)
-  res.setHeader('X-Frame-Options', 'DENY');
+  // Voorkomt dat de pagina in een iframe geladen wordt (clickjacking).
+  // X-Frame-Options kent geen wildcard/meerdere-origins-syntax (ALLOW-FROM
+  // wordt niet ondersteund in Chrome/Edge), dus voor quiz-student.html laten
+  // we deze oudere header gewoon weg en vertrouwen we op de CSP frame-ancestors
+  // hierboven — die wordt door alle courante browsers ondersteund en wint het
+  // sowieso van X-Frame-Options waar beide aanwezig zijn.
+  if (!magIngebedWorden) {
+    res.setHeader('X-Frame-Options', 'DENY');
+  }
   // Voorkomt MIME-type sniffing
   res.setHeader('X-Content-Type-Options', 'nosniff');
   // Verwijdert server-informatie
@@ -2804,7 +2836,8 @@ setInterval(async () => {
         if (student.quizSubmitted || !student.quizStartedAt) continue;
         student.quizSubmitted = true;
         if (student.socketId) io.to(student.socketId).emit('quiz_force_submit', { reason: 'deadline' });
-        await dbModule.submitQuizAnswers(code, student.id, true, 'deadline').catch(() => {});
+        await dbModule.submitQuizAnswers(code, student.id, true, 'deadline', student.name).catch(() => {});
+        backupSubmissionPDF(code, student.id, student.name, 'deadline');
       }
       // Sprint 51s (uitbreiding): vult zowel niet-deelgenomen leerlingen áls onbeantwoorde
       // vragen van wie wel gestart is aan, allebei automatisch met score 0.
@@ -2836,6 +2869,13 @@ app.get('/api/quiz/:code/startinfo', async (req, res) => {
       noBack: meta.no_back === true,
       stopped: !!meta.stopped_at,
       questionCount: vragen.length,
+      // Sprint 83: de leerling moet dit WETEN vóór hij op Starten klikt (spelregel, geen
+      // gevoelige data) — cursusUrl komt bewust pas mee via quiz_state (ná echte join).
+      tabSwitchEnabled: meta.tab_switch_enabled === true,
+      tabSwitchThreshold: meta.tab_switch_threshold || 0,
+      // Sprint 94: instelbaar respijt — de leerling moet dit ook vooraf weten (de
+      // spelregel-tekst in startQuiz() vermeldt het exacte aantal seconden).
+      tabSwitchGraceSeconds: meta.tab_switch_grace_seconds ?? 5,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -2869,7 +2909,8 @@ app.post('/api/quiz/:code/stop', requireTeacherAuth, requireSessionAccess, requi
         student.quizSubmitted = true;
         if (student._quizTimerInterval) clearInterval(student._quizTimerInterval);
         if (student.socketId) io.to(student.socketId).emit('quiz_force_submit', { reason: 'gestopt' });
-        await dbModule.submitQuizAnswers(code, student.id, true, 'teacher').catch(() => {});
+        await dbModule.submitQuizAnswers(code, student.id, true, 'teacher', student.name).catch(() => {});
+        backupSubmissionPDF(code, student.id, student.name, 'teacher');
         aantal++;
       }
       session._deadlineHandled = true;
@@ -2877,7 +2918,8 @@ app.post('/api/quiz/:code/stop', requireTeacherAuth, requireSessionAccess, requi
     // Vangnet: wie in de databank nog openstaat maar niet (meer) in het geheugen zit —
     // bijvoorbeeld na een serverherstart — wordt hier alsnog ingediend.
     for (const rij of await dbModule.listOpenQuizStudents(code)) {
-      await dbModule.submitQuizAnswers(code, rij.student_id, true, 'teacher').catch(() => {});
+      await dbModule.submitQuizAnswers(code, rij.student_id, true, 'teacher', rij.student_name).catch(() => {});
+      backupSubmissionPDF(code, rij.student_id, rij.student_name, 'teacher');
       aantal++;
     }
 
@@ -2940,7 +2982,8 @@ function startQuizTimer(session, student, totalSeconds) {
             firstVisitAt: ans.firstVisitAt || null, firstRunAt: ans.firstRunAt || null,
           }).catch(() => {});
         });
-        dbModule.submitQuizAnswers(session.code, student.id, true, 'timer').catch(() => {});
+        dbModule.submitQuizAnswers(session.code, student.id, true, 'timer', student.name).catch(() => {});
+        backupSubmissionPDF(session.code, student.id, student.name, 'timer');
         // Notificeer leerkracht
         if (session.teacherSocketId) {
           io.to(session.teacherSocketId).emit('quiz_student_progress', {
@@ -2992,9 +3035,11 @@ app.post('/api/quiz/bank/ai-trap-suggestie', requireTeacherAuth, requireCsrf, as
 });
 
 app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => {
-  const { text, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer, answerParts, flowchartJson, hiddenAiTrap } = req.body || {};
+  const { text, title, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer, answerParts, flowchartJson, hiddenAiTrap } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: 'Vraagstelling is verplicht.' });
   if (text.length > 5000) return res.status(400).json({ error: 'Vraagstelling te lang (max 5000 tekens).' });
+  // Sprint 77: titel is volledig optioneel — enkel om de vraag makkelijker terug te vinden.
+  if (title && title.length > 200) return res.status(400).json({ error: 'Titel te lang (max 200 tekens).' });
   // Sprint 51j: 'composite' = meerdere antwoordonderdelen (enkel open/code combineerbaar).
   const validTypes = ['code', 'open', 'multiple', 'single', 'composite', 'stroomdiagram'];
   const qType = validTypes.includes(questionType) ? questionType : 'code';
@@ -3020,7 +3065,8 @@ app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => 
     // verwijderen, in plaats van enkel de aanmaker. req.teacher (gezet door
     // requireTeacherAuth, hierboven al gebruikt voor schrijfSchoolVoor) is de juiste bron.
     const id = await dbModule.createQuizQuestion({
-      text, subject: (subject || '').slice(0, 64),
+      text, title: (title || '').slice(0, 200),
+      subject: (subject || '').slice(0, 64),
       difficulty: ['makkelijk','gemiddeld','moeilijk'].includes(difficulty) ? difficulty : 'gemiddeld',
       maxPoints: Math.max(1, Math.min(100, parseInt(maxPoints) || 4)),
       questionType: qType,
@@ -3044,8 +3090,9 @@ app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => 
 });
 
 app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) => {
-  const { text, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer, answerParts, flowchartJson, hiddenAiTrap } = req.body || {};
+  const { text, title, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer, answerParts, flowchartJson, hiddenAiTrap } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: 'Vraagstelling is verplicht.' });
+  if (title && title.length > 200) return res.status(400).json({ error: 'Titel te lang (max 200 tekens).' });
   // Sprint 51c: enkel de eigenaar (of admin/legacy) mag een vraag bewerken.
   const bestaande = await dbModule.getQuizQuestionById(req.params.id);
   if (!bestaande) return res.status(404).json({ error: 'Vraag niet gevonden.' });
@@ -3058,7 +3105,8 @@ app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) 
     return res.status(400).json({ error: 'Een samengestelde vraag heeft minstens 1 antwoordonderdeel nodig.' });
   }
   const ok = await dbModule.updateQuizQuestion(req.params.id, {
-    text, subject: (subject || '').slice(0, 64),
+    text, title: (title || '').slice(0, 200),
+    subject: (subject || '').slice(0, 64),
     difficulty: ['makkelijk','gemiddeld','moeilijk'].includes(difficulty) ? difficulty : 'gemiddeld',
     maxPoints: Math.max(1, Math.min(100, parseInt(maxPoints) || 4)),
     questionType: qType,
@@ -3213,13 +3261,29 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
   const { name, questions, randomize, timerSeconds, minRunsPerQ, noBack,
           hideQuestionOnScreen, isTeacherPreview, templateCode,
           noTimer, accessFrom, accessUntil, autoSubmitLate,
-          schoolYear, targetClass, type, studentIds } = req.body || {};
+          schoolYear, targetClass, type, studentIds,
+          tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusUrl, selfEvalEnabled } = req.body || {};
   if (!name?.trim()) return res.status(400).json({ error: 'Naam is verplicht.' });
   // Sprint 43.14: type is voortaan EXPLICIET (komt uit de link waarmee het
   // aanmaakscherm geopend werd) — niet langer afgeleid uit noTimer. De server
   // vertrouwt dat net zo min als elk ander verplicht veld en valideert het hier.
   if (!validationLib.isValidAssignmentType(type)) {
     return res.status(400).json({ error: "Type is verplicht ('toets' of 'taak')." });
+  }
+  // Sprint 83: anti-spiek (verplicht volledig scherm + optioneel auto-indienen bij
+  // tabwissel) is enkel geldig bij een toets — de helper dwingt dit hoe dan ook af,
+  // ook als een taak-aanroep deze velden toch zou meesturen.
+  const tabWissel = validationLib.bepaalTabWisselInstellingen({
+    type, enabled: tabSwitchEnabled === true, threshold: tabSwitchThreshold,
+    graceSeconds: tabSwitchGraceSeconds,
+  });
+  // Sprint 90: zelfevaluatie-enquête ná het indienen — enkel geldig bij een toets,
+  // net als anti-spiek hierboven.
+  const effectiveSelfEval = validationLib.bepaalZelfevaluatieInstelling({
+    type, enabled: selfEvalEnabled === true,
+  });
+  if (type === 'toets' && cursusUrl && !validationLib.isValidCursusUrl(cursusUrl)) {
+    return res.status(400).json({ error: 'De cursus-link moet een geldige https://-link zijn (max. 2000 tekens).' });
   }
   if (!questions?.length) return res.status(400).json({ error: 'Selecteer minstens 1 vraag.' });
   if (questions.length > 50) return res.status(400).json({ error: `Max 50 vragen per ${type}.` });
@@ -3278,6 +3342,8 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
           answerParts: bank?.answer_parts || '[]',
           flowchartJson: bank?.flowchart_json || '',
           hiddenAiTrap: bank?.hidden_ai_trap || '',
+          // Sprint 76: groep voor onafhankelijke randomisatie (bv. theorie/oefeningen apart).
+          randomGroup: parseInt(q.randomGroup) || 0,
         };
       }),
       randomize: randomize !== false,
@@ -3300,6 +3366,14 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
       // hierboven al gevalideerd — geen afleiding meer uit noTimer (een taak MAG
       // een tijdslimiet hebben; dat is enkel niet meer verplicht).
       type,
+      // Sprint 83: anti-spiek — enkel van toepassing bij een toets (zie tabWissel hierboven).
+      tabSwitchEnabled: tabWissel.enabled,
+      tabSwitchThreshold: tabWissel.threshold,
+      // Sprint 94: het respijt vóór een tabwissel écht meetelt — instelbaar per toets.
+      tabSwitchGraceSeconds: tabWissel.graceSeconds,
+      cursusUrl: type === 'toets' ? (cursusUrl?.trim() || null) : null,
+      // Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij een toets).
+      selfEvalEnabled: effectiveSelfEval,
     });
     // Sprint 43.4: expliciete leerling-selectie (leeg/afwezig = hele klas mag meedoen)
     if (Array.isArray(studentIds) && studentIds.length) {
@@ -3377,6 +3451,15 @@ app.get('/api/quiz/:code/edit', requireTeacherAuth, requireSessionAccess, async 
       || (await dbModule.query(`SELECT name FROM sessions WHERE code = $1`, [code])).rows[0] || null;
     const snaps = await dbModule.getQuizQuestions(code);
     const studentIds = await dbModule.listAssignmentStudents(code);
+    // Sprint 78: de gekoppelde klas ZELF ophalen (werkt ook als ze intussen gearchiveerd
+    // is) — /api/classes (voor de dropdown) sluit gearchiveerde klassen bewust uit, waardoor
+    // "clsSel.value = targetClass" voorheen STIL niets deed als de klas niet meer in de
+    // lijst stond: de dropdown viel dan terug op de eerste optie zonder dat de leerkracht dit
+    // zag, en een opslag zonder de klas opnieuw te kiezen verving de koppeling ongemerkt.
+    // We geven de naam/jaar/archief-status hier expliciet mee zodat het scherm de klas altijd
+    // kan tonen (als extra, duidelijk gelabelde optie) én de leerkracht ze bewust kan
+    // vervangen door de juiste, actuele klas.
+    const linkedClass = meta.target_class ? await dbModule.getClassById(meta.target_class).catch(() => null) : null;
     res.json({
       code,
       editable: bewerkbaar.ok,
@@ -3395,6 +3478,19 @@ app.get('/api/quiz/:code/edit', requireTeacherAuth, requireSessionAccess, async 
         accessUntil: meta.access_until != null ? Number(meta.access_until) : null,
         schoolYear: meta.school_year || '',
         targetClass: meta.target_class || '',
+        targetClassInfo: linkedClass ? {
+          name: linkedClass.name, schoolYear: linkedClass.school_year, archived: linkedClass.archived === true,
+        } : null,
+        // Sprint 83: anti-spiek — enkel relevant/zichtbaar bij een toets, maar we geven de
+        // waarden hoe dan ook mee (zijn sowieso false/0/null bij een taak).
+        tabSwitchEnabled: meta.tab_switch_enabled === true,
+        tabSwitchThreshold: meta.tab_switch_threshold || 0,
+        // Sprint 94: instelbaar respijt — meegeven zodat het bewerkscherm de huidige
+        // waarde toont i.p.v. altijd de default.
+        tabSwitchGraceSeconds: meta.tab_switch_grace_seconds ?? 5,
+        cursusUrl: meta.cursus_url || '',
+        // Sprint 90: zelfevaluatie-enquête ná het indienen.
+        selfEvalEnabled: meta.self_eval_enabled === true,
       },
       // Vragen zoals ze nu in de toets zitten (met bank-id zodat het aanmaakscherm ze
       // terugvindt en er nieuwe bij kan selecteren of ze kan verwijderen).
@@ -3402,6 +3498,8 @@ app.get('/api/quiz/:code/edit', requireTeacherAuth, requireSessionAccess, async 
         id: q.bank_question_id, text: q.text_snapshot, subject: q.subject || '',
         points: q.points, question_type: q.question_type, choices_json: q.choices_json,
         flowchart_json: q.flowchart_json || '', hidden_ai_trap: q.hidden_ai_trap || '',
+        // Sprint 76: groep zodat het bewerkscherm de groepsscheidingen kan herstellen.
+        random_group: q.random_group || 0,
       })),
       studentIds,
     });
@@ -3439,9 +3537,23 @@ app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf
 
     const { name, questions, randomize, timerSeconds, noTimer, minRunsPerQ,
             hideQuestionOnScreen, noBack, accessFrom, accessUntil, autoSubmitLate,
-            schoolYear, targetClass, studentIds } = req.body || {};
+            schoolYear, targetClass, studentIds,
+            tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusUrl, selfEvalEnabled } = req.body || {};
 
     if (!name?.trim()) return res.status(400).json({ error: 'Naam is verplicht.' });
+    // Sprint 83: type staat vast (kan niet gewijzigd worden bij een update — zie meta
+    // hierboven), dus we gebruiken het BESTAANDE type om anti-spiek af te dwingen.
+    const tabWissel = validationLib.bepaalTabWisselInstellingen({
+      type: meta.type, enabled: tabSwitchEnabled === true, threshold: tabSwitchThreshold,
+      graceSeconds: tabSwitchGraceSeconds,
+    });
+    // Sprint 90: zelfevaluatie-enquête — zelfde principe, gebaseerd op het BESTAANDE type.
+    const effectiveSelfEval = validationLib.bepaalZelfevaluatieInstelling({
+      type: meta.type, enabled: selfEvalEnabled === true,
+    });
+    if (meta.type === 'toets' && cursusUrl && !validationLib.isValidCursusUrl(cursusUrl)) {
+      return res.status(400).json({ error: 'De cursus-link moet een geldige https://-link zijn (max. 2000 tekens).' });
+    }
     if (!questions?.length) return res.status(400).json({ error: 'Selecteer minstens 1 vraag.' });
     if (questions.length > 50) return res.status(400).json({ error: 'Max 50 vragen.' });
     // Deadline blijft verplicht (het type blijft hetzelfde als bij aanmaken).
@@ -3469,6 +3581,8 @@ app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf
           answerParts: bank?.answer_parts || q.answer_parts || '[]',
           flowchartJson: bank?.flowchart_json || q.flowchart_json || '',
           hiddenAiTrap: bank?.hidden_ai_trap || q.hidden_ai_trap || '',
+          // Sprint 76: groep voor onafhankelijke randomisatie (bv. theorie/oefeningen apart).
+          randomGroup: parseInt(q.randomGroup) || 0,
         };
       }),
       randomize: randomize !== false,
@@ -3484,6 +3598,14 @@ app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf
       // schooljaar van deze leerkracht i.p.v. de kale kalenderberekening.
       schoolYear: schoolYear || await dbModule.bepaalActiefSchoolJaar(req.teacher?.id || null),
       targetClass: targetClass || '',
+      // Sprint 83: anti-spiek — enkel van toepassing bij een toets (zie tabWissel hierboven).
+      tabSwitchEnabled: tabWissel.enabled,
+      tabSwitchThreshold: tabWissel.threshold,
+      // Sprint 94: het respijt vóór een tabwissel écht meetelt — instelbaar per toets.
+      tabSwitchGraceSeconds: tabWissel.graceSeconds,
+      cursusUrl: meta.type === 'toets' ? (cursusUrl?.trim() || null) : null,
+      // Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij een toets).
+      selfEvalEnabled: effectiveSelfEval,
     });
 
     // Naam bijwerken (sessies-tabel + in-memory sessie).
@@ -4991,6 +5113,41 @@ async function generateQuizPDF(sessionCode, type, studentId = null, scored = fal
   return doc;
 }
 
+// ── Sprint 93: automatische PDF-back-up per leerling bij indienen ──────────────────
+// Naar aanleiding van: "ik wil een soort backup van de antwoorden ... nu lijkt het
+// soms alsof er zaken niet worden opgeslagen." Dit is de "tastbare" laag: een leesbare
+// PDF (dezelfde opmaak als het bestaande antwoordformulier hierboven) die AUTOMATISCH
+// weggeschreven wordt zodra een leerling zijn toets indient — hoe dan ook (zelf, timer,
+// deadline, tabwissel, of de leerkracht die stopt). Los van de eigenlijke ruwe back-up
+// hieronder (backupAnswerToDisk, bij elk antwoord): dit is bedoeld om achteraf iets te
+// kunnen tonen/printen, niet als primair herstelmechanisme bij een databankstoring —
+// deze PDF wordt namelijk zelf ook uit de databank opgebouwd (via generateQuizPDF), dus
+// bestaat enkel als die op dat moment nog bereikbaar is.
+function backupSubmissionPDF(sessionCode, studentId, studentName, reason) {
+  // Bewust NIET awaited op de aanroepplaatsen: PDF-opbouw mag de indien-flow van de
+  // leerling nooit vertragen. Alle fouten worden hier zelf opgevangen en gelogd.
+  (async () => {
+    try {
+      const dir = path.join(QUIZ_BACKUP_DIR, 'pdf', sessionCode);
+      fs.mkdirSync(dir, { recursive: true });
+      const veiligeNaam = String(studentName || 'onbekend').replace(/[^a-z0-9_-]+/gi, '_').slice(0, 60);
+      const bestand = path.join(dir, `${veiligeNaam}__${studentId}.pdf`);
+      const doc = await generateQuizPDF(sessionCode, 'answers', studentId, false);
+      await new Promise((resolve, reject) => {
+        const out = fs.createWriteStream(bestand);
+        out.on('finish', resolve);
+        out.on('error', reject);
+        doc.pipe(out);
+        doc.end();
+      });
+      log.info(`[quiz-backup] PDF-back-up weggeschreven voor ${studentName} (${sessionCode}, reden: ${reason}): ${bestand}`);
+    } catch (e) {
+      // Nooit de indiening zelf laten mislukken door een probleem in deze back-up-laag.
+      log.error(`[quiz-backup] PDF-back-up mislukt voor ${studentName} (${sessionCode}, reden: ${reason}):`, e.message);
+    }
+  })();
+}
+
 app.get('/api/quiz/:code/pdf/questions', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   try {
     const doc = await generateQuizPDF(req.params.code.toUpperCase(), 'questions');
@@ -5399,6 +5556,33 @@ app.get('/api/admin/audit-log', requireTeacherAuth, requireBeheer, async (req, r
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Sprint 89: overzicht van netwerk-/RUN-problemen per leerling ("hoe vaak bij welke
+// gebruikersnaam run niet werkt, verbinding wegvalt ... ik moet hier meer controle op
+// krijgen") — samenvatting (aantal per leerling) + de meest recente losse events, voor het
+// nieuwe paneel in Systeembeheer.
+app.get('/api/admin/connectivity-log', requireTeacherAuth, requireBeheer, requireSysteem, async (req, res) => {
+  try {
+    const dagen = Math.min(90, Math.max(1, parseInt(req.query.dagen) || 7));
+    const sinds = Date.now() - dagen * 24 * 60 * 60 * 1000;
+    const [samenvatting, recent] = await Promise.all([
+      dbModule.getConnectivityLogSummary({ sinds, limiet: 100 }),
+      dbModule.getConnectivityLogRecent({ sinds, limiet: 200 }),
+    ]);
+    res.json({ dagen, samenvatting, recent });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Sprint 89: handmatig opschonen van oude logregels (zelfde patroon als de andere
+// log-cleanup-knoppen in Systeembeheer) — voorkomt dat dit logboek onbeperkt aangroeit.
+app.post('/api/admin/connectivity-log/cleanup', requireTeacherAuth, requireBeheer, requireSysteem, requireCsrf, async (req, res) => {
+  try {
+    const bewaarDagen = Math.min(365, Math.max(1, parseInt(req.body?.bewaarDagen) || 30));
+    const voorTijdstip = Date.now() - bewaarDagen * 24 * 60 * 60 * 1000;
+    const verwijderd = await dbModule.cleanupConnectivityLog(voorTijdstip);
+    res.json({ ok: true, verwijderd });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Sprint 21: stresstest historiek API
 app.get('/api/stress-results', requireTeacherAuth, async (req, res) => {
   try {
@@ -5666,6 +5850,11 @@ const activeRuns = new Map(); // runId -> routing info
 
 // Rate limiting voor run_request: socketId -> tijdstip laatste run (ms)
 const runRateLimit = new Map();
+
+// Sprint 89: rate limiting voor client_log_event (socketId -> tijdstip laatste log) — dit
+// event komt van de client zelf (zie quiz-student.js's retryRun()) en mag dus nooit
+// ongelimiteerd doorgestuurd worden naar de databank, ook niet door een kwaadwillige client.
+const clientLogEventRateLimit = new Map();
 
 // Set van runIds waarvoor de runner momenteel wacht op stdin input
 const runnerWaitingForInput = new Set();
@@ -6039,21 +6228,87 @@ app.get("/api/quiz-sessions/:code/roster", requireTeacherAuth, requireSessionAcc
 
   const classId = meta.target_class || '';
   let roster = [];
+  let linkedClass = null;
   if (classId) {
     try { roster = await dbModule.listStudents(classId); } catch { roster = []; }
     roster = roster.filter(s => (s.membership_status || 'active') === 'active');
+    // Sprint 78: haal de klas ZELF op los van de leerlingenlijst (werkt ook als de klas
+    // ondertussen gearchiveerd is) — zo kunnen we de klasnaam altijd tonen, ook als er
+    // (per ongeluk) geen actieve leerlingen meer aan hangen.
+    try { linkedClass = await dbModule.getClassById(classId); } catch { linkedClass = null; }
   }
+
+  // Sprint 78: bugfix — "Geen leerlingen in deze klas voor dit schooljaar" klopte niet
+  // wanneer de klas wél degelijk leerlingen had, maar de toets/taak (target_class) naar een
+  // ANDERE klas-rij met dezelfde naam wees (bv. "6BW" van een vorig schooljaar, terwijl
+  // de toets zelf voor het huidige schooljaar bedoeld is — een klas is jaargebonden, dus
+  // "6BW 2025-2026" en "6BW 2026-2027" zijn twee losse rijen). Als de gekoppelde klas leeg
+  // is (of niet meer bestaat), zoeken we naar een klas met dezelfde naam die WEL actieve
+  // leerlingen heeft, en geven dat mee als suggestie zodat de leerkracht de koppeling kan
+  // herstellen via "Bewerken".
+  let classMismatch = null;
+  if (linkedClass && roster.length === 0) {
+    try {
+      const siblings = await dbModule.findSiblingClassesByName(linkedClass.name, classId);
+      const beterAlternatief = siblings.find(s => s.student_count > 0 && !s.archived)
+        || siblings.find(s => s.student_count > 0);
+      if (beterAlternatief || linkedClass.archived || linkedClass.school_year !== meta.school_year) {
+        classMismatch = {
+          linkedClassName: linkedClass.name,
+          linkedSchoolYear: linkedClass.school_year,
+          linkedArchived: linkedClass.archived === true,
+          assignmentSchoolYear: meta.school_year || '',
+          suggestion: beterAlternatief ? {
+            id: beterAlternatief.id, name: beterAlternatief.name,
+            schoolYear: beterAlternatief.school_year, studentCount: beterAlternatief.student_count,
+          } : null,
+        };
+      }
+    } catch (e) { log.warn('[roster] klas-mismatch-check mislukt:', e.message); }
+  }
+
+  // Sprint 78: "leerlingen live" — wie van de klas is NU verbonden met deze toets/taak
+  // (dezelfde sessiecode als de "👁 Live"-knop opent). Puur informatief, gebaseerd op de
+  // in-memory sessie zoals ook het teacher-grid-scherm die gebruikt.
+  const liveSession = sessions.get(code);
+  const liveNu = liveSession ? Object.values(liveSession.students || {}).filter(s => s.online && !s.removed) : [];
+  const norm = n => (n || '').trim().toLowerCase();
+  const liveIds = new Set(liveNu.map(s => s.id));
+  // Sprint 78: een leerling die als gast meedoet (geen ingelogd account) krijgt een
+  // willekeurige, sessiegebonden id die NIET overeenkomt met students.id — voor hen valt
+  // "live" terug op naam, net als de rest van dit endpoint al doet voor deelnames/extras.
+  const liveNamen = new Set(liveNu.map(s => norm(s.name)));
 
   // Sprint 70: koppelen op leerling-id (sinds 52i staat de échte students.id in
   // quiz_answers voor wie ingelogd is). Naam blijft de terugval voor gasten.
   const deelnames = await dbModule.getQuizDeelnames(code).catch(() => []);
   const handmatig = await dbModule.listAssignmentStudentStatus(code).catch(() => []);
   const perId = new Map(deelnames.map(d => [d.student_id, d]));
-  const norm = n => (n || '').trim().toLowerCase();
   const perNaam = new Map();
   for (const d of deelnames) if (d.student_name) perNaam.set(norm(d.student_name), d);
   const statusPerId = new Map(handmatig.map(h => [h.student_id, h]));
   const deadline = meta.access_until ? Number(meta.access_until) : null;
+
+  // Sprint 89: "hoeveel vragen heeft deze leerling al beantwoord, en welke precies?" —
+  // altijd zichtbaar in de Voortgang i.p.v. enkel een status-icoon. Eén keer alle vragen +
+  // alle antwoorden van deze sessie ophalen, dan per leerling lokaal (geen extra queries)
+  // aftellen met dezelfde regel (heeftAntwoordServer) als de leerling zelf ziet vóór het
+  // indienen (heeftAntwoord() in quiz-student.js) — anders lopen de twee tellingen uiteen.
+  const voortgangRuw = await dbModule.getQuizAnswerProgress(code).catch(() => ({ vragen: [], antwoorden: [] }));
+  const vgVragen = voortgangRuw.vragen || [];
+  const vgAntwPerStudent = new Map();
+  for (const a of (voortgangRuw.antwoorden || [])) {
+    if (!vgAntwPerStudent.has(a.student_id)) vgAntwPerStudent.set(a.student_id, new Map());
+    vgAntwPerStudent.get(a.student_id).set(a.question_id, a);
+  }
+  function berekenVoortgang(studentId) {
+    const rijenVoorDezeLeerling = vgAntwPerStudent.get(studentId) || new Map();
+    const perVraag = vgVragen.map((q, i) => ({
+      index: i, subject: q.subject, points: q.points, questionType: q.question_type,
+      answered: validationLib.heeftAntwoordServer(q.question_type, rijenVoorDezeLeerling.get(q.id) || {}),
+    }));
+    return { answered: perVraag.filter(p => p.answered).length, total: perVraag.length, perQuestion: perVraag };
+  }
 
   function bouw(leerling) {
     const d = perId.get(leerling.id) || perNaam.get(norm(leerling.name));
@@ -6076,6 +6331,11 @@ app.get("/api/quiz-sessions/:code/roster", requireTeacherAuth, requireSessionAcc
       score: (status === 'gewettigd') ? null : (d?.heeft_score ? Number(d.score_totaal) : null),
       submittedAt: d?.submitted_at ? Number(d.submitted_at) : null,
       submittedBy: d?.submitted_by || null,
+      // Sprint 78: is deze leerling NU verbonden met de toets/taak (zelfde info als de
+      // "👁 Live"-knop toont)? Match op id (ingelogd) met naam als terugval (gast).
+      online: liveIds.has(leerling.id) || liveNamen.has(norm(leerling.name)),
+      // Sprint 89: X/Y beantwoord + per-vraag detail, voor de klikbare voortgang-chip.
+      progress: berekenVoortgang(d?.student_id || leerling.id),
     };
   }
 
@@ -6084,6 +6344,8 @@ app.get("/api/quiz-sessions/:code/roster", requireTeacherAuth, requireSessionAcc
   // Deelnemers die niet (meer) in de klas zitten — bv. een gast met een andere naam.
   const idsInKlas = new Set(roster.map(s => s.id));
   const namenInKlas = new Set(roster.map(s => norm(s.name)));
+  // Sprint 78: liveNamen/liveIds zijn hierboven al berekend, hergebruiken i.p.v. opnieuw
+  // declareren (dat gaf een duplicate-declaration syntaxfout).
   const extras = deelnames
     .filter(d => !idsInKlas.has(d.student_id) && !namenInKlas.has(norm(d.student_name)))
     .map(d => ({
@@ -6093,21 +6355,78 @@ app.get("/api/quiz-sessions/:code/roster", requireTeacherAuth, requireSessionAcc
         submittedAt: d.submitted_at ? Number(d.submitted_at) : null,
         submittedBy: d.submitted_by || null,
       }),
+      online: (d.student_id && liveIds.has(d.student_id)) || liveNamen.has(norm(d.student_name)),
+      // Sprint 89: ook voor gasten (niet (meer) in de klas) tonen we de voortgang.
+      progress: berekenVoortgang(d.student_id),
     }))
     .sort((a, b) => a.name.localeCompare(b.name, 'nl'));
 
   const tel = st => students.filter(s => s.status === st).length;
+  // Sprint 86: "Heropenen" zet een leerling terug op "bezig", maar zodra de toets/taak
+  // ZELF afgelopen is (gestopt, of de deadline verstreken) kan niemand er toch nog in —
+  // quiz_start weigert dat altijd. De knop verbergen we dan client-side (kanHeropenen),
+  // en dezelfde check herhaalt zich hieronder in het reopen-endpoint zelf (nooit enkel op
+  // de client vertrouwen).
+  const kanHeropenen = validationLib.magHeropenen({ stoppedAt: meta.stopped_at, deadline });
+
+  // Sprint 90: zelfevaluatie-enquête ná het indienen — zowel een samenvatting
+  // (stemmingsverdeling + percentages per stelling) als per-leerling detail
+  // ("Beide", zoals gevraagd), enkel opgebouwd als deze toets de enquête aan heeft.
+  const selfEvalEnabled = meta.self_eval_enabled === true;
+  let zelfevaluaties = null;
+  if (selfEvalEnabled) {
+    const rijen = await dbModule.getZelfevaluaties(code).catch(() => []);
+    const stemmingTellingen = {};
+    for (const s of validationLib.ENQUETE_STEMMINGEN) stemmingTellingen[s.id] = 0;
+    const itemTellingen = {};
+    for (const c of validationLib.ENQUETE_CATEGORIEEN) {
+      itemTellingen[c.id] = {};
+      for (const it of c.items) itemTellingen[c.id][it.id] = 0;
+    }
+    const perStudent = [];
+    for (const r of rijen) {
+      let antwoorden = {};
+      try { antwoorden = JSON.parse(r.antwoorden_json || '{}'); } catch { antwoorden = {}; }
+      if (stemmingTellingen[r.stemming] !== undefined) stemmingTellingen[r.stemming]++;
+      for (const c of validationLib.ENQUETE_CATEGORIEEN) {
+        const gekozen = Array.isArray(antwoorden[c.id]) ? antwoorden[c.id] : [];
+        for (const itemId of gekozen) {
+          if (itemTellingen[c.id][itemId] !== undefined) itemTellingen[c.id][itemId]++;
+        }
+      }
+      perStudent.push({
+        studentId: r.student_id, studentName: r.student_name,
+        stemming: r.stemming, antwoorden,
+        createdAt: r.created_at ? Number(r.created_at) : null,
+      });
+    }
+    zelfevaluaties = { totaalIngevuld: rijen.length, stemmingTellingen, itemTellingen, perStudent };
+  }
+
   res.json({
     code, classId,
-    className: roster[0]?.class_name || '',
+    // Sprint 78: klasnaam nu via de klas ZELF opgehaald (ook als er toevallig geen actieve
+    // leerlingen zijn) i.p.v. via de leerlingenlijst — anders bleef dit veld leeg net op het
+    // moment dat de leerkracht het meest nodig had om de mismatch te herkennen.
+    className: linkedClass?.name || '',
     hasClass: !!classId,
     deadline,
+    stoppedAt: meta.stopped_at ? Number(meta.stopped_at) : null,
+    kanHeropenen,
     students, extras,
+    classMismatch,
+    liveCount: liveIds.size,
+    // Sprint 90: zelfevaluatie-enquête ná het indienen.
+    selfEvalEnabled,
+    zelfevaluaties,
     counts: {
-      op_tijd: tel('op_tijd'), te_laat: tel('te_laat'), niets: tel('niets'),
+      op_tijd: tel('op_tijd'), te_laat: tel('te_laat'), bezig: tel('bezig'),
+      tab_switch: tel('tab_switch'),  // Sprint 84: auto-ingediend door anti-spiek
+      niets: tel('niets'),
       gewettigd: tel('gewettigd'), nvt: tel('nvt'), total: students.length,
+      live: students.filter(s => s.online).length,
       // oude namen blijven bestaan zodat bestaande schermcode niet breekt
-      submitted: tel('op_tijd') + tel('te_laat'), started: tel('te_laat'), none: tel('niets'),
+      submitted: tel('op_tijd') + tel('te_laat') + tel('tab_switch'), started: tel('te_laat'), none: tel('niets'),
     },
   });
 });
@@ -6261,7 +6580,9 @@ app.get('/api/klasmatrix/export.xlsx', requireTeacherAuth, async (req, res) => {
         const waarden = [r.isTestAccount ? `🧪 ${r.naam} (testaccount)` : r.naam].concat(cellenVoorBlad.map(c => {
           if (!c) return '';
           // Cijfer als er verbeterd is, anders het icoon van de status.
-          if (c.score !== null && (c.status === 'op_tijd' || c.status === 'te_laat')) return c.score;
+          // Sprint 84: 'tab_switch' (auto-ingediend door anti-spiek) telt ook mee voor
+          // het gemiddelde, dus toon ook hier het cijfer i.p.v. enkel het icoon.
+          if (c.score !== null && (c.status === 'op_tijd' || c.status === 'te_laat' || c.status === 'tab_switch')) return c.score;
           return S[c.status]?.icoon || '';
         }));
         // Gemiddelde per blad opnieuw berekenen (enkel de kolommen van dít blad)
@@ -6336,6 +6657,53 @@ app.put('/api/quiz-sessions/:code/roster/:studentId/status', requireTeacherAuth,
     await dbModule.setAssignmentStudentStatus(code, req.params.studentId, status,
       req.body?.note || '', req.teacher?.username || '');
     res.json({ ok: true, status });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Sprint 79: een per ongeluk ingediende toets/taak terug openzetten voor één leerling.
+// Wist enkel het "ingediend"-merkteken op de al opgeslagen antwoorden (submitted_at/
+// submitted_by) — de antwoorden zelf blijven staan. Is de leerling nog live verbonden
+// met deze sessie, dan wordt zijn/haar scherm meteen vernieuwd zodat hij/zij verder kan.
+app.post('/api/quiz-sessions/:code/roster/:studentId/reopen', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
+  try {
+    const code = (req.params.code || '').toUpperCase();
+    const studentId = req.params.studentId;
+    const studentNameRaw = String(req.body?.studentName || '').trim();
+    const studentName = studentNameRaw.toLowerCase();
+    // Sprint 86: nooit enkel op de client vertrouwen dat de knop terecht getoond werd —
+    // zodra de toets/taak zelf gestopt is of de deadline verstreken is, kan de leerling
+    // er sowieso niet meer in (quiz_start weigert dat altijd), dus heeft heropenen geen
+    // enkel effect. Duidelijke foutmelding i.p.v. stilzwijgend "ok" terwijl er niets
+    // verandert voor de leerling.
+    const meta = await dbModule.getQuizMeta(code);
+    if (!meta) return res.status(404).json({ error: 'Toets/taak niet gevonden.' });
+    if (!validationLib.magHeropenen({ stoppedAt: meta.stopped_at, deadline: meta.access_until })) {
+      return res.status(400).json({
+        error: meta.stopped_at
+          ? 'Deze toets/taak is gestopt — dat kan niet ongedaan gemaakt worden, dus heeft heropenen geen effect meer (de leerling kan er sowieso niet meer in).'
+          : 'De deadline van deze toets/taak is al verstreken — heropenen heeft dan geen effect (de leerling kan er sowieso niet meer in). Verleng eerst de deadline via "Bewerken", en heropen daarna pas.',
+      });
+    }
+    await dbModule.reopenAssignmentForStudent(code, studentId, studentNameRaw || null);
+    const session = sessions.get(code);
+    // Sprint 79: een gast (geen account) krijgt in de live sessie een willekeurige,
+    // sessiegebonden id die niet overeenkomt met students.id — dus ook hier, net als bij
+    // de live-status in de roster, op id matchen met naam als terugval.
+    const student = session?.students?.[studentId]
+      || (studentName
+        ? Object.values(session?.students || {}).find(
+            s => !s.removed && s.name.toLowerCase() === studentName)
+        : null);
+    if (student) {
+      student.quizSubmitted = false;
+      // Sprint 83: een heropening is een bewuste, nieuwe kans van de leerkracht — eerdere
+      // tabwissel-overtredingen tellen dan niet meer mee tegen de drempel.
+      student.tabSwitchCount = 0;
+      if (student.socketId) {
+        io.to(student.socketId).emit('quiz_reopened');
+      }
+    }
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -6931,6 +7299,29 @@ async function startPythonRun({ session, code, targetStudentId = null, audience 
   return runId;
 }
 
+// ── Sprint 93: ruwe back-up van toetsantwoorden, LOS VAN DE DATABASE ────────────────
+// "ik wil een soort backup van de antwoorden ... nu lijkt het soms alsof er zaken niet
+// worden opgeslagen." Elk antwoord dat een leerling probeert op te slaan, komt —
+// ONAFHANKELIJK van of de databank-schrijving zelf lukt of faalt — ook terecht in een
+// gewoon NDJSON-logbestand op schijf, in dezelfde blijvende map als de overige logs
+// (./logs op de NAS-host, via de bestaande docker-compose-volume-koppeling — geen
+// installatiewijziging nodig). Bij een écht databankprobleem (vol, corrupt, verbinding
+// weg) staan de ruwe antwoorden dan tenminste ergens, ook als de databank ze niet heeft.
+const QUIZ_BACKUP_DIR = path.join(process.env.LOG_DIR || '/app/logs', 'quiz-backups');
+try { fs.mkdirSync(QUIZ_BACKUP_DIR, { recursive: true }); } catch { /* bestaat waarschijnlijk al */ }
+
+function backupAnswerToDisk(entry) {
+  try {
+    const bestand = path.join(QUIZ_BACKUP_DIR, `${entry.sessionCode}.ndjson`);
+    fs.appendFileSync(bestand, JSON.stringify(entry) + '\n', 'utf8');
+  } catch (e) {
+    // Dit mag de eigenlijke opslag (hierboven/hieronder) nooit blokkeren — enkel loggen,
+    // zodat het toch zichtbaar blijft als zelfs deze back-up om een of andere reden
+    // niet lukt (bv. schijf vol).
+    log.error('[quiz-backup] wegschrijven naar het back-uplogbestand mislukt:', e.message);
+  }
+}
+
 // ── Auditlog vrije sessie ────────────────────────────────────────────────────
 const FREE_AUDIT_LOG = require('path').join(process.env.LOG_DIR || '/app/logs', 'free-audit.log');
 
@@ -7312,10 +7703,14 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     }
 
     // Sprint 13B: duplicaat-detectie binnen dezelfde sessie
-    const activeNames = Object.values(session.students)
-      .filter(s => s.online && !s.removed)
+    // 🔴 Bugfix (sprint 87): net als bij quiz_start hieronder — 's.online' kan nog even
+    // 'true' blijven staan net na een stille verbindingsbreuk (wifi-hapering), terwijl de
+    // leerling intussen allang zelf opnieuw probeert te verbinden. Enkel nog blokkeren als
+    // die "actieve" naam ook echt nog aan een levende socket hangt.
+    const actievenNogLevend = Object.values(session.students)
+      .filter(s => s.online && !s.removed && io.sockets.sockets.get(s.socketId)?.connected === true)
       .map(s => (s.name || '').toLowerCase());
-    if (!resumeId && activeNames.includes(normalizedNameLower)) {
+    if (!resumeId && actievenNogLevend.includes(normalizedNameLower)) {
       return socket.emit('error_message',
         `Er is al iemand met de naam "${normalizedName}" in deze sessie. Voeg je initialen of achternaam toe.`);
     }
@@ -7585,16 +7980,33 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
   // van free_run_request, maar met de juiste databron (session.students[...] i.p.v. de aparte
   // freeStudents-Map) en dezelfde event-namen terug naar de client, zodat quiz-student.js enkel
   // de emit-naam moest wijzigen, niet zijn listeners.
-  socket.on("quiz_run_request", async ({ codeText } = {}) => {
+  // Sprint 88 (bugfix): quiz_run_request antwoordde nooit iets terug naar de client — noch
+  // bij succes, noch bij een van de vroege 'return'-punten hierboven (niet (meer) geregistreerd
+  // na een herverbinding, sessie niet gevonden, leerling verwijderd, ...). Voor de leerling zag
+  // dat er dus in ALLE gevallen identiek uit: op RUN klikken en er verschijnt niets — precies de
+  // klacht "studenten klikken op RUN en er gebeurt NIETS". quiz-student.js stuurt deze aanvraag
+  // voortaan met een socket.io-ack-callback mee, zodat de client binnen een paar seconden zeker
+  // weet of de server de aanvraag effectief in behandeling nam. Is dat niet zo (bv. omdat de
+  // herverbinding nog niet volledig hersteld/herkend is door de server), dan herstelt de client
+  // zelf de sessie en probeert het opnieuw — met telkens een zichtbare melding in het
+  // uitvoervenster in plaats van stilzwijgend niets te doen.
+  socket.on("quiz_run_request", async ({ codeText } = {}, ack) => {
+    if (typeof ack !== 'function') ack = () => {};
     if (typeof codeText === 'string' && codeText.length > 32768) {
+      ack({ ok: false, reason: 'too_long' });
       return socket.emit('free_run_end');
     }
     const ctx = socketToUser.get(socket.id);
-    if (!ctx || ctx.role !== "quiz_student") return;
+    if (!ctx || ctx.role !== "quiz_student") return ack({ ok: false, reason: 'not_registered' });
     const session = sessions.get(ctx.code);
-    if (!session || session.closed || session.deleted || session.blocked) return;
+    if (!session || session.closed || session.deleted || session.blocked) return ack({ ok: false, reason: 'session_unavailable' });
     const student = session.students[ctx.studentId];
-    if (!student || student.removed) return;
+    if (!student || student.removed) return ack({ ok: false, reason: 'not_registered' });
+
+    // Vanaf hier is de verbinding zeker geldig en geregistreerd — de aanvraag wordt sowieso
+    // in behandeling genomen (eventueel na rate-limiting/wachtrij, die hun eigen bestaande
+    // events gebruiken), dus dat melden we meteen terug.
+    ack({ ok: true });
 
     const now = Date.now();
     const lastRun = runRateLimit.get(socket.id) || 0;
@@ -7626,6 +8038,13 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       runData = await runnerStart(codeText || '');
     } catch (err) {
       socket.emit("free_run_output", { output: `Fout bij starten: ${err.message}` });
+      // Sprint 89: dit is een échte RUN-mislukking (de runner-microservice zelf startte niet),
+      // hier loggen we met de al bevestigde, geregistreerde identiteit — geen client-gegevens
+      // nodig zoals bij het losse client_log_event hieronder.
+      dbModule.logConnectivityEvent({
+        studentName: student.name, sessionCode: ctx.code, role: 'quiz_student',
+        eventType: 'run_start_failed', detail: err.message,
+      }).catch(() => {});
       return;
     }
 
@@ -7688,6 +8107,35 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       }
     };
     poll().catch(() => { socket.emit("free_run_end"); if (student.runId === runId) student.runId = null; });
+  });
+
+  // Sprint 89: de client (quiz-student.js's retryRun(), zie sprint 88) meldt hiermee zelf
+  // wanneer een RUN-aanvraag geen tijdige bevestiging kreeg of uiteindelijk helemaal
+  // opgaf — precies de gevallen die de server zelf NIET kan loggen met de juiste identiteit,
+  // want de socket was op dat moment nog niet (opnieuw) geregistreerd (dat is exact het
+  // probleem). De client kent zijn eigen naam/code wél nog (urlName/urlCode), ongeacht de
+  // registratiestatus, en stuurt die dus expliciet mee. Nooit blindelings vertrouwen: enkel
+  // de vaste, verwachte type-waarden worden gelogd, en per socket sterk gerate-limit tegen
+  // misbruik/spam.
+  socket.on('client_log_event', ({ type, name, code, attempt } = {}) => {
+    // Sprint 91: save_ack_missing/save_failed_permanently — zelfde soort melding als bij RUN,
+    // maar dan voor het opslaan van een antwoord (kritieker: een verloren antwoord i.p.v. een
+    // opnieuw te klikken RUN).
+    const toegestaan = new Set(['run_ack_missing', 'run_failed_permanently', 'save_ack_missing', 'save_failed_permanently']);
+    if (!toegestaan.has(type)) return;
+    const studentName = String(name || '').trim();
+    if (!studentName) return;
+    const now = Date.now();
+    const laatste = clientLogEventRateLimit.get(socket.id) || 0;
+    if (now - laatste < 2000) return; // max 1 per 2s per socket
+    clientLogEventRateLimit.set(socket.id, now);
+    dbModule.logConnectivityEvent({
+      studentName,
+      sessionCode: String(code || '').trim().slice(0, 20).toUpperCase(),
+      role: 'quiz_student',
+      eventType: type,
+      detail: attempt ? `poging ${attempt}` : '',
+    }).catch(() => {});
   });
 
   // Sprint 51n: stdin-tegenhanger van quiz_run_request — zelfde reden/patroon als hierboven.
@@ -8587,15 +9035,49 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     if (!studentName) return socket.emit('error_message', 'Naam is verplicht.');
 
     // Dubbele verbinding detecteren
+    // 🔴 Bugfix (sprint 87): deze check blokkeerde altijd zodra er nog een "online" record
+    // met dezelfde naam stond — maar `s.online` kan best nog even 'true' blijven staan
+    // NADAT de onderliggende socket al stilzwijgend gestorven is (bv. een korte
+    // wifi-hapering op een druk klaslokaal-netwerk): de server merkt zo'n dode verbinding
+    // pas op via pingTimeout (tot enkele seconden later), terwijl de leerling z'n browser
+    // vaak al DIRECT zelf opnieuw probeert te verbinden — vaak sneller dan de server het
+    // verval van de oude verbinding kan vaststellen. Viel die herverbinding toevallig
+    // middenin dat venster, dan kreeg een volkomen eerlijke leerling "er is al een
+    // verbinding actief" te zien — en omdat tijdens een toets niet van tabblad
+    // gewisseld/ververst mag worden (anti-spiek), zat hij dan muurvast: de RUN-knop werkte
+    // niet meer (de kapotte oude socket) en bij de leerkracht stond hij op "offline",
+    // zonder enige uitweg.
+    //
+    // Voor een toets/taak is inloggen VERPLICHT (sprint 50) — behalve bij een preview.
+    // Dat betekent dat we voor een ingelogde leerling met CRYPTOGRAFISCHE zekerheid weten
+    // dat een nieuwe verbinding onder hetzelfde account écht dezelfde persoon is (geen
+    // naam die om het even wie kan intypen). In dat geval hoeven we de oude verbinding niet
+    // eerst als "dood" te bewijzen (dat is sowieso niet altijd op tijd te weten) — we laten
+    // de nieuwste verbinding gewoon winnen en kicken de oude er expliciet uit. Enkel voor
+    // een NIET-geverifieerde naam (preview-modus, zonder account) blijft de oude,
+    // voorzichtigere regel gelden: enkel blokkeren als de bestaande socket nog aantoonbaar
+    // leeft, nooit enkel op basis van de (mogelijk verouderde) online-vlag.
     const existing = Object.values(session.students).find(
       s => s.name.toLowerCase() === studentName.toLowerCase() && s.online && !s.removed
     );
-    if (existing && existing.socketId !== socket.id) {
-      socket.emit('error_message', `Er is al een verbinding actief voor "${studentName}". Gebruik hetzelfde tabblad.`);
-      if (session.teacherSocketId) {
-        io.to(session.teacherSocketId).emit('quiz_double_connection', { studentName });
+    const zelfdeGeverifieerdeAccount = existing && socket.data.student?.id
+      && existing.dbStudentId && existing.dbStudentId === socket.data.student.id;
+    if (existing && existing.socketId !== socket.id && zelfdeGeverifieerdeAccount) {
+      log.info(`[quiz_start] ${studentName} herverbindt met hetzelfde account (${normalizedCode}) — oude verbinding wordt overgenomen.`);
+      const oudeSocket = io.sockets.sockets.get(existing.socketId);
+      if (oudeSocket) oudeSocket.disconnect(true);
+      existing.online = false;
+      existing.socketId = null;
+    } else {
+      const bestaandeSocketLeeftNog = existing?.socketId
+        && io.sockets.sockets.get(existing.socketId)?.connected === true;
+      if (existing && existing.socketId !== socket.id && bestaandeSocketLeeftNog) {
+        socket.emit('error_message', `Er is al een verbinding actief voor "${studentName}". Gebruik hetzelfde tabblad.`);
+        if (session.teacherSocketId) {
+          io.to(session.teacherSocketId).emit('quiz_double_connection', { studentName });
+        }
+        return;
       }
-      return;
     }
 
     // Sprint 19j: tijdsvenster check
@@ -8705,11 +9187,31 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
         const questions = await dbModule.getQuizQuestions(normalizedCode);
         orderedIds = questions.map(q => q.id);
         if (meta.randomize) {
-          // Fisher-Yates shuffle met crypto.randomBytes
-          for (let i = orderedIds.length - 1; i > 0; i--) {
-            const j = crypto.randomBytes(4).readUInt32BE() % (i + 1);
-            [orderedIds[i], orderedIds[j]] = [orderedIds[j], orderedIds[i]];
+          // Sprint 76: groepen (random_group) blijven in hun vaste volgorde t.o.v. elkaar
+          // staan — enkel de vragen BINNEN elke groep worden gehusseld. Zo kan de leerkracht
+          // bv. vraag 1-5 (theorie, groep 0) en 6-10 (oefeningen, groep 1) apart randomiseren:
+          // elke leerling krijgt de theorie in willekeurige volgorde, gevolgd door de
+          // oefeningen in een eigen willekeurige volgorde — nooit een oefening vóór de
+          // theorie. Vragen zitten al in order_index-volgorde (getQuizQuestions), dus een
+          // groep = een aaneengesloten reeks vragen met hetzelfde random_group-nummer.
+          const groepen = [];
+          let vorigeGroep = null;
+          for (const q of questions) {
+            const g = q.random_group || 0;
+            if (vorigeGroep === null || g !== vorigeGroep) {
+              groepen.push([]);
+              vorigeGroep = g;
+            }
+            groepen[groepen.length - 1].push(q.id);
           }
+          // Fisher-Yates shuffle met crypto.randomBytes, per groep afzonderlijk.
+          for (const groep of groepen) {
+            for (let i = groep.length - 1; i > 0; i--) {
+              const j = crypto.randomBytes(4).readUInt32BE() % (i + 1);
+              [groep[i], groep[j]] = [groep[j], groep[i]];
+            }
+          }
+          orderedIds = groepen.flat();
         }
         await dbModule.saveQuizStudentOrder(normalizedCode, id, orderedIds);
       }
@@ -8724,6 +9226,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
         quizCurrentQuestion: 0,
         quizPersonalOrder: orderedIds,
         runId: null, runStatus: 'idle',
+        tabSwitchCount: 0,   // Sprint 83: aantal keer dat een tabwissel/fullscreen-exit gemeld werd
       };
       session.students[id] = student;
     } else {
@@ -8775,6 +9278,24 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
         return acc;
       }, {}),
       config: session.config || {},
+      // Sprint 83: anti-spiek — de client vertrouwt dit (authenticatief, ná join) i.p.v.
+      // enkel de publieke /startinfo, en gebruikt het om fullscreen af te dwingen, de
+      // tabwissel-detectie aan te zetten en het optionele cursus-zijpaneel te tonen.
+      type: meta.type || 'toets',
+      tabSwitchEnabled: meta.tab_switch_enabled === true,
+      tabSwitchThreshold: meta.tab_switch_threshold || 0,
+      // Sprint 94: instelbaar respijt (sprint 92, tot dan vast op 5 sec) — dit is de
+      // waarde die quiz-student.js écht gebruikt voor de aftel-overlay (in tegenstelling
+      // tot /startinfo hierboven, dat enkel voor de spelregel-tekst vóór het starten dient).
+      tabSwitchGraceSeconds: meta.tab_switch_grace_seconds ?? 5,
+      cursusUrl: meta.cursus_url || null,
+      // Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij een toets).
+      selfEvalEnabled: meta.self_eval_enabled === true,
+      // Sprint 91: bij elke (her)verbinding vroeg quiz-student.js voorheen altijd vraag 1 op
+      // (goToQuestion(0)), ongeacht waar de leerling écht was — een verbindingshapering
+      // sprong zo iedereen terug naar het begin, verwarrend en bij een langere toets
+      // nodeloos storend. De client herstelt voortaan op de laatst gekende positie.
+      currentQuestion: typeof student.quizCurrentQuestion === 'number' ? student.quizCurrentQuestion : 0,
     });
 
     // Notificeer leerkracht
@@ -8796,13 +9317,66 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     }
   });
 
-  socket.on('quiz_save_answer', async (data) => {
+  // ── Sprint 83: anti-spiek — tabwissel/fullscreen-exit tijdens een toets ────────
+  // De client meldt ELKE keer dat hij het tabblad/venster verlaat of uit volledig
+  // scherm gaat (visibilitychange, blur, fullscreenchange — zie quiz-student.js). We
+  // tellen hier server-side (niet vertrouwen op een door de client meegegeven teller,
+  // die net zo makkelijk te vervalsen is) en dienen pas automatisch in zodra de
+  // ingestelde drempel bereikt is. Enkel van toepassing op een toets waar de
+  // leerkracht dit expliciet aanzette — bij een taak of een uitgeschakelde toets
+  // wordt dit genegeerd (fullscreen blijft wel altijd afgedwongen aan de kant van de
+  // client, maar zonder gevolg als deze schakelaar uit staat).
+  socket.on('quiz_tab_switch', async ({ code } = {}) => {
+    try {
+      const ctx = socketToUser.get(socket.id);
+      if (!ctx || ctx.role !== 'quiz_student') return;
+      const normalizedCode = (code || ctx.code || '').trim().toUpperCase();
+      const session = sessions.get(normalizedCode);
+      if (!session || session.mode !== 'quiz') return;
+      const student = session.students[ctx.studentId];
+      if (!student || student.quizSubmitted || student.removed) return;
+      const meta = await dbModule.getQuizMeta(normalizedCode);
+      if (!meta || meta.type !== 'toets' || meta.tab_switch_enabled !== true) return;
+
+      student.tabSwitchCount = (student.tabSwitchCount || 0) + 1;
+      const drempel = Math.max(1, meta.tab_switch_threshold || 1);
+      if (student.tabSwitchCount >= drempel) {
+        student.quizSubmitted = true;
+        io.to(socket.id).emit('quiz_force_submit', { reason: 'tab_switch' });
+        await dbModule.submitQuizAnswers(normalizedCode, student.id, true, 'tab_switch', student.name).catch(() => {});
+        backupSubmissionPDF(normalizedCode, student.id, student.name, 'tab_switch');
+        log.info(`[quiz] ${student.name} automatisch ingediend na ${student.tabSwitchCount}x tabwissel/fullscreen-exit (${normalizedCode})`);
+      }
+    } catch (e) { log.warn('[quiz_tab_switch] mislukt:', e.message); }
+  });
+
+  // 🔴 Sprint 91 (kritieke bugfix): dit was hiervoor volledig "fire-and-forget" — geen ack
+  // naar de client, en de DB-opslag zelf werd niet eens afgewacht (".catch()" zonder
+  // "await"), dus de server kon niet eens WETEN of de opslag gelukt was op het moment dat
+  // dat ertoe deed. Twee onafhankelijke manieren waarop een antwoord zo stilzwijgend
+  // verloren kon gaan bij verbindingsproblemen tijdens een toets:
+  //  1) De client stuurde dit event terwijl de socket (tijdelijk) niet meer geregistreerd
+  //     was — bv. vlak ná een stille reconnect (nieuwe socket.id, "quiz_start" nog niet
+  //     opnieuw uitgevoerd, exact hetzelfde gat dat sprint 88 al dichtte voor de RUN-knop).
+  //     "ctx" ontbrak dan, en de hele handler deed stil niets — geen fout, geen opslag.
+  //  2) Zelfs mét een geregistreerde socket kon de DB-schrijving zelf mislukken zonder dat
+  //     iemand dat ooit te weten kwam — de server dacht "opgeslagen" te hebben gezegd
+  //     (quiz_answer_saved) VOORDAT de belofte ("promise") van de opslag zelf al dan niet
+  //     geslaagd was.
+  // Nu: de DB-opslag wordt afgewacht, en de server bevestigt pas ECHT via een ack —
+  // exact hetzelfde patroon als quiz_run_request (sprint 88). De client (quiz-student.js)
+  // herprobeert bij het uitblijven van een bevestiging, en blokkeert verdergaan naar de
+  // volgende vraag tot de huidige écht bevestigd is opgeslagen.
+  socket.on('quiz_save_answer', async (data, ack) => {
+    const doAck = (payload) => { if (typeof ack === 'function') ack(payload); };
     const { questionId, code, runCount, firstVisitAt, firstRunAt, currentQuestion, partAnswers, answerFlowchartJson } = data || {};
     const ctx = socketToUser.get(socket.id);
-    if (!ctx || ctx.role !== 'quiz_student') return;
+    if (!ctx || ctx.role !== 'quiz_student') return doAck({ ok: false, reason: 'not_registered' });
     const session = sessions.get(ctx.code);
     const student = session?.students[ctx.studentId];
-    if (!student || student.quizSubmitted) return;
+    if (!student) return doAck({ ok: false, reason: 'not_registered' });
+    if (student.quizSubmitted) return doAck({ ok: false, reason: 'already_submitted' });
+    if (!questionId) return doAck({ ok: false, reason: 'invalid_payload' });
 
     // Sla op in-memory
     student.quizAnswers[questionId] = { code, runCount, firstVisitAt, firstRunAt,
@@ -8810,23 +9384,47 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       answerFlowchartJson: answerFlowchartJson || undefined };
     student.quizCurrentQuestion = currentQuestion;
 
+    // Sprint 93: eerst de ruwe, databank-ONAFHANKELIJKE back-up wegschrijven — dit mag nooit
+    // wachten op, of afhangen van het resultaat van, de databank-schrijving hieronder. Zo blijft
+    // het antwoord ook bewaard als exact die schrijving hieronder faalt.
+    backupAnswerToDisk({
+      ts: new Date().toISOString(), sessionCode: ctx.code,
+      studentId: ctx.studentId, studentName: student.name, className: student.className || '',
+      questionId, currentQuestion, runCount: runCount || 0, code,
+      selectedChoices: data?.selectedChoices || [],
+      partAnswers: partAnswers || undefined,
+      answerFlowchartJson: answerFlowchartJson || undefined,
+    });
+
     // Sprint 19a: 15s backup interval voor quiz (was 60s)
     // Sla direct op in DB bij elke navigatie
     // 23a: selectedChoices meesturen zodat keuze-antwoorden persistent zijn
     // 51j: partAnswers meesturen voor composite-vragen (JSON {partId: waarde})
     // 63: answerFlowchartJson voor vraagtype 'stroomdiagram' (JSON van flowchart-widget.js)
-    dbModule.saveQuizAnswer({
-      sessionCode: ctx.code, studentId: ctx.studentId,
-      studentName: student.name, studentClass: student.className || '',
-      questionId, personalOrder: student.quizPersonalOrder?.indexOf(questionId) ?? 0,
-      code, runCount: runCount || 0,
-      firstVisitAt: firstVisitAt || null, firstRunAt: firstRunAt || null,
-      selectedChoices: JSON.stringify(data?.selectedChoices || []),
-      partAnswers: partAnswers ? JSON.stringify(partAnswers) : undefined,
-      answerFlowchartJson: answerFlowchartJson !== undefined ? answerFlowchartJson : undefined,
-    }).catch(e => log.error('[quiz] saveQuizAnswer:', e.message));
+    // Sprint 91: AWAIT — de ack (en dus of de client mag verdergaan) hangt hier nu écht
+    // van af, i.p.v. blindelings "ok" te seinen vóór de schrijving zelf voltooid is.
+    try {
+      await dbModule.saveQuizAnswer({
+        sessionCode: ctx.code, studentId: ctx.studentId,
+        studentName: student.name, studentClass: student.className || '',
+        questionId, personalOrder: student.quizPersonalOrder?.indexOf(questionId) ?? 0,
+        code, runCount: runCount || 0,
+        firstVisitAt: firstVisitAt || null, firstRunAt: firstRunAt || null,
+        selectedChoices: JSON.stringify(data?.selectedChoices || []),
+        partAnswers: partAnswers ? JSON.stringify(partAnswers) : undefined,
+        answerFlowchartJson: answerFlowchartJson !== undefined ? answerFlowchartJson : undefined,
+      });
+    } catch (e) {
+      log.error(`[quiz_save_answer] opslaan mislukt (sessie ${ctx.code}, leerling ${student.name}, vraag ${questionId}):`, e.message);
+      dbModule.logConnectivityEvent({
+        studentName: student.name, sessionCode: ctx.code, role: 'quiz_student',
+        eventType: 'save_answer_failed', detail: e.message,
+      }).catch(() => {});
+      return doAck({ ok: false, reason: 'db_error' });
+    }
 
     socket.emit('quiz_answer_saved', { questionId });
+    doAck({ ok: true, questionId });
 
     // Update leerkracht
     const questions = await dbModule.getQuizQuestions(ctx.code);
@@ -8850,7 +9448,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     }).catch(() => {});
   });
 
-  socket.on('quiz_submit_all', async ({ answers }) => {
+  socket.on('quiz_submit_all', async ({ answers, zelfevaluatie }) => {
     const ctx = socketToUser.get(socket.id);
     if (!ctx || ctx.role !== 'quiz_student') return;
     const session = sessions.get(ctx.code);
@@ -8931,7 +9529,30 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
         }
       }
     }
-    await dbModule.submitQuizAnswers(ctx.code, ctx.studentId, false, 'student').catch(() => {});
+    await dbModule.submitQuizAnswers(ctx.code, ctx.studentId, false, 'student', student.name).catch(() => {});
+    backupSubmissionPDF(ctx.code, ctx.studentId, student.name, 'student');
+
+    // Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij een toets, en enkel
+    // als de leerkracht dit heeft aangezet). "Verplicht" is een CLIENT-side UX-regel —
+    // een ontbrekende of ongeldige enquête mag de eigenlijke inzending (hierboven, al
+    // voltooid) NOOIT blokkeren of laten mislukken, dus dit staat er bewust volledig los
+    // van en gebeurt best-effort ná de echte opslag.
+    try {
+      const meta = await dbModule.getQuizMeta(ctx.code);
+      if (meta?.self_eval_enabled === true && zelfevaluatie) {
+        const check = validationLib.valideerZelfevaluatie(zelfevaluatie);
+        if (check.ok) {
+          await dbModule.saveZelfevaluatie({
+            sessionCode: ctx.code, studentId: ctx.studentId, studentName: student.name,
+            stemming: zelfevaluatie.stemming, antwoorden: zelfevaluatie.antwoorden,
+          });
+        } else {
+          log.warn(`[quiz_submit_all] zelfevaluatie ongeldig (sessie ${ctx.code}, leerling ${student.name}): ${check.fout}`);
+        }
+      }
+    } catch (e) {
+      log.error(`[quiz_submit_all] zelfevaluatie opslaan mislukt (sessie ${ctx.code}, leerling ${student.name}):`, e.message);
+    }
 
     socket.emit('quiz_submitted_ok', {
       name: student.name,
@@ -9037,9 +9658,19 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     });
   });
 
-  socket.on('disconnect', () => {
+  // Sprint 89: socket.io geeft bij 'disconnect' altijd een reden mee. We loggen enkel de
+  // redenen die wijzen op een écht weggevallen verbinding ("ping timeout" = de server kreeg
+  // te lang geen teken van leven meer, "transport close"/"transport error" = de onderliggende
+  // verbinding brak af) — niet 'io client disconnect' (leerling sluit gewoon netjes af, bv.
+  // na het indienen) of 'io server disconnect' (WIJ zetten deze socket zelf buiten, bv. de
+  // bewuste kick bij een herverbinding onder hetzelfde account, sprint 87). Zonder dat filter
+  // zou dit logboek overspoeld worden met volkomen normale, verwachte disconnects en de
+  // écht relevante gevallen net onzichtbaar maken.
+  const ONVERWACHTE_DISCONNECT_REDENEN = new Set(['ping timeout', 'transport close', 'transport error']);
+  socket.on('disconnect', (reason) => {
     const ctx = socketToUser.get(socket.id);
     runRateLimit.delete(socket.id); // cleanup rate limit entry
+    clientLogEventRateLimit.delete(socket.id); // Sprint 89: idem voor client_log_event
     socketCsrfNonces.delete(socket.id); // Fix SEC-5: cleanup CSRF nonce
     if (!ctx) return;
     // Sprint 9B: timer cleanup bij leerkracht disconnect
@@ -9071,6 +9702,12 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
         }
         // Audit log: naam, klas en totaal aantal runs in deze sessie
         logFreeRun(student.name, student.className, student.runCount || 0);
+        if (ONVERWACHTE_DISCONNECT_REDENEN.has(reason)) {
+          dbModule.logConnectivityEvent({
+            studentName: student.name, sessionCode: '', role: 'free',
+            eventType: 'disconnect', detail: reason,
+          }).catch(() => {});
+        }
         freeStudents.delete(socket.id);
         io.emit("free_students_updated");
       }
@@ -9090,7 +9727,15 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       for (const s of getActiveStudents(session)) emitStudentState(session, s);
     } else {
       const s = session.students[ctx.studentId];
-      if (s) {
+      // 🔴 Bugfix (sprint 87): enkel opruimen als DEZE socket ook echt nog de actief
+      // geregistreerde verbinding van de leerling is. Bij een snelle herverbinding
+      // (bv. na een stille wifi-hapering tijdens een toets) kan de leerling intussen al
+      // met een NIEUWE socket heraangemeld zijn (quiz_start kickt dan bewust de oude
+      // socket eruit) vóór deze disconnect-listener van de oude socket aan de beurt komt.
+      // Zonder deze check zou deze late opruiming de zopas heraangemelde leerling
+      // alsnog per ongeluk terug op "offline" zetten — precies het probleem dat we net
+      // oplosten.
+      if (s && s.socketId === socket.id) {
         s.socketId = null;
         // Bugfix (sprint 63.2): dit zette socketId wel op null, maar NOOIT s.online op
         // false — waardoor een leerling die de verbinding verliest voor de rest van de
@@ -9103,6 +9748,15 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
         // leerkracht bleef te hoog staan. Nu consistent teruggezet.
         s.online = false;
         scheduleRunDisconnect(s.runId);
+        // Sprint 89: log een écht weggevallen verbinding (zie ONVERWACHTE_DISCONNECT_REDENEN
+        // hierboven) zodat de leerkracht via Systeembeheer kan zien hoe vaak dit per leerling
+        // voorkomt — precies de "meer controle" die gevraagd werd.
+        if (ONVERWACHTE_DISCONNECT_REDENEN.has(reason)) {
+          dbModule.logConnectivityEvent({
+            studentName: s.name, sessionCode: ctx.code, role: ctx.role,
+            eventType: 'disconnect', detail: reason,
+          }).catch(() => {});
+        }
       }
     }
     emitTeacherSession(session);

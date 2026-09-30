@@ -405,11 +405,236 @@ test('70 status: leerkracht drukt op stoppen → te laat (leerling diende zelf n
   assert.strictEqual(v.bepaalInleverStatus({ heeftInhoud: true, submittedAt: DL - 60000,
     submittedBy: 'teacher', deadline: DL }), 'te_laat');
 });
-test('70 status: wel gewerkt maar nooit ingediend → te laat', () => {
+test('70 status: wel gewerkt maar nooit ingediend, deadline al voorbij → te laat', () => {
   assert.strictEqual(v.bepaalInleverStatus({ heeftInhoud: true, submittedAt: null, deadline: DL }), 'te_laat');
+});
+// Bugfix (sprint 81): "wel gewerkt maar nog niet ingediend" gaf altijd 'te_laat' terug,
+// ook wanneer de deadline nog lang niet verstreken was — een leerling die simpelweg nog
+// bezig is met een nog-open toets/taak zag zichzelf dan onterecht als "te laat" staan.
+test('81 status: wel gewerkt maar nog niet ingediend, deadline nog niet voorbij → bezig', () => {
+  assert.strictEqual(v.bepaalInleverStatus({
+    heeftInhoud: true, submittedAt: null, deadline: DL, now: DL - 60000,
+  }), 'bezig');
+});
+test('81 status: wel gewerkt, nog niet ingediend, geen deadline ingesteld → bezig', () => {
+  assert.strictEqual(v.bepaalInleverStatus({ heeftInhoud: true, submittedAt: null, deadline: null }), 'bezig');
+});
+test('81 gemiddelde: "bezig" telt nog niet mee (toets/taak staat nog open)', () => {
+  assert.strictEqual(v.teltMeeVoorGemiddelde('bezig'), false);
 });
 test('70 gemiddelde: gewettigd en n.v.t. tellen niet mee', () => {
   assert.strictEqual(v.teltMeeVoorGemiddelde('gewettigd'), false);
   assert.strictEqual(v.teltMeeVoorGemiddelde('nvt'), false);
   for (const s of ['op_tijd', 'te_laat', 'niets']) assert.strictEqual(v.teltMeeVoorGemiddelde(s), true);
+});
+
+// ── Sprint 83: anti-spiek (verplicht volledig scherm + optioneel auto-indienen
+// bij tabwissel) — enkel geldig bij een toets, nooit bij een taak. ─────────────
+test('83 tabwissel: toets + aangezet + drempel 3 → blijft zo staan', () => {
+  const r = v.bepaalTabWisselInstellingen({ type: 'toets', enabled: true, threshold: 3 });
+  assert.deepStrictEqual(r, { enabled: true, threshold: 3, graceSeconds: 5 });
+});
+test('83 tabwissel: taak + aangezet → ALTIJD uitgeschakeld, ongeacht wat meegestuurd wordt', () => {
+  const r = v.bepaalTabWisselInstellingen({ type: 'taak', enabled: true, threshold: 5 });
+  assert.deepStrictEqual(r, { enabled: false, threshold: 0, graceSeconds: 5 });
+});
+test('83 tabwissel: toets + uitgeschakeld → drempel altijd 0, ook al werd er iets anders meegestuurd', () => {
+  const r = v.bepaalTabWisselInstellingen({ type: 'toets', enabled: false, threshold: 7 });
+  assert.deepStrictEqual(r, { enabled: false, threshold: 0, graceSeconds: 5 });
+});
+test('83 tabwissel: toets + aangezet + ongeldige/ontbrekende drempel → valt terug op 1', () => {
+  assert.deepStrictEqual(v.bepaalTabWisselInstellingen({ type: 'toets', enabled: true, threshold: 0 }),
+    { enabled: true, threshold: 1, graceSeconds: 5 });
+  assert.deepStrictEqual(v.bepaalTabWisselInstellingen({ type: 'toets', enabled: true, threshold: null }),
+    { enabled: true, threshold: 1, graceSeconds: 5 });
+  assert.deepStrictEqual(v.bepaalTabWisselInstellingen({ type: 'toets', enabled: true, threshold: -4 }),
+    { enabled: true, threshold: 1, graceSeconds: 5 });
+});
+test('83 tabwissel: drempel wordt begrensd op maximum 20', () => {
+  assert.deepStrictEqual(v.bepaalTabWisselInstellingen({ type: 'toets', enabled: true, threshold: 999 }),
+    { enabled: true, threshold: 20, graceSeconds: 5 });
+});
+
+// ── Sprint 94: het respijt (sprint 92, tot dan vast op 5 sec) is nu instelbaar ──────
+test('94 tabwissel-respijt: toets + aangezet + 10 sec → blijft zo staan', () => {
+  const r = v.bepaalTabWisselInstellingen({ type: 'toets', enabled: true, threshold: 1, graceSeconds: 10 });
+  assert.deepStrictEqual(r, { enabled: true, threshold: 1, graceSeconds: 10 });
+});
+test('94 tabwissel-respijt: 0 is een geldige waarde (geen respijt, telt onmiddellijk)', () => {
+  const r = v.bepaalTabWisselInstellingen({ type: 'toets', enabled: true, threshold: 1, graceSeconds: 0 });
+  assert.deepStrictEqual(r, { enabled: true, threshold: 1, graceSeconds: 0 });
+});
+test('94 tabwissel-respijt: ontbrekende/niet-numerieke waarde → valt terug op 5', () => {
+  assert.deepStrictEqual(v.bepaalTabWisselInstellingen({ type: 'toets', enabled: true, threshold: 1, graceSeconds: null }),
+    { enabled: true, threshold: 1, graceSeconds: 5 });
+  assert.deepStrictEqual(v.bepaalTabWisselInstellingen({ type: 'toets', enabled: true, threshold: 1, graceSeconds: undefined }),
+    { enabled: true, threshold: 1, graceSeconds: 5 });
+});
+test('94 tabwissel-respijt: een negatieve waarde wordt begrensd op minimum 0 (geen fallback)', () => {
+  const r = v.bepaalTabWisselInstellingen({ type: 'toets', enabled: true, threshold: 1, graceSeconds: -3 });
+  assert.deepStrictEqual(r, { enabled: true, threshold: 1, graceSeconds: 0 });
+});
+test('94 tabwissel-respijt: wordt begrensd op maximum 30', () => {
+  const r = v.bepaalTabWisselInstellingen({ type: 'toets', enabled: true, threshold: 1, graceSeconds: 999 });
+  assert.deepStrictEqual(r, { enabled: true, threshold: 1, graceSeconds: 30 });
+});
+test('94 tabwissel-respijt: anti-spiek uit → altijd de veilige default (5), ongeacht wat meegestuurd wordt', () => {
+  const r = v.bepaalTabWisselInstellingen({ type: 'toets', enabled: false, threshold: 1, graceSeconds: 0 });
+  assert.deepStrictEqual(r, { enabled: false, threshold: 0, graceSeconds: 5 });
+});
+test('83 cursus-link: leeg/ontbrekend is toegestaan (= geen cursus)', () => {
+  assert.strictEqual(v.isValidCursusUrl(''), true);
+  assert.strictEqual(v.isValidCursusUrl(null), true);
+  assert.strictEqual(v.isValidCursusUrl(undefined), true);
+});
+test('83 cursus-link: geldige https-link is toegestaan', () => {
+  assert.strictEqual(v.isValidCursusUrl('https://drive.google.com/bestand.pdf'), true);
+});
+test('83 cursus-link: http (niet-https) wordt geweigerd', () => {
+  assert.strictEqual(v.isValidCursusUrl('http://onveilig.be/cursus.pdf'), false);
+});
+test('83 cursus-link: iets dat geen link is wordt geweigerd', () => {
+  assert.strictEqual(v.isValidCursusUrl('gewoon wat tekst'), false);
+  assert.strictEqual(v.isValidCursusUrl('javascript:alert(1)'), false);
+});
+test('83 cursus-link: te lang wordt geweigerd', () => {
+  assert.strictEqual(v.isValidCursusUrl('https://x.be/' + 'a'.repeat(2000)), false);
+});
+
+// ── Sprint 84: anti-spiek auto-indiening krijgt een eigen, zichtbare status
+// (voorheen onzichtbaar vermengd met een gewone "op tijd"-inzending) — zodat
+// de leerkracht ziet welke leerling opnieuw vrijgegeven ("heropend") moet worden. ──
+test('84 status: automatisch ingediend door tabwissel, vóór de deadline → eigen status "tab_switch"', () => {
+  assert.strictEqual(v.bepaalInleverStatus({
+    heeftInhoud: true, submittedAt: DL - 60000, submittedBy: 'tab_switch', deadline: DL,
+  }), 'tab_switch');
+});
+test('84 status: automatisch ingediend door tabwissel, ook al is de deadline al voorbij → toch "tab_switch" (niet "te_laat")', () => {
+  assert.strictEqual(v.bepaalInleverStatus({
+    heeftInhoud: true, submittedAt: DL + 60000, submittedBy: 'tab_switch', deadline: DL,
+  }), 'tab_switch');
+});
+test('84 gemiddelde: "tab_switch" telt wél mee (het is een echte momentopname van het werk)', () => {
+  assert.strictEqual(v.teltMeeVoorGemiddelde('tab_switch'), true);
+});
+test('84 legende: INLEVER_STATUSSEN bevat een eigen label/icoon voor "tab_switch"', () => {
+  assert.ok(v.INLEVER_STATUSSEN.tab_switch);
+  assert.strictEqual(typeof v.INLEVER_STATUSSEN.tab_switch.label, 'string');
+  assert.strictEqual(typeof v.INLEVER_STATUSSEN.tab_switch.icoon, 'string');
+});
+
+// ── Sprint 86: "Heropenen" mag geen valse belofte doen — zodra de toets/taak ZELF
+// afgelopen is (gestopt, of de deadline verstreken), kan een leerling er sowieso niet meer
+// in (quiz_start weigert dat altijd), dus heeft heropenen dan geen enkel effect meer. ──
+test('86 heropenen: toets/taak nog open (geen stop, deadline nog niet voorbij) → mag heropenen', () => {
+  assert.strictEqual(v.magHeropenen({ stoppedAt: null, deadline: DL, now: DL - 60000 }), true);
+});
+test('86 heropenen: toets/taak nog open, geen deadline ingesteld → mag heropenen', () => {
+  assert.strictEqual(v.magHeropenen({ stoppedAt: null, deadline: null }), true);
+});
+test('86 heropenen: deadline al verstreken → mag NIET meer heropenen', () => {
+  assert.strictEqual(v.magHeropenen({ stoppedAt: null, deadline: DL, now: DL + 60000 }), false);
+});
+test('86 heropenen: door de leerkracht gestopt (ook al is de deadline nog niet voorbij) → mag NIET meer heropenen', () => {
+  assert.strictEqual(v.magHeropenen({ stoppedAt: DL - 120000, deadline: DL, now: DL - 60000 }), false);
+});
+
+// ── Sprint 89: heeftAntwoordServer() — server-kant tegenhanger van de client-functie
+// heeftAntwoord(), gebruikt in de Voortgang-weergave (X/Y beantwoord) van de leerkracht. ──
+test('89 heeftAntwoordServer: code-vraag zonder code → niet beantwoord', () => {
+  assert.strictEqual(v.heeftAntwoordServer('code', { code: '' }), false);
+  assert.strictEqual(v.heeftAntwoordServer('code', { code: '   ' }), false);
+  assert.strictEqual(v.heeftAntwoordServer('code', {}), false);
+});
+test('89 heeftAntwoordServer: code-vraag met code → beantwoord', () => {
+  assert.strictEqual(v.heeftAntwoordServer('code', { code: 'print(1)' }), true);
+});
+test('89 heeftAntwoordServer: open vraag volgt dezelfde regel als code', () => {
+  assert.strictEqual(v.heeftAntwoordServer('open', { code: 'Mijn antwoord.' }), true);
+  assert.strictEqual(v.heeftAntwoordServer('open', { code: '' }), false);
+});
+test('89 heeftAntwoordServer: samengestelde vraag met minstens 1 ingevuld onderdeel → beantwoord', () => {
+  assert.strictEqual(v.heeftAntwoordServer('composite', { part_answers: JSON.stringify({ p1: '', p2: 'iets' }) }), true);
+});
+test('89 heeftAntwoordServer: samengestelde vraag met enkel lege onderdelen → niet beantwoord', () => {
+  assert.strictEqual(v.heeftAntwoordServer('composite', { part_answers: JSON.stringify({ p1: '', p2: [] }) }), false);
+  assert.strictEqual(v.heeftAntwoordServer('composite', {}), false);
+});
+test('89 heeftAntwoordServer: stroomdiagram met minstens 1 blok → beantwoord', () => {
+  assert.strictEqual(v.heeftAntwoordServer('stroomdiagram', { answer_flowchart_json: JSON.stringify({ blocks: [{ id: 1 }] }) }), true);
+});
+test('89 heeftAntwoordServer: stroomdiagram zonder blokken of ongeldige JSON → niet beantwoord', () => {
+  assert.strictEqual(v.heeftAntwoordServer('stroomdiagram', { answer_flowchart_json: JSON.stringify({ blocks: [] }) }), false);
+  assert.strictEqual(v.heeftAntwoordServer('stroomdiagram', { answer_flowchart_json: 'niet-json' }), false);
+  assert.strictEqual(v.heeftAntwoordServer('stroomdiagram', {}), false);
+});
+test('89 heeftAntwoordServer: keuzevraag (single/multiple) met minstens 1 keuze → beantwoord', () => {
+  assert.strictEqual(v.heeftAntwoordServer('single', { selected_choices: JSON.stringify(['a']) }), true);
+  assert.strictEqual(v.heeftAntwoordServer('multiple', { selected_choices: JSON.stringify(['a', 'b']) }), true);
+});
+test('89 heeftAntwoordServer: keuzevraag zonder keuze → niet beantwoord', () => {
+  assert.strictEqual(v.heeftAntwoordServer('single', { selected_choices: '[]' }), false);
+  assert.strictEqual(v.heeftAntwoordServer('single', {}), false);
+});
+
+// ── Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij een toets) ──────
+test('90 bepaalZelfevaluatieInstelling: toets + aangezet → true', () => {
+  assert.strictEqual(v.bepaalZelfevaluatieInstelling({ type: 'toets', enabled: true }), true);
+});
+test('90 bepaalZelfevaluatieInstelling: toets + uitgeschakeld → false', () => {
+  assert.strictEqual(v.bepaalZelfevaluatieInstelling({ type: 'toets', enabled: false }), false);
+});
+test('90 bepaalZelfevaluatieInstelling: taak → ALTIJD false, ongeacht wat meegestuurd wordt', () => {
+  assert.strictEqual(v.bepaalZelfevaluatieInstelling({ type: 'taak', enabled: true }), false);
+});
+test('90 bepaalZelfevaluatieInstelling: ontbrekende/rare input → false', () => {
+  assert.strictEqual(v.bepaalZelfevaluatieInstelling({}), false);
+  assert.strictEqual(v.bepaalZelfevaluatieInstelling(), false);
+});
+
+test('90 ENQUETE_STEMMINGEN/ENQUETE_CATEGORIEEN: vaste structuur, 5 stemmingen en 5 categorieën', () => {
+  assert.strictEqual(v.ENQUETE_STEMMINGEN.length, 5);
+  assert.strictEqual(v.ENQUETE_CATEGORIEEN.length, 5);
+  for (const c of v.ENQUETE_CATEGORIEEN) {
+    assert.ok(Array.isArray(c.items) && c.items.length > 0);
+  }
+});
+
+function volledigGeldigeEnquete() {
+  const antwoorden = {};
+  for (const c of v.ENQUETE_CATEGORIEEN) antwoorden[c.id] = [c.items[0].id];
+  return { stemming: 'goed', antwoorden };
+}
+
+test('90 valideerZelfevaluatie: volledig correct ingevuld → ok', () => {
+  const r = v.valideerZelfevaluatie(volledigGeldigeEnquete());
+  assert.deepStrictEqual(r, { ok: true, fout: null });
+});
+test('90 valideerZelfevaluatie: ongeldige/ontbrekende stemming → afgewezen', () => {
+  const invoer = volledigGeldigeEnquete();
+  invoer.stemming = 'niet-bestaand';
+  assert.strictEqual(v.valideerZelfevaluatie(invoer).ok, false);
+  assert.strictEqual(v.valideerZelfevaluatie({ ...invoer, stemming: undefined }).ok, false);
+  assert.strictEqual(v.valideerZelfevaluatie().ok, false);
+});
+test('90 valideerZelfevaluatie: ontbrekende antwoorden → afgewezen', () => {
+  assert.strictEqual(v.valideerZelfevaluatie({ stemming: 'goed' }).ok, false);
+  assert.strictEqual(v.valideerZelfevaluatie({ stemming: 'goed', antwoorden: null }).ok, false);
+});
+test('90 valideerZelfevaluatie: een categorie zonder enig aangevinkt item → afgewezen', () => {
+  const invoer = volledigGeldigeEnquete();
+  invoer.antwoorden.planning = [];
+  const r = v.valideerZelfevaluatie(invoer);
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.fout, 'categorie_leeg:planning');
+});
+test('90 valideerZelfevaluatie: een categorie met enkel ongeldige item-id\'s → afgewezen', () => {
+  const invoer = volledigGeldigeEnquete();
+  invoer.antwoorden.oefenen = ['bestaat-niet'];
+  assert.strictEqual(v.valideerZelfevaluatie(invoer).ok, false);
+});
+test('90 valideerZelfevaluatie: extra/onbekende categorieën in antwoorden worden genegeerd', () => {
+  const invoer = volledigGeldigeEnquete();
+  invoer.antwoorden.onbekend = ['iets'];
+  assert.strictEqual(v.valideerZelfevaluatie(invoer).ok, true);
 });

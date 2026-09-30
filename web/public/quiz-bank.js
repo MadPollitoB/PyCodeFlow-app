@@ -172,6 +172,7 @@ function renderQuestions(qs, targetId) {
         <span class="muted" style="font-size:0.78rem;margin-left:auto;">${q.max_points} pt</span>
         ${q.archived ? '<span class="badge" style="background:#fee2e2;color:#991b1b;font-size:0.72rem;">Gearchiveerd</span>' : ''}
       </div>
+      ${q.title ? `<div class="q-title" style="font-weight:700;font-size:0.92rem;margin:6px 0 0;">${esc(q.title)}</div>` : ''}
       ${(q.isOwner && !q.archived) ? `
       <div style="margin:6px 0 2px;display:flex;align-items:center;gap:6px;">
         <span class="muted" style="font-size:0.76rem;">Delen:</span>
@@ -250,6 +251,7 @@ function editQuestion(id) {
   // 0×0 pixels en bleef leeg/onzichtbaar, ook nadat de tab zichtbaar werd.
   switchTab('add');
   document.getElementById('edit-id').value = id;
+  document.getElementById('q-title').value = q.title || '';
   document.getElementById('q-text').value = q.text;
   document.getElementById('q-subject').value = q.subject || '';
   document.getElementById('q-difficulty').value = q.difficulty;
@@ -292,6 +294,7 @@ function editQuestion(id) {
 function resetQuestionForm(eindTab) {
   switchTab('add');
   document.getElementById('edit-id').value = '';
+  document.getElementById('q-title').value = '';
   document.getElementById('q-text').value = '';
   document.getElementById('q-subject').value = '';
   document.getElementById('q-difficulty').value = 'gemiddeld';
@@ -845,6 +848,7 @@ async function saveQuestion() {
 
   const body = {
     text,
+    title:        document.getElementById('q-title').value.trim(),
     subject:      document.getElementById('q-subject').value.trim(),
     difficulty:   document.getElementById('q-difficulty').value,
     tags:         document.getElementById('q-tags').value.trim(),

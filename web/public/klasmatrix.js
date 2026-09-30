@@ -50,7 +50,8 @@ function tekenLegende() {
   const S = _matrix?.statussen || {};
   document.getElementById('legende').innerHTML = Object.values(S).map(info =>
     `<span class="item"><i style="background:#${esc(info.kleur)};"></i>${esc(info.icoon)} ${esc(info.label)}</span>`
-  ).join('') + '<span class="muted">· "Gewettigd afwezig" en "Nog geen lid" tellen niet mee voor het gemiddelde.</span>';
+  ).join('') + '<span class="muted">· "Gewettigd afwezig" en "Nog geen lid" tellen niet mee voor het gemiddelde ' +
+    '(🚫 "auto-ingediend (tabwissel)" telt wél mee).</span>';
 }
 
 function tekenMatrix() {
@@ -82,7 +83,10 @@ function tekenMatrix() {
       const c = r.cellen.find(x => x.code === k.code);
       if (!c) return '<td></td>';
       const info = S[c.status] || {};
-      const toon = (c.score !== null && (c.status === 'op_tijd' || c.status === 'te_laat'))
+      // Sprint 84: 'tab_switch' (auto-ingediend door anti-spiek) telt ook mee voor het
+      // gemiddelde (zie de filter hieronder) — toon dan ook het cijfer, niet enkel het
+      // icoon, anders lijkt de cel leeg terwijl ze wél meetelt.
+      const toon = (c.score !== null && (c.status === 'op_tijd' || c.status === 'te_laat' || c.status === 'tab_switch'))
         ? c.score : (info.icoon || '');
       return `<td><span class="cel" style="background:#${esc(info.kleur || 'fff')};"
         title="${esc(info.label || '')}${c.score !== null ? ' · ' + c.score + ' punten' : ''}">${esc(toon)}</span></td>`;

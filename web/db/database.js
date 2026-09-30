@@ -390,6 +390,17 @@ async function initSchema() {
     END $$;
     -- e-mail overnemen van de oude google_email waar mogelijk (eenmalig, idempotent)
     UPDATE students SET email = google_email WHERE email IS NULL AND google_email IS NOT NULL;
+
+    -- Sprint 80 (KRITIEKE BUGFIX, eenmalig, idempotent): createStudentAccount schreef
+    -- historisch de ACCOUNT-status (meestal 'pending') door als klaslidmaatschap-status
+    -- i.p.v. altijd 'active' — een zelf-geregistreerde leerling bleef daardoor voor altijd
+    -- als 'pending' lid geboekt staan, ook nadat zijn/haar account al lang aanvaard was.
+    -- Dat bleef onzichtbaar tot de Voortgang (sprint 78) voor het eerst filterde op enkel
+    -- 'active' klaslidmaatschappen — leerlingen die wél degelijk in de klas zitten (en dat
+    -- overal elders, zoals "Mijn klassen", ook gewoon te zien kregen) verdwenen daardoor
+    -- ten onrechte uit de Voortgang. Herstelt alle bestaande 'pending'-lidmaatschappen naar
+    -- 'active'; nieuwe lidmaatschappen krijgen dankzij de fix hierboven meteen 'active'.
+    UPDATE class_memberships SET status = 'active' WHERE status = 'pending';
     -- e-mail hoofdletter-ongevoelig uniek, maar enkel wanneer ingevuld (leerlingen zonder
     -- e-mail — bv. handmatig aangemaakt — mogen naast elkaar bestaan).
     CREATE UNIQUE INDEX IF NOT EXISTS idx_students_email_unique ON students (LOWER(email)) WHERE email IS NOT NULL;
@@ -571,6 +582,42 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC);
 
+    -- Sprint 89: logboek van netwerkproblemen tijdens een sessie (RUN die niet lukte,
+    -- een verbinding die wegviel, ...) — per leerling-NAAM i.p.v. per account-id, want
+    -- ook een niet-ingelogde gast (vrij oefenen, preview-toets) moet hierin zichtbaar zijn.
+    -- Geeft de leerkracht voor het eerst overzicht over HOE VAAK en BIJ WIE dit voorkomt,
+    -- in plaats van enkel losse, niet-herleidbare meldingen op het scherm van de leerling.
+    CREATE TABLE IF NOT EXISTS connectivity_log (
+      id            TEXT PRIMARY KEY,
+      student_name  TEXT NOT NULL DEFAULT '',
+      session_code  TEXT NOT NULL DEFAULT '',
+      role          TEXT NOT NULL DEFAULT '',
+      event_type    TEXT NOT NULL,
+      detail        TEXT NOT NULL DEFAULT '',
+      created_at    BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_connectivity_log_created ON connectivity_log(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_connectivity_log_student ON connectivity_log(student_name);
+
+    -- Sprint 90: zelfevaluatie-enquête die een leerling invult vlak vóór het definitief
+    -- indienen van een toets ("Hoe vond je dat de toets ging?" + een vast lijstje
+    -- stellingen over voorbereiding/verwerking/oefenen/planning). Eén rij per leerling per
+    -- toets (unique constraint) — net als de toetsantwoorden zelf is dit eenmalig en niet
+    -- achteraf aanpasbaar. antwoorden_json bewaart per categorie welke stellingen
+    -- aangevinkt werden; de vaste vraagstructuur zelf staat in lib/validation.js
+    -- (ENQUETE_CATEGORIEEN), niet in de databank, zodat ze getest kan worden.
+    CREATE TABLE IF NOT EXISTS toets_zelfevaluaties (
+      id              TEXT PRIMARY KEY,
+      session_code    TEXT NOT NULL,
+      student_id      TEXT NOT NULL,
+      student_name    TEXT NOT NULL DEFAULT '',
+      stemming        TEXT NOT NULL,
+      antwoorden_json TEXT NOT NULL DEFAULT '{}',
+      created_at      BIGINT NOT NULL,
+      UNIQUE (session_code, student_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_zelfeval_session ON toets_zelfevaluaties(session_code);
+
     -- Sprint 21: stresstest historiek
     CREATE TABLE IF NOT EXISTS stress_results (
       id              TEXT PRIMARY KEY,
@@ -658,6 +705,9 @@ async function initSchema() {
       -- in de vraagtekst geweven, zodat een leerling die de vraag in een AI-chatbot plakt
       -- een herkenbaar spoor in het teruggegeven antwoord krijgt.
       BEGIN ALTER TABLE question_bank ADD COLUMN hidden_ai_trap TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 77: optionele titel — puur voor herkenning in de vragenbank-lijst (naast/vóór
+      -- de "Delen"-dropdown); heeft geen enkel effect op een toets/taak zelf. Leeg toegelaten.
+      BEGIN ALTER TABLE question_bank ADD COLUMN title TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
     CREATE INDEX IF NOT EXISTS idx_question_bank_subject ON question_bank(subject);
     CREATE INDEX IF NOT EXISTS idx_question_bank_archived ON question_bank(archived);
@@ -734,6 +784,11 @@ async function initSchema() {
       BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN hidden_ai_trap TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
       -- Sprint 51j: snapshot van de antwoordonderdelen bij een composite-vraag.
       BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN answer_parts TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 76: groepsnummer voor onafhankelijke randomisatie per groep (bv. vraag 1-5
+      -- theorie = groep 0, vraag 6-10 oefeningen = groep 1). Vragen met hetzelfde groepnummer
+      -- worden samen gehusseld; de groepen zelf blijven in hun vaste (order_index-)volgorde
+      -- t.o.v. elkaar staan. Standaard 0 = alles één groep (het oude, ongewijzigde gedrag).
+      BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN random_group INTEGER NOT NULL DEFAULT 0; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
     CREATE INDEX IF NOT EXISTS idx_quiz_snapshots_session
       ON quiz_question_snapshots(session_code);
@@ -780,12 +835,43 @@ async function initSchema() {
       BEGIN ALTER TABLE assignment_bank ADD COLUMN review_mode BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
       -- Sprint 43.3: expliciet type (toets|taak) i.p.v. afleiden uit no_timer
       BEGIN ALTER TABLE assignment_bank ADD COLUMN type TEXT NOT NULL DEFAULT 'toets'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 83: anti-spiek voor een TOETS (nooit een taak) — verplicht volledig scherm
+      -- (clientside afgedwongen, geen kolom nodig) + optioneel automatisch indienen bij
+      -- tabwissel, en een optionele cursus-link die als zijpaneel getoond wordt tijdens de
+      -- toets. Bewust GEEN default hier (blijft NULL voor bestaande rijen) — zie de
+      -- normalisatie hieronder, die enkel ooit-NULL-rijen aanraakt en dus veilig herhaalbaar
+      -- is bij elke serverstart (in tegenstelling tot een kolom-DEFAULT, die bestaande rijen
+      -- bij ADD COLUMN al op 'true' had gezet).
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN tab_switch_enabled BOOLEAN; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN tab_switch_threshold INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 94: het respijt (sprint 92, tot dan vast op 5 sec) is nu instelbaar per toets.
+      -- DEFAULT 5 is hier wél veilig (in tegenstelling tot tab_switch_enabled hierboven):
+      -- exact de vaste waarde die elke bestaande toets tot nu toe al kreeg, dus voor elke
+      -- bestaande rij de correcte historische waarde — geen aparte NULL-normalisatie nodig.
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN tab_switch_grace_seconds INTEGER NOT NULL DEFAULT 5; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN cursus_url TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- Sprint 90: optionele, verplichte zelfevaluatie-enquête ná het indienen — enkel
+      -- geldig bij een TOETS (nooit een taak), net als anti-spiek hierboven. DEFAULT false
+      -- is hier wél veilig (in tegenstelling tot tab_switch_enabled): een bestaande toets
+      -- had hoe dan ook nooit deze vraag, dus "uit" is voor elke bestaande rij de correcte
+      -- historische waarde — geen aparte NULL-normalisatie nodig.
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN self_eval_enabled BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
 
     -- Sprint 43.3: bestaande rijen krijgen hun type afgeleid uit no_timer (timerloos = taak).
     -- Eenmalig: enkel rijen die nog op de default staan én timerloos zijn.
     DO $$ BEGIN
       UPDATE assignment_bank SET type = 'taak' WHERE no_timer = true AND type = 'toets';
+    EXCEPTION WHEN others THEN NULL; END $$;
+
+    -- Sprint 83: bestaande (en nog nooit expliciet ingestelde) toetsen/taken krijgen de
+    -- veilige default: anti-spiek UIT, drempel 0. Enkel rijen die nog NOOIT een waarde
+    -- kregen (NULL) worden geraakt — nieuwe toetsen krijgen vanaf nu altijd een expliciete
+    -- waarde bij het aanmaken, dus dit raakt nooit een instelling die een leerkracht zelf al
+    -- gezet heeft, ook niet bij een herstart van de server.
+    DO $$ BEGIN
+      UPDATE assignment_bank SET tab_switch_enabled = false WHERE tab_switch_enabled IS NULL;
+      UPDATE assignment_bank SET tab_switch_threshold = 0 WHERE tab_switch_threshold IS NULL;
     EXCEPTION WHEN others THEN NULL; END $$;
 
     -- Sprint 43.4: welke leerlingen mogen deze toets/taak maken.
@@ -2037,6 +2123,26 @@ module.exports = {
     return r.rows[0] || null;
   },
 
+  // Sprint 78: andere klas-rijen met dezelfde naam (bv. "6BW" van een ander schooljaar) —
+  // gebruikt om te detecteren wanneer een toets/taak nog aan een OUDE (mogelijk gearchiveerde)
+  // klas-rij hangt, terwijl er een actuele klas met dezelfde naam wél leerlingen heeft. Een
+  // klas is jaargebonden (één rij per schooljaar), dus "6BW" in 2025-2026 en "6BW" in
+  // 2026-2027 zijn twee aparte rijen — dat is normaal, maar een toets moet naar de juiste
+  // (huidige) rij wijzen.
+  async findSiblingClassesByName(name, excludeClassId) {
+    if (!name) return [];
+    const r = await query(
+      `SELECT c.*, COUNT(m.student_id) FILTER (WHERE m.status = 'active')::int AS student_count
+         FROM classes c
+         LEFT JOIN class_memberships m ON m.class_id = c.id AND m.school_year = c.school_year
+        WHERE LOWER(c.name) = LOWER($1) AND c.id != $2
+        GROUP BY c.id
+        ORDER BY c.school_year DESC`,
+      [name, excludeClassId]
+    );
+    return r.rows;
+  },
+
   // ── Sprint 52b: klas-startcode ─────────────────────────────────────────────
   async classCodeInGebruik(code) {
     const r = await query(`SELECT 1 FROM classes WHERE start_code = $1 LIMIT 1`, [code]);
@@ -2212,10 +2318,21 @@ module.exports = {
     if (classId) {
       // Koppel aan de klas voor het juiste schooljaar (van de klas).
       const jaar = schoolYear || (await this.getClassById(classId))?.school_year || null;
+      // Sprint 80 (KRITIEKE BUGFIX): dit gaf voorheen de ACCOUNT-status (meestal 'pending',
+      // in afwachting van goedkeuring door de leerkracht) rechtstreeks door als de status
+      // van het KLASLIDMAATSCHAP. Dat zijn twee onafhankelijke dingen: of een leerling-
+      // ACCOUNT al aanvaard is (students.status) zegt niets over of die leerling nog
+      // effectief LID is van de klas (class_memberships.status, enkel 'active'/'left').
+      // Doordat niets het lidmaatschap ooit van 'pending' naar 'active' bijwerkte zodra
+      // het account aanvaard werd, bleef een zelf-geregistreerde leerling voor altijd op
+      // 'pending' staan in class_memberships — onzichtbaar bleef dat tot de Voortgang
+      // (sprint 78) voor het eerst effectief op deze status filterde. Een klaslidmaatschap
+      // is bij aanmaak altijd gewoon 'active'; enkel expliciet verwijderen (removeStudent-
+      // FromClass) of "left" zet dat later nog om.
       await query(
         `INSERT INTO class_memberships (student_id, class_id, school_year, status, created_at)
-         VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
-        [id, classId, jaar, status === 'blocked' ? 'active' : status, Date.now()]
+         VALUES ($1,$2,$3,'active',$4) ON CONFLICT DO NOTHING`,
+        [id, classId, jaar, Date.now()]
       );
     }
     return id;
@@ -2553,7 +2670,7 @@ module.exports = {
                                questionType = 'code', choicesJson = '[]', tags = '',
                                modelAnswer = '', createdBy = null, schoolId = null,
                                shareScope = 'private', answerParts = '[]',
-                               flowchartJson = '', hiddenAiTrap = '' }) {
+                               flowchartJson = '', hiddenAiTrap = '', title = '' }) {
     const id = crypto.randomUUID();
     const now = Date.now();
     const scope = ['private', 'school', 'public'].includes(shareScope) ? shareScope : 'private';
@@ -2564,30 +2681,32 @@ module.exports = {
     await query(
       `INSERT INTO question_bank (id, text, subject, difficulty, max_points,
          question_type, choices_json, tags, model_answer, share_scope, created_by, school_id, created_at, updated_at, answer_parts,
-         flowchart_json, hidden_ai_trap)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+         flowchart_json, hidden_ai_trap, title)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
       [id, text.trim(), subject.trim(), difficulty, punten,
        questionType, choicesJson, (tags || '').trim(), String(modelAnswer || ''), scope, createdBy, schoolId, now, now,
-       JSON.stringify(parts), String(flowchartJson || ''), String(hiddenAiTrap || '').slice(0, 500)]
+       JSON.stringify(parts), String(flowchartJson || ''), String(hiddenAiTrap || '').slice(0, 500),
+       String(title || '').trim().slice(0, 200)]
     );
     return id;
   },
 
   async updateQuizQuestion(id, { text, subject, difficulty, maxPoints, questionType,
                                  choicesJson, tags, modelAnswer, answerParts,
-                                 flowchartJson = '', hiddenAiTrap = '' }) {
+                                 flowchartJson = '', hiddenAiTrap = '', title = '' }) {
     const parts = normalizeAnswerParts(answerParts);
     const punten = questionType === 'composite' && parts.length
       ? parts.reduce((s, p) => s + (p.points || 0), 0) : maxPoints;
     const r = await query(
       `UPDATE question_bank SET text=$1, subject=$2, difficulty=$3, max_points=$4,
          question_type=$5, choices_json=$6, tags=$7, model_answer=$8, updated_at=$9, answer_parts=$11,
-         flowchart_json=$12, hidden_ai_trap=$13
+         flowchart_json=$12, hidden_ai_trap=$13, title=$14
        WHERE id=$10`,
       [text.trim(), subject.trim(), difficulty, punten,
        questionType || 'code', choicesJson || '[]', (tags || '').trim(),
        String(modelAnswer || ''), Date.now(), id, JSON.stringify(parts),
-       String(flowchartJson || ''), String(hiddenAiTrap || '').slice(0, 500)]
+       String(flowchartJson || ''), String(hiddenAiTrap || '').slice(0, 500),
+       String(title || '').trim().slice(0, 200)]
     );
     return r.rowCount > 0;
   },
@@ -2636,6 +2755,7 @@ module.exports = {
 
     return await this.createQuizQuestion({
       text: `${q.text} (kopie)`,
+      title: q.title || '',
       subject: q.subject || '',
       difficulty: q.difficulty || 'gemiddeld',
       maxPoints: q.max_points || 4,
@@ -2820,7 +2940,8 @@ module.exports = {
   async createQuizSession({ sessionCode, questions, randomize, timerSeconds,
                              noTimer, minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
                              schoolYear, targetClass, accessFrom, accessUntil, autoSubmitLate,
-                             type, noBack }) {
+                             type, noBack, tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds,
+                             cursusUrl, selfEvalEnabled }) {
     const now = Date.now();
     // noTimer = true → geen tijdslimiet (taak)
     // timerSeconds = null + noTimer = false → gebruik standaard 2700s
@@ -2831,14 +2952,34 @@ module.exports = {
       const y = d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1;
       return `${y}-${y + 1}`;
     })();
+    const effectiveType = (type === 'taak' || type === 'toets') ? type : (noTimer ? 'taak' : 'toets');
+    // Sprint 83: anti-spiek is enkel geldig bij een toets — server.js heeft dit al gevalideerd
+    // via validationLib.bepaalTabWisselInstellingen(), maar we herhalen de type-grendel hier
+    // nogmaals als laatste veiligheidsgordel (net als bij no_back/andere velden).
+    const effectiveTabSwitchEnabled = effectiveType === 'toets' && tabSwitchEnabled === true;
+    const effectiveTabSwitchThreshold = effectiveTabSwitchEnabled
+      ? Math.max(1, Math.min(20, parseInt(tabSwitchThreshold) || 1)) : 0;
+    // Sprint 94: het respijt vóór een tabwissel/fullscreen-exit écht meetelt (sprint 92,
+    // tot dan vast op 5 sec) is nu instelbaar per toets — tussen 0 (geen respijt, telt
+    // onmiddellijk) en 30 sec. Enkel zinvol als anti-spiek zelf aan staat; anders altijd
+    // de veilige default (5) zodat een latere heractivering niet op een rare 0 uitkomt.
+    const parsedGraceSeconds = parseInt(tabSwitchGraceSeconds);
+    const effectiveTabSwitchGraceSeconds = effectiveTabSwitchEnabled
+      ? Math.max(0, Math.min(30, isNaN(parsedGraceSeconds) ? 5 : parsedGraceSeconds)) : 5;
+    const effectiveCursusUrl = effectiveType === 'toets' ? (cursusUrl || null) : null;
+    // Sprint 90: zelfevaluatie-enquête — zelfde type-grendel als anti-spiek hierboven,
+    // enkel geldig bij een toets, hier herhaald als laatste veiligheidsgordel.
+    const effectiveSelfEvalEnabled = effectiveType === 'toets' && selfEvalEnabled === true;
     // 36a: assignment_bank + alle vraag-snapshots in één transactie — anders kan een crash
     // een toets met meta maar zonder (of met halve) vragen achterlaten.
     await withTransaction(async (client) => {
       await client.query(
         `INSERT INTO assignment_bank (session_code, randomize, timer_seconds, no_timer, individual_timer,
           min_runs_per_q, hide_question_on_screen, results_released, is_teacher_preview,
-          school_year, target_class, access_from, access_until, auto_submit_late, type, no_back, created_at)
-         VALUES ($1,$2,$3,$4,true,$5,$6,false,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+          school_year, target_class, access_from, access_until, auto_submit_late, type, no_back,
+          tab_switch_enabled, tab_switch_threshold, tab_switch_grace_seconds, cursus_url,
+          self_eval_enabled, created_at)
+         VALUES ($1,$2,$3,$4,true,$5,$6,false,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
         [sessionCode, randomize, effectiveTimer, noTimer || false,
          minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
          schoolYear || currentYear, targetClass || '',
@@ -2846,19 +2987,23 @@ module.exports = {
          // Sprint 43.14: vertrouw een expliciet type ('toets'/'taak') — dat staat al
          // vast bij het openen van het aanmaakscherm. De noTimer-afleiding is enkel
          // nog een vangnet voor een aanroeper die (nog) geen type meegeeft.
-         (type === 'taak' || type === 'toets') ? type : (noTimer ? 'taak' : 'toets'),
+         effectiveType,
          noBack === true,                       // Sprint 69: 1 kans per vraag
+         effectiveTabSwitchEnabled, effectiveTabSwitchThreshold, effectiveTabSwitchGraceSeconds,
+         effectiveCursusUrl,
+         effectiveSelfEvalEnabled,
          now]
       );
       for (const q of questions) {
         await client.query(
           `INSERT INTO quiz_question_snapshots
              (id, session_code, bank_question_id, order_index, text_snapshot, subject, points,
-              question_type, choices_json, model_answer, answer_parts, flowchart_json, hidden_ai_trap)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+              question_type, choices_json, model_answer, answer_parts, flowchart_json, hidden_ai_trap,
+              random_group)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
           [crypto.randomUUID(), sessionCode, q.bankId, q.orderIndex, q.text, q.subject, q.points,
            q.questionType || 'code', q.choicesJson || '[]', q.modelAnswer || '', q.answerParts || '[]',
-           q.flowchartJson || '', q.hiddenAiTrap || '']
+           q.flowchartJson || '', q.hiddenAiTrap || '', parseInt(q.randomGroup) || 0]
         );
       }
     });
@@ -2955,18 +3100,33 @@ module.exports = {
   // de zekerheid ook de (lege) persoonlijke vraagvolgordes op.
   async updateQuizSessionFull({ sessionCode, questions, randomize, timerSeconds, noTimer,
                                 minRunsPerQ, hideQuestionOnScreen, schoolYear, targetClass,
-                                accessFrom, accessUntil, autoSubmitLate, noBack }) {
+                                accessFrom, accessUntil, autoSubmitLate, noBack,
+                                tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds,
+                                cursusUrl, selfEvalEnabled }) {
     const effectiveTimer = noTimer ? null : (timerSeconds || 2700);
+    // Sprint 83/90: server.js heeft deze velden al door validationLib.bepaalTabWisselInstellingen()
+    // / bepaalZelfevaluatieInstelling() gehaald (type staat hier vast en verandert niet bij een
+    // update), dus hier gewoon opslaan zoals meegegeven — net als bij elk ander veld hier.
+    // Sprint 94: 0 is een geldige, bewust ingestelde waarde voor het respijt (geen respijt,
+    // telt onmiddellijk) — daarom hier een expliciete isNaN-check i.p.v. "|| 5", want dat zou
+    // een bewuste 0 stilzwijgend terugzetten naar de default.
+    const parsedGraceSeconds = parseInt(tabSwitchGraceSeconds);
+    const effectiveTabSwitchGraceSeconds = Math.max(0, Math.min(30, isNaN(parsedGraceSeconds) ? 5 : parsedGraceSeconds));
     await withTransaction(async (client) => {
       await client.query(
         `UPDATE assignment_bank SET
            randomize = $2, timer_seconds = $3, no_timer = $4, min_runs_per_q = $5,
            hide_question_on_screen = $6, school_year = $7, target_class = $8,
-           access_from = $9, access_until = $10, auto_submit_late = $11, no_back = $12
+           access_from = $9, access_until = $10, auto_submit_late = $11, no_back = $12,
+           tab_switch_enabled = $13, tab_switch_threshold = $14, tab_switch_grace_seconds = $15,
+           cursus_url = $16, self_eval_enabled = $17
          WHERE session_code = $1`,
         [sessionCode, randomize, effectiveTimer, noTimer || false, minRunsPerQ,
          hideQuestionOnScreen, schoolYear || '', targetClass || '',
-         accessFrom || null, accessUntil || null, autoSubmitLate !== false, noBack === true]
+         accessFrom || null, accessUntil || null, autoSubmitLate !== false, noBack === true,
+         tabSwitchEnabled === true, Math.max(0, parseInt(tabSwitchThreshold) || 0),
+         effectiveTabSwitchGraceSeconds, cursusUrl || null,
+         selfEvalEnabled === true]
       );
       // Vraag-snapshots volledig vervangen (volgorde + punten kunnen gewijzigd zijn).
       await client.query(`DELETE FROM quiz_question_snapshots WHERE session_code = $1`, [sessionCode]);
@@ -2974,11 +3134,12 @@ module.exports = {
         await client.query(
           `INSERT INTO quiz_question_snapshots
              (id, session_code, bank_question_id, order_index, text_snapshot, subject, points,
-              question_type, choices_json, model_answer, answer_parts, flowchart_json, hidden_ai_trap)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+              question_type, choices_json, model_answer, answer_parts, flowchart_json, hidden_ai_trap,
+              random_group)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
           [crypto.randomUUID(), sessionCode, q.bankId, q.orderIndex, q.text, q.subject, q.points,
            q.questionType || 'code', q.choicesJson || '[]', q.modelAnswer || '', q.answerParts || '[]',
-           q.flowchartJson || '', q.hiddenAiTrap || '']
+           q.flowchartJson || '', q.hiddenAiTrap || '', parseInt(q.randomGroup) || 0]
         );
       }
       // Geen activiteit ⇒ geen echte volgordes, maar opruimen is veilig en houdt alles net.
@@ -3443,18 +3604,52 @@ module.exports = {
     );
   },
 
-  // Sprint 70: submittedBy = 'student' | 'timer' | 'deadline' | 'teacher'.
+  // Sprint 70: submittedBy = 'student' | 'timer' | 'deadline' | 'teacher' | 'tab_switch'.
   // auto_submitted blijft bestaan (oudere schermen lezen die nog), maar de status wordt
   // voortaan uit submitted_by afgeleid — timer/deadline is op tijd, de stopknop niet.
-  async submitQuizAnswers(sessionCode, studentId, autoSubmitted = false, submittedBy = null) {
+  //
+  // 🔴 Bugfix (sprint 85): deze UPDATE had TOT NU TOE niets om te updaten wanneer een
+  // leerling nog geen ENKEL antwoord had opgeslagen op het moment van indienen (bv. de
+  // anti-spiek-detectie die meteen bij de start afgaat, vóór er ooit `quiz_save_answer`
+  // gebeurde). Gevolg: er werd HELEMAAL NIETS in de databank bewaard — geen submitted_at,
+  // geen submitted_by — terwijl de leerling zelf al wél volledig afgesloten/vergrendeld
+  // was (in-memory `quizSubmitted = true`). Voor de leerkracht leek die leerling dan
+  // "niets ingeleverd" (nog nooit begonnen), zonder "↺ Heropenen"-knop (die enkel
+  // verschijnt bij een gekende submittedAt) — een leerling kon zo eindeloos vastzitten,
+  // zonder enige manier om hem vrij te geven. Nu: raakt de UPDATE geen enkele rij, dan
+  // leggen we een minimale (lege) rij vast bij de eerste vraag van de toets/taak, puur om
+  // een spoor van de indiening te garanderen — de inhoud verandert niets aan wat de
+  // leerling werkelijk deed (die blijft "niets", terecht), maar de indiening zelf (het
+  // TIJDSTIP en de REDEN) is voortaan altijd terug te vinden, en dus ook heropenbaar.
+  async submitQuizAnswers(sessionCode, studentId, autoSubmitted = false, submittedBy = null, studentName = null) {
     const now = Date.now();
     const wie = submittedBy || (autoSubmitted ? 'timer' : 'student');
-    await query(
+    const r = await query(
       `UPDATE quiz_answers
        SET submitted_at = $1, auto_submitted = $2, submitted_by = $5
        WHERE session_code = $3 AND student_id = $4 AND submitted_at IS NULL`,
       [now, autoSubmitted, sessionCode, studentId, wie]
     );
+    if (r.rowCount === 0) {
+      const snap = await query(
+        `SELECT id FROM quiz_question_snapshots WHERE session_code = $1 ORDER BY order_index LIMIT 1`,
+        [sessionCode]
+      );
+      if (snap.rows.length) {
+        // ON CONFLICT DO NOTHING: puur defensief. Als er toch al een (ingediende) rij
+        // bestaat voor exact deze vraag — bv. een dubbele indiening die de in-memory
+        // 'quizSubmitted'-vlag eigenlijk al had moeten tegenhouden — mag dit nooit een
+        // fout gooien; elke aanroeper vangt dit sowieso al af met .catch(() => {}).
+        await query(
+          `INSERT INTO quiz_answers (id, session_code, student_id, student_name, question_id,
+             personal_order, code, run_count, saved_at, submitted_at, auto_submitted, submitted_by)
+           VALUES ($1,$2,$3,$4,$5,0,'',0,$6,$6,$7,$8)
+           ON CONFLICT (session_code, student_id, question_id) DO NOTHING`,
+          [crypto.randomUUID(), sessionCode, studentId, studentName || '', snap.rows[0].id,
+           now, autoSubmitted, wie]
+        );
+      }
+    }
   },
 
   // ── Sprint 73: vrij oefenen ────────────────────────────────────────────────
@@ -3668,6 +3863,24 @@ module.exports = {
     return r.rows;
   },
 
+  // Sprint 79: een leerling diende per ongeluk in — de leerkracht kan de toets/taak
+  // voor die ene leerling terug openzetten. In tegenstelling tot een volledige reset
+  // (die alle antwoorden wist) blijven hier alle al opgeslagen antwoorden gewoon staan;
+  // enkel het "ingediend"-merkteken (submitted_at/submitted_by, per beantwoorde vraag)
+  // wordt gewist, zodat de leerling verder kan werken en later opnieuw indient.
+  async reopenAssignmentForStudent(sessionCode, studentId, studentName) {
+    // Een gast (geen account) krijgt tijdens de sessie een willekeurig, sessiegebonden
+    // id dat NIET overeenkomt met students.id — zijn/haar antwoordrijen staan dus onder
+    // dat andere id in quiz_answers. Daarom ook op naam matchen, net als de rest van dit
+    // endpoint (roster/live-status) al doet voor gast-leerlingen.
+    await query(
+      `UPDATE quiz_answers SET submitted_at = NULL, submitted_by = NULL
+        WHERE session_code = $1
+          AND (student_id = $2 OR ($3::text IS NOT NULL AND LOWER(TRIM(student_name)) = LOWER(TRIM($3))))`,
+      [sessionCode, studentId, studentName || null]
+    );
+  },
+
   // Per leerling samengevat: heeft hij inhoud, wanneer/door wie ingediend?
   async getQuizDeelnames(sessionCode) {
     const r = await query(
@@ -3683,6 +3896,24 @@ module.exports = {
          FROM quiz_answers WHERE session_code = $1
         GROUP BY student_id`, [sessionCode]);
     return r.rows;
+  },
+
+  // Sprint 89: per-vraag antwoordgegevens voor de Voortgang-weergave van de leerkracht
+  // (X/Y vragen beantwoord + welke precies) — getQuizDeelnames hierboven geeft enkel een
+  // totaal per leerling (heeft_inhoud), niet per vraag. `heeftAntwoordServer()` in
+  // lib/validation.js bepaalt op basis van deze ruwe rijen of een vraag telt als beantwoord.
+  async getQuizAnswerProgress(sessionCode) {
+    const vragen = await query(
+      `SELECT id, order_index, question_type, subject, points
+         FROM quiz_question_snapshots WHERE session_code = $1 ORDER BY order_index`,
+      [sessionCode]
+    );
+    const antwoorden = await query(
+      `SELECT student_id, question_id, code, selected_choices, part_answers, answer_flowchart_json
+         FROM quiz_answers WHERE session_code = $1`,
+      [sessionCode]
+    );
+    return { vragen: vragen.rows, antwoorden: antwoorden.rows };
   },
 
   async saveQuizStudentOrder(sessionCode, studentId, orderedQuestionIds) {
@@ -4181,6 +4412,82 @@ module.exports = {
       `SELECT * FROM audit_log ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
        ORDER BY created_at DESC LIMIT $${params.length}`,
       params
+    );
+    return r.rows;
+  },
+
+  // ── Netwerk-/RUN-probleemlogboek (Sprint 89) ─────────────────────────────────
+  // "er zou ook een logging moeten komen van hoe vaak bij welke gebruikersnaam run niet
+  // werkt, verbinding wegvalt ... ik moet hier meer controle op krijgen" — voorheen was
+  // hierover letterlijk niets bewaard: een leerling zag wel een melding op zijn eigen
+  // scherm (sprint 88), maar de leerkracht kwam dat nooit te weten, laat staan hoe vaak.
+  async logConnectivityEvent({ studentName, sessionCode = '', role = '', eventType, detail = '' } = {}) {
+    if (!eventType) return;
+    await query(
+      `INSERT INTO connectivity_log (id, student_name, session_code, role, event_type, detail, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [crypto.randomUUID(), String(studentName || '').trim().slice(0, 120),
+       String(sessionCode || '').trim().slice(0, 20), String(role || '').slice(0, 32),
+       String(eventType).slice(0, 40), String(detail || '').slice(0, 300), Date.now()]
+    ).catch(() => {}); // logging mag nooit de eigenlijke functionaliteit breken
+  },
+
+  // Samenvatting per leerlingnaam (aantal per event-type + laatste moment), voor het
+  // overzicht in Systeembeheer. `sinds` = timestamp (ms) — enkel recentere events tellen mee.
+  async getConnectivityLogSummary({ sinds = 0, limiet = 100 } = {}) {
+    const r = await query(
+      `SELECT student_name,
+              COUNT(*)::int AS totaal,
+              COUNT(*) FILTER (WHERE event_type = 'disconnect')::int AS disconnects,
+              COUNT(*) FILTER (WHERE event_type LIKE 'run_%')::int AS run_problemen,
+              MAX(created_at) AS laatste
+         FROM connectivity_log
+        WHERE created_at >= $1
+        GROUP BY student_name
+        ORDER BY totaal DESC
+        LIMIT $2`,
+      [sinds, limiet]
+    );
+    return r.rows;
+  },
+
+  async getConnectivityLogRecent({ sinds = 0, limiet = 200 } = {}) {
+    const r = await query(
+      `SELECT student_name, session_code, role, event_type, detail, created_at
+         FROM connectivity_log
+        WHERE created_at >= $1
+        ORDER BY created_at DESC
+        LIMIT $2`,
+      [sinds, limiet]
+    );
+    return r.rows;
+  },
+
+  async cleanupConnectivityLog(voorTijdstip) {
+    const r = await query(`DELETE FROM connectivity_log WHERE created_at < $1`, [voorTijdstip]);
+    return r.rowCount;
+  },
+
+  // ── Zelfevaluatie-enquête na een toets (Sprint 90) ───────────────────────────
+  // "Na elke toets zou ik als student een kleine enquête moeten invullen" — vraagstructuur
+  // (stemming + vaste stellingen per categorie) staat in lib/validation.js, hier enkel opslag.
+  async saveZelfevaluatie({ sessionCode, studentId, studentName, stemming, antwoorden }) {
+    // ON CONFLICT DO NOTHING: eenmalig, net als de toetsantwoorden zelf — een dubbele
+    // (bv. door een client-side retry) overschrijft de eerste inzending niet stilzwijgend.
+    await query(
+      `INSERT INTO toets_zelfevaluaties (id, session_code, student_id, student_name, stemming, antwoorden_json, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (session_code, student_id) DO NOTHING`,
+      [crypto.randomUUID(), sessionCode, studentId, String(studentName || '').slice(0, 120),
+       stemming, JSON.stringify(antwoorden || {}), Date.now()]
+    );
+  },
+
+  async getZelfevaluaties(sessionCode) {
+    const r = await query(
+      `SELECT student_id, student_name, stemming, antwoorden_json, created_at
+         FROM toets_zelfevaluaties WHERE session_code = $1 ORDER BY created_at`,
+      [sessionCode]
     );
     return r.rows;
   },

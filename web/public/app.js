@@ -687,11 +687,23 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
         // Vrije editor stuurt geen code_update naar de server (geen sessie-sync)
         if (owner === 'free') {
           scheduleSyntaxCheck('free', '/api/syntax-check-student');
-        } else {
-          socket.emit('code_update', { codeText: editorStore[owner].getValue() });
-          // Syntax check voor leerkracht
-          scheduleSyntaxCheck('teacher', '/api/syntax-check');
+          return;
         }
+        // Sprint 92: de quiz-editor viel voorheen in de catch-all hieronder mee (bedoeld voor
+        // de leerkracht-editor), wat een 'code_update' en een teacher-syntax-check triggerde
+        // die voor een toets nergens toe dienen (updateTeacherLiveView() in server.js doet
+        // sowieso niets buiten examenmodus). Eigen tak: laat quiz-student.js zelf bepalen wat
+        // er met elke tussentijdse wijziging gebeurt (tussentijdse autosave), zonder de
+        // gedeelde ensureEditor()-functie verder te belasten met toets-specifieke logica.
+        if (owner === 'quiz') {
+          if (typeof window.onQuizEditorChange === 'function') {
+            window.onQuizEditorChange(editorStore[owner].getValue());
+          }
+          return;
+        }
+        socket.emit('code_update', { codeText: editorStore[owner].getValue() });
+        // Syntax check voor leerkracht
+        scheduleSyntaxCheck('teacher', '/api/syntax-check');
       });
       editorStore[owner].onDidScrollChange(() => syncCustomGutter(owner));
       editorStore[owner].onDidChangeCursorPosition(() => renderCustomGutter(owner));
@@ -1471,8 +1483,8 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
   const _rosterBg  = { submitted:'#dcfce7', started:'#fef3c7', none:'#f1f5f9' };
   const _rosterLbl = { submitted:'Ingeleverd', started:'Bezig', none:'Nog niets' };
   function rosterChip(s) {
-    return `<span title="${_rosterLbl[s.status]}" style="display:inline-flex;align-items:center;gap:6px;background:${_rosterBg[s.status]};border:1px solid var(--border);border-radius:999px;padding:3px 10px;font-size:0.82rem;">
-      <span style="width:9px;height:9px;border-radius:50%;background:${_rosterDot[s.status]};flex-shrink:0;"></span>${escapeHtml(s.name)}</span>`;
+    return `<span title="${_rosterLbl[s.status] || s.status}" style="display:inline-flex;align-items:center;gap:6px;background:${_rosterBg[s.status] || '#f1f5f9'};border:1px solid var(--border);border-radius:999px;padding:3px 10px;font-size:0.82rem;">
+      <span style="width:9px;height:9px;border-radius:50%;background:${_rosterDot[s.status] || '#94a3b8'};flex-shrink:0;"></span>${escapeHtml(s.name)}${s.online ? ' 🟢' : ''}</span>`;
   }
   window.toggleQuizRoster = async function(code) {
     const box = document.getElementById('roster-' + code);
@@ -1493,6 +1505,12 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       const S = {
         op_tijd:   { icoon: '✅', label: 'op tijd',    kleur: '#166534' },
         te_laat:   { icoon: '🟠', label: 'te laat',    kleur: '#92400e' },
+        // Sprint 81: "bezig" — heeft al iets gedaan maar nog niet ingediend, terwijl de
+        // toets/taak nog gewoon open staat. Dit toonde voorheen ten onrechte als "te laat".
+        bezig:     { icoon: '🕓', label: 'bezig',      kleur: '#a16207' },
+        // Sprint 84: automatisch ingediend door anti-spiek (sprint 83) — een eigen status
+        // zodat dit niet onopgemerkt als gewoon "op tijd" verschijnt.
+        tab_switch: { icoon: '🚫', label: 'auto-ingediend (tabwissel)', kleur: '#dc2626' },
         niets:     { icoon: '⬜', label: 'niets',      kleur: '#64748b' },
         gewettigd: { icoon: '🅰', label: 'gewettigd',  kleur: '#1d4ed8' },
         nvt:       { icoon: '➖', label: 'nog geen lid', kleur: '#94a3b8' },
@@ -1503,12 +1521,31 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
           <strong>${escapeHtml(d.className || 'Klas')}</strong>
           <span style="color:${S.op_tijd.kleur};">✅ ${c.op_tijd} op tijd</span>
           <span style="color:${S.te_laat.kleur};">🟠 ${c.te_laat} te laat</span>
+          ${c.bezig ? `<span style="color:${S.bezig.kleur};">🕓 ${c.bezig} bezig</span>` : ''}
+          ${c.tab_switch ? `<span style="color:${S.tab_switch.kleur};font-weight:700;">🚫 ${c.tab_switch} auto-ingediend (tabwissel)</span>` : ''}
           <span style="color:${S.niets.kleur};">⬜ ${c.niets} niets</span>
           ${c.gewettigd ? `<span style="color:${S.gewettigd.kleur};">🅰 ${c.gewettigd} gewettigd</span>` : ''}
           ${c.nvt ? `<span style="color:${S.nvt.kleur};">➖ ${c.nvt} n.v.t.</span>` : ''}
           <span class="muted">· ${c.total} leerlingen</span>
+          ${c.live ? `<span style="color:#166534;font-weight:700;">🟢 ${c.live} live nu</span>` : ''}
           <button class="btn btn-muted small" style="margin-left:auto;" onclick="toggleQuizRoster('${code}');toggleQuizRoster('${code}')" title="Vernieuwen">↻</button>
         </div>`;
+
+      // Sprint 78: als de gekoppelde klas géén (actieve) leerlingen oplevert terwijl er
+      // een andere, actuele klas met dezelfde naam wél leerlingen heeft (bv. een toets die
+      // nog aan "6BW" van een vorig schooljaar hangt), tonen we dat expliciet i.p.v. enkel
+      // "geen leerlingen" — dat klopte niet en verborg de echte oorzaak.
+      const mismatchBanner = d.classMismatch ? `
+        <div style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:0.82rem;">
+          ⚠️ Deze toets/taak is gekoppeld aan <strong>${escapeHtml(d.classMismatch.linkedClassName)}
+          (${escapeHtml(d.classMismatch.linkedSchoolYear || '?')}${d.classMismatch.linkedArchived ? ', gearchiveerd' : ''})</strong>,
+          maar dat schooljaar komt niet overeen met wat je nu instelde${d.classMismatch.assignmentSchoolYear ? ` (${escapeHtml(d.classMismatch.assignmentSchoolYear)})` : ''}.
+          ${d.classMismatch.suggestion
+            ? `Bedoelde je <strong>${escapeHtml(d.classMismatch.suggestion.name)} (${escapeHtml(d.classMismatch.suggestion.schoolYear)})</strong>,
+               met ${d.classMismatch.suggestion.studentCount} leerling${d.classMismatch.suggestion.studentCount === 1 ? '' : 'en'}?`
+            : ''}
+          Ga naar <strong>Bewerken</strong> en kies de juiste klas opnieuw.
+        </div>` : '';
 
       const rij = st => {
         const info = S[st.status] || S.niets;
@@ -1519,14 +1556,39 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
         // hij bv. ziek werd halverwege de toets. De leerkracht heeft hier altijd het
         // laatste woord, ongeacht de automatisch berekende status.
         const aanvinkbaar = true;
+        // Sprint 79: "Heropenen" enkel tonen als er écht een indiening is (submittedAt
+        // gezet) — 'te_laat' kan ook betekenen dat de deadline verstreek zonder dat de
+        // leerling ooit op "indienen" klikte, en dan is er niets om terug open te zetten.
+        // Sprint 86: én enkel als de toets/taak ZELF nog niet afgelopen is (niet gestopt,
+        // deadline nog niet verstreken) — anders kan de leerling er sowieso niet meer in
+        // (quiz_start weigert dat altijd), en zou de knop iets beloven dat niet meer kan.
+        const heropenKnop = (st.submittedAt && d.kanHeropenen)
+          ? `<button class="btn btn-muted small" style="font-size:0.78rem;padding:2px 8px;"
+               onclick="heropenLeerling('${code}','${st.id}','${escapeHtml(st.name).replace(/'/g, "\\'")}')"
+               title="Zet deze toets/taak terug open zodat de leerling verder kan werken">↺ Heropenen</button>`
+          : st.submittedAt && !d.kanHeropenen
+            ? `<span class="muted" style="font-size:0.78rem;" title="${d.stoppedAt ? 'Deze toets/taak is gestopt' : 'De deadline is al verstreken'} — heropenen kan dan niet meer (de leerling kan er sowieso niet meer in)">—</span>`
+            : '<span class="muted" style="font-size:0.78rem;">—</span>';
+        // Sprint 89: "hoeveel vragen al beantwoord?" was hier voorheen nergens te zien —
+        // enkel de globale status (op tijd/te laat/...), niet HOEVER een leerling al staat.
+        // Deze chip toont dat altijd (X/Y), en opent bij klikken hetzelfde soort overzicht
+        // dat de leerling zelf ziet vóór het indienen (welke vragen precies wel/niet).
+        const voortgangChip = (st.progress && st.progress.total > 0)
+          ? `<button class="btn btn-muted small voortgang-chip" style="font-size:0.78rem;padding:2px 8px;"
+               data-student="${escapeHtml(st.name)}"
+               data-progress='${escapeHtml(JSON.stringify(st.progress))}'
+               title="Klik voor een overzicht per vraag">${st.progress.answered}/${st.progress.total}</button>`
+          : '<span class="muted" style="font-size:0.78rem;">—</span>';
         return `<tr>
-          <td style="padding:4px 8px;">${escapeHtml(st.name)}</td>
+          <td style="padding:4px 8px;">${escapeHtml(st.name)}${st.online ? ' <span title="Nu live verbonden" style="color:#16a34a;">🟢</span>' : ''}</td>
           <td style="padding:4px 8px;color:${info.kleur};white-space:nowrap;">${info.icoon} ${info.label}</td>
+          <td style="padding:4px 8px;text-align:center;">${voortgangChip}</td>
           <td style="padding:4px 8px;text-align:center;">${
             aanvinkbaar
               ? `<label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:0.8rem;white-space:nowrap;"><input type="checkbox" ${st.status === 'gewettigd' ? 'checked' : ''}
                    onchange="zetLeerlingStatus('${code}','${st.id}', this.checked)"/><span>gewettigd</span></label>`
               : '<span class="muted" style="font-size:0.78rem;">—</span>'}</td>
+          <td style="padding:4px 8px;text-align:center;">${heropenKnop}</td>
         </tr>`;
       };
 
@@ -1535,20 +1597,178 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
              <thead><tr style="background:var(--bg);">
                <th style="text-align:left;padding:4px 8px;">Leerling</th>
                <th style="text-align:left;padding:4px 8px;">Status</th>
+               <th style="padding:4px 8px;white-space:nowrap;">Voortgang</th>
                <th style="padding:4px 8px;white-space:nowrap;">Afwezigheid</th>
+               <th style="padding:4px 8px;white-space:nowrap;">Indiening</th>
              </tr></thead><tbody>${d.students.map(rij).join('')}</tbody></table></div>
            <p class="muted" style="font-size:0.78rem;margin:6px 0 0;">
-             Gewettigd afwezig telt niet mee voor het klasgemiddelde.</p>`
+             Gewettigd afwezig en 🕓 bezig tellen niet mee voor het klasgemiddelde. 🚫 auto-ingediend
+             (tabwissel) telt wél mee — gebruik "Heropenen" als je die leerling een nieuwe kans wil geven.
+             🟢 = nu live verbonden. Klik op de voortgang (bv. "7/10") voor een overzicht per
+             vraag. "Heropenen" zet een per ongeluk of automatisch ingediende
+             toets/taak terug open voor die leerling (bestaande antwoorden blijven staan).
+             ${!d.kanHeropenen ? `Deze toets/taak is zelf ${d.stoppedAt ? 'gestopt' : 'al voorbij (deadline verstreken)'} —
+             heropenen kan dan niet meer, want de leerling kan er sowieso niet meer in. Verleng eerst de
+             deadline via "Bewerken" als je dat toch nog wil.` : ''}</p>`
         : '<span class="muted" style="font-size:0.85rem;">Geen leerlingen in deze klas voor dit schooljaar.</span>';
 
       const extras = (d.extras && d.extras.length)
         ? `<div style="margin-top:10px;font-size:0.8rem;"><span class="muted">Niet in de klas (andere naam ingetypt?):</span><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">${d.extras.map(rosterChip).join('')}</div></div>`
         : '';
-      box.innerHTML = legend + tabel + extras;
+
+      // Sprint 90: zelfevaluatie-enquête ná het indienen — samenvatting (stemmingsverdeling
+      // + percentages per stelling) EN per-leerling detail, beide op dezelfde plek als de
+      // rest van de Voortgang ("Beide", zoals gevraagd).
+      const zelfeval = renderZelfevaluatieSamenvatting(d);
+
+      box.innerHTML = mismatchBanner + legend + tabel + extras + zelfeval;
     } catch (e) {
       box.innerHTML = '<span class="muted">Fout bij laden voortgang.</span>';
     }
   };
+
+  // ── Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij toetsen die dit hebben
+  // aanstaan). Vaste vragenlijst — bewust gedupliceerd t.o.v. lib/validation.js/
+  // quiz-student.js (geen gedeelde bundelaar in dit project), enkel om labels te tonen bij
+  // de item-id's die de roster meestuurt.
+  const ZELFEVAL_STEMMINGEN = [
+    { id: 'zeer_slecht', icoon: '💀', label: 'Heel slecht' },
+    { id: 'slecht', icoon: '☹️', label: 'Slecht' },
+    { id: 'neutraal', icoon: '😐', label: 'Neutraal' },
+    { id: 'goed', icoon: '🙂', label: 'Goed' },
+    { id: 'uitstekend', icoon: '⭐', label: 'Uitstekend' },
+  ];
+  const ZELFEVAL_CATEGORIEEN = [
+    { id: 'voorbereiding', titel: 'Voorbereiding', items: [
+      { id: 'gelezen_1x', tekst: 'Ik heb de leerstof 1 keer gelezen.' },
+      { id: 'gelezen_meermaals', tekst: 'Ik heb de leerstof meerdere keren gelezen.' },
+      { id: 'grondig_geleerd', tekst: 'Ik heb de leerstof grondig geleerd.' },
+    ] },
+    { id: 'verwerking', titel: 'Verwerking van de leerstof', items: [
+      { id: 'samenvatting', tekst: 'Ik heb een samenvatting gemaakt.' },
+      { id: 'herhaald_3x', tekst: 'Ik heb de samenvatting minstens 3 keer herhaald.' },
+      { id: 'begrippenlijst', tekst: 'Ik heb een begrippenlijst geleerd.' },
+      { id: 'extra_uitleg', tekst: 'Ik heb extra uitleg gevraagd (aan de leerkracht of een klasgenoot).' },
+      { id: 'ondervraagd', tekst: 'Iemand heeft mij ondervraagd.' },
+    ] },
+    { id: 'oefenen', titel: 'Oefenen', items: [
+      { id: 'oefeningen_gemaakt', tekst: 'Ik heb oefeningen gemaakt.' },
+      { id: 'oefeningen_herhaald', tekst: 'Ik heb oefeningen opnieuw gemaakt / herhaald.' },
+      { id: 'extra_oefeningen', tekst: 'Ik heb extra oefeningen gemaakt (online of in het boek).' },
+      { id: 'geen_oefeningen', tekst: 'Ik heb geen oefeningen gemaakt.' },
+    ] },
+    { id: 'planning', titel: 'Planning', items: [
+      { id: 'op_tijd', tekst: 'Ik ben op tijd begonnen met leren (enkele dagen op voorhand).' },
+      { id: 'laat', tekst: 'Ik ben laat begonnen (de dag ervoor).' },
+      { id: 'zelfde_dag', tekst: 'Ik ben pas op de dag zelf begonnen.' },
+    ] },
+    { id: 'aandachtspunten', titel: 'Aandachtspunten', items: [
+      { id: 'niet_voldoende', tekst: 'Ik heb niet (voldoende) geleerd.' },
+      { id: 'verkeerde_leerstof', tekst: 'Ik heb de verkeerde leerstof geleerd.' },
+      { id: 'vergeten', tekst: 'Ik was vergeten dat er een toets was.' },
+    ] },
+  ];
+
+  function renderZelfevaluatieSamenvatting(d) {
+    if (!d.selfEvalEnabled) return '';
+    const z = d.zelfevaluaties;
+    if (!z || !z.totaalIngevuld) {
+      return `<div style="margin-top:14px;padding:10px 12px;background:var(--bg);border-radius:8px;font-size:0.82rem;">
+        <strong>📝 Zelfevaluatie</strong> — nog niemand heeft deze ingevuld.
+      </div>`;
+    }
+    const stemmingRij = ZELFEVAL_STEMMINGEN.map(s => {
+      const n = z.stemmingTellingen?.[s.id] || 0;
+      return n ? `<span title="${escapeHtml(s.label)}">${s.icoon} ${n}</span>` : '';
+    }).filter(Boolean).join(' &nbsp; ');
+    const itemRijen = ZELFEVAL_CATEGORIEEN.map(c => {
+      const items = c.items.map(it => {
+        const n = z.itemTellingen?.[c.id]?.[it.id] || 0;
+        const pct = z.totaalIngevuld ? Math.round((n / z.totaalIngevuld) * 100) : 0;
+        return `<div style="display:flex;justify-content:space-between;gap:10px;font-size:0.78rem;padding:2px 0;">
+          <span class="muted">${escapeHtml(it.tekst)}</span><span>${n} (${pct}%)</span>
+        </div>`;
+      }).join('');
+      return `<div style="margin-top:6px;"><strong style="font-size:0.82rem;">${escapeHtml(c.titel)}</strong>${items}</div>`;
+    }).join('');
+    return `<div style="margin-top:14px;padding:10px 12px;background:var(--bg);border-radius:8px;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <strong style="font-size:0.85rem;">📝 Zelfevaluatie</strong>
+        <span class="muted" style="font-size:0.8rem;">${z.totaalIngevuld} ingevuld</span>
+        <span style="font-size:0.9rem;">${stemmingRij}</span>
+        <button class="btn btn-muted small zelfeval-detail-btn" style="margin-left:auto;font-size:0.78rem;padding:2px 8px;"
+          data-zelfeval='${escapeHtml(JSON.stringify(z))}' title="Overzicht per leerling">📋 Per leerling</button>
+      </div>
+      <div style="margin-top:6px;">${itemRijen}</div>
+    </div>`;
+  }
+
+  window.toonZelfevaluatieDetailPerLeerling = function(z) {
+    if (!z || !z.perStudent || !z.perStudent.length) {
+      if (window.pyAlert) pyAlert('Nog geen zelfevaluaties ingevuld.', 'info');
+      return;
+    }
+    const stemmingMap = new Map(ZELFEVAL_STEMMINGEN.map(s => [s.id, s]));
+    const rijenHtml = z.perStudent
+      .slice()
+      .sort((a, b) => (a.studentName || '').localeCompare(b.studentName || '', 'nl'))
+      .map(p => {
+        const s = stemmingMap.get(p.stemming);
+        const categorieDetail = ZELFEVAL_CATEGORIEEN.map(c => {
+          const gekozen = (p.antwoorden?.[c.id] || [])
+            .map(itemId => c.items.find(it => it.id === itemId)?.tekst)
+            .filter(Boolean);
+          if (!gekozen.length) return '';
+          return `<div style="font-size:0.78rem;margin-top:2px;"><span class="muted">${escapeHtml(c.titel)}:</span> ${gekozen.map(escapeHtml).join('; ')}</div>`;
+        }).join('');
+        return `<div style="padding:8px 0;border-bottom:1px solid #f1f5f9;">
+          <div style="font-weight:700;font-size:0.9rem;">${s ? s.icoon : ''} ${escapeHtml(p.studentName || '(onbekend)')}</div>
+          ${categorieDetail}
+        </div>`;
+      }).join('');
+    if (window.pyAlert) pyAlert(`<div style="font-weight:800;margin-bottom:8px;">Zelfevaluatie per leerling</div>${rijenHtml}`, 'info');
+  };
+
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest && e.target.closest('.zelfeval-detail-btn');
+    if (!btn) return;
+    let z = null;
+    try { z = JSON.parse(btn.dataset.zelfeval || 'null'); } catch { z = null; }
+    toonZelfevaluatieDetailPerLeerling(z);
+  });
+
+  // Sprint 89: overzicht per vraag voor één leerling — dezelfde soort lijst als de leerling
+  // zelf te zien krijgt vóór het indienen (openSubmitScreen() in quiz-student.js), maar dan
+  // voor de leerkracht, opgebouwd uit de progress-data die de roster al meestuurt (geen
+  // extra request nodig). Gebruikt data-attributen i.p.v. inline onclick-argumenten, want
+  // de vraaginhoud (vaknaam e.d.) kan aanhalingstekens bevatten die een inline onclick-string
+  // zouden breken.
+  window.toonVraagOverzichtLeerling = function(studentName, progress) {
+    if (!progress || !progress.total) {
+      if (window.pyAlert) pyAlert(`Nog geen vraaggegevens beschikbaar voor ${escapeHtml(studentName)}.`, 'info');
+      return;
+    }
+    const rijenHtml = progress.perQuestion.map((q, i) => {
+      const icon = q.answered ? '✅' : '⬜';
+      const vak = q.subject ? ` · ${escapeHtml(q.subject)}` : '';
+      return `<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid #f1f5f9;font-size:0.85rem;">
+        <span>${icon} Vraag ${i + 1}${vak}</span>
+        <span class="muted">${q.points} pt</span>
+      </div>`;
+    }).join('');
+    const html = `<div style="font-weight:800;margin-bottom:8px;">${escapeHtml(studentName)} — ${progress.answered}/${progress.total} vragen beantwoord</div>${rijenHtml}`;
+    if (window.pyAlert) pyAlert(html, 'info'); else alert(`${studentName}: ${progress.answered}/${progress.total}`);
+  };
+
+  // Eén gedelegeerde listener voor alle voortgang-chips (die per rij opnieuw gerenderd
+  // worden bij elke ↻ van de Voortgang) i.p.v. telkens opnieuw een listener toevoegen.
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest && e.target.closest('.voortgang-chip');
+    if (!btn) return;
+    let progress = null;
+    try { progress = JSON.parse(btn.dataset.progress || 'null'); } catch { progress = null; }
+    toonVraagOverzichtLeerling(btn.dataset.student || '', progress);
+  });
 
   // Sprint 70: gewettigd afwezig aan/uit voor één leerling bij één toets.
   window.zetLeerlingStatus = async function(code, studentId, aan) {
@@ -1563,6 +1783,28 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       toggleQuizRoster(code); toggleQuizRoster(code);
     } catch (e) {
       await pyAlert('Kon de afwezigheid niet bewaren: ' + e.message, 'error');
+    }
+  };
+
+  // Sprint 79: een per ongeluk ingediende toets/taak terug openzetten voor één leerling.
+  window.heropenLeerling = async function(code, studentId, studentName) {
+    const ok = await pyConfirm({
+      title: 'Heropenen?',
+      body: `De toets/taak van "${studentName}" terug openzetten? De leerling kan dan verder ` +
+            `werken en later opnieuw indienen. Bestaande antwoorden blijven behouden.`,
+      confirmLabel: 'Heropenen',
+    });
+    if (!ok) return;
+    try {
+      const fetcher = window.apiFetch || fetch;
+      const r = await fetcher('/api/quiz-sessions/' + code + '/roster/' + studentId + '/reopen', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentName }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+      toggleQuizRoster(code); toggleQuizRoster(code);
+    } catch (e) {
+      await pyAlert('Kon de toets/taak niet heropenen: ' + e.message, 'error');
     }
   };
 

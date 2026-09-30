@@ -1,3 +1,756 @@
+## v2026.2.51.89 — Drie verbeteringen: geen vraagnummers overslaan bij "terugbladeren niet toegestaan", X/Y-voortgang zichtbaar bij Voortgang, en een logboek van netwerk-/RUN-problemen
+
+### 1. "Terugbladeren niet toegestaan" kon toch omzeild worden via de vraagnummers bovenaan
+**Aanleiding:** "Indien ik bij toets vorige heb uitgeschakeld mag je ook niet via de
+vraagnummer bovenaan kunnen gaan."
+
+De vraagnummerbalk bovenaan blokkeerde bij "Terugbladeren niet toegestaan (1 kans per
+vraag)" enkel de nummers VÓÓR de huidige vraag — een leerling kon dus gewoon een stuk
+VOORUIT springen (bv. van vraag 2 rechtstreeks naar vraag 6), zonder de bevestiging die de
+"Volgende"-knop wel toont, en met als gevolg dat de overgeslagen vragen (3, 4, 5) daarna óók
+voorgoed onbereikbaar werden. Bij deze instelling is de nummerbalk voortaan een pure
+voortgangsindicator: ENKEL de huidige vraag is nog aanklikbaar (wat toch niets doet), elke
+andere vraag gaat alleen nog via "Volgende". De onderliggende harde grendel is hetzelfde
+aangescherpt, dus ook een rechtstreekse manipulatie (bv. via de browserconsole) verandert
+daar niets aan.
+
+### 2. Voortgang toonde geen "hoeveel vragen al beantwoord?"
+**Aanleiding:** "bij de voortgang van de toets zou ik ook ten allen tijde moeten kunnen zien
+hoeveel vragen ze reeds beantwoord hebben van de hoeveel — en als ik dan klik een
+overzichtje welke vragen (bvb 7/10 → na klikken een overzichtje zoals de leerlingen krijgen
+na de toets bij indienen, alvorens volledig in te dienen)."
+
+De Voortgang-tabel toonde voorheen enkel de globale status (op tijd/te laat/bezig/...), niet
+hoever een leerling concreet staat. Er is nu een extra kolom "Voortgang" met bv. "7/10" —
+klik erop voor een overzicht per vraag (✅ beantwoord / ⬜ nog niet), in dezelfde stijl als
+het overzicht dat de leerling zelf ziet vóór het indienen. Gebruikt dezelfde
+beantwoord-regel als de leerling zelf (per vraagtype: code, open vraag, samengestelde vraag,
+stroomdiagram, keuzevraag), zodat de twee tellingen nooit uiteenlopen.
+
+### 3. Nieuw logboek: hoe vaak bij welke leerling RUN niet lukte of de verbinding wegviel
+**Aanleiding:** "er zou ook een logging moeten komen van hoe vaak bij welke gebruikersnaam
+run niet werkt, verbinding wegvalt ... ik moet hier meer controle op krijgen."
+
+Dit werd voorheen nergens bewaard — een leerling zag wel een melding op zijn eigen scherm
+(sinds v88), maar de leerkracht kwam dat nooit te weten, laat staan hoe vaak. Systeembeheer
+heeft nu een nieuw paneel "📶 Verbindingsproblemen" met, per leerlingnaam, het aantal
+weggevallen verbindingen en RUN-problemen in de gekozen periode (1/7/30/90 dagen), plus een
+uitklapbare lijst van de meest recente losse gebeurtenissen. Enkel écht onverwachte
+gebeurtenissen tellen mee — een leerling die gewoon netjes afsluit of zich afmeldt komt hier
+niet in terecht, enkel een verbroken verbinding (wifi-hapering e.d.) of een RUN die niet
+(meteen) lukte. Een opschoon-knop verwijdert desgewenst regels ouder dan 30 dagen.
+
+**Getest:**
+- Volledige testsuite: 368 tests (14 nieuw), 100% groen (geen regressies).
+- Live smoke test tegen de sandbox-databank: (1) Voortgang-berekening klopt exact vóór en
+  na een opgeslagen antwoord (0/2 → 1/2, met het juiste vraagje aangevinkt); (2) het nieuwe
+  logboek registreert zowel een server-gemelde als een client-gemelde gebeurtenis correct,
+  met werkende rate-limiting tegen spam; (3) een normale, nette socket-afsluiting wordt NIET
+  gelogd, een ruwe transport-onderbreking wel; (4) het admin-overzicht en de opschoon-knop
+  werken beide correct (getest met een kunstmatig oude regel).
+
+*Een vierde punt uit dezelfde melding — de Ollama-container vanuit Beheer kunnen
+uitschakelen — is bewust NIET meegenomen: dat vereist dat de webcontainer met de
+Docker-daemon kan praten, wat in de praktijk volledige controle over alle Docker-containers
+op de server geeft, niet enkel over Ollama. Dat risico werd voorgelegd, en in overleg
+achterwege gelaten.*
+
+## v2026.2.51.88 — Fix (vervolg op v87): RUN-knop deed soms niets bij een wankele verbinding — nu altijd zichtbaar herstel + automatische herprobeer
+
+### Aanleiding
+"er zitten nog steeds TE VEEL netwerkverbindingsonderbrekingen in ... dit
+soort dingen zouden feilloos moeten gaan ... hier zou bij klikken op de RUN
+knop altijd moeten gekeken worden of je verbinding nog actief is — nu is
+het te dikwijls dat studenten op RUN klikken en er NIETS gebeurt. Indien
+niet → verbinding herstellen EN de run uitvoeren → altijd dan melding laten
+zien (zoals 'je bent zoveelste in de wachtrij') — voeg dit bij 87."
+
+### Wat bleek
+v87 loste de "er is al een verbinding actief"-melding zelf al op, maar
+loste niet het onderliggende gedrag van de RUN-knop op: die stuurde zijn
+aanvraag altijd blindelings weg, zonder ooit te controleren of de
+verbinding nog leefde, en zonder ooit een antwoord van de server te
+verwachten. Bij een korte wifi-hapering — of zelfs vlak NA een geslaagde
+herverbinding, in het korte venster waarin de server die herverbinding nog
+aan het herkennen was — verdween zo'n aanvraag dan volledig spoorloos: geen
+foutmelding, geen uitvoer, niets zichtbaar. De leerling kon enkel gokken of
+opnieuw klikken zou helpen.
+
+### De fix
+1. **De server bevestigt nu altijd expliciet of een RUN-aanvraag effectief
+   aangekomen en geregistreerd is** (via een socket.io-ack), in plaats van
+   in bepaalde gevallen stilzwijgend niets terug te sturen.
+2. **De client controleert voortaan zélf of die bevestiging binnenkomt.**
+   Blijft ze uit — of is de verbinding sowieso al zichtbaar verbroken — dan
+   herstelt de leerlingpagina automatisch de sessie (een `quiz_start`
+   opnieuw versturen) en probeert de RUN-aanvraag daarna opnieuw, tot
+   maximaal 8 pogingen.
+3. **Dit hele proces is nu altijd zichtbaar** in het uitvoervenster (bv.
+   "🔌 Verbinding herstellen...", "🔄 Verbinding wordt hersteld — even
+   geduld (poging 2/8)..."), naar analogie met de bestaande
+   wachtrij-melding bij vrij oefenen — in plaats van een leeg venster waar
+   de leerling niets aan heeft.
+4. Terwijl we hiermee bezig waren: de leerlingpagina van een toets/taak
+   miste ook gewoon de bestaande "in wachtrij"- en
+   "wacht-even-met-runnen"-meldingen die de vrij-oefenen-pagina al langer
+   toont bij een drukke codeuitvoerder — die tonen we daar voortaan ook,
+   voor hetzelfde soort duidelijkheid.
+
+**Getest:**
+- Volledige testsuite: 359 tests, 100% groen (geen regressies).
+- Live smoke test tegen de sandbox-databank met een echt ingelogd
+  leerling-account: (1) een normaal verbonden en geregistreerde leerling
+  krijgt meteen een bevestiging terug bij RUN, (2) een socket die nog nooit
+  `quiz_start` stuurde (dus niet geregistreerd) krijgt nu expliciet een
+  "niet gelukt"-antwoord in plaats van stilte, (3) een leerling wiens
+  verbinding abrupt wegvalt en meteen daarna opnieuw verbindt — precies het
+  scenario van een wifi-hapering — krijgt bij een RUN-poging vóór het
+  herstel van de sessie eerst een "niet gelukt"-antwoord, en meteen
+  daarna, ná het automatische herstel, een geslaagde bevestiging: exact het
+  gedrag dat de client nu zelf ook zo afhandelt.
+
+## v2026.2.51.87 — 🔴 Kritieke bugfix: leerlingen konden tijdens een toets vastlopen na een korte wifi-hapering ("er is al een verbinding actief")
+
+### Aanleiding
+"tijdens de toets krijgen leerlingen soms een rood venster te zien met 'er
+is reeds een verbinding' — en dan werkt de RUN-knop niet meer OF staan ze
+bij de admin pagina op OFFLINE. Aangezien ze NOOIT van tabblad mogen
+wisselen kunnen ze ook niet verversen. Deze foutmeldingen zouden ze
+uberhaupt ook niet mogen krijgen."
+
+### Wat bleek
+De "dubbele verbinding"-check (die voorkomt dat twee toestellen tegelijk
+onder dezelfde naam meedoen) vertrouwde blindelings op een "online"-vlag.
+Die vlag blijft nog even `true` staan NADAT de onderliggende verbinding al
+stilzwijgend gestorven is — bijvoorbeeld bij een korte wifi-hapering op een
+druk klaslokaal-netwerk. De server merkt zo'n stille dood pas op nadat een
+korte ping-timeout verstrijkt, terwijl de leerling z'n browser vaak al
+DIRECT zelf een nieuwe verbinding probeert op te zetten — vaak sneller dan
+de server het verval van de oude kan vaststellen. Viel die herverbinding
+toevallig middenin dat venster, dan kreeg een volkomen eerlijke leerling
+"er is al een verbinding actief" te zien. Omdat tijdens een toets niet van
+tabblad gewisseld of ververst mag worden (anti-spiek, sprint 82), zat die
+leerling dan volledig vast: de RUN-knop werkte niet meer (de kapotte oude
+verbinding) en bij de leerkracht stond hij op "offline" — zonder enige
+uitweg voor de leerling zelf.
+
+### De fix
+Voor een toets/taak is inloggen verplicht (sprint 50) — dat betekent dat we
+voor een ingelogde leerling met zekerheid weten dat een nieuwe verbinding
+onder hetzelfde account ook écht dezelfde persoon is. In dat geval hoeft de
+oude verbinding niet eerst "bewezen dood" te zijn: de nieuwste verbinding
+wint voortaan altijd en de oude wordt expliciet en netjes buitengezet, in
+plaats van de nieuwe (eerlijke) poging te weigeren. Een niet-geverifieerde
+naam (enkel bij een preview-toets, zonder account) blijft wel de
+voorzichtigere regel volgen: enkel weigeren als de bestaande verbinding
+aantoonbaar nog leeft. Dezelfde kwetsbaarheid zat ook in de gelijkaardige
+naam-botsing-check bij een gewone (niet-toets) klassessie — ook daar
+gefixt.
+
+**Getest:**
+- Volledige testsuite: 359 tests, 100% groen (geen regressies).
+- Live smoke test tegen de sandbox-databank met een echt ingelogd
+  leerling-account: (1) een tweede, écht gelijktijdige verbinding onder
+  dezelfde naam zonder account blijft correct geweigerd, (2) een normale,
+  nette herverbinding (oude verbinding netjes gesloten, dan opnieuw
+  verbinden) werkt zoals voorheen, (3) een tweede verbinding met HETZELFDE
+  ingelogde account terwijl de oude nog "verbonden" leek, wordt nu meteen
+  toegelaten — de oude verbinding wordt zichtbaar (`disconnect: io server
+  disconnect`) buitengezet, en de leerling staat nadien correct weer
+  "online" bij de leerkracht.
+
+## v2026.2.51.86 — Fix: "↺ Heropenen" verscheen/werkte nog nadat de toets/taak zelf al afgelopen was
+
+### Aanleiding
+"Indien een toets/taak is afgelopen mag de knop heropenen niet bestaan
+uiteraard" — na de vorige fix (v85) bleek dat een gestopte of over-tijd
+toets/taak nog steeds voor élke leerling met een indiening een "↺
+Heropenen"-knop toonde, ook als er voor die leerling niets te heropenen viel
+(bv. leerlingen die nooit meededen en automatisch een 0 kregen toegewezen
+zodra de deadline verstreek).
+
+### Wat bleek
+"Heropenen" zet een leerling terug op "bezig" zodat hij verder kan werken —
+maar zodra de toets/taak **zelf** afgelopen is (door de leerkracht gestopt,
+of de deadline verstreken), weigert `quiz_start` IEDEREEN de toegang, hoe je
+de leerling ook heropent. De knop deed dus alsof hij iets zou oplossen,
+terwijl er voor de leerling niets veranderde: hij kon er nog steeds niet in.
+
+### De fix
+"↺ Heropenen" verschijnt voortaan enkel nog wanneer de toets/taak zelf nog
+open staat (niet gestopt, deadline nog niet verstreken) — anders staat er
+gewoon "—", met een tooltip die uitlegt waarom. Dezelfde controle gebeurt
+ook aan de kant van de server zelf bij de heropen-actie (nooit enkel op het
+scherm vertrouwen): een poging om toch te heropenen terwijl het venster
+dicht is, krijgt een duidelijke foutmelding i.p.v. een stille "ok" die niets
+oplost. Wil je een leerling tóch nog een kans geven na de deadline, verleng
+dan eerst de deadline zelf via "Bewerken" — daarna verschijnt "Heropenen"
+weer.
+
+**Getest:**
+- Volledige testsuite: 359 tests (4 nieuwe voor dit scenario), 100% groen.
+- Live smoke test tegen de sandbox-databank, drie scenario's: (1) toets nog
+  open + leerling ingediend → Heropenen toegestaan en werkt, (2) deadline
+  al verstreken + leerling ingediend → Heropenen geweigerd met duidelijke
+  melding, (3) toets handmatig gestopt + leerling ingediend → Heropenen
+  geweigerd met duidelijke melding.
+
+## v2026.2.51.85 — 🔴 Kritieke bugfix: een leerling zonder enig antwoord kon na auto-indienen NOOIT meer heropend worden
+
+### Aanleiding
+Direct gemeld na een live toets: een leerling ("Test4BW Test") werd door de
+anti-spiek (tabwissel-detectie) automatisch ingediend — de leerling zag zelf
+netjes "Toets ingediend" — maar bij de leerkracht stond die leerling gewoon
+als "niets ingeleverd" te boek, mét de melding "ik kan de toets nog steeds
+niet openzetten". Het "↺ Heropenen"-knopje ontbrak volledig voor die
+leerling.
+
+### Wat bleek
+De functie die een indiening in de databank vastlegt (`submitQuizAnswers`)
+kon tot nu toe ENKEL bestaande antwoord-rijen bijwerken (`UPDATE ... WHERE
+submitted_at IS NULL`) — ze kon nooit zelf een rij aanmaken. Een leerling die
+op het moment van indienen nog **geen enkel antwoord had opgeslagen** (bv.
+een tabwissel binnen enkele seconden na het starten, vóór er ooit iets
+bewaard werd) had dus **helemaal geen rij** om bij te werken. Resultaat:
+er werd niets, maar dan ook niets, in de databank bewaard — geen tijdstip,
+geen reden — terwijl de leerling zelf, in het geheugen van de server, al wél
+volledig afgesloten en vergrendeld was. Voor de leerkracht was zo'n leerling
+onzichtbaar van een "echte" indiening te onderscheiden: hij zag er identiek
+uit aan een leerling die simpelweg nog nooit begonnen was, en het
+"Heropenen"-knopje (dat enkel verschijnt bij een gekend indien-tijdstip)
+bleef daardoor onzichtbaar. Zonder ingreep aan de databank zelf zat die
+leerling voor de rest van de toets/taak muurvast, zonder enige manier om er
+zelf weer in te geraken.
+
+Dit trof niet enkel de nieuwe tabwissel-detectie, maar **elke** manier van
+indienen (ook de deadline, de "Stoppen"-knop, en het verlopen van de timer)
+— telkens wanneer een leerling die nog niets had opgeslagen, toch ingediend
+werd.
+
+### De fix
+`submitQuizAnswers` legt voortaan, wanneer er niets bestaat om bij te
+werken, zelf een minimale (lege) rij vast bij de eerste vraag van de
+toets/taak — puur om het TIJDSTIP en de REDEN van de indiening te
+garanderen. Dit verandert niets aan wat de leerling werkelijk gedaan heeft
+(die blijft terecht "niets ingeleverd" tonen), maar de indiening zelf is nu
+altijd terug te vinden — en dus ook altijd heropenbaar via het bestaande
+"↺ Heropenen"-knopje.
+
+**Getest:**
+- Volledige testsuite: 355 tests, 100% groen (geen regressies).
+- Live end-to-end smoke test tegen de sandbox-databank: een leerling zonder
+  enig opgeslagen antwoord automatisch laten "indienen" (zoals bij een
+  tabwissel meteen na de start) → geverifieerd dat er nu wél een rij met
+  tijdstip/reden in de databank staat, dat de Voortgang dat tijdstip
+  correct toont, en dat "Heropenen" de leerling nadien weer volledig
+  vrijgeeft (tijdstip gewist, terug "niets"/bezig, klaar om verder te
+  werken). Ook getest: dezelfde indiening twee keer per ongeluk laten
+  gebeuren geeft geen fout en geen dubbele rij.
+
+## v2026.2.51.84 — Fix: anti-spiek auto-indiening was onzichtbaar in de Voortgang/klasmatrix (leek een gewone "op tijd"-inzending)
+
+### Aanleiding
+"de voortgang bij een toets zou ik ook opnieuw voor een leerling moeten
+vrijgeven nadat ANTISPIEK AUTO INDIENEN is gebeurd" — het "↺ Heropenen"-knopje
+(sinds v79/v83) bleek eigenlijk al gewoon te werken voor zo'n leerling. Het
+échte probleem: een leerling van wie de toets automatisch werd ingediend door
+de anti-spiek-detectie (v83) zag er in het Voortgang-paneel, de klasmatrix en
+de Excel-export **exact hetzelfde uit als een normale, eerlijke "✅ op tijd"-
+inzending** — er was dus geen enkel signaal dat er iets ongewoons gebeurd was,
+en dus ook geen aanleiding om te heropenen.
+
+### Wat is er gefixt
+- **Nieuwe, eigen status "🚫 Auto-ingediend (tabwissel)"** — apart van "✅ op
+  tijd" en "🟠 te laat" — overal waar een status getoond wordt:
+  - het Voortgang-paneel (leerkrachtscherm bij een lopende toets/taak),
+  - de klasmatrix (overzicht per klas) én de bijhorende Excel-export,
+  - de tellingen in het overzicht ("X leerlingen auto-ingediend").
+- Deze nieuwe status **telt mee voor het klasgemiddelde** (net als "op tijd"/
+  "te laat") — het is immers een echte momentopname van het werk op dat
+  moment, geen afwezigheid. Zo kan het ook nooit lonend zijn om zelf de
+  anti-spiek te laten afgaan om onvolledig werk buiten de punten te houden.
+- Het "↺ Heropenen"-knopje werkte al correct voor deze situatie (het stond al
+  sinds v79 klaar voor élke ingediende toets/taak) — dat hoefde dus niet
+  aangepast te worden. Wél is de uitleg onderaan het Voortgang-paneel en de
+  klasmatrix-legende aangevuld, zodat duidelijk is dat "Heropenen" hiervoor
+  bedoeld is.
+
+**Getest:**
+- Volledige testsuite (355 tests — 4 nieuwe voor dit scenario — 100% groen).
+- Live end-to-end smoke test tegen de sandbox-databank: een toets aangemaakt
+  gekoppeld aan een echte klas/leerling, een automatische indiening door
+  anti-spiek gesimuleerd → geverifieerd dat de Voortgang-teller (roster-API),
+  de klasmatrix (JSON) én de Excel-export (geopend en gecontroleerd met
+  exceljs) allemaal correct "🚫 auto-ingediend (tabwissel)" tonen mét het
+  behaalde cijfer (niet enkel het icoon), en dat "Heropenen" de leerling
+  weer netjes terugzet naar "bezig" (teller/status gewist, klaar voor een
+  nieuwe kans).
+
+## v2026.2.51.83 — Nieuw: anti-spiek bij een toets (volledig scherm + auto-indienen bij tabwissel + cursus-zijpaneel)
+
+### Aanleiding
+"ik zou graag hebben tijdens een toets dat een leerling NIET van BROWSER of TAB
+kan veranderen (bij een taak mag dit wel), dit om spieken tegen te gaan" —
+gevolgd door een concreet, goedgekeurd ontwerp: fullscreen altijd verplicht,
+automatisch indienen bij tabwissel (instelbaar per toets, standaard AAN, drempel
+instelbaar, standaard 1), een optionele cursus-link als zijpaneel (voor toetsen
+waar dat mag), en een eenmalige waarschuwing vóór de start — nooit bij een taak.
+
+### Wat is er nieuw (enkel bij een toets — nooit bij een taak)
+- **Volledig scherm verplicht.** Zodra een leerling op "Starten" klikt, gaat de
+  browser in volledig scherm. Dit is nooit uitschakelbaar en geldt voor élke
+  toets (ook oudere). Verlaat de leerling het volledig scherm, dan telt dat mee
+  als een "wissel" — net als van tabblad/venster veranderen.
+- **Automatisch indienen bij tabwissel** — nieuwe schakelaar per toets
+  (**standaard AAN** bij een nieuwe toets, drempel **standaard 1**, instelbaar
+  tot 20). Wisselt een leerling te vaak van tabblad/venster of verlaat hij het
+  volledig scherm, dan wordt zijn toets automatisch ingediend zoals ze op dat
+  moment stond (net zoals nu al gebeurt bij het verstrijken van de deadline).
+  De teller wordt bijgehouden **op de server**, niet vertrouwd van de leerling
+  zijn browser — die kan dus niet vervalst worden door de teller simpelweg niet
+  te melden.
+- **Cursus-link (optioneel), als zijpaneel IN de toets zelf.** Een leerkracht
+  kan een link (bv. een gedeelde PDF) instellen die de leerling via een
+  "📄 Cursus"-knop kan open- en dichtklappen — zonder ooit het tabblad te
+  hoeven verlaten. Zo blijft "de cursus erbij mogen houden" perfect samengaan
+  met "geen tabbladen wisselen": er is nooit een tweede tabblad nodig.
+- **Eenmalige waarschuwing vóór de start** (niet per wissel — dat kan technisch
+  niet: eens een leerling van tabblad wisselt, is die actie al gebeurd en kan
+  geen enkele website dat nog tegenhouden of ter plekke laten bevestigen). De
+  leerling ziet dus vooraf duidelijk: "Deze toets wordt in volledig scherm
+  getoond... wissel je van tabblad, dan wordt je toets automatisch ingediend."
+- **Bestaande toetsen aangepast in de database**: alle reeds bestaande
+  toetsen/taken kregen deze schakelaar **UIT** en de drempel op **0** gezet
+  (geen enkele bestaande toets verandert dus ongemerkt van gedrag) — enkel een
+  NIEUW aangemaakte toets krijgt vanaf nu standaard AAN/drempel 1, en een
+  leerkracht kan het per toets (ook een bestaande) alsnog aan- of uitzetten bij
+  het bewerken.
+- Een **"↺ Heropenen"** door de leerkracht (sinds v79) wist ook de teller — een
+  leerling krijgt na een bewuste heropening dus een echt nieuwe kans, zonder
+  dat eerdere wissels nog meetellen.
+
+### Belangrijk om te weten
+- Dit is, zoals eerder besproken, een **afschrikmiddel/detectiemechanisme**,
+  geen ondoordringbaar slot — een technisch onderlegde leerling met een tweede
+  toestel ernaast wordt hier niet door tegengehouden. Voor écht hoge inzet
+  blijft een aparte lockdown-browser (bv. Safe Exam Browser) de sterkere optie.
+- Dit is opzettelijk **nooit van toepassing op een taak** — zelfs als er per
+  ongeluk toch instellingen voor meegestuurd zouden worden, negeert de server
+  (en de databank) dat altijd voor een taak.
+
+**Getest:**
+- Volledige testsuite (351 tests — 15 nieuwe voor dit scenario — 100% groen),
+  inclusief een pure-functie-test die bevestigt dat een taak deze instellingen
+  NOOIT kan aanzetten, wat er ook meegestuurd wordt.
+- Live end-to-end smoke test tegen de sandbox-databank: een toets aanmaken met
+  de schakelaar aan (drempel 2) en een cursus-link, een leerling laten
+  "verbinden", 1x een tabwissel melden (nog geen actie), een 2e keer (drempel
+  bereikt) → automatisch ingediend met reden "tab_switch", correct opgeslagen
+  in de databank. Dezelfde test op een taak met dezelfde instellingen bevestigt
+  dat die daar altijd genegeerd worden, ook na 5 gemelde "wissels".
+
+## v2026.2.51.82 — Fix: toets kon niet in een iframe getoond worden (Kiosk4School)
+
+### Aanleiding
+"voor kiosk4school" — een screenshot van de browserconsole toonde dat
+`app.pycodeflow.org` geweigerd werd in een iframe te laden binnen het
+Kiosk4School-portaal (de "toetsmodus"-omgeving die scholen op Chromebooks
+gebruiken):
+
+```
+Framing 'https://app.pycodeflow.org/' violates the following Content
+Security Policy directive: "frame-ancestors 'none'". The request has
+been blocked.
+```
+
+### De oorzaak
+Dit was **geen probleem bij Kiosk4School en geen "API-blokkade"**, maar onze
+eigen beveiliging: PyCodeFlow stuurde op élke pagina een
+`Content-Security-Policy: frame-ancestors 'none'` én `X-Frame-Options: DENY`
+mee. Dat is een terechte bescherming tegen clickjacking (een kwaadwillige
+site die jouw pagina onzichtbaar in een iframe verstopt om klikken te
+kapen), maar het blokkeerde daarmee ook élke legitieme inbedding — inclusief
+Kiosk4School, dat de leerling-toetspagina bewust in een iframe toont binnen
+zijn eigen portaal.
+
+### De fix
+Enkel de publieke leerling-pagina (`quiz-student.html` — waar leerlingen via
+een code deelnemen aan een toets/taak) mag voortaan ingebed worden, en dat
+ook enkel door `*.kiosk4school.be`. Alle andere pagina's — het
+leerkracht-dashboard, klasbeheer, admin, login, … — blijven exact zoals
+voorheen volledig geblokkeerd voor framing. Er verandert dus niets aan de
+beveiliging van al de rest van de toepassing; enkel deze ene, bewust
+publieke pagina kreeg een gerichte, minimale uitzondering.
+
+**Let op — mogelijke bijwerking om in het oog te houden:** een leerling die
+**ingelogd** is op zijn PyCodeFlow-account en de toets via Kiosk4School
+opent, wordt mogelijk niet herkend als dat account (de inlog-cookie
+`student_sid` staat op `SameSite=Strict`, wat browsers in een cross-site
+iframe zoals dat van Kiosk4School blokkeert). Gewoon deelnemen aan de toets
+blijft daardoor werken (dat gebeurt sowieso via de naam, niet via het
+account), maar functies die het gekoppelde account nodig hebben zouden dan
+op "gast" kunnen terugvallen. Dit is nog niet live getest binnen Kiosk4School
+zelf (netwerktoegang tot een echt kiosk4school.be-adres was niet mogelijk
+tijdens het testen) — laat het gerust weten als dit in de praktijk toch een
+probleem blijkt, dan lossen we dat gericht op.
+
+**Getest:**
+- Volledige testsuite (341 tests, 100% groen — deze wijziging raakt geen
+  bestaande logica, enkel een nieuwe voorwaarde in de beveiligingsheaders).
+- Live controle van de effectieve HTTP-headers per pagina: `quiz-student.html`
+  krijgt nu `frame-ancestors 'self' https://*.kiosk4school.be` (geen
+  `X-Frame-Options` meer, want die header ondersteunt geen meerdere
+  domeinen); elke andere pagina (dashboard, login, …) kreeg in dezelfde test
+  nog steeds `frame-ancestors 'none'` + `X-Frame-Options: DENY`, exact zoals
+  voorheen.
+- Live browsertest (Chromium) die bevestigt dat de browser inbedding vanuit
+  een niet-toegelaten oorsprong nog steeds correct weigert (het
+  beveiligingsmechanisme is dus actief, niet per ongeluk volledig
+  opengezet).
+
+## v2026.2.51.81 — Bugfix: "te laat" getoond terwijl de toets/taak nog open staat
+
+### Aanleiding
+Na de vorige bugfix (v80) werden leerlingen eindelijk correct getoond in de
+Voortgang — maar daarbij viel meteen een tweede probleem op: sommige
+leerlingen stonden op "te laat", terwijl de taak volgens de deadline nog
+gewoon open stond. Terechte vraag: "dat klopt NOOIT aangezien de taak nog
+open staat."
+
+### De bug
+`bepaalInleverStatus()` (`web/lib/validation.js`) gaf voor een leerling die
+al aan de slag ging (er staat een antwoord/code) maar nog niet op
+"Indienen" had geklikt, altíjd `'te_laat'` terug — **ongeacht of de deadline
+al verstreken was of niet**. Een leerling die simpelweg nog volop aan het
+werk was op een taak die nog dagen open staat, werd zo bij de leerkracht
+al als "te laat" getoond. Dat is een andere, onafhankelijke bug dan de twee
+vorige (v78 klas-koppeling, v80 klaslidmaatschap) — deze zat al veel langer
+in de code, maar werd pas nu zichtbaar omdat deze leerlingen dankzij v80
+voor het eerst weer volledig in de Voortgang verschenen.
+
+### De fix
+Nieuwe, correcte regel: **"te laat" betekent voortaan enkel nog: geen
+indiening + de deadline is al effectief verstreken.** Zolang de deadline nog
+niet voorbij is (of er geen deadline is ingesteld), krijgt een leerling die
+al inhoud heeft maar nog niet indiende een nieuwe, aparte status: **🕓
+"bezig"** — duidelijk onderscheiden van een échte te-laat-inzending, en
+telt (net als "gewettigd afwezig") nog niet mee voor het klasgemiddelde,
+want de taak is nog niet afgerond.
+
+Dit is overal automatisch mee opgenomen waar de inleverstatus getoond wordt
+— Voortgang, Klasmatrix en de Excel-export gebruiken allemaal dezelfde
+centrale functie/statuslijst.
+
+**Getest:**
+- Volledige testsuite (341 tests — 3 nieuwe voor dit scenario — 100% groen).
+- Live end-to-end smoke test: een leerling verbindt met een taak waarvan de
+  deadline nog een week in de toekomst ligt, slaat een tussentijds antwoord
+  op maar dient niet in — de Voortgang toont die leerling nu correct als
+  "🕓 bezig" (niet "te laat"), met de juiste tellers.
+
+**Betrokken bestanden:** `web/lib/validation.js` · `web/server.js` ·
+`web/public/app.js` · `web/tests/validation.test.js` · `VERSION` (cache-bust
+voor `app.js`)
+
+---
+
+## v2026.2.51.80 — 🔴 KRITIEKE BUGFIX: zelf-geregistreerde leerlingen onzichtbaar in Voortgang
+
+### Aanleiding
+Een leerkracht meldde dat de Voortgang van een taak "0 leerlingen" bleef
+tonen voor een klas (6BW) die volgens "Mijn klassen" wél degelijk 8 actieve
+leerlingen had — ditmaal zonder dat er, zoals bij de vorige klas-koppeling-
+bug (v78), enige klas-mismatch te vinden was: de toets/taak hing gewoon aan
+de juiste, correcte klas. Grondige live-diagnose (rechtstreeks op de
+productie-database, samen met de leerkracht) legde een heel andere,
+onderliggende bug bloot.
+
+### De bug — grondoorzaak
+Wanneer een leerling zichzelf registreert via een klas-startcode, staat zijn
+**account** in afwachting van goedkeuring door de leerkracht (`students.status
+= 'pending'`) tot die het aanvaardt. Dat is een normaal, gewenst mechanisme.
+
+`createStudentAccount()` in `web/db/database.js` gaf die ACCOUNT-status
+echter blindelings ook door als de status van het **klaslidmaatschap**
+(`class_memberships.status`) — twee compleet onafhankelijke dingen die
+toevallig dezelfde waarde ('pending') deelden. Zodra de leerkracht het
+account nadien aanvaardde, werd enkel `students.status` bijgewerkt; niets
+in de hele codebase werkte ooit het klaslidmaatschap zelf bij. Het gevolg:
+een zelf-geregistreerde leerling bleef **voor altijd** met een 'pending'
+klaslidmaatschap geboekt staan, ook jaren nadat zijn account al lang
+aanvaard was — volledig onzichtbaar voor wie ernaar keek, want zowat overal
+in de app (Mijn klassen, Klasmatrix, …) werd nooit op deze specifieke status
+gefilterd. Pas de Voortgang (sprint 78) filterde voor het eerst expliciet op
+enkel 'active' klaslidmaatschappen, en maakte deze al veel oudere, sluimerende
+bug voor het eerst zichtbaar — bij toeval net op het moment dat er ook een
+andere (wél echte) klas-koppelingsbug gemeld werd, wat de diagnose bemoeilijkte.
+
+### De fix
+- `createStudentAccount()` registreert een klaslidmaatschap voortaan altijd
+  als `'active'`, ongeacht de (nog te aanvaarden) status van het account
+  zelf — een leerling is gewoon lid van zijn klas vanaf het moment dat hij
+  zich registreert; of zijn account al dan niet aanvaard is, is een aparte
+  vraag die `students.status` al correct bijhoudt.
+- **Eenmalige, veilige gegevensherstelling** bij het opstarten van de
+  server (`initSchema`, idempotent — kan zonder gevaar bij elke herstart
+  opnieuw draaien): alle bestaande `class_memberships` met status
+  `'pending'` worden hersteld naar `'active'`. Dit raakt geen enkele andere
+  kolom of tabel aan.
+
+Dit verklaart wellicht ook een deel van de oorspronkelijke bugmelding die tot
+sprint 78 leidde — een deel van "de aantallen kloppen niet" kan van deze
+oudere, onafhankelijke bug gekomen zijn, bovenop de toen gevonden en
+opgeloste klas-jaar-koppelingsbug.
+
+**Getest:**
+- Volledige testsuite (338 tests) blijft 100% groen.
+- Live end-to-end smoke test: een nieuw geregistreerde leerling (account nog
+  'pending') krijgt meteen een 'active' klaslidmaatschap; een kunstmatig
+  aangemaakte, historisch 'pending' lidmaatschap-rij wordt door `initSchema`
+  correct hersteld naar 'active'; `listStudents()` (dezelfde functie als de
+  Voortgang) toont nadien beide leerlingen correct.
+
+**Betrokken bestanden:** `web/db/database.js` · `VERSION` (geen cache-bust
+nodig — dit is een pure backend/databasewijziging, geen enkel bestand dat de
+browser laadt is aangepast)
+
+---
+
+## v2026.2.51.79 — Heropenen na indienen + Indienen enkel op laatste vraag
+
+### Aanleiding
+Twee vragen: "voeg ook toe dat ik een student die reeds taak of toets heeft
+ingediend (per ongeluk zijn toets terug kan open zetten)" en "ook zou de
+indienen knop ENKEL op de laatste vraag zichtbaar mogen zijn."
+
+### Feature 1 — Heropenen na indienen
+Een leerling die per ongeluk op "Indienen" klikte (bv. te vroeg, of vóór alle
+vragen bekeken te hebben), zat vroeger vast: er was geen manier om dat terug
+te draaien zonder alle antwoorden te wissen. In de Voortgang staat nu een
+knop **"↺ Heropenen"** naast elke leerling die effectief iets indiende.
+- Zet enkel het "ingediend"-merkteken van die leerling terug open — alle al
+  ingevulde antwoorden blijven gewoon staan, de leerling kan gewoon verder
+  werken en later opnieuw indienen.
+- Werkt voor een ingelogde leerling én voor een gast (zonder account) —
+  gast-antwoorden staan in de databank onder een ander, sessiegebonden id
+  dan `students.id`, dus wordt bijkomend op naam gematcht.
+- Is de leerling op het moment van heropenen nog live verbonden, dan wordt
+  zijn/haar scherm automatisch vernieuwd (na een korte melding) zodat hij/zij
+  meteen verder kan — zonder zelf te moeten herladen.
+- De knop verschijnt enkel bij een leerling die écht indiende (er is een
+  `submittedAt`); een leerling bij wie de deadline gewoon verstreek zonder
+  ooit in te dienen ("te laat") heeft niets om te heropenen.
+
+### Feature 2 — Indienen-knop enkel op de laatste vraag
+De "📤 Indienen"-knop stond voorheen op elke vraag, naast Vorige/Volgende —
+dat maakte het te makkelijk om per ongeluk (te vroeg) in te dienen. Nu
+verschijnt die knop pas bij de laatste vraag, net als de "Volgende"-knop dan
+verdwijnt.
+
+### Technisch
+- Nieuwe DB-functie `reopenAssignmentForStudent` (`web/db/database.js`): zet
+  `submitted_at`/`submitted_by` terug op `NULL` in `quiz_answers` voor die
+  leerling in die sessie (op id én naam, i.p.v. enkel id).
+- Nieuwe route `POST /api/quiz-sessions/:code/roster/:studentId/reopen`
+  (`web/server.js`), met dezelfde teacher-auth/CSRF-bescherming als de
+  bestaande "gewettigd"-route. Zet ook de in-memory `quizSubmitted`-vlag
+  terug op `false` en stuurt, indien de leerling nog verbonden is, een
+  `quiz_reopened`-event naar zijn/haar socket.
+- `web/public/app.js` (`toggleQuizRoster`): nieuwe kolom + knop per leerling;
+  nieuwe functie `heropenLeerling()` met bevestigingsdialoog.
+- `web/public/quiz-student.js`: nieuwe handler voor `quiz_reopened` (melding
+  + herladen, waarna de bestaande, al geteste reconnect-logica alle
+  antwoorden gewoon terug ophaalt); de "Indienen"-knop (nu met
+  `id="quiz-submit-btn"`, zie `quiz-student.html`) wordt verborgen/getoond
+  samen met de bestaande Vorige/Volgende-logica.
+
+**Getest:**
+- Volledige testsuite (338 tests) blijft 100% groen.
+- Live end-to-end smoke test: een gast-leerling verbindt, dient in (met een
+  echt antwoord) — Voortgang toont dit correct als ingediend; de leerkracht
+  heropent via de nieuwe route — het antwoord blijft bewaard, de status gaat
+  terug naar "niet ingediend", en de nog verbonden leerling ontvangt écht het
+  `quiz_reopened`-signaal; de leerling dient daarna opnieuw in en dat wordt
+  weer correct geregistreerd.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` ·
+`web/public/app.js` · `web/public/quiz-student.js` ·
+`web/public/quiz-student.html` · `VERSION` (cache-bust)
+
+---
+
+## v2026.2.51.78 — Voortgang: klas-koppeling-bug + live-status
+
+### Aanleiding
+Screenshot: een toets ("Oefentoets - herhalingBW6", klas 6BW · 2026-2027) toont
+in de Voortgang "0 op tijd, 0 te laat, 0 niets, 0 leerlingen" en "Geen
+leerlingen in deze klas voor dit schooljaar" — terwijl de klas 6BW voor
+2026-2027 wél degelijk 8 actieve leerlingen heeft (zie "Mijn klassen"). Vraag:
+"bij de voortgang moet ik volgende kunnen zien (op dit moment kloppen de
+aantallen niet) [...] ik moet ook kunnen zien leerlingen live (gebruik live)."
+
+### De bug — grondoorzaak
+Een klas is **jaargebonden**: "6BW 2025-2026" en "6BW 2026-2027" zijn twee
+volledig losse rijen in de database, elk met hun eigen leerlingen. Een
+toets/taak onthoudt welke klas-rij (`target_class`) erbij hoort, maar niets
+in de code controleerde of die rij nog wel bij het juiste schooljaar paste.
+Bovendien haalt het klasse-dropdown in het bewerkscherm enkel **niet-
+gearchiveerde** klassen op — als de gekoppelde klas ondertussen gearchiveerd
+was (bv. na een schooljaarwissel), viel de selectie in dat dropdown gewoon
+stil weg, zonder waarschuwing. Zo kon een toets/taak "vast blijven hangen"
+aan een oude, gearchiveerde klas-rij van vorig schooljaar, terwijl de
+leerkracht zelf niets verkeerds deed.
+
+### De fix
+- De Voortgang detecteert nu automatisch een **klas-koppeling-mismatch**: als
+  de gekoppelde klas leeg, gearchiveerd is, of niet bij het schooljaar van de
+  toets/taak past, verschijnt een duidelijke waarschuwing bovenaan met de
+  naam/jaar van de huidige (foute) koppeling, én — indien gevonden — een
+  concrete suggestie ("6BW · 2026-2027, 8 leerlingen") om naartoe te
+  herkoppelen via Bewerken.
+- Het bewerkscherm laat een gekoppelde klas nu altijd zien, ook als die
+  ondertussen gearchiveerd is (met een ⚠️-label), in plaats van de koppeling
+  stil te laten verdwijnen uit de dropdown.
+- **Nieuw:** de Voortgang toont nu ook wie van de leerlingen **nu live**
+  verbonden is met de toets/taak (🟢), zowel in de legende (aantal live) als
+  per leerling in de tabel en in de compacte klas-chips — dezelfde informatie
+  als het "👁 Live"-scherm, maar rechtstreeks in de Voortgang.
+
+### Technisch
+- `GET /api/quiz-sessions/:code/roster` (`web/server.js`): haalt de gekoppelde
+  klas nu apart op (los van de leerlingenlijst) zodat de naam altijd getoond
+  kan worden; nieuwe mismatch-detectie via een nieuwe helper
+  `findSiblingClassesByName` (`web/db/database.js`) die naar een klas met
+  dezelfde naam zoekt die wél actieve leerlingen heeft; nieuwe `online`-status
+  per leerling (en in `extras`), gebaseerd op de in-memory sessie — gekoppeld
+  op leerling-id voor ingelogde leerlingen, met naam als terugval voor gasten
+  (zelfde patroon als elders in dit endpoint, nodig omdat een gast een
+  sessiegebonden willekeurige id krijgt die niet overeenkomt met `students.id`).
+- `GET /api/quiz/:code/edit`: geeft nu `targetClassInfo` (naam, schooljaar,
+  gearchiveerd) mee terug voor de gekoppelde klas.
+- `web/public/quiz-teacher.js` (`loadForEdit`): voegt de gekoppelde klas als
+  extra (⚠️-gemarkeerde) optie toe aan het dropdown als die er nog niet in
+  staat, zodat de huidige koppeling altijd zichtbaar en correct blijft staan.
+- `web/public/app.js` (`toggleQuizRoster`): nieuwe mismatch-waarschuwing,
+  live-teller in de legende, 🟢-indicator per leerling en in de klas-chips.
+
+**Getest:**
+- Volledige testsuite (338 tests) blijft 100% groen.
+- Live end-to-end smoke test tegen de echte API + een echte socket.io-
+  verbinding: (1) mismatch met een gearchiveerde klas van vorig schooljaar
+  correct gedetecteerd, met correcte suggestie (juiste klas-id, 8
+  leerlingen); (2) bewerkscherm geeft de gearchiveerde klas-info correct
+  terug; (3) na herkoppelen aan de juiste klas kloppen de aantallen (8) en
+  verdwijnt de waarschuwing; (4) drie leerlingen verbinden als gast via
+  socket.io — de Voortgang toont hen correct als live (🟢), met de juiste
+  live-teller.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` ·
+`web/public/app.js` · `web/public/quiz-teacher.js` · `VERSION` (cache-bust)
+
+*Deze zip bevat, op uitdrukkelijk verzoek, ook alle wijzigingen van
+v2026.2.51.76 en v2026.2.51.77 (zie hieronder) — die waren al eerder als
+losse zip geleverd, maar zitten dit ene keer gebundeld mee in deze
+levering.*
+
+---
+
+## v2026.2.51.77 — Vragenbank: optioneel titelveld
+
+### Aanleiding
+"Voeg ook een extra titelveld toe bij vragen. Dit mag gewoon leeg zijn. [...]
+in vragen databank krijg je dat onder de dropdown delen eerst de titel dan
+pas een deel van de vraagomschrijving zoals nu."
+
+### De feature
+- Nieuw, volledig optioneel veld **Titel** bovenaan het aanmaak-/bewerkscherm
+  van een vraag (vóór het vraagtype). Mag leeg blijven — heeft geen enkel
+  effect op de toets/taak zelf, dient puur om de vraag makkelijker terug te
+  vinden in de vragenbank-lijst.
+- In de vragenbank-lijst ("Mijn vragen"/"Overneembaar") verschijnt de titel nu
+  — indien ingevuld — als vetgedrukte kop bovenaan de kaart, vóór de
+  "Delen"-dropdown en vóór het (ingekorte) stukje vraagomschrijving zoals
+  voorheen. Geen titel ingevuld → de kaart ziet er exact uit zoals voorheen.
+- Titel wordt meegekopieerd bij "Dupliceren"/"Overnemen".
+- Max 200 tekens (zelfde soort limiet als de andere korte velden).
+
+### Technisch
+- Nieuwe kolom `title TEXT NOT NULL DEFAULT ''` op `question_bank` — bestaande
+  vragen krijgen automatisch een lege titel, geen migratie nodig, geen
+  wijziging in bestaand gedrag.
+- `createQuizQuestion`/`updateQuizQuestion`/`duplicateQuizQuestion` in
+  `web/db/database.js`, en de bijhorende routes `POST`/`PUT /api/quiz/bank`
+  in `web/server.js`, geven het veld door. `listQuizBank`/`getQuizBankByIds`
+  gebruikten al `SELECT *`, dus die geven `title` vanzelf mee terug.
+
+**Getest:**
+- Volledige testsuite (338 tests) blijft 100% groen.
+- Live end-to-end test via de echte API: vraag met titel aanmaken en correct
+  terugkrijgen; vraag zonder titel aanmaken (blijft netjes leeg, geen fout);
+  titel achteraf toevoegen via bewerken; titel terug leegmaken via bewerken;
+  titel meekopiëren bij dupliceren; een titel van meer dan 200 tekens wordt
+  geweigerd (400) — alle 6 controles geslaagd.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` ·
+`web/public/quiz-bank.js` · `web/public/quiz-bank.html` ·
+`VERSION` (cache-bust)
+
+---
+
+## v2026.2.51.76 — Toets/taak: groepen voor onafhankelijke randomisatie
+
+### Aanleiding
+Vraag: "bij toetsen en taken en random volgorde zou ik groepen moeten kunnen
+maken: bvb vraag 1-5 random en vraag 6-10 random (zo kan ik theorie en
+oefeningen van elkaar scheiden en krijgt iedereen bvb de 4 oefeningen helemaal
+op het einde) maar wel in andere volgorde."
+
+### De feature
+Bij het opstellen van een toets/taak met "Random per leerling" kan je nu in
+stap 3 (vragen selecteren) een **groepsscheiding** (✂️-knop) zetten vóór een
+willekeurige vraag in de lijst. Dat splitst de vragen in opeenvolgende
+groepen die elk **apart** gehusseld worden:
+- de groepen zelf blijven altijd in dezelfde volgorde t.o.v. elkaar staan
+  (bv. de oefeningen komen altijd ná de theorie, nooit ervoor);
+- binnen elke groep krijgt elke leerling wél een eigen, willekeurige volgorde.
+- Zonder een groepsscheiding gedraagt de toets/taak zich exact als voorheen
+  (alles is dan gewoon 1 groep — geen enkele bestaande toets/taak wijzigt van
+  gedrag).
+- Vragen herschikken kan nu ook rechtstreeks in de lijst (▲/▼-knoppen) — dat
+  kon voordien enkel door opnieuw te selecteren.
+- Zowel het aanmaakscherm als het bewerkscherm (bestaande toets/taak) tonen en
+  onthouden de groepen; de live-preview in stap 3 husselt ook per groep, zodat
+  je meteen ziet wat een leerling straks te zien krijgt.
+
+### Technisch
+- Nieuwe kolom `random_group` op `quiz_question_snapshots` (standaard 0 = alles
+  1 groep, dus bestaande toetsen/taken blijven ongewijzigd).
+- De Fisher-Yates-shuffle bij het starten van een toets/taak (`quiz_start`)
+  hussel nu per aaneengesloten `random_group`-segment i.p.v. over de volledige
+  vragenlijst, en plakt de gehusselde groepen daarna weer in hun vaste volgorde
+  aan elkaar.
+- `POST /api/quiz`, `PUT /api/quiz/:code` en `GET /api/quiz/:code/edit` geven
+  het groepnummer per vraag door/terug, zodat aanmaken, bewerken én de
+  live-preview allemaal consistent blijven.
+
+**Getest:**
+- Volledige testsuite (338 tests) blijft 100% groen.
+- Live end-to-end test via de echte API: een toets met 5 theorie- + 5
+  oefenvragen (2 groepen) aangemaakt, en 6 verschillende leerlingen laten
+  starten via echte socket.io-verbindingen. Bevestigd: elke leerling kreeg
+  alle 10 vragen exact 1 keer, de 5 theorievragen altijd volledig vóór de 5
+  oefenvragen, en zowel de theorie- als de oefeningen-volgorde varieerde
+  tussen leerlingen (6/6 unieke volgordes in beide groepen).
+- Apart end-to-end getest: `GET /api/quiz/:code/edit` geeft de opgeslagen
+  groepen correct terug, en een `PUT /api/quiz/:code` met aangepaste groepen
+  slaat die ook effectief bij.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` ·
+`web/public/quiz-teacher.js` · `web/public/quiz-teacher.html` ·
+`VERSION` · overige `web/public/*.html` (cache-bust)
+
+---
+
 ## v2026.2.51.75 — Toets/taak: mislukte opslag bij indienen kon stil verdwijnen (nooit meer)
 
 ### Aanleiding

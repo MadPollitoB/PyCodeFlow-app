@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Nieuwe toets/taak aanmaken</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.75"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.81"/>
   <style>
     .wizard-steps { display:flex; gap:0; margin-bottom:28px; }
     .wizard-step { flex:1; padding:12px; text-align:center; background:var(--surface-soft);
@@ -138,14 +138,14 @@
         <div>
           <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:8px;font-weight:600;">Vraagvolgorde</label>
           <label class="opt-card">
-            <input type="radio" name="quiz-order" value="random" checked/>
+            <input type="radio" name="quiz-order" value="random" checked onchange="renderSelectedList()"/>
             <span class="opt-body">
               <span class="opt-title">Random per leerling <span class="opt-badge">aanbevolen</span></span>
               <span class="opt-desc">Elke leerling krijgt de vragen in een andere volgorde</span>
             </span>
           </label>
           <label class="opt-card">
-            <input type="radio" name="quiz-order" value="fixed"/>
+            <input type="radio" name="quiz-order" value="fixed" onchange="renderSelectedList()"/>
             <span class="opt-body">
               <span class="opt-title">Vast voor iedereen</span>
               <span class="opt-desc">Alle leerlingen zien dezelfde volgorde</span>
@@ -231,6 +231,61 @@
           </span>
         </label>
       </div>
+
+      <!-- Sprint 83: anti-spiek — enkel zichtbaar/relevant bij een toets (verborgen bij een
+           taak via JS zodra QUIZ_TYPE bekend is, zie quiz-teacher.js). -->
+      <div id="quiz-antispiek-sectie" style="margin-top:14px;padding:14px;background:var(--surface-soft);
+        border-radius:10px;border:1.5px solid var(--border);">
+        <label style="font-size:0.85rem;font-weight:700;display:block;margin-bottom:10px;">
+          🔒 Anti-spiek
+          <span style="font-size:0.78rem;font-weight:400;color:var(--muted);">— volledig scherm is bij een toets altijd verplicht</span>
+        </label>
+        <p style="font-size:0.78rem;color:var(--muted);margin:0 0 10px;">
+          De toets wordt altijd in volledig scherm getoond. Verlaat de leerling dat scherm of
+          wisselt hij van tabblad/venster, dan kan dat automatisch ingediend worden.
+        </p>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.85rem;">
+          <input type="checkbox" id="quiz-tabswitch-enabled" checked onchange="toggleTabSwitchThreshold(this.checked)"/>
+          Automatisch indienen bij tabwissel
+        </label>
+        <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+          <label for="quiz-tabswitch-threshold" style="font-size:0.82rem;color:var(--muted);">Na</label>
+          <input type="number" id="quiz-tabswitch-threshold" value="1" min="1" max="20" class="opt-num" style="width:60px;"/>
+          <label for="quiz-tabswitch-threshold" style="font-size:0.82rem;color:var(--muted);">keer wisselen</label>
+        </div>
+        <!-- Sprint 94: het respijt (sprint 92, tot dan vast op 5 sec) is nu instelbaar per
+             toets. 0 = geen respijt, telt onmiddellijk. Zelfde aan/uit-grendel als hierboven. -->
+        <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+          <label for="quiz-tabswitch-grace" style="font-size:0.82rem;color:var(--muted);">Respijt bij een wissel:</label>
+          <input type="number" id="quiz-tabswitch-grace" value="5" min="0" max="30" class="opt-num" style="width:60px;"/>
+          <label for="quiz-tabswitch-grace" style="font-size:0.82rem;color:var(--muted);">sec. om terug te keren (0 = geen respijt)</label>
+        </div>
+        <div style="margin-top:12px;">
+          <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Cursus-link (optioneel)</label>
+          <input type="url" id="quiz-cursus-url" placeholder="https://... (bv. een gedeelde PDF)"
+            style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);"/>
+          <p style="font-size:0.76rem;color:var(--muted);margin:4px 0 0;">
+            Verschijnt als een zijpaneel binnen de toets zelf — de leerling hoeft dus niet naar
+            een ander tabblad. Enkel https-links. Leeg laten = geen cursus beschikbaar.
+          </p>
+        </div>
+      </div>
+
+      <!-- Sprint 90: zelfevaluatie-enquête — enkel bij een toets, net als anti-spiek. -->
+      <div style="margin-top:14px;padding:14px;background:var(--surface-soft);
+        border-radius:10px;border:1.5px solid var(--border);">
+        <label class="checkbox-row" style="cursor:pointer;">
+          <input type="checkbox" id="quiz-self-eval"/>
+          <span>
+            <strong>📝 Zelfevaluatie na het indienen</strong><br/>
+            <span class="muted" style="font-size:0.82rem;">De leerling vult vlak vóór het definitief
+            indienen een korte, verplichte enquête in ("Hoe vond je dat de toets ging?" + een
+            vast lijstje stellingen over voorbereiding, verwerking en planning). Jij ziet de
+            resultaten nadien bij de Voortgang van deze toets.</span>
+          </span>
+        </label>
+      </div>
+
       <div style="margin-top:20px;">
         <button class="btn btn-primary" onclick="goStep(2)">Volgende: vragen selecteren →</button>
       </div>
@@ -305,9 +360,9 @@
 </div>
 </div><!-- /wizard-root -->
 
-<script src="/app.js?v=v2026.2.51.75"></script>
+<script src="/app.js?v=v2026.2.51.92"></script>
 <script src="/vendor/marked/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.75"></script>
-<script src="/quiz-teacher.js?v=v2026.2.51.75"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.75"></script></body>
+<script src="/code-highlight.js?v=v2026.2.51.81"></script>
+<script src="/quiz-teacher.js?v=v2026.2.51.94"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.81"></script></body>
 </html>

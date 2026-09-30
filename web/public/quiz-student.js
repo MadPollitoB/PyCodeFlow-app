@@ -12,6 +12,14 @@ let _answers = {};        // { questionId: { code, runCount, firstVisitAt, first
 let _visited = new Set(); // bezochte vraag IDs
 let _timerInterval = null;
 
+// ── Sprint 83: anti-spiek (enkel bij een toets) ──────────────────────────────
+let _isToets = false;           // state.type === 'toets' (ná join, zie quiz_state)
+let _tabSwitchEnabled = false;  // leerkracht zette "auto-indienen bij tabwissel" aan
+let _tabSwitchThreshold = 0;
+// Sprint 92: _tabWisselDebounce (600ms) is vervangen door de respijtperiode hieronder —
+// _tabWisselTimer zelf is nu de enige nodige "is er al iets aan de gang?"-grendel, dus een
+// aparte, kortere debounce is niet meer nodig.
+
 // ── Sprint 37d: nakijk-modus ─────────────────────────────────────────────────
 // Het token blijft BEWUST in het geheugen (geen localStorage), zodat inzage op
 // elk toestel werkt en er niets achterblijft op een gedeelde computer.
@@ -432,6 +440,21 @@ haalStartInfo();
 async function startQuiz() {
   const soort = _startInfo?.type === 'taak' ? 'taak' : 'toets';
   const regels = [];
+  // Sprint 83: anti-spiek — enkel bij een toets, en vooraan in de lijst (belangrijk genoeg
+  // om als eerste te zien, vóór terugbladeren/timer/aantal vragen).
+  if (soort === 'toets') {
+    regels.push('🖥️ Deze toets wordt in <strong>volledig scherm</strong> getoond en blijft dat verplicht tot je indient.');
+    if (_startInfo?.tabSwitchEnabled) {
+      const d = _startInfo.tabSwitchThreshold || 1;
+      const wanneer = d > 1 ? `${d} keer` : 'de eerste keer';
+      // Sprint 94: het respijt is instelbaar per toets — 0 sec betekent geen respijt.
+      const respijtSec = typeof _startInfo.tabSwitchGraceSeconds === 'number' ? _startInfo.tabSwitchGraceSeconds : 5;
+      const respijtZin = respijtSec > 0
+        ? ` Je krijgt daarbij telkens ${respijtSec} seconden om onmiddellijk terug te keren — lukt dat, dan telt het niet mee.`
+        : '';
+      regels.push(`⚠️ <strong>Wissel je van tabblad, venster of verlaat je het volledig scherm, dan wordt je toets automatisch ingediend</strong> (na ${wanneer}).${respijtZin} Zorg dat je niets anders open hebt staan.`);
+    }
+  }
   if (_startInfo?.noBack) {
     regels.push('⚠️ <strong>Je krijgt één kans per vraag.</strong> Ga je naar de volgende vraag, dan kan je <strong>niet meer terug</strong>.');
   } else {
@@ -466,7 +489,111 @@ function _doeStart() {
   _startTimeout = setTimeout(function() {
     _showStartError('De toets laadt niet. Ververs de pagina of controleer met je leerkracht dat de toets openstaat.');
   }, 10000);
+  // Sprint 83: fullscreen ALTIJD bij een toets — moet gebeuren binnen dezelfde
+  // gebruikersactie (de klik die de bevestiging sloot), anders weigert de browser het.
+  if (_startInfo?.type === 'toets') vraagVolledigScherm();
   socket.emit('quiz_start', { code: urlCode, name: urlName, className: urlClass });
+}
+
+// ── Sprint 83: anti-spiek — volledig scherm, tabwissel-detectie, cursus-paneel ──
+function vraagVolledigScherm() {
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+  if (!req) return;
+  try { req.call(el).catch(() => { /* stil: browser kan weigeren zonder verse gebruikersactie */ }); }
+  catch (e) { /* sommige browsers gooien synchroon i.p.v. een Promise te weigeren */ }
+}
+
+// Sprint 92: "je zou een soort timer op de waarschuwing moeten zetten — als de leerling
+// binnen de 5 sec terugkeert gebeurt er niets, anders telt het pas als een wissel." Voorheen
+// telde ELKE wissel/fullscreen-exit ONMIDDELLIJK mee (bij de standaard drempel van 1 dus
+// meteen automatisch ingeleverd) — een klik ernaast, een per ongeluk ingedrukte toets, of een
+// kort openspringend venster had al hetzelfde gevolg als bewust spieken. Nu krijgt de
+// leerling eerst 5 seconden respijt: keert hij op tijd terug (tabblad weer zichtbaar, venster
+// terug in beeld, volledig scherm hersteld), dan wordt er HELEMAAL NIETS gemeld aan de
+// server — geen telling, geen enkel spoor. Pas als hij niet op tijd terugkeert, wordt de
+// wissel alsnog (en pas dan) doorgegeven, exact zoals voorheen.
+// Sprint 94: was een vaste 5000ms — nu instelbaar per toets (server.js/quiz_state levert
+// tabSwitchGraceSeconds, standaard 5 als die er om een of andere reden niet zou zijn).
+let _tabWisselRespijtMs = 5000;
+let _tabWisselTimer = null;            // actieve aftel-setTimeout (null = geen respijt bezig)
+let _tabWisselCountdownInterval = null;
+let _tabWisselDeadline = 0;
+
+function toonTabwisselOverlay(tonen) {
+  const el = document.getElementById('tabwissel-overlay');
+  if (el) el.classList.toggle('visible', tonen);
+}
+
+function updateTabwisselAftelling() {
+  const el = document.getElementById('tabwissel-aftellen');
+  if (!el) return;
+  el.textContent = String(Math.max(0, Math.ceil((_tabWisselDeadline - Date.now()) / 1000)));
+}
+
+// Ruimt de lopende respijtperiode volledig op — zonder ooit iets aan de server te melden.
+// Wordt aangeroepen zodra de leerling (op tijd) terugkeert.
+function annuleerTabwisselRespijt() {
+  if (!_tabWisselTimer) return;
+  clearTimeout(_tabWisselTimer);
+  _tabWisselTimer = null;
+  clearInterval(_tabWisselCountdownInterval);
+  _tabWisselCountdownInterval = null;
+  toonTabwisselOverlay(false);
+}
+
+function meldMogelijkeWissel() {
+  if (!_isToets || _afgesloten || !_state) return;
+  // Een respijtperiode loopt al (meerdere gelijktijdige events — blur + visibilitychange +
+  // fullscreenchange — voor dezelfde fysieke actie) → niet nogmaals starten.
+  if (_tabWisselTimer) return;
+
+  // Sprint 94: 0 sec ingesteld → geen respijt, meteen melden (overlay dan ook niet nodig).
+  if (_tabWisselRespijtMs <= 0) {
+    socket.emit('quiz_tab_switch', { code: _sessionCode || urlCode });
+    return;
+  }
+
+  _tabWisselDeadline = Date.now() + _tabWisselRespijtMs;
+  toonTabwisselOverlay(true); // enkel zichtbaar als de pagina zelf nog in beeld is
+  updateTabwisselAftelling();
+  _tabWisselCountdownInterval = setInterval(updateTabwisselAftelling, 250);
+
+  _tabWisselTimer = setTimeout(() => {
+    _tabWisselTimer = null;
+    clearInterval(_tabWisselCountdownInterval);
+    _tabWisselCountdownInterval = null;
+    toonTabwisselOverlay(false);
+    if (_afgesloten) return; // ondertussen al op een andere manier afgesloten
+    // Niet op tijd teruggekeerd → nu pas telt dit écht mee, exact zoals voorheen.
+    socket.emit('quiz_tab_switch', { code: _sessionCode || urlCode });
+  }, _tabWisselRespijtMs);
+}
+
+function zetTabWisselDetectieAan() {
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) meldMogelijkeWissel(); else annuleerTabwisselRespijt();
+  });
+  window.addEventListener('blur', meldMogelijkeWissel);
+  window.addEventListener('focus', annuleerTabwisselRespijt);
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement) meldMogelijkeWissel(); else annuleerTabwisselRespijt();
+  });
+}
+
+function setupCursusPaneel(url) {
+  const btn = document.getElementById('cursus-toggle-btn');
+  const panel = document.getElementById('cursus-panel');
+  const iframe = document.getElementById('cursus-iframe');
+  const closeBtn = document.getElementById('cursus-close-btn');
+  if (!btn || !panel || !iframe) return;
+  if (!url) { btn.style.display = 'none'; return; }
+  btn.style.display = '';
+  iframe.src = url; // via DOM-property, niet via HTML-string — geen injectierisico
+  const GESLOTEN = '-46vw';
+  const toggle = () => { panel.style.right = panel.style.right === '0px' ? GESLOTEN : '0px'; };
+  btn.onclick = toggle;
+  if (closeBtn) closeBtn.onclick = () => { panel.style.right = GESLOTEN; };
 }
 
 socket.on('quiz_state', async (state) => {
@@ -508,10 +635,33 @@ socket.on('quiz_state', async (state) => {
     timerEl.style.opacity = '0.5';
   }
 
+  // Sprint 83: anti-spiek — pas ná een echte (geauthenticeerde) join, niet al bij de
+  // publieke /startinfo. Enkel actief zolang de toets nog loopt (niet al ingediend —
+  // de check hierboven op state.submitted heeft dan al return gedaan).
+  _isToets = state.type === 'toets';
+  _tabSwitchEnabled = state.tabSwitchEnabled === true;
+  _tabSwitchThreshold = state.tabSwitchThreshold || 0;
+  // Sprint 94: instelbaar respijt (in seconden vanaf de server) — in ms voor de timers hierboven.
+  _tabWisselRespijtMs = (typeof state.tabSwitchGraceSeconds === 'number' ? state.tabSwitchGraceSeconds : 5) * 1000;
+  if (_isToets) {
+    vraagVolledigScherm();   // nogmaals proberen (bv. na een herlaad/reconnect)
+    zetTabWisselDetectieAan();
+  }
+  setupCursusPaneel(state.cursusUrl || null);
+
   // Initialiseer editor
   await initQuizEditor(state.config || {});
   renderNav();
-  goToQuestion(0);
+  // Sprint 91: hervat op de laatst gekende vraag i.p.v. altijd vraag 1 — voorheen sprong elke
+  // (her)verbinding de leerling terug naar het begin, ook als hij al veel verder stond.
+  const hervatIdx = Number.isInteger(state.currentQuestion)
+    ? Math.max(0, Math.min(state.currentQuestion, (state.questions?.length || 1) - 1))
+    : 0;
+  goToQuestion(hervatIdx);
+  // Sprint 91: alle antwoorden die nog op een bevestiging stonden te wachten (bv. omdat de
+  // vorige socket wegviel vóór de ack aankwam) meteen opnieuw aanbieden aan deze — mogelijk
+  // pas herstelde — verbinding.
+  hervatAlleWachtendeOpslagen();
   startTimer();
 });
 
@@ -540,10 +690,11 @@ socket.on('quiz_force_submit', (data) => {
 
   const reden = (data && data.reden) || (data && data.reason) || '';
   const tekst =
-    reden === 'timer'    ? 'Je tijd is om. Je toets is automatisch ingeleverd met alles wat je tot nu toe hebt gemaakt.'
-  : reden === 'deadline' ? 'De deadline is bereikt. Je werk is automatisch ingeleverd.'
-  : reden === 'gestopt'  ? 'Je leerkracht heeft de toets afgesloten. Je werk is ingeleverd zoals het op dit moment was.'
-  :                        'De toets is afgesloten. Je werk is ingeleverd.';
+    reden === 'timer'      ? 'Je tijd is om. Je toets is automatisch ingeleverd met alles wat je tot nu toe hebt gemaakt.'
+  : reden === 'deadline'   ? 'De deadline is bereikt. Je werk is automatisch ingeleverd.'
+  : reden === 'gestopt'    ? 'Je leerkracht heeft de toets afgesloten. Je werk is ingeleverd zoals het op dit moment was.'
+  : reden === 'tab_switch' ? 'Je hebt van tabblad/venster gewisseld of het volledig scherm verlaten tijdens de toets. Je werk is automatisch ingeleverd zoals het op dat moment was.'
+  :                          'De toets is afgesloten. Je werk is ingeleverd.';
   window.pyAlert(tekst + ' Je kan niets meer aanpassen.', 'warn');
 });
 
@@ -553,11 +704,23 @@ socket.on('quiz_paused', ({ paused }) => {
 
 socket.on('quiz_reset', () => {
   _answers = {}; _visited.clear(); _runCount = {}; _currentIdx = 0;
+  // Sprint 91: geen lopende herprobeer-ketens meenemen naar een teruggezette toets/taak.
+  for (const k of Object.keys(_pendingSaves)) delete _pendingSaves[k];
+  updateSaveStatusUI();
   document.getElementById('done-screen').classList.remove('visible');
   document.getElementById('submit-screen').classList.remove('visible');
   document.getElementById('start-screen').style.display = 'flex';
   document.getElementById('quiz-screen').style.display = 'none';
   document.getElementById('done-screen').style.display = 'none';
+});
+
+// Sprint 79: leerkracht heeft een per ongeluk ingediende toets/taak terug opengezet.
+// De reeds ingevulde antwoorden blijven staan (server-side niet gewist) — een simpele
+// herlaad haalt de bijgewerkte (niet-ingediende) status + alle bestaande antwoorden
+// gewoon terug op via dezelfde weg als een normale (her)verbinding.
+socket.on('quiz_reopened', () => {
+  window.pyAlert('Je leerkracht heeft je toets/taak terug opengezet — je kan verdergaan.', 'info')
+    .then(() => location.reload());
 });
 
 socket.on('quiz_results_released', () => {
@@ -713,6 +876,9 @@ function onChoiceChange(input, type) {
 function updateOpenCount() {
   const ta = document.getElementById('quiz-open-answer');
   document.getElementById('open-char-count').textContent = ta.value.length;
+  // Sprint 92: tussentijdse autosave van het open antwoord, niet enkel bij het verlaten
+  // van de vraag.
+  scheduleAnswerAutosave();
 }
 
 function escHtml(s) {
@@ -759,6 +925,9 @@ function saveCompositePartAnswer(partId, value) {
   if (!_answers[_currentQuestionId]) _answers[_currentQuestionId] = {};
   if (!_answers[_currentQuestionId].partAnswers) _answers[_currentQuestionId].partAnswers = {};
   _answers[_currentQuestionId].partAnswers[partId] = value;
+  // Sprint 92: ook dit tekstveld autosavet nu tussentijds (zie scheduleAnswerAutosave hieronder)
+  // i.p.v. enkel bij het verlaten van de vraag.
+  scheduleAnswerAutosave();
 }
 
 // Sprint 51y: single/multiple-choice-onderdeel binnen een samengestelde vraag — de waarde
@@ -817,10 +986,20 @@ function renderNav() {
     else if (_visited.has(qid)) cls += ' visited';
     if (i === _currentIdx) cls += ' current';
     // Sprint 69: bij noBack zijn eerdere vragen niet meer bereikbaar.
-    const geblokkeerd = _state?.noBack && i < _currentIdx;
+    // Sprint 89 (bugfix): dit blokkeerde voorheen ENKEL de vraagnummers vóór de huidige
+    // vraag (i < _currentIdx) — een leerling kon dus via deze nummerbalk gewoon een stuk
+    // VOORUIT springen (bv. van vraag 2 rechtstreeks naar vraag 6), zonder de bevestiging
+    // die "Volgende" wél toont, en met als gevolg dat de overgeslagen vragen (3, 4, 5)
+    // daarna óók voorgoed onbereikbaar werden — een leerling kon zo per ongeluk vragen
+    // permanent verliezen. "Terugbladeren niet toegestaan" is bedoeld als een strikt
+    // sequentiële, één-voor-één voortgang: bij noBack is de nummerbalk dus enkel nog een
+    // voortgangsindicator, en mag ENKEL de huidige vraag nog aangeklikt worden (wat toch al
+    // niets doet) — elke andere vraag (voor óf na de huidige) gaat voortaan alleen nog via
+    // de "Volgende"-knop (die de bevestiging al toont).
+    const geblokkeerd = _state?.noBack && i !== _currentIdx;
     if (geblokkeerd) cls += ' locked';
     return `<button class="${cls}"${geblokkeerd
-      ? ' disabled style="opacity:.45;cursor:not-allowed;" title="Afgerond — terugkeren kan niet bij deze toets"'
+      ? ' disabled style="opacity:.45;cursor:not-allowed;" title="Bij deze toets/taak kan je enkel via de \'Volgende\'-knop naar een andere vraag."'
       : ` onclick="goToQuestion(${i})" title="Vraag ${i+1}"`}>${i+1}</button>`;
   }).join('');
   document.getElementById('qs-progress').textContent =
@@ -864,18 +1043,36 @@ function renderHiddenAiTrap(valTekst) {
     + veilig + '</span>';
 }
 
-function goToQuestion(idx) {
+let _navigatieBezig = false; // Sprint 91: voorkomt een tweede, overlappende navigatiepoging
+                              // terwijl de eerste nog op een opslagbevestiging wacht.
+
+async function goToQuestion(idx) {
   const questions = _state?.questions || [];
   if (idx < 0 || idx >= questions.length) return;
 
   // Sprint 69: bij "1 kans per vraag" kan je enkel vooruit. De server bepaalt dit
   // (state.noBack); de knoppen zijn ook uitgeschakeld, dit is de harde grendel.
-  if (_state?.noBack && idx < _currentIdx) return;
+  // Sprint 89 (bugfix): naast terugspringen (idx < _currentIdx) blokkeren we nu ook
+  // VOORUIT-springen van meer dan 1 vraag tegelijk (idx > _currentIdx + 1) — dat was het
+  // eigenlijke gat waardoor de vraagnummerbalk bovenaan nog gebruikt kon worden om vragen
+  // over te slaan (en dus, door de terugspring-blokkade hierboven, definitief te verliezen).
+  // De enige toegestane stap is exact +1, en die loopt altijd via de "Volgende"-knop
+  // (navigate()), die zijn eigen bevestigingsvenster al toont.
+  if (_state?.noBack && (idx < _currentIdx || idx > _currentIdx + 1)) return;
+  if (_navigatieBezig) return;
 
-  // Sla huidige vraag op voor navigatie
+  // 🔴 Sprint 91 (kritieke bugfix): hier verliet de leerling voorheen de vraag ONMIDDELLIJK,
+  // zonder ooit te wachten tot de server de opslag ervan bevestigde — bij een
+  // verbindingsprobleem kon dat antwoord dan stilzwijgend verloren gaan, vooral fataal bij
+  // "Terugbladeren niet toegestaan" (eens voorbij, nooit meer bereikbaar). Nu wachten we hier
+  // expliciet op een bevestigde opslag (met automatisch herproberen, zie saveCurrentAnswer())
+  // vóór we ook maar naar de volgende vraag overstappen.
   if (_currentQuestionId) {
     const code = getCurrentCode();
-    saveCurrentAnswer(code);
+    _navigatieBezig = true;
+    const bevestigd = await saveCurrentAnswer(code);
+    _navigatieBezig = false;
+    if (!bevestigd) return; // blijft op de huidige vraag staan — de opslag probeert intussen op de achtergrond door
   }
 
   _currentIdx = idx;
@@ -1005,6 +1202,11 @@ function goToQuestion(idx) {
   // volledig verborgen wanneer ze toch niets kunnen doen.
   document.getElementById('quiz-prev-btn').style.display = idx === 0 ? 'none' : '';
   document.getElementById('quiz-next-btn').style.display = idx === questions.length - 1 ? 'none' : '';
+  // Sprint 79: "Indienen" stond voorheen altijd zichtbaar (bij elke vraag) — dat gaf een
+  // leerling de kans om per ongeluk vroegtijdig in te dienen vóór alle vragen bekeken zijn.
+  // Nu enkel zichtbaar bij de laatste vraag.
+  const submitBtn = document.getElementById('quiz-submit-btn');
+  if (submitBtn) submitBtn.style.display = idx === questions.length - 1 ? '' : 'none';
 
   renderNav();
 }
@@ -1023,11 +1225,47 @@ async function navigate(dir) {
   goToQuestion(_currentIdx + dir);
 }
 
+// 🔴 Sprint 91 (kritieke bugfix): "na de toets met de nodige sessieverbindingsproblemen
+// bleek dat voor bepaalde leerlingen niet alle antwoorden waren opgeslagen — dit moet ten
+// alle tijde vermeden worden". saveCurrentAnswer() stuurde dit hiervoor blindelings weg met
+// een kale socket.emit() — geen bevestiging, geen herprobeer, exact hetzelfde architecturale
+// gat dat sprint 88 al dichtte voor de RUN-knop (quiz_run_request), maar dan voor de
+// antwoorden zelf, wat oneindig erger is om te verliezen. Twee stille verlies-scenario's:
+//  1) De client stuurt dit event terwijl de socket (na een korte wifi-hapering) een NIEUWE
+//     socket.id kreeg maar zich nog niet herregistreerd had via 'quiz_start' — de server
+//     kende deze verbinding dan simpelweg niet en deed stil niets.
+//  2) Zelfs mét succesvolle verzending kon het pakket gewoon verloren gaan tijdens een
+//     onderbreking — zonder ack was er geen enkele manier om dat te weten te komen.
+// Nu: elke opslag wordt bevestigd door de server (ack, zie quiz_save_answer in server.js) en
+// blijft bij het uitblijven daarvan AUTOMATISCH herproberen — zonder harde limiet, want beter
+// een leerling die even moet wachten tot de verbinding herstelt, dan een stil verloren
+// antwoord. Bij "Terugbladeren niet toegestaan" is dit extra kritiek: eens voorbij een vraag,
+// is ze nooit meer bereikbaar — goToQuestion() wacht daarom expliciet op deze bevestiging
+// vóór het overstapt naar de volgende vraag.
+const _pendingSaves = {}; // { [questionId]: { payload, attempt, promise } }
+const SAVE_ACK_TIMEOUT_MS = 3000;
+const SAVE_WAARSCHUWING_VANAF_POGING = 3; // pas dan de leerling expliciet lastigvallen
+
+function updateSaveStatusUI() {
+  const el = document.getElementById('qs-save-status');
+  if (!el) return;
+  const bezig = Object.values(_pendingSaves);
+  if (!bezig.length) { el.textContent = ''; el.style.color = ''; return; }
+  const ergsteAttempt = Math.max(...bezig.map(p => p.attempt));
+  if (ergsteAttempt >= SAVE_WAARSCHUWING_VANAF_POGING) {
+    el.textContent = `⚠️ Antwoord nog niet bevestigd — bezig met opnieuw proberen (poging ${ergsteAttempt})...`;
+    el.style.color = '#dc2626';
+  } else {
+    el.textContent = '🔄 Antwoord opslaan...';
+    el.style.color = '';
+  }
+}
+
 function saveCurrentAnswer(code) {
-  if (!_currentQuestionId) return;
+  if (!_currentQuestionId) return Promise.resolve(true);
   // Sprint 70: na een geforceerde inlevering mag er niets meer bijkomen. De ene
   // opslag die de afsluiting zelf doet, gebeurt vóór deze vlag wordt gezet.
-  if (_afgesloten) return;
+  if (_afgesloten) return Promise.resolve(true);
   if (!_answers[_currentQuestionId]) _answers[_currentQuestionId] = {};
   const ans = getCurrentAnswer();
   _answers[_currentQuestionId].code = ans.code;
@@ -1036,7 +1274,7 @@ function saveCurrentAnswer(code) {
   if (ans.partAnswers) _answers[_currentQuestionId].partAnswers = ans.partAnswers;
   if (ans.answerFlowchartJson !== undefined) _answers[_currentQuestionId].answerFlowchartJson = ans.answerFlowchartJson;
 
-  socket.emit('quiz_save_answer', {
+  const payload = {
     questionId: _currentQuestionId,
     code: ans.code,
     selectedChoices: ans.selectedChoices,
@@ -1046,7 +1284,90 @@ function saveCurrentAnswer(code) {
     currentQuestion: _currentIdx,
     partAnswers: ans.partAnswers || undefined,
     answerFlowchartJson: ans.answerFlowchartJson !== undefined ? ans.answerFlowchartJson : undefined,
+  };
+  return reliableSaveAnswer(_currentQuestionId, payload);
+}
+
+// Eén enkele, verlengbare herprobeer-keten per vraag: een nieuwe opslag-aanvraag voor een
+// vraag die al aan het herproberen is, vervangt gewoon de payload van die lopende keten
+// (altijd de MEEST RECENTE inhoud versturen) i.p.v. een tweede, overlappende keten te starten.
+function reliableSaveAnswer(questionId, payload) {
+  const bestaand = _pendingSaves[questionId];
+  if (bestaand) { bestaand.payload = payload; return bestaand.promise; }
+  const entry = { payload, attempt: 1, promise: null };
+  entry.promise = new Promise((resolve) => { entry.resolve = resolve; });
+  _pendingSaves[questionId] = entry;
+  updateSaveStatusUI();
+  attemptSaveAnswer(questionId);
+  return entry.promise;
+}
+
+function attemptSaveAnswer(questionId) {
+  const entry = _pendingSaves[questionId];
+  if (!entry) return; // ondertussen al bevestigd (of vervangen) — niets meer te doen
+
+  if (!socket.connected) {
+    socket.once('connect', () => setTimeout(() => attemptSaveAnswer(questionId), 150));
+    updateSaveStatusUI();
+    return;
+  }
+
+  let beantwoord = false;
+  const timer = setTimeout(() => {
+    if (beantwoord) return;
+    beantwoord = true;
+    retrySaveAnswer(questionId, null);
+  }, SAVE_ACK_TIMEOUT_MS);
+
+  socket.emit('quiz_save_answer', entry.payload, (resp) => {
+    if (beantwoord) return;
+    beantwoord = true;
+    clearTimeout(timer);
+    if (resp && resp.ok === true) {
+      delete _pendingSaves[questionId];
+      updateSaveStatusUI();
+      entry.resolve(true);
+      return;
+    }
+    // 'already_submitted': de toets is server-side al afgerond — verder aandringen heeft
+    // geen zin meer en zou de leerling nodeloos blokkeren.
+    if (resp && resp.reason === 'already_submitted') {
+      delete _pendingSaves[questionId];
+      updateSaveStatusUI();
+      entry.resolve(true);
+      return;
+    }
+    retrySaveAnswer(questionId, resp || null);
   });
+}
+
+function retrySaveAnswer(questionId, resp) {
+  const entry = _pendingSaves[questionId];
+  if (!entry) return;
+  entry.attempt++;
+  updateSaveStatusUI();
+  // Sprint 91 (net als sprint 89 bij RUN): vanaf de instelbare drempel melden we dit aan de
+  // server, zodat de leerkracht via Systeembeheer ziet hoe vaak (en bij wie) dit voorkomt —
+  // dit is het EXACTE scenario dat de melding van vandaag beschrijft.
+  if ((entry.attempt === SAVE_WAARSCHUWING_VANAF_POGING || entry.attempt % 5 === 0) && socket.connected) {
+    socket.emit('client_log_event', { type: 'save_ack_missing', name: urlName, code: urlCode, attempt: entry.attempt });
+  }
+  // Geen registratie (nieuwe socket.id na een herverbinding, nog niet herkend) → eerst de
+  // sessie herstellen vóór een volgende poging, exact zoals bij de RUN-knop.
+  if ((!resp || resp.reason === 'not_registered') && _state) {
+    socket.emit('quiz_start', { code: urlCode, name: urlName, className: urlClass });
+  }
+  // Lichte backoff, met een plafond — geen harde bovengrens op het aantal pogingen: een
+  // antwoord opgeven is nooit een optie, enkel geduldig blijven volhouden tot het lukt.
+  const wachttijd = Math.min(500 * entry.attempt, 5000);
+  setTimeout(() => attemptSaveAnswer(questionId), wachttijd);
+}
+
+// Sprint 91: bij elke (her)registratie (nieuwe of herstelde verbinding) alle nog niet
+// bevestigde antwoorden meteen opnieuw aanbieden — dit dicht het gat voor een opslag die
+// muurvast zat te wachten op exact deze herregistratie.
+function hervatAlleWachtendeOpslagen() {
+  for (const questionId of Object.keys(_pendingSaves)) attemptSaveAnswer(questionId);
 }
 
 // Sprint 63: de stroomdiagram-widget roept bij elke wijziging (blokje verschoven, tekst
@@ -1059,7 +1380,51 @@ function scheduleFlowchartAnswerSave() {
   _flowchartSaveTimer = setTimeout(() => saveCurrentAnswer(), 800);
 }
 
+// Sprint 92: "codelijnen tussenin zouden ook moeten worden opgeslagen, niet enkel met de
+// run of volgende vraag/indienen". Zelfde 800ms-debounce als hierboven bij het stroomdiagram,
+// nu ook voor de code-editor, het open-antwoordveld en de tekstvelden van een samengestelde
+// vraag — elk van die drie riep voorheen ENKEL bij het verlaten van de vraag (goToQuestion)
+// of bij indienen een opslag aan, dus getypte tussentijdse code kon bij een vastgelopen
+// tabblad, crash of stroomonderbreking verloren gaan zonder dat de leerling dat merkte.
+// Hergebruikt de reeds robuuste reliableSaveAnswer()-opslagketen uit sprint 91 (bevestiging +
+// onbeperkt herproberen), dus een tussentijdse autosave geniet exact dezelfde garantie als
+// een opslag bij navigatie.
+let _autosaveTimer = null;
+function scheduleAnswerAutosave() {
+  clearTimeout(_autosaveTimer);
+  _autosaveTimer = setTimeout(() => saveCurrentAnswer(), 800);
+}
+
+// Aangeroepen vanuit app.js (ensureEditor, 'quiz'-tak) bij elke wijziging in de Monaco-editor
+// van de toets. Wordt NIET aangeroepen bij een programmatische wijziging (bv. bij het wisselen
+// van vraag via setEditorCode()) — ensureEditor() onderdrukt dat zelf al via de bestaande
+// '...ApplyingRemote'-vlag, vóór de per-owner-tak hieronder ooit bereikt wordt.
+window.onQuizEditorChange = function () {
+  if (!_currentQuestionId || _afgesloten) return;
+  scheduleAnswerAutosave();
+};
+
 // ── Code uitvoeren ──────────────────────────────────────────────────────────
+function setQuizOutputStatus(html) {
+  const panel = document.getElementById('quiz-output-panel');
+  if (panel) panel.innerHTML = html;
+  showQuizTab('output');
+}
+
+// Sprint 88 (bugfix): "te veel netwerkverbindingsonderbrekingen ... nu is het te dikwijls dat
+// studenten op RUN klikken en er NIETS gebeurt". runCode() stuurde de run-aanvraag altijd
+// blindelings weg, zonder ooit te controleren of de verbinding nog leeft, EN zonder ooit een
+// antwoord van de server te verwachten. Bij een korte wifi-hapering (of vlak na een
+// herverbinding, terwijl de server die nog aan het herkennen is) verdween die aanvraag dan
+// spoorloos: geen foutmelding, geen run, niets zichtbaar — de leerling kon enkel gokken of
+// nogmaals klikken hielp. sendRunRequest() hieronder controleert nu ALTIJD eerst of de
+// verbinding er echt is, herstelt ze zo nodig (en herstelt ook de sessie via quiz_start),
+// en wacht op een expliciete ack van de server (zie quiz_run_request in server.js) vóór het
+// zeker weet dat de aanvraag effectief aangekomen is — met telkens een zichtbare melding in
+// het uitvoervenster, naar analogie met de bestaande "je bent zoveelste in de wachtrij"-melding.
+const RUN_ACK_TIMEOUT_MS = 2000;
+const RUN_MAX_ATTEMPTS = 8;
+
 function runCode() {
   const code = getCurrentCode();
   if (!code.trim()) return;
@@ -1081,8 +1446,64 @@ function runCode() {
   // leerling in een toets/taak heeft echter role 'quiz_student', dus die aanvraag werd stil
   // genegeerd (geen foutmelding, gewoon geen output). 'quiz_run_request' is de juiste,
   // parallelle server-handler voor deze context.
-  socket.emit('quiz_run_request', { codeText: code });
+  sendRunRequest(code, 1);
   renderNav();
+}
+
+function sendRunRequest(code, attempt) {
+  if (attempt > RUN_MAX_ATTEMPTS) {
+    setQuizOutputStatus('⚠️ Kon geen verbinding maken met de server om je code uit te voeren. ' +
+      'Controleer je internetverbinding en klik daarna opnieuw op RUN.');
+    // Sprint 89: meld dit expliciet aan de server zodat de leerkracht (via Systeembeheer)
+    // kan zien hoe vaak dit bij wie voorkomt — voorheen kwam dit nergens terecht buiten
+    // dit ene scherm, dat de leerling meestal niet meer open heeft staan tegen dan.
+    if (socket.connected) socket.emit('client_log_event', { type: 'run_failed_permanently', name: urlName, code: urlCode });
+    return;
+  }
+
+  if (!socket.connected) {
+    setQuizOutputStatus('<span class="queue-pulse">🔌</span> Verbinding herstellen...');
+    // De client herverbindt zelf automatisch op de achtergrond (socket.io); zodra dat lukt,
+    // proberen we het opnieuw. De bestaande 'connect'-listener hieronder stuurt op dat moment
+    // ook zelf al 'quiz_start' opnieuw om de sessie te herstellen.
+    socket.once('connect', () => setTimeout(() => sendRunRequest(code, attempt), 150));
+    return;
+  }
+
+  sendRunWithAck(code, attempt);
+}
+
+function sendRunWithAck(code, attempt) {
+  let answered = false;
+  const timer = setTimeout(() => {
+    if (answered) return;
+    answered = true;
+    retryRun(code, attempt);
+  }, RUN_ACK_TIMEOUT_MS);
+
+  socket.emit('quiz_run_request', { codeText: code }, (resp) => {
+    if (answered) return;
+    answered = true;
+    clearTimeout(timer);
+    if (!resp || resp.ok !== true) retryRun(code, attempt);
+    // resp.ok === true: de server heeft de aanvraag bevestigd in behandeling genomen — de
+    // effectieve uitvoer (of een wachtrij-/rate-limit-melding) komt binnen via de bestaande
+    // free_run_*-events hieronder, zoals voorheen.
+  });
+}
+
+function retryRun(code, attempt) {
+  setQuizOutputStatus(`<span class="queue-pulse">🔄</span> Verbinding wordt hersteld — ` +
+    `even geduld (poging ${attempt}/${RUN_MAX_ATTEMPTS})...`);
+  // Sprint 89: elke keer dat we hier belanden was er een RUN-aanvraag zonder tijdige
+  // bevestiging — meld dit (rate-gelimiteerd server-side) zodat de leerkracht ook ziet
+  // hoe vaak het bijna misging, niet enkel de gevallen die uiteindelijk volledig faalden.
+  if (socket.connected) socket.emit('client_log_event', { type: 'run_ack_missing', name: urlName, code: urlCode, attempt });
+  // De server herkende deze verbinding (nog) niet als deze leerling — meestal omdat een
+  // herverbinding nog niet volledig verwerkt is. Stuur 'quiz_start' opnieuw om de sessie te
+  // (her)registreren vóór de volgende poging.
+  if (_state) socket.emit('quiz_start', { code: urlCode, name: urlName, className: urlClass });
+  setTimeout(() => sendRunRequest(code, attempt + 1), 500);
 }
 
 // Hergebruik output events van app.js
@@ -1100,6 +1521,22 @@ socket.on('free_run_output', ({ output }) => {
 socket.on('free_run_end', () => {
   document.getElementById('quiz-wait-input').style.display = 'none';
   document.getElementById('quiz-input-wrap').style.display = 'none';
+});
+// Sprint 88: quiz-student.js miste deze twee listeners die app.js voor 'vrij oefenen' wel al
+// had — de server stuurde ze hier ook al langer, maar er was niets dat ze toonde. Resultaat:
+// bij een drukke runner (wachtrij) of rate-limiting bleef het uitvoervenster leeg lijken —
+// hetzelfde "ik klik op RUN en er gebeurt niets"-gevoel, maar dan door een normale, verwachte
+// vertraging in plaats van een kapotte verbinding. Nu altijd zichtbaar, zoals bij vrij oefenen.
+socket.on('free_run_queued', ({ position }) => {
+  const estSec = (position || 1) * 8;
+  setQuizOutputStatus(`<span class="queue-pulse">⏳</span> In wachtrij — positie <strong>${position}</strong> · geschatte wachttijd ~${estSec}s`);
+});
+socket.on('free_run_rate_limited', ({ message }) => {
+  // Sprint 88: app.js heeft al een escapeHtml(), maar die zit in zijn eigen IIFE-closure en is
+  // dus niet bereikbaar vanuit dit bestand — vandaar deze kleine, lokale variant.
+  const safe = String(message || 'Wacht even voor je opnieuw runt.')
+    .replace(/[&<>"']/g, s => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[s]));
+  setQuizOutputStatus(`<span class="queue-pulse">⏳</span> ${safe}`);
 });
 socket.on('free_input_request', () => {
   document.getElementById('quiz-wait-input').style.display = 'block';
@@ -1165,9 +1602,132 @@ function closeSubmitScreen() {
   document.getElementById('quiz-screen').style.display = 'block';
 }
 
+// ── Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij een toets, enkel
+// als de leerkracht dit voor DEZE toets heeft aangezet). Vaste, niet-configureerbare
+// vragenlijst — bewust gedupliceerd t.o.v. lib/validation.js (ENQUETE_STEMMINGEN /
+// ENQUETE_CATEGORIEEN / valideerZelfevaluatie), zoals ook heeftAntwoord()/
+// heeftAntwoordServer() hier al apart onderhouden worden (geen gedeelde bundelaar
+// tussen server en client in dit project). Bij wijzigingen: BEIDE plekken aanpassen.
+const ZELFEVAL_STEMMINGEN = [
+  { id: 'zeer_slecht', icoon: '💀', label: 'Heel slecht' },
+  { id: 'slecht', icoon: '☹️', label: 'Slecht' },
+  { id: 'neutraal', icoon: '😐', label: 'Neutraal' },
+  { id: 'goed', icoon: '🙂', label: 'Goed' },
+  { id: 'uitstekend', icoon: '⭐', label: 'Uitstekend' },
+];
+const ZELFEVAL_CATEGORIEEN = [
+  { id: 'voorbereiding', titel: 'Voorbereiding', items: [
+    { id: 'gelezen_1x', tekst: 'Ik heb de leerstof 1 keer gelezen.' },
+    { id: 'gelezen_meermaals', tekst: 'Ik heb de leerstof meerdere keren gelezen.' },
+    { id: 'grondig_geleerd', tekst: 'Ik heb de leerstof grondig geleerd.' },
+  ] },
+  { id: 'verwerking', titel: 'Verwerking van de leerstof', items: [
+    { id: 'samenvatting', tekst: 'Ik heb een samenvatting gemaakt.' },
+    { id: 'herhaald_3x', tekst: 'Ik heb de samenvatting minstens 3 keer herhaald.' },
+    { id: 'begrippenlijst', tekst: 'Ik heb een begrippenlijst geleerd.' },
+    { id: 'extra_uitleg', tekst: 'Ik heb extra uitleg gevraagd (aan de leerkracht of een klasgenoot).' },
+    { id: 'ondervraagd', tekst: 'Iemand heeft mij ondervraagd.' },
+  ] },
+  { id: 'oefenen', titel: 'Oefenen', items: [
+    { id: 'oefeningen_gemaakt', tekst: 'Ik heb oefeningen gemaakt.' },
+    { id: 'oefeningen_herhaald', tekst: 'Ik heb oefeningen opnieuw gemaakt / herhaald.' },
+    { id: 'extra_oefeningen', tekst: 'Ik heb extra oefeningen gemaakt (online of in het boek).' },
+    { id: 'geen_oefeningen', tekst: 'Ik heb geen oefeningen gemaakt.' },
+  ] },
+  { id: 'planning', titel: 'Planning', items: [
+    { id: 'op_tijd', tekst: 'Ik ben op tijd begonnen met leren (enkele dagen op voorhand).' },
+    { id: 'laat', tekst: 'Ik ben laat begonnen (de dag ervoor).' },
+    { id: 'zelfde_dag', tekst: 'Ik ben pas op de dag zelf begonnen.' },
+  ] },
+  { id: 'aandachtspunten', titel: 'Aandachtspunten', items: [
+    { id: 'niet_voldoende', tekst: 'Ik heb niet (voldoende) geleerd.' },
+    { id: 'verkeerde_leerstof', tekst: 'Ik heb de verkeerde leerstof geleerd.' },
+    { id: 'vergeten', tekst: 'Ik was vergeten dat er een toets was.' },
+  ] },
+];
+let _zelfevalKeuzes = { stemming: null, antwoorden: {} };
+
+function zelfevalIsVolledig() {
+  if (!_zelfevalKeuzes.stemming) return false;
+  return ZELFEVAL_CATEGORIEEN.every(c => (_zelfevalKeuzes.antwoorden[c.id] || []).length > 0);
+}
+
+function renderZelfevaluatieScherm() {
+  _zelfevalKeuzes = { stemming: null, antwoorden: {} };
+  for (const c of ZELFEVAL_CATEGORIEEN) _zelfevalKeuzes.antwoorden[c.id] = [];
+
+  const stemmingenEl = document.getElementById('zelfeval-stemmingen');
+  stemmingenEl.innerHTML = ZELFEVAL_STEMMINGEN.map(s =>
+    `<button type="button" class="zelfeval-stemming-btn" data-stemming="${s.id}" title="${s.label}">${s.icoon}</button>`
+  ).join('');
+  stemmingenEl.querySelectorAll('.zelfeval-stemming-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _zelfevalKeuzes.stemming = btn.dataset.stemming;
+      stemmingenEl.querySelectorAll('.zelfeval-stemming-btn').forEach(b => b.classList.toggle('gekozen', b === btn));
+      bijwerkenZelfevalIndienKnop();
+    });
+  });
+
+  const catEl = document.getElementById('zelfeval-categorieen');
+  catEl.innerHTML = ZELFEVAL_CATEGORIEEN.map(c => `
+    <div class="zelfeval-categorie">
+      <h4>${c.titel}</h4>
+      ${c.items.map(it => `
+        <label class="zelfeval-item">
+          <input type="checkbox" data-cat="${c.id}" data-item="${it.id}"/>
+          <span>${it.tekst}</span>
+        </label>
+      `).join('')}
+    </div>
+  `).join('');
+  catEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const cat = cb.dataset.cat, item = cb.dataset.item;
+      const lijst = _zelfevalKeuzes.antwoorden[cat];
+      if (cb.checked) { if (!lijst.includes(item)) lijst.push(item); }
+      else { _zelfevalKeuzes.antwoorden[cat] = lijst.filter(x => x !== item); }
+      bijwerkenZelfevalIndienKnop();
+    });
+  });
+  bijwerkenZelfevalIndienKnop();
+}
+
+function bijwerkenZelfevalIndienKnop() {
+  const btn = document.getElementById('zelfeval-indien-btn');
+  if (btn) btn.disabled = !zelfevalIsVolledig();
+}
+
+// Sprint 90: vervangt de vroegere rechtstreekse onclick="submitAll()" op de
+// indienbevestiging — enkel wanneer deze toets de enquête heeft aanstaan, wordt
+// eerst de (verplichte) zelfevaluatie getoond; anders wordt meteen ingediend.
+function naarIndienenOfZelfevaluatie() {
+  if (_state?.selfEvalEnabled) {
+    document.getElementById('submit-screen').classList.remove('visible');
+    document.getElementById('zelfeval-screen').classList.add('visible');
+    renderZelfevaluatieScherm();
+  } else {
+    submitAll();
+  }
+}
+
+function closeZelfevaluatieScreen() {
+  document.getElementById('zelfeval-screen').classList.remove('visible');
+  document.getElementById('submit-screen').classList.add('visible');
+}
+
 function submitAll() {
   saveCurrentAnswer(getCurrentCode());
-  socket.emit('quiz_submit_all', { answers: _answers });
+  _afgesloten = true; // Sprint 83: voorkomt een zinloze tabwissel-melding door exitFullscreen()
+  // Sprint 90: de zelfevaluatie (indien van toepassing) gaat mee in DEZELFDE inzending
+  // i.p.v. een apart round-trip — zo blijft het indienen atomair en is er geen aparte
+  // auth-stap nodig. Een ontbrekende/ongeldige enquête mag de echte inzending nooit
+  // blokkeren (zie server.js), maar de knop hier is hoe dan ook pas actief als alles
+  // volledig is ingevuld.
+  const payload = { answers: _answers };
+  if (_state?.selfEvalEnabled && zelfevalIsVolledig()) {
+    payload.zelfevaluatie = { stemming: _zelfevalKeuzes.stemming, antwoorden: _zelfevalKeuzes.antwoorden };
+  }
+  socket.emit('quiz_submit_all', payload);
   // Bugfix (sprint 72): dit telde nog met de oude, onvolledige check (enkel .code)
   // i.p.v. de centrale heeftAntwoord()-functie — exact dezelfde fout als eerder al
   // gevonden in renderNav()/openSubmitScreen(), hier over het hoofd gezien. Een
@@ -1182,10 +1742,15 @@ function submitAll() {
 function showDoneScreen(name, count) {
   document.getElementById('quiz-screen').style.display = 'none';
   document.getElementById('submit-screen').classList.remove('visible');
+  document.getElementById('zelfeval-screen').classList.remove('visible'); // Sprint 90
+  annuleerTabwisselRespijt(); // Sprint 92: nooit een respijt-overlay laten "hangen" op het eindscherm
   document.getElementById('done-screen').style.display = 'block';
   document.getElementById('done-screen').classList.add('visible');
   document.getElementById('done-info').textContent =
     `${name} · ${count} van ${_state?.questions?.length || '?'} vragen beantwoord`;
+  // Sprint 83: geen reden meer om de leerling in volledig scherm vast te houden zodra
+  // de toets/taak effectief ingediend is (ook bij automatisch indienen door tabwissel).
+  if (document.fullscreenElement) { try { document.exitFullscreen().catch(() => {}); } catch (e) {} }
 }
 
 // Bugfix (kritiek, sprint 74): submitAll() toonde het "ingediend"-scherm voorheen

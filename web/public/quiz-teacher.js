@@ -57,6 +57,10 @@ if (QUIZ_TYPE) {
   if (nameInput) nameInput.placeholder = meta.namePlaceholder;
   const createBtn = document.getElementById('create-btn');
   if (createBtn) createBtn.textContent = IS_EDIT ? '💾 Wijzigingen opslaan' : '✅ ' + meta.createLabel;
+  // Sprint 83: anti-spiek (verplicht volledig scherm + optioneel auto-indienen bij
+  // tabwissel) is enkel zinvol bij een toets — verborgen bij een taak.
+  const antiSpiekSectie = document.getElementById('quiz-antispiek-sectie');
+  if (antiSpiekSectie) antiSpiekSectie.style.display = QUIZ_TYPE === 'toets' ? '' : 'none';
   const timerRadio = document.querySelector('[name=quiz-timer-type][value="' + meta.defaultTimer + '"]');
   if (timerRadio) {
     timerRadio.checked = true;
@@ -75,6 +79,12 @@ if (QUIZ_TYPE) {
 
 let _bank = [];
 let _selected = {}; // { id: { ...question, points: override } }
+// Sprint 76: expliciete volgorde (los van selectievolgorde) + groepsscheidingen voor
+// onafhankelijke randomisatie per groep (bv. theorie apart van oefeningen husselen, maar
+// de oefeningen altijd na de theorie). _groupBreaks bevat de id's waarvóór een nieuwe
+// groep begint; het eerste geselecteerde item start altijd groep 0.
+let _selectedOrder = []; // [id, id, ...] — bepaalt de weergave- én verzendvolgorde
+let _groupBreaks = new Set();
 
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -133,25 +143,80 @@ function filterBank() {
 function toggleSelect(id) {
   const q = _bank.find(x => x.id === id);
   if (!q) return;
-  if (_selected[id]) delete _selected[id];
-  else _selected[id] = { ...q, points: q.max_points };
+  if (_selected[id]) {
+    delete _selected[id];
+    _selectedOrder = _selectedOrder.filter(x => x !== id);
+    _groupBreaks.delete(id);
+  } else {
+    _selected[id] = { ...q, points: q.max_points };
+    _selectedOrder.push(id);
+  }
   filterBank();
   renderSelectedList();
 }
 
+// Sprint 76: item één plaats naar boven/onder verplaatsen in de verzendvolgorde.
+function moveSelected(id, richting) {
+  const i = _selectedOrder.indexOf(id);
+  const j = i + richting;
+  if (i < 0 || j < 0 || j >= _selectedOrder.length) return;
+  [_selectedOrder[i], _selectedOrder[j]] = [_selectedOrder[j], _selectedOrder[i]];
+  renderSelectedList();
+}
+
+// Sprint 76: groepsscheiding vóór dit item aan/uit-zetten (enkel zinvol bij random
+// per leerling — bij een vaste volgorde is randomiseren toch niet aan de orde).
+function toggleGroupBreak(id) {
+  if (_groupBreaks.has(id)) _groupBreaks.delete(id);
+  else _groupBreaks.add(id);
+  renderSelectedList();
+}
+
+// Sprint 76: leidt uit _selectedOrder + _groupBreaks het groepnummer per id af —
+// groep 0 voor de eerste vragen, +1 bij elke geactiveerde scheiding.
+function berekenGroepen() {
+  const groepPerId = {};
+  let groepNr = 0;
+  _selectedOrder.forEach((id, i) => {
+    if (i > 0 && _groupBreaks.has(id)) groepNr++;
+    groepPerId[id] = groepNr;
+  });
+  return groepPerId;
+}
+
 function renderSelectedList() {
-  const ids = Object.keys(_selected);
+  const ids = _selectedOrder;
   const total = ids.reduce((s, id) => s + (_selected[id].points || 0), 0);
   document.getElementById('sel-count').textContent = `${ids.length} geselecteerd · ${total} punten`;
+  const random = document.querySelector('[name=quiz-order]:checked')?.value === 'random';
+  const groepPerId = berekenGroepen();
+  const aantalGroepen = new Set(Object.values(groepPerId)).size;
   document.getElementById('sel-list').innerHTML = ids.map((id, i) => {
     const q = _selected[id];
-    return `<div class="sel-row">
+    const isBreak = i > 0 && _groupBreaks.has(id);
+    // Sprint 76: bij een groepsscheiding tonen we eerst een deellijn met de nieuwe
+    // groepsnaam, zodat duidelijk is welke vragen straks samen (apart van de rest)
+    // gehusseld worden.
+    const breakHtml = isBreak ? `<div style="display:flex;align-items:center;gap:8px;margin:10px 0 4px;">
+      <div style="flex:1;border-top:2px dashed var(--primary);"></div>
+      <span style="font-size:0.74rem;font-weight:700;color:var(--primary);">✂️ Nieuwe groep — Groep ${groepPerId[id] + 1}</span>
+      <div style="flex:1;border-top:2px dashed var(--primary);"></div>
+    </div>` : '';
+    const groepBadge = random && aantalGroepen > 1
+      ? `<span class="muted" style="font-size:0.7rem;border:1px solid var(--border);border-radius:5px;padding:1px 5px;" title="Groep ${groepPerId[id] + 1} wordt apart gehusseld van de andere groepen">G${groepPerId[id] + 1}</span>` : '';
+    return `${breakHtml}<div class="sel-row">
+      <span style="display:flex;flex-direction:column;gap:0;">
+        <button type="button" style="background:none;border:none;cursor:pointer;color:var(--muted);padding:0;line-height:1;" title="Naar boven verplaatsen" aria-label="Vraag naar boven verplaatsen" ${i===0?'disabled':''} onclick="moveSelected('${id}',-1)">▲</button>
+        <button type="button" style="background:none;border:none;cursor:pointer;color:var(--muted);padding:0;line-height:1;" title="Naar onder verplaatsen" aria-label="Vraag naar onder verplaatsen" ${i===ids.length-1?'disabled':''} onclick="moveSelected('${id}',1)">▼</button>
+      </span>
       <span style="font-weight:700;min-width:24px;">${i+1}.</span>
       <span style="flex:1;font-size:0.88rem;">${esc(q.text.slice(0, 60))}...</span>
+      ${groepBadge}
       <input type="number" class="pts" value="${q.points}" min="1" max="100"
         onchange="_selected['${id}'].points=parseInt(this.value)||1; renderSelectedList()"/>
       <span class="muted" style="font-size:0.78rem;">pt</span>
-      <button style="background:none;border:none;cursor:pointer;color:var(--muted);" title="Vraag uit selectie verwijderen" aria-label="Vraag uit selectie verwijderen" onclick="toggleSelect('${id}')">✕</button>
+      ${random && i > 0 ? `<button type="button" style="background:none;border:none;cursor:pointer;color:${isBreak ? 'var(--primary)' : 'var(--muted)'};" title="Groepsscheiding hier aan/uit — vragen in dezelfde groep worden onafhankelijk van andere groepen gehusseld" aria-label="Groepsscheiding hier aan of uit zetten" onclick="toggleGroupBreak('${id}')">✂️</button>` : ''}
+      <button type="button" style="background:none;border:none;cursor:pointer;color:var(--muted);" title="Vraag uit selectie verwijderen" aria-label="Vraag uit selectie verwijderen" onclick="toggleSelect('${id}')">✕</button>
     </div>`;
   }).join('');
 }
@@ -186,29 +251,37 @@ function preprocessMarkdown(text) {
 var _previewOrder = [];
 var _previewActive = 0;
 
-function buildPreview() {
-  var ids = Object.keys(_selected);
-  var random = document.querySelector('[name=quiz-order]:checked')?.value === 'random';
-  _previewOrder = ids.slice();
-  if (random) {
-    for (var i = _previewOrder.length - 1; i > 0; i--) {
+// Sprint 76: husselt _previewOrder, maar per groep afzonderlijk (net als de server) —
+// zo toont de preview correct dat bv. oefeningen altijd na de theorie blijven staan.
+function shuffleMetGroepen() {
+  var groepPerId = berekenGroepen();
+  var groepen = [];
+  var vorigeGroep = null;
+  _selectedOrder.forEach(function (id) {
+    var g = groepPerId[id];
+    if (vorigeGroep === null || g !== vorigeGroep) { groepen.push([]); vorigeGroep = g; }
+    groepen[groepen.length - 1].push(id);
+  });
+  groepen.forEach(function (groep) {
+    for (var i = groep.length - 1; i > 0; i--) {
       var j = Math.floor(Math.random() * (i + 1));
-      var tmp = _previewOrder[i]; _previewOrder[i] = _previewOrder[j]; _previewOrder[j] = tmp;
+      var tmp = groep[i]; groep[i] = groep[j]; groep[j] = tmp;
     }
-    document.getElementById('shuffle-btn').style.display = '';
-  } else {
-    document.getElementById('shuffle-btn').style.display = 'none';
-  }
+  });
+  return [].concat.apply([], groepen);
+}
+
+function buildPreview() {
+  var random = document.querySelector('[name=quiz-order]:checked')?.value === 'random';
+  _previewOrder = random ? shuffleMetGroepen() : _selectedOrder.slice();
+  document.getElementById('shuffle-btn').style.display = random ? '' : 'none';
   _previewActive = 0;
   renderPreviewNav();
   renderPreviewQuestion(0);
 }
 
 function shufflePreview() {
-  for (var i = _previewOrder.length - 1; i > 0; i--) {
-    var j = Math.floor(Math.random() * (i + 1));
-    var tmp = _previewOrder[i]; _previewOrder[i] = _previewOrder[j]; _previewOrder[j] = tmp;
-  }
+  _previewOrder = shuffleMetGroepen();
   renderPreviewNav();
   renderPreviewQuestion(_previewActive);
 }
@@ -275,12 +348,14 @@ function renderPreviewQuestion(idx) {
 }
 
 function renderConfirm() {
-  const ids = Object.keys(_selected);
+  const ids = _selectedOrder;
   const total = ids.reduce((s, id) => s + (_selected[id].points || 0), 0);
   const timerType = document.querySelector('[name=quiz-timer-type]:checked')?.value;
   const noTimer = timerType === 'notimer';
   const mins = parseInt(document.getElementById('quiz-timer-min').value) || 45;
   const random = document.querySelector('[name=quiz-order]:checked')?.value === 'random';
+  const groepPerId = berekenGroepen();
+  const aantalGroepen = new Set(Object.values(groepPerId)).size;
   const isPreview = document.getElementById('quiz-is-preview').checked;
   const schoolYear = document.getElementById('quiz-school-year').value.trim();
   const targetClassEl = document.getElementById('quiz-target-class');
@@ -292,7 +367,7 @@ function renderConfirm() {
     <table style="width:100%;font-size:0.9rem;border-collapse:collapse;">
       <tr><td style="padding:6px 0;color:var(--muted);width:140px;">Naam</td><td><strong>${esc(document.getElementById('quiz-name').value)}</strong></td></tr>
       <tr><td style="padding:6px 0;color:var(--muted);">Timer</td><td><strong>${noTimer ? '∞ Geen tijdslimiet' : mins + ' minuten'}</strong></td></tr>
-      <tr><td style="padding:6px 0;color:var(--muted);">Volgorde</td><td><strong>${random ? '🔀 Random per leerling' : '📋 Vast voor iedereen'}</strong></td></tr>
+      <tr><td style="padding:6px 0;color:var(--muted);">Volgorde</td><td><strong>${random ? '🔀 Random per leerling' : '📋 Vast voor iedereen'}</strong>${random && aantalGroepen > 1 ? ` <span class="muted" style="font-size:0.8rem;">(${aantalGroepen} groepen, elk apart gehusseld)</span>` : ''}</td></tr>
       <tr><td style="padding:6px 0;color:var(--muted);">Vragen</td><td><strong>${ids.length} vragen · ${total} punten</strong></td></tr>
       ${schoolYear ? `<tr><td style="padding:6px 0;color:var(--muted);">Schooljaar</td><td><strong>${esc(schoolYear)}</strong></td></tr>` : ''}
       <tr><td style="padding:6px 0;color:var(--muted);">Klas</td><td><strong>${esc(targetClassName)}</strong></td></tr>
@@ -300,7 +375,8 @@ function renderConfirm() {
     <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">
       ${ids.map((id, i) => {
         const q = _selected[id];
-        return `<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.88rem;">
+        const isBreak = random && i > 0 && _groupBreaks.has(id);
+        return `${isBreak ? `<div style="font-size:0.74rem;font-weight:700;color:var(--primary);margin:8px 0 2px;">✂️ Groep ${groepPerId[id] + 1}</div>` : ''}<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.88rem;">
           <strong>${i+1}.</strong> ${esc(q.text.slice(0,90))}${q.text.length > 90 ? '…' : ''} <span class="muted">(${q.points}pt)</span>
         </div>`;
       }).join('')}
@@ -339,6 +415,18 @@ async function createQuiz() {
   const minRunsPerQ           = document.getElementById('quiz-min-runs').checked ? 1 : 0;
   const noBack                = document.getElementById('quiz-no-back')?.checked === true;  // Sprint 69
   const isTeacherPreview      = document.getElementById('quiz-is-preview').checked;
+  // Sprint 83: anti-spiek — enkel zinvol bij een toets; bij een taak sturen we gewoon
+  // 'false'/'' mee (de server negeert/dwingt dit sowieso af, maar zo is het ook meteen
+  // correct zichtbaar mocht iemand ooit rechtstreeks de payload bekijken).
+  const isToetsType           = QUIZ_TYPE === 'toets';
+  const tabSwitchEnabled      = isToetsType && document.getElementById('quiz-tabswitch-enabled')?.checked === true;
+  const tabSwitchThreshold    = parseInt(document.getElementById('quiz-tabswitch-threshold')?.value) || 1;
+  // Sprint 94: instelbaar respijt (0 is een geldige waarde — geen respijt — dus geen "|| 5").
+  const parsedGrace           = parseInt(document.getElementById('quiz-tabswitch-grace')?.value);
+  const tabSwitchGraceSeconds = isNaN(parsedGrace) ? 5 : parsedGrace;
+  const cursusUrl             = isToetsType ? (document.getElementById('quiz-cursus-url')?.value.trim() || '') : '';
+  // Sprint 90: zelfevaluatie-enquête — zelfde toets-only redenering als hierboven.
+  const selfEvalEnabled       = isToetsType && document.getElementById('quiz-self-eval')?.checked === true;
 
   if (accessFrom && accessUntil && accessFrom >= accessUntil) {
     await pyAlert('Deadline moet na de startdatum liggen.', "warn"); return;
@@ -350,9 +438,18 @@ async function createQuiz() {
     return;
   }
 
-  const questions = Object.values(_selected).map(q => ({
-    id: q.id, text: q.text, subject: q.subject, points: q.points, max_points: q.max_points,
-  }));
+  // Sprint 76: expliciete volgorde (_selectedOrder, kan handmatig herschikt zijn) i.p.v.
+  // de vroegere selectievolgorde, en het groepnummer per vraag voor onafhankelijke
+  // randomisatie per groep. Bij "vast voor iedereen" is groeperen niet zinvol/zichtbaar,
+  // maar er zit dan hoe dan ook maar 1 groep (0) in — geen effect.
+  const groepPerId = berekenGroepen();
+  const questions = _selectedOrder.map(id => {
+    const q = _selected[id];
+    return {
+      id: q.id, text: q.text, subject: q.subject, points: q.points, max_points: q.max_points,
+      randomGroup: groepPerId[id] || 0,
+    };
+  });
 
   // 22h: loading state
   createBtn.disabled    = true;
@@ -368,6 +465,10 @@ async function createQuiz() {
     const payload = { name, questions, randomize, timerSeconds, noTimer, minRunsPerQ,
                       hideQuestionOnScreen, schoolYear, targetClass,
                       accessFrom, accessUntil, autoSubmitLate, noBack,
+                      // Sprint 83: anti-spiek (sprint 94: + instelbaar respijt)
+                      tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusUrl,
+                      // Sprint 90: zelfevaluatie-enquête
+                      selfEvalEnabled,
                       // Leerling-selectie: in bewerkmodus ALTIJD meesturen (ook leeg =
                       // beperking opheffen). Bij aanmaken enkel als er een selectie is.
                       studentIds: IS_EDIT
@@ -424,6 +525,17 @@ async function createQuiz() {
 function toggleTimer(val) {
   const timerInput = document.getElementById('quiz-timer-min');
   if (timerInput) timerInput.disabled = val === 'notimer';
+}
+
+// Sprint 83: de drempel heeft geen betekenis zolang "automatisch indienen bij
+// tabwissel" uitstaat.
+function toggleTabSwitchThreshold(enabled) {
+  const thresholdInput = document.getElementById('quiz-tabswitch-threshold');
+  if (thresholdInput) thresholdInput.disabled = !enabled;
+  // Sprint 94: het respijt heeft, net als de drempel hierboven, geen betekenis zolang
+  // "automatisch indienen bij tabwissel" uitstaat.
+  const graceInput = document.getElementById('quiz-tabswitch-grace');
+  if (graceInput) graceInput.disabled = !enabled;
 }
 
 // Sprint 51s (bugfix): het schooljaar van een toets werd altijd blind berekend uit de
@@ -564,6 +676,17 @@ async function loadForEdit() {
     setChk('quiz-no-back', m.noBack);
     setChk('quiz-min-runs', m.minRunsPerQ);
     setChk('quiz-auto-submit', m.autoSubmitLate);
+    // Sprint 83: anti-spiek (enkel relevant/zichtbaar bij een toets — sectie is al
+    // verborgen bij een taak, zie de QUIZ_TYPE-init hierboven).
+    setChk('quiz-tabswitch-enabled', m.tabSwitchEnabled);
+    setVal('quiz-tabswitch-threshold', m.tabSwitchThreshold || 1);
+    // Sprint 94: instelbaar respijt — 0 is een geldige waarde, dus expliciet op undefined
+    // checken i.p.v. "|| 5" (dat zou een bewuste 0 tonen als 5).
+    setVal('quiz-tabswitch-grace', m.tabSwitchGraceSeconds !== undefined && m.tabSwitchGraceSeconds !== null ? m.tabSwitchGraceSeconds : 5);
+    toggleTabSwitchThreshold(!!m.tabSwitchEnabled);
+    setVal('quiz-cursus-url', m.cursusUrl || '');
+    // Sprint 90: zelfevaluatie-enquête
+    setChk('quiz-self-eval', m.selfEvalEnabled);
     // Sprint 51s: wacht tot de schooljaar-dropdown zijn opties heeft, en voeg het opgeslagen
     // jaar toe als het er nog niet bij staat (bv. een ouder/gearchiveerd jaar) — zo blijft
     // zichtbaar wat er nu echt geconfigureerd staat, ook al is dat een mismatch met de klas.
@@ -590,7 +713,30 @@ async function loadForEdit() {
     // Klas selecteren (wacht tot de opties geladen zijn)
     await _classesReady;
     const clsSel = document.getElementById('quiz-target-class');
-    if (clsSel && m.targetClass) clsSel.value = m.targetClass;
+    if (clsSel && m.targetClass) {
+      // Sprint 78: /api/classes sluit gearchiveerde klassen bewust uit — stond de gekoppelde
+      // klas (bv. een klas van een vorig schooljaar) niet tussen de opties, dan zette
+      // "clsSel.value = m.targetClass" hier voorheen STIL niets (de browser negeert een
+      // waarde die geen enkele <option> heeft), en viel de dropdown terug op de eerste optie
+      // zonder dat de leerkracht dat zag. Bewaarde hij dan zonder de klas zelf opnieuw te
+      // kiezen, dan verving dat de koppeling ongemerkt door een verkeerde/lege klas — dit is
+      // vermoedelijk hoe een toets/taak stilletjes aan de verkeerde (oude) klas kan blijven
+      // hangen. We voegen de gekoppelde klas nu altijd zichtbaar toe als ze ontbreekt, met een
+      // duidelijk label, zodat de leerkracht ziet wat er nu echt gekoppeld is en het bewust
+      // kan aanpassen.
+      const bestaatAl = [...clsSel.options].some(o => o.value === m.targetClass);
+      if (!bestaatAl) {
+        const info = m.targetClassInfo;
+        const opt = document.createElement('option');
+        opt.value = m.targetClass;
+        opt.textContent = info
+          ? `⚠️ ${info.name} (${info.schoolYear}${info.archived ? ', gearchiveerd' : ''}) — huidige koppeling`
+          : '⚠️ (onbekende/verwijderde klas) — huidige koppeling';
+        opt.dataset.schoolYear = info?.schoolYear || '';
+        clsSel.appendChild(opt);
+      }
+      clsSel.value = m.targetClass;
+    }
     // Sprint 51s: enkel de visuele lock toepassen (uitgeschakeld + hint) — NIET
     // syncSchoolYearWithClass(), want dat zou het net herstelde opgeslagen schooljaar
     // overschrijven. Wijzigt de leerkracht de klas zelf, dan synchroniseert het wél (de
@@ -604,13 +750,23 @@ async function loadForEdit() {
     // apart geladen voor stap 2. We vullen _selected met de huidige selectie zodat de
     // wizard, preview en bevestiging meteen kloppen.
     _selected = {};
-    (data.questions || []).forEach(function (q) {
+    _selectedOrder = [];
+    _groupBreaks = new Set();
+    // Sprint 76: data.questions staat al in de opgeslagen order_index-volgorde — daaruit
+    // reconstrueren we zowel _selectedOrder als de groepsscheidingen (een scheiding zit
+    // vóór het eerste item van elke nieuwe random_group-waarde, behalve de allereerste).
+    let vorigeGroep = null;
+    (data.questions || []).forEach(function (q, i) {
       _selected[q.id] = {
         id: q.id, text: q.text, subject: q.subject,
         max_points: q.points, points: q.points,
         question_type: q.question_type, choices_json: q.choices_json,
         text_snapshot: q.text,
       };
+      _selectedOrder.push(q.id);
+      const groep = q.random_group || 0;
+      if (i > 0 && groep !== vorigeGroep) _groupBreaks.add(q.id);
+      vorigeGroep = groep;
     });
     renderSelectedList();
   } catch (e) {

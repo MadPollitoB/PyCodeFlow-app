@@ -947,3 +947,74 @@ async function deblokkeerAuth(ip) {
 }
 
 document.addEventListener('DOMContentLoaded', laadLoginBlokkades);
+
+// Sprint 89: overzicht van RUN-mislukkingen / weggevallen verbindingen per leerling.
+async function laadConnectivityLog() {
+  const doel = document.getElementById('connectivity-log-inhoud');
+  if (!doel) return;
+  const dagen = document.getElementById('connectivity-log-dagen')?.value || 7;
+  doel.innerHTML = '<p class="muted">Laden…</p>';
+  try {
+    const r = await fetch('/api/admin/connectivity-log?dagen=' + encodeURIComponent(dagen));
+    if (!r.ok) { doel.innerHTML = '<p class="muted">Geen toegang tot deze gegevens.</p>'; return; }
+    const d = await r.json();
+    const samenvatting = d.samenvatting || [];
+    const EVENT_LABEL = {
+      disconnect: 'verbinding weggevallen',
+      run_start_failed: 'RUN kon niet starten',
+      run_ack_missing: 'RUN kreeg geen tijdig antwoord',
+      run_failed_permanently: 'RUN uiteindelijk opgegeven',
+    };
+    const tabel = samenvatting.length
+      ? `<table class="admin-table"><thead><tr>
+           <th>Leerling</th><th>Totaal</th><th>Verbinding weggevallen</th><th>RUN-problemen</th><th>Laatste keer</th>
+         </tr></thead><tbody>${samenvatting.map(s => `<tr>
+           <td>${_esc(s.student_name || '(onbekend)')}</td>
+           <td>${s.totaal}</td>
+           <td>${s.disconnects}</td>
+           <td>${s.run_problemen}</td>
+           <td>${_dt(s.laatste)}</td>
+         </tr>`).join('')}</tbody></table>`
+      : '<p class="muted">Geen verbindingsproblemen gelogd in deze periode — goed nieuws.</p>';
+    const recent = (d.recent || []).slice(0, 30);
+    const recentHtml = recent.length
+      ? `<details style="margin-top:10px;"><summary style="cursor:pointer;font-size:0.85rem;color:var(--muted);">Meest recente losse gebeurtenissen tonen (${d.recent.length})</summary>
+           <table class="admin-table" style="margin-top:8px;"><thead><tr>
+             <th>Tijdstip</th><th>Leerling</th><th>Sessie</th><th>Type</th><th>Detail</th>
+           </tr></thead><tbody>${recent.map(e => `<tr>
+             <td style="white-space:nowrap;">${_dt(e.created_at)}</td>
+             <td>${_esc(e.student_name || '(onbekend)')}</td>
+             <td><code>${_esc(e.session_code || '—')}</code></td>
+             <td>${_esc(EVENT_LABEL[e.event_type] || e.event_type)}</td>
+             <td class="muted">${_esc(e.detail || '')}</td>
+           </tr>`).join('')}</tbody></table>
+         </details>`
+      : '';
+    doel.innerHTML = tabel + recentHtml;
+  } catch (e) {
+    doel.innerHTML = '<p class="muted">Kon de gegevens niet laden.</p>';
+  }
+}
+
+async function ruimConnectivityLogOp() {
+  const ok = window.pyConfirm ? await pyConfirm({
+    title: 'Oud logboek opschonen?',
+    body: 'Verwijdert logregels van vóór 30 dagen geleden. Dit kan niet ongedaan gemaakt worden.',
+    confirmLabel: 'Opschonen', cancelLabel: 'Annuleren',
+  }) : confirm('Logregels ouder dan 30 dagen verwijderen?');
+  if (!ok) return;
+  try {
+    const r = await apiFetch('/api/admin/connectivity-log/cleanup', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bewaarDagen: 30 }),
+    });
+    const d = await r.json();
+    if (!r.ok) { await pyAlert('Opschonen mislukt: ' + (d.error || 'onbekende fout'), 'error'); return; }
+    if (window.pyToast) pyToast(`${d.verwijderd} oude logregel(s) verwijderd.`, 'success');
+    laadConnectivityLog();
+  } catch (e) {
+    await pyAlert('Opschonen mislukt.', 'error');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', laadConnectivityLog);
