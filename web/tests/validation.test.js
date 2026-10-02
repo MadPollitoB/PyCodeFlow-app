@@ -638,3 +638,20 @@ test('90 valideerZelfevaluatie: extra/onbekende categorieën in antwoorden worde
   invoer.antwoorden.onbekend = ['iets'];
   assert.strictEqual(v.valideerZelfevaluatie(invoer).ok, true);
 });
+
+// ── Sprint 95: effectieveDeadline (individuele her-toegang, "↻ Toets heropenen") ──────────
+test('95 effectieveDeadline: geen individuele override → gewone deadline blijft gelden', () => {
+  assert.strictEqual(v.effectieveDeadline(1000, null), 1000);
+});
+test('95 effectieveDeadline: geen deadline, wel een override → de override geldt', () => {
+  assert.strictEqual(v.effectieveDeadline(null, 2000), 2000);
+});
+test('95 effectieveDeadline: override ligt NA de gewone deadline → override wint', () => {
+  assert.strictEqual(v.effectieveDeadline(1000, 2000), 2000);
+});
+test('95 effectieveDeadline: override ligt VOOR de gewone deadline → venster wordt nooit verkleind', () => {
+  assert.strictEqual(v.effectieveDeadline(2000, 1000), 2000);
+});
+test('95 effectieveDeadline: geen deadline en geen override → null', () => {
+  assert.strictEqual(v.effectieveDeadline(null, null), null);
+});

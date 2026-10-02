@@ -951,6 +951,25 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_quiz_answers_student
       ON quiz_answers(session_code, student_id);
 
+    -- Sprint 95: individuele her-toegang. "↺ Heropenen" (sprint 79) werkt enkel zolang de
+    -- toets/taak ZELF nog niet gestopt/verstreken is (sprint 86) — maar net ná een toets
+    -- wil een leerkracht net dán vaak enkele leerlingen die niet klaar geraakten een nieuwe,
+    -- EIGEN kans geven tot een zelf gekozen nieuw tijdstip, zonder de toets voor de hele
+    -- klas weer open te zetten. Eén rij per (sessie, leerling) — een latere heropening
+    -- overschrijft gewoon de vorige (delete + insert, zie setIndividualAccess hieronder).
+    -- Bewust los van assignment_bank.access_until: dat blijft de EIGENLIJKE, voor iedereen
+    -- geldende deadline; dit is een uitzondering voor met naam genoemde leerlingen.
+    CREATE TABLE IF NOT EXISTS quiz_individual_access (
+      id            SERIAL PRIMARY KEY,
+      session_code  TEXT NOT NULL,
+      student_id    TEXT,
+      student_name  TEXT,
+      access_until  BIGINT NOT NULL,
+      created_at    BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_quiz_individual_access_session
+      ON quiz_individual_access(session_code);
+
     CREATE TABLE IF NOT EXISTS quiz_general_comments (
       session_code TEXT NOT NULL,
       student_id   TEXT NOT NULL,
@@ -3879,6 +3898,47 @@ module.exports = {
           AND (student_id = $2 OR ($3::text IS NOT NULL AND LOWER(TRIM(student_name)) = LOWER(TRIM($3))))`,
       [sessionCode, studentId, studentName || null]
     );
+  },
+
+  // Sprint 95: geef één leerling een eigen, nieuwe "open tot" — ongeacht of de toets/taak
+  // zelf al gestopt is of de gewone deadline al verstreken is (dat is net de hele
+  // bedoeling: het is de uitzondering op die regel, voor een met naam gekozen leerling).
+  // Een latere oproep voor dezelfde leerling vervangt gewoon de vorige override.
+  async setIndividualAccess(sessionCode, studentId, studentName, accessUntil) {
+    await query(
+      `DELETE FROM quiz_individual_access
+        WHERE session_code = $1
+          AND (student_id = $2 OR ($3::text IS NOT NULL AND LOWER(TRIM(student_name)) = LOWER(TRIM($3))))`,
+      [sessionCode, studentId || null, studentName || null]
+    );
+    await query(
+      `INSERT INTO quiz_individual_access (session_code, student_id, student_name, access_until, created_at)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [sessionCode, studentId || null, studentName || null, accessUntil, Date.now()]
+    );
+  },
+
+  // Sprint 95: actieve individuele override opzoeken voor quiz_start (mag deze leerling er
+  // nog in, ook al is de toets zelf gestopt/verstreken?). Geeft het tijdstip terug (of null).
+  async getIndividualAccessUntil(sessionCode, studentId, studentName) {
+    const r = await query(
+      `SELECT access_until FROM quiz_individual_access
+        WHERE session_code = $1
+          AND (student_id = $2 OR ($3::text IS NOT NULL AND LOWER(TRIM(student_name)) = LOWER(TRIM($3))))
+        ORDER BY created_at DESC LIMIT 1`,
+      [sessionCode, studentId || null, studentName || null]
+    );
+    return r.rows[0]?.access_until != null ? Number(r.rows[0].access_until) : null;
+  },
+
+  // Sprint 95: alle individuele overrides van een sessie in één keer (voor de Voortgang-
+  // status-berekening — telt een leerling die net heropend werd niet onterecht als "te laat").
+  async getIndividualAccessMap(sessionCode) {
+    const r = await query(
+      `SELECT student_id, student_name, access_until FROM quiz_individual_access WHERE session_code = $1`,
+      [sessionCode]
+    );
+    return r.rows;
   },
 
   // Per leerling samengevat: heeft hij inhoud, wanneer/door wie ingediend?

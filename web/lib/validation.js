@@ -148,6 +148,18 @@ function magHeropenen({ stoppedAt = null, deadline = null, now = Date.now() } = 
   return true;
 }
 
+// Sprint 95: "Toets heropenen" (bulk, zie server.js reopen-bulk) geeft met naam gekozen
+// leerlingen een eigen, nieuwe "open tot" — ook als de toets zelf al gestopt is of de
+// normale deadline al lang verstreken is. Voor de Voortgang-status (bepaalInleverStatus
+// hierboven) en voor quiz_start moet dan niet de oude, verstreken deadline gelden voor
+// precies díe leerling, maar wel voor iedereen zonder zo'n override. Pure functie: geeft
+// gewoon de latere van de twee tijdstippen terug (nooit het venster verkleinen).
+function effectieveDeadline(deadline, individueleToegangTot) {
+  if (!individueleToegangTot) return deadline || null;
+  if (!deadline) return Number(individueleToegangTot);
+  return Math.max(Number(deadline), Number(individueleToegangTot));
+}
+
 const INLEVER_STATUSSEN = {
   op_tijd:    { label: 'Op tijd ingeleverd', icoon: '✅', kleur: 'C6EFCE' },
   te_laat:    { label: 'Te laat',            icoon: '🟠', kleur: 'FFE0B2' },
@@ -406,6 +418,7 @@ module.exports = {
   bepaalInleverStatus,
   teltMeeVoorGemiddelde,
   magHeropenen,
+  effectieveDeadline,
   INLEVER_STATUSSEN,
   normaliseerDomein,
   valideerDomein,

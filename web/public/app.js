@@ -1579,9 +1579,15 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
                data-progress='${escapeHtml(JSON.stringify(st.progress))}'
                title="Klik voor een overzicht per vraag">${st.progress.answered}/${st.progress.total}</button>`
           : '<span class="muted" style="font-size:0.78rem;">—</span>';
+        // Sprint 95: "↻ Toets heropenen" (bulk) gaf deze leerling een eigen, nieuwe
+        // toegang — zichtbaar maken zodat duidelijk is waarom hij/zij, ook ná een gestopte/
+        // verstreken toets, toch weer op "bezig" kan staan.
+        const individueelChip = (st.individueleToegangTot && st.individueleToegangTot > Date.now())
+          ? ` <span class="badge" style="background:#ede9fe;color:#5b21b6;" title="Individueel heropend">↻ tot ${new Date(st.individueleToegangTot).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' })}</span>`
+          : '';
         return `<tr>
           <td style="padding:4px 8px;">${escapeHtml(st.name)}${st.online ? ' <span title="Nu live verbonden" style="color:#16a34a;">🟢</span>' : ''}</td>
-          <td style="padding:4px 8px;color:${info.kleur};white-space:nowrap;">${info.icoon} ${info.label}</td>
+          <td style="padding:4px 8px;color:${info.kleur};white-space:nowrap;">${info.icoon} ${info.label}${individueelChip}</td>
           <td style="padding:4px 8px;text-align:center;">${voortgangChip}</td>
           <td style="padding:4px 8px;text-align:center;">${
             aanvinkbaar
@@ -3978,6 +3984,79 @@ window.pyClassPicker = function(classes) {
       var gekozen = vinkjes.filter(function (v) { return v.checked; }).map(function (v) { return v.value; });
       if (!gekozen.length) { if (window.pyAlert) pyAlert('Kies minstens één klas, of "Alle klassen".', 'warn'); return; }
       close(gekozen);
+    });
+  });
+};
+
+// Sprint 95: "↻ Toets heropenen" — kies een nieuw "open tot" (verplicht, in de toekomst)
+// plus specifieke leerlingen (standaard allemaal UIT) die een eigen uitzondering krijgen.
+// Geeft { until: <ms>, studenten: [{id,name}, ...] } terug, of null bij annuleren.
+window.pyHeropenPicker = function (opties) {
+  opties = opties || {};
+  var naam = opties.naam || '';
+  var studenten = opties.studenten || [];
+  return new Promise(function (resolve) {
+    var existing = document.getElementById('py-modal-overlay');
+    if (existing) existing.parentNode.removeChild(existing);
+    var overlay = document.createElement('div');
+    overlay.id = 'py-modal-overlay';
+    // Standaardvoorstel: over 1 dag, zelfde tijdstip als nu.
+    var voorstel = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    var p = function (n) { return String(n).padStart(2, '0'); };
+    var voorstelWaarde = voorstel.getFullYear() + '-' + p(voorstel.getMonth() + 1) + '-' + p(voorstel.getDate()) +
+      'T' + p(voorstel.getHours()) + ':' + p(voorstel.getMinutes());
+    var rijen = studenten.map(function (s, i) {
+      return '<label style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;">' +
+        '<input type="checkbox" class="py-heropen-vink" data-idx="' + i + '"/>' +
+        '<span>' + (window.escapeHtml ? escapeHtml(s.name) : s.name) + '</span></label>';
+    }).join('');
+    overlay.innerHTML =
+      '<div id="py-modal-box">' +
+        '<div id="py-modal-title">' + (window.escapeHtml ? escapeHtml(naam) : naam) + ' heropenen</div>' +
+        '<div id="py-modal-body">' +
+          '<label style="display:block;font-size:0.85rem;margin-bottom:4px;">Open tot <span style="color:#dc2626;">*</span></label>' +
+          '<input id="py-heropen-tot" type="datetime-local" value="' + voorstelWaarde + '" ' +
+            'style="width:100%;box-sizing:border-box;margin-bottom:12px;padding:8px 10px;border:1.5px solid var(--border);border-radius:10px;font-size:1rem;background:var(--surface);color:var(--text);"/>' +
+          '<label style="display:flex;align-items:center;gap:8px;padding:6px 0 8px;border-bottom:1px solid var(--border);margin-bottom:6px;cursor:pointer;font-weight:700;">' +
+            '<input type="checkbox" id="py-heropen-alle"/><span>Alles selecteren</span></label>' +
+          '<div id="py-heropen-lijst" style="max-height:260px;overflow-y:auto;">' + rijen + '</div>' +
+          '<p class="muted" style="font-size:0.78rem;margin-top:8px;">Enkel de hier aangevinkte leerlingen krijgen opnieuw toegang, tot het ' +
+            'hierboven gekozen tijdstip — ook al is deze toets/taak zelf al gestopt of voorbij. Voor iedereen ' +
+            'die niet aangevinkt is, verandert er niets.</p>' +
+        '</div>' +
+        '<div id="py-modal-actions">' +
+          '<button id="py-modal-cancel" class="btn btn-muted small">Annuleren</button>' +
+          '<button id="py-modal-confirm" class="btn btn-primary small">Heropenen</button>' +
+        '</div>' +
+      '</div>';
+    function close(result) {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    }
+    function onKey(e) { if (e.key === 'Escape') close(null); }
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(null); });
+    document.body.appendChild(overlay);
+    document.addEventListener('keydown', onKey);
+    var alleVink = document.getElementById('py-heropen-alle');
+    var vinkjes = Array.prototype.slice.call(overlay.querySelectorAll('.py-heropen-vink'));
+    alleVink.addEventListener('change', function () {
+      vinkjes.forEach(function (v) { v.checked = alleVink.checked; });
+    });
+    document.getElementById('py-modal-cancel').addEventListener('click', function () { close(null); });
+    document.getElementById('py-modal-confirm').addEventListener('click', function () {
+      var totVeld = document.getElementById('py-heropen-tot');
+      var totMs = totVeld.value ? new Date(totVeld.value).getTime() : NaN;
+      if (!totVeld.value || isNaN(totMs) || totMs <= Date.now()) {
+        if (window.pyAlert) pyAlert('Kies een geldig tijdstip in de toekomst.', 'warn');
+        return;
+      }
+      var gekozen = vinkjes.filter(function (v) { return v.checked; }).map(function (v) { return studenten[Number(v.dataset.idx)]; });
+      if (!gekozen.length) {
+        if (window.pyAlert) pyAlert('Selecteer minstens één leerling.', 'warn');
+        return;
+      }
+      close({ until: totMs, studenten: gekozen });
     });
   });
 };

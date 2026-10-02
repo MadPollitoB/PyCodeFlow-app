@@ -6289,6 +6289,21 @@ app.get("/api/quiz-sessions/:code/roster", requireTeacherAuth, requireSessionAcc
   const statusPerId = new Map(handmatig.map(h => [h.student_id, h]));
   const deadline = meta.access_until ? Number(meta.access_until) : null;
 
+  // Sprint 95: individuele overrides ("↻ Toets heropenen") — een leerling met zo'n override
+  // mag niet als "te laat" getoond worden voor het stuk dat hij nu, dankzij die uitzondering,
+  // alsnog binnen zijn eigen (latere) venster indient.
+  const individueleOverrides = await dbModule.getIndividualAccessMap(code).catch(() => []);
+  const individueleTotPerId = new Map();
+  const individueleTotPerNaam = new Map();
+  for (const o of individueleOverrides) {
+    if (o.student_id) individueleTotPerId.set(o.student_id, Number(o.access_until));
+    if (o.student_name) individueleTotPerNaam.set(norm(o.student_name), Number(o.access_until));
+  }
+  function effectieveDeadlineVoor(studentId, studentName) {
+    const individueel = individueleTotPerId.get(studentId) ?? individueleTotPerNaam.get(norm(studentName));
+    return validationLib.effectieveDeadline(deadline, individueel);
+  }
+
   // Sprint 89: "hoeveel vragen heeft deze leerling al beantwoord, en welke precies?" —
   // altijd zichtbaar in de Voortgang i.p.v. enkel een status-icoon. Eén keer alle vragen +
   // alle antwoorden van deze sessie ophalen, dan per leerling lokaal (geen extra queries)
@@ -6313,10 +6328,13 @@ app.get("/api/quiz-sessions/:code/roster", requireTeacherAuth, requireSessionAcc
   function bouw(leerling) {
     const d = perId.get(leerling.id) || perNaam.get(norm(leerling.name));
     const hand = statusPerId.get(leerling.id);
+    // Sprint 95: individuele override (indien aanwezig) telt mee als "de" deadline voor
+    // deze ene leerling, zodat hij na een gerichte heropening niet als "te laat" blijft staan.
+    const individueleToegangTot = individueleTotPerId.get(leerling.id) ?? individueleTotPerNaam.get(norm(leerling.name)) ?? null;
     const status = validationLib.bepaalInleverStatus({
       handmatigeStatus: hand?.status || null,
       lidSinds: leerling.membership_created_at || leerling.created_at || null,
-      deadline,
+      deadline: effectieveDeadlineVoor(leerling.id, leerling.name),
       heeftInhoud: d?.heeft_inhoud === true,
       submittedAt: d?.submitted_at ? Number(d.submitted_at) : null,
       submittedBy: d?.submitted_by || null,
@@ -6336,6 +6354,9 @@ app.get("/api/quiz-sessions/:code/roster", requireTeacherAuth, requireSessionAcc
       online: liveIds.has(leerling.id) || liveNamen.has(norm(leerling.name)),
       // Sprint 89: X/Y beantwoord + per-vraag detail, voor de klikbare voortgang-chip.
       progress: berekenVoortgang(d?.student_id || leerling.id),
+      // Sprint 95: zodat de Voortgang kan tonen dat deze leerling een eigen, nieuwe
+      // toegang heeft gekregen (en tot wanneer).
+      individueleToegangTot,
     };
   }
 
@@ -6349,15 +6370,21 @@ app.get("/api/quiz-sessions/:code/roster", requireTeacherAuth, requireSessionAcc
   const extras = deelnames
     .filter(d => !idsInKlas.has(d.student_id) && !namenInKlas.has(norm(d.student_name)))
     .map(d => ({
+      // Sprint 95: id meesturen (het sessiegebonden id van een gast) zodat "Toets
+      // heropenen" ook gasten individueel kan selecteren — net als het bestaande
+      // single-student "↺ Heropenen" hierboven al op id-met-naam-terugval matcht.
+      id: d.student_id || null,
       name: d.student_name || '(onbekend)',
       status: validationLib.bepaalInleverStatus({
-        deadline, heeftInhoud: d.heeft_inhoud === true,
+        deadline: effectieveDeadlineVoor(d.student_id, d.student_name),
+        heeftInhoud: d.heeft_inhoud === true,
         submittedAt: d.submitted_at ? Number(d.submitted_at) : null,
         submittedBy: d.submitted_by || null,
       }),
       online: (d.student_id && liveIds.has(d.student_id)) || liveNamen.has(norm(d.student_name)),
       // Sprint 89: ook voor gasten (niet (meer) in de klas) tonen we de voortgang.
       progress: berekenVoortgang(d.student_id),
+      individueleToegangTot: individueleTotPerId.get(d.student_id) ?? individueleTotPerNaam.get(norm(d.student_name)) ?? null,
     }))
     .sort((a, b) => a.name.localeCompare(b.name, 'nl'));
 
@@ -6704,6 +6731,55 @@ app.post('/api/quiz-sessions/:code/roster/:studentId/reopen', requireTeacherAuth
       }
     }
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Sprint 95: in-memory live-sessie bijwerken voor één net heropende leerling — gedeeld
+// door het single-student endpoint hierboven (zou hierheen kunnen verhuizen, maar blijft
+// daar ongemoeid om geen regressie te riskeren) en de nieuwe bulk-variant hieronder.
+function heropenLeerlingInLiveSessie(session, studentId, studentName) {
+  const naamLower = (studentName || '').toLowerCase();
+  const student = session?.students?.[studentId]
+    || (naamLower
+      ? Object.values(session?.students || {}).find(
+          s => !s.removed && s.name.toLowerCase() === naamLower)
+      : null);
+  if (!student) return;
+  student.quizSubmitted = false;
+  student.tabSwitchCount = 0;
+  if (student.socketId) io.to(student.socketId).emit('quiz_reopened');
+}
+
+// Sprint 95: "↻ Toets heropenen" — in tegenstelling tot het single-student endpoint
+// hierboven NIET gegrendeld door magHeropenen(): dit is net de bewuste uitzondering voor
+// als de toets/taak zelf al gestopt is of de deadline al (lang) verstreken is. De
+// leerkracht kiest expliciet een nieuwe "open tot" plus met naam gekozen leerlingen — die
+// combinatie is zelf al de bevestiging, dus geen aparte magHeropenen-check hier.
+app.post('/api/quiz-sessions/:code/reopen-bulk', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
+  try {
+    const code = (req.params.code || '').toUpperCase();
+    const meta = await dbModule.getQuizMeta(code);
+    if (!meta) return res.status(404).json({ error: 'Toets/taak niet gevonden.' });
+
+    const until = Number(req.body?.until);
+    if (!Number.isFinite(until) || until <= Date.now()) {
+      return res.status(400).json({ error: 'Kies een geldig tijdstip in de toekomst om tot open te zetten.' });
+    }
+    const studentenRaw = Array.isArray(req.body?.students) ? req.body.students : [];
+    const studenten = studentenRaw
+      .map(s => ({ id: s?.id ? String(s.id) : null, name: String(s?.name || '').trim() }))
+      .filter(s => s.id || s.name);
+    if (!studenten.length) {
+      return res.status(400).json({ error: 'Selecteer minstens één leerling.' });
+    }
+
+    const session = sessions.get(code);
+    for (const s of studenten) {
+      await dbModule.setIndividualAccess(code, s.id, s.name || null, until);
+      await dbModule.reopenAssignmentForStudent(code, s.id, s.name || null);
+      heropenLeerlingInLiveSessie(session, s.id, s.name);
+    }
+    res.json({ ok: true, count: studenten.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -9082,14 +9158,32 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
 
     // Sprint 19j: tijdsvenster check
     const now19j = Date.now();
+
+    // Sprint 95: "↻ Toets heropenen" (bulk) kan deze ene leerling een eigen, nieuwe
+    // "open tot" gegeven hebben — geldig ongeacht de gewone deadline hieronder én ongeacht
+    // meta.stopped_at verderop (dat is precies de bedoeling: een bewuste uitzondering voor
+    // met naam gekozen leerlingen, zie db/database.js setIndividualAccess).
+    let heeftGeldigeIndividueleToegang = false;
+    try {
+      const individueleToegangTot = await dbModule.getIndividualAccessUntil(
+        normalizedCode, socket.data.student?.id || null, studentName
+      );
+      heeftGeldigeIndividueleToegang = !!individueleToegangTot && now19j <= individueleToegangTot;
+    } catch (e) { log.warn('[quiz_start] individuele-toegang-check mislukt:', e.message); }
+
     if (meta.access_from && now19j < meta.access_from) {
-      const openOm = new Date(meta.access_from).toLocaleString('nl-BE', {
+      // Bugfix (sprint 95, losstaand van de rest van deze wijziging): meta.access_from/
+      // access_until komen als STRING terug uit PostgreSQL (BIGINT-kolom) — new Date() op
+      // een kale string probeert dat als datumtekst te parsen i.p.v. als tijdstempel, en
+      // gaf hier altijd "Invalid Date". Number(...) ervoor volstaat (opgemerkt tijdens het
+      // live uittesten van de individuele-toegang-bypass hierboven).
+      const openOm = new Date(Number(meta.access_from)).toLocaleString('nl-BE', {
         day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'
       });
       return socket.emit('error_message', `Deze toets/taak is nog niet beschikbaar. Toegang start op ${openOm}.`);
     }
-    if (meta.access_until && now19j > meta.access_until) {
-      const deadline = new Date(meta.access_until).toLocaleString('nl-BE', {
+    if (meta.access_until && now19j > meta.access_until && !heeftGeldigeIndividueleToegang) {
+      const deadline = new Date(Number(meta.access_until)).toLocaleString('nl-BE', {
         day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'
       });
       return socket.emit('quiz_access_expired', {
@@ -9143,7 +9237,9 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     } catch (e) { log.warn('[quiz_start] leerling-selectie check mislukt:', e.message); }
 
     // Sprint 69: door de leerkracht gestopt → niemand kan nog starten (ook geen laatkomer).
-    if (meta.stopped_at) {
+    // Sprint 95: behalve wie net via "↻ Toets heropenen" een geldige individuele uitzondering
+    // kreeg (heeftGeldigeIndividueleToegang, hierboven berekend).
+    if (meta.stopped_at && !heeftGeldigeIndividueleToegang) {
       return socket.emit('error_message',
         'Deze toets is afgesloten door je leerkracht. Je kan niet meer starten.');
     }

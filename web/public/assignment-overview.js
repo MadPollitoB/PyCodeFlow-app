@@ -128,6 +128,17 @@
     var deadline = a.accessUntil
       ? '<span class="a-sub">⏰ Deadline: ' + new Date(a.accessUntil).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) + '</span>'
       : '';
+    // Sprint 95: "↻ Toets heropenen" — enkel zinvol zodra de toets/taak zelf niet meer
+    // actief is (gestopt, of het venster verstreek vanzelf). Geeft, anders dan de gewone
+    // "↺ Heropenen" per leerling in de Voortgang (die dan juist NIET meer werkt, zie
+    // magHeropenen), met naam gekozen leerlingen een eigen nieuwe "open tot".
+    var heropenToetsBalk = (!a.isPreview && (a.stoppedAt || a.availability === 'expired'))
+      ? '<div class="a-heropen-balk" style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);">' +
+          '<button class="btn btn-muted small" onclick="heropenToetsVoorLeerlingen(\'' + a.code + '\',\'' + esc(a.name || a.code) + '\')" ' +
+            'title="Geef met naam gekozen leerlingen een eigen, nieuwe toegang tot een zelf gekozen tijdstip — ook al is deze ' + LABEL + ' zelf al gestopt of voorbij">' +
+            '↻ ' + (TYPE === 'taak' ? 'Taak' : 'Toets') + ' heropenen</button>' +
+        '</div>'
+      : '';
     return '<div class="' + cls + '">' +
       '<div class="a-meta"><strong>' + esc(a.name || a.code) + '</strong>' + statusBadge(a) + releaseBadges(a) +
         (a.onlineCount ? '<span class="badge" style="background:#dcfce7;color:#166534;">👥 ' + a.onlineCount + ' online</span>' : '') +
@@ -148,9 +159,43 @@
         '<button class="btn btn-muted small" onclick="saveAsTemplate(\'' + a.code + '\')" title="Zet deze ' + LABEL + ' als herbruikbaar sjabloon in de bibliotheek">💾 Bewaar als sjabloon</button>' +
         '<button class="btn btn-danger small" onclick="deleteQuiz(\'' + a.code + '\')">🗑 Verwijderen</button>' +
       '</div>' +
+      heropenToetsBalk +
       '<div id="roster-' + a.code + '" class="a-roster" style="display:none;"></div>' +
     '</div>';
   }
+
+  // Sprint 95: "↻ Toets heropenen" — haalt de roster (klas + gasten) op, laat de
+  // leerkracht een nieuw tijdstip + specifieke leerlingen kiezen, en stuurt dat naar de
+  // nieuwe bulk-endpoint. Werkt bewust ook als de toets/taak zelf gestopt is of de
+  // deadline al verstreek — dat is precies waarvoor deze knop verschijnt.
+  window.heropenToetsVoorLeerlingen = async function (code, naam) {
+    var box = null;
+    try {
+      var r = await fetch('/api/quiz-sessions/' + code + '/roster');
+      var d = await r.json();
+      if (!r.ok) { if (window.pyAlert) pyAlert('Kon de leerlingenlijst niet laden.', 'error'); return; }
+      var lijst = (d.students || []).concat(d.extras || []).map(function (s) {
+        return { id: s.id || null, name: s.name };
+      });
+      if (!lijst.length) { if (window.pyAlert) pyAlert('Geen leerlingen gevonden om te heropenen.', 'info'); return; }
+      var keuze = window.pyHeropenPicker
+        ? await window.pyHeropenPicker({ naam: naam, studenten: lijst })
+        : null;
+      if (!keuze) return;
+      var fetcher = window.apiFetch || fetch;
+      var resp = await fetcher('/api/quiz-sessions/' + code + '/reopen-bulk', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ until: keuze.until, students: keuze.studenten }),
+      });
+      var data = await resp.json().catch(function () { return {}; });
+      if (!resp.ok) throw new Error(data.error || resp.status);
+      if (window.pyToast) pyToast(data.count + ' leerling' + (data.count === 1 ? '' : 'en') + ' heropend tot ' +
+        new Date(keuze.until).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) + '.', 'success');
+      if (window.reloadAssignments) window.reloadAssignments();
+    } catch (e) {
+      if (window.pyAlert) pyAlert('Heropenen mislukt: ' + e.message, 'error');
+    }
+  };
 
   function renderList() {
     var el = document.getElementById('assignment-list');
