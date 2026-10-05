@@ -655,3 +655,35 @@ test('95 effectieveDeadline: override ligt VOOR de gewone deadline → venster w
 test('95 effectieveDeadline: geen deadline en geen override → null', () => {
   assert.strictEqual(v.effectieveDeadline(null, null), null);
 });
+
+// ── Sprint 96: nieuwe aandachtspunten-opties (incl. exclusieve "geen aandachtspunten") ──
+test('96 ENQUETE_CATEGORIEEN: aandachtspunten heeft nu 9 opties, de 3 oorspronkelijke ids blijven bestaan', () => {
+  const cat = v.ENQUETE_CATEGORIEEN.find(c => c.id === 'aandachtspunten');
+  const ids = cat.items.map(it => it.id);
+  assert.strictEqual(ids.length, 9);
+  assert.ok(ids.includes('niet_voldoende'));
+  assert.ok(ids.includes('verkeerde_leerstof'));
+  assert.ok(ids.includes('vergeten'));
+});
+test('96 ENQUETE_CATEGORIEEN: "geen_aandachtspunten" staat helemaal onderaan en is exclusief', () => {
+  const cat = v.ENQUETE_CATEGORIEEN.find(c => c.id === 'aandachtspunten');
+  const laatste = cat.items[cat.items.length - 1];
+  assert.strictEqual(laatste.id, 'geen_aandachtspunten');
+  assert.strictEqual(laatste.exclusief, true);
+  // Geen enkel ander item in deze (of een andere) categorie mag per ongeluk ook exclusief zijn.
+  for (const c of v.ENQUETE_CATEGORIEEN) {
+    for (const it of c.items) {
+      if (it.id !== 'geen_aandachtspunten') assert.notStrictEqual(it.exclusief, true);
+    }
+  }
+});
+test('96 valideerZelfevaluatie: enkel "geen_aandachtspunten" aangevinkt is een geldig antwoord', () => {
+  const invoer = volledigGeldigeEnquete();
+  invoer.antwoorden.aandachtspunten = ['geen_aandachtspunten'];
+  assert.deepStrictEqual(v.valideerZelfevaluatie(invoer), { ok: true, fout: null });
+});
+test('96 valideerZelfevaluatie: een nieuw aandachtspunt (bv. "gestrest") is een geldig antwoord', () => {
+  const invoer = volledigGeldigeEnquete();
+  invoer.antwoorden.aandachtspunten = ['gestrest'];
+  assert.strictEqual(v.valideerZelfevaluatie(invoer).ok, true);
+});

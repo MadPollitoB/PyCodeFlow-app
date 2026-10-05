@@ -1,3 +1,393 @@
+## v2026.2.51.98 — Antwoordopties van keuzevragen in willekeurige volgorde
+
+### Wat
+Bij single choice en meerkeuze (toetsen, taken en het Trainingscenter) staan de
+antwoordopties nu voor elke leerling in een willekeurige volgorde, in plaats van
+altijd in de volgorde waarin de leerkracht ze invoerde.
+
+### Hoe
+- De volgorde hangt af van leerling + vraag (bij een training: training + vraag). Ze blijft dus
+  stabiel bij aanvinken, terugnavigeren en herladen, maar elke leerling krijgt een andere volgorde.
+- De volgorde is enkel een weergave: antwoorden blijven aan de id/index van de optie hangen,
+  dus nakijken, scores en het leerkrachtoverzicht veranderen niet.
+- Ook de keuze-onderdelen van samengestelde vragen worden geschud.
+- Opties als "Alle bovenstaande" of "Geen van bovenstaande" blijven onderaan staan.
+- Nieuw bestand public/schud.js (6 nieuwe tests; 431 in totaal, 0 fouten).
+
+### Goed om te weten
+De nakijk- en reviewschermen tonen de opties nog in de oorspronkelijke volgorde van de leerkracht.
+
+## v2026.2.51.97 — Trainingscenter (code-, single- en multiple-choicevragen)
+
+### Wat is het
+Een oefenomgeving voor ingelogde leerlingen: kies onderwerpen, krijg vragen die
+moeilijker of makkelijker worden naargelang je antwoorden, en krijg op het einde
+een score en een titel. Een training telt NIET mee voor punten.
+
+### Leerling
+- Tegel "Trainingscenter" op het startscherm (student-thuis), tussen het les-/toetsblok en vrij oefenen.
+- Popup: aantal vragen (10-30), onderwerpen (1-5) en de keuze of het volledige scherm verlaten mag.
+  Zoals bij toetsen start de training in volledig scherm; bij "nee" krijg je 5 seconden respijt
+  om terug te keren, daarna stopt de training.
+- Vraagtypes: single, multiple (deelscore, fout aanvinken kost punten) en code.
+- Code wordt automatisch nagekeken met verborgen testgevallen in de bestaande runner
+  (geen Ollama nodig, resultaat binnen enkele seconden). "Code uitvoeren" toont enkel de uitvoer.
+- Feedback na elk antwoord (juist/deels/fout, uitleg, bij code welke test faalt).
+- Einde: score %, titel, eindniveau per onderwerp. Een openstaande training wordt hervat na een paginaverversing.
+- De juiste antwoorden en testen verlaten de server nooit tijdens een training.
+
+### Moeilijkheid
+Per onderwerp een niveau 1-10. Na elk "venster" van antwoorden (standaard 2) beslist het
+gemiddelde: >= 75% omhoog, <= 40% omlaag, ertussen blijft het gelijk. Alle grenzen, het venster,
+het startniveau en de titels zijn instelbaar (platformbeheerder). De top-titel vraagt minstens
+20 vragen en niveau 10. Nieuwe training: start 1 niveau onder het laatst bereikte niveau.
+
+### Leerkracht (pagina "Trainingen")
+- Overzicht per klas: wie trainde, hoeveel keer, laatste training, gemiddelde score, hoogste niveau, beste titel,
+  zwakste onderwerp, verdeling van titels, en per leerling elke training met antwoorden.
+- Vragenpool: aantallen per onderwerp en niveau, JSON-import met eerst een controle, eigen vragen
+  (enkel zichtbaar voor leerlingen in je klassen), vragen bekijken en verwijderen.
+- Instellingen (enkel platformbeheerder): grenzen, venster, titels.
+
+### Startpool
+162 vragen over de 9 hoofdstukken (stroomdiagrammen t.e.m. debuggen), niveau 1-6, 3 per niveau
+per onderwerp, automatisch geladen bij een lege pool. Aanvullen kan via JSON-import.
+
+### Technisch
+Nieuwe tabellen: training_settings, training_topics, training_questions, training_runs,
+training_run_answers, training_student_levels. Pure logica in lib/training.js, routes in
+lib/training-routes.js, 31 nieuwe tests (425 in totaal, 0 fouten).
+
+Nog niet in deze versie: open vragen met Ollama (komt in een volgende stap).
+
+## v2026.2.51.96 — Zelfevaluatie: aandachtspunten uitgebreid + "geen aandachtspunten"
+
+### Aanleiding
+"Bij de enquête over een toets is het heel vreemd dat bij het laatste puntje
+'aandachtspunten' een van de volgende verplicht is... als je een goede toets doet."
+De categorie "Aandachtspunten" had tot nu toe maar 3 opties, allemaal negatief
+("niet geleerd", "verkeerde leerstof", "vergeten") — en omdat elke categorie
+minstens 1 aangevinkt item vereist, moest een leerling die een prima toets
+aflegde toch verplicht iets negatiefs aanvinken.
+
+### Wat er nu bij komt
+5 nieuwe, realistische aandachtspunten, plus — helemaal onderaan de lijst —
+een uitweg voor wie er geen heeft:
+- Ik was gestresseerd/nerveus tijdens de toets.
+- Ik had te weinig tijd om alles af te werken.
+- Ik voelde me niet goed (ziek, moe, ...).
+- Ik begreep bepaalde vragen niet goed.
+- Ik liet me afleiden tijdens het leren of tijdens de toets.
+- **Ik had geen aandachtspunten — het verliep goed.** (helemaal onderaan, apart
+  afgescheiden met een stippellijn)
+
+Dat laatste item is bewust **exclusief**: aanvinken schakelt automatisch alle
+andere aandachtspunten in die categorie uit, en omgekeerd — aanvinken van een
+echt aandachtspunt schakelt "geen aandachtspunten" weer uit. Zo kan een
+leerling nooit tegenstrijdig allebei tegelijk aanvinken.
+
+De 3 oorspronkelijke opties blijven ongewijzigd bestaan (zelfde id's, dus
+bestaande ingevulde enquêtes blijven correct leesbaar).
+
+### Hoe getest
+- Volledige testsuite: 394 tests (4 nieuwe), 100% groen.
+- Live in een echte browser: "geen aandachtspunten" aanvinken na een al
+  aangevinkt aandachtspunt schakelt dat aandachtspunt automatisch uit (en
+  vinkt zichzelf aan); een aandachtspunt daarna weer aanvinken schakelt "geen
+  aandachtspunten" op zijn beurt weer automatisch uit. Nooit allebei tegelijk.
+
+## v2026.2.51.95 — Nieuw: "↻ Toets heropenen" (individueel, ook na gestopt/verstreken)
+
+### Aanleiding
+"Als ik een toets doe en ik merk na de toets dat een leerling niet alle vragen is
+doorgekomen, zou ik eventueel opnieuw toegang willen geven tot DIE toets — ook al is er
+reeds een deel verbeterd." De bestaande "↺ Heropenen" per leerling (sprint 79) werkt
+daarvoor niet meer zodra de toets/taak zelf gestopt is of de deadline al verstreken is
+(sprint 86 blokkeert dat bewust, want anders kon de leerling er toch nergens mee) — en net
+dát is het moment waarop een leerkracht dit meestal nodig heeft.
+
+### Wat er nu kan
+Op het toets-/takenoverzicht staat nu, enkel bij een toets/taak die zelf al **gestopt** is
+of waarvan het **venster voorbij** is, een extra knop onderaan de kaart (eigen afgescheiden
+balkje boven de leerlingenlijst): **"↻ Toets heropenen"**. Die opent een popup met:
+- een **verplicht** nieuw tijdstip ("open tot …"), altijd in de toekomst;
+- een aanvinklijst van alle leerlingen (klas + eventuele gasten), **standaard allemaal UIT**.
+
+Enkel de aangevinkte leerlingen krijgen een eigen, individuele uitzondering tot dat nieuwe
+tijdstip — ze kunnen terug in hún toets/taak, hun eerder opgeslagen antwoorden blijven
+staan, en ze kunnen verder waar ze gebleven waren. Voor iedereen die niet aangevinkt is
+verandert niets: de toets/taak blijft voor hen gewoon gestopt/voorbij. Zodra het nieuwe
+tijdstip ook zelf verstrijkt, geldt voor die leerling(en) weer gewoon de normale regel.
+
+In de Voortgang zie je bij zo'n leerling een paars "↻ tot …"-label zolang de uitzondering
+nog loopt, en de status springt niet onterecht op "te laat" voor het stuk dat alsnog binnen
+dat nieuwe venster ingediend wordt.
+
+### Bijkomend (losstaand opgemerkt tijdens het testen)
+Kleine cosmetische bugfix: de melding "toets nog niet beschikbaar"/"venster voorbij" toonde
+bij een leerling altijd "Invalid Date" i.p.v. het echte tijdstip (PostgreSQL geeft die
+kolom als tekst terug, `new Date()` op een kale tekst parseert dat verkeerd). Enkel de
+tekst in die melding was fout — de eigenlijke tijdscontrole zelf werkte altijd correct.
+
+### Hoe getest
+- Volledige testsuite: 390 tests (5 nieuwe voor de pure `effectieveDeadline()`-logica),
+  100% groen.
+- Live, met een ECHTE PostgreSQL-databank en een draaiende server (geen mocks):
+  - een toets waarvan de deadline verstreek → leerling krijgt terecht "venster voorbij" te
+    zien; na "↻ Toets heropenen" met een nieuw tijdstip kan diezelfde leerling, met dezelfde
+    inlog, wél gewoon starten;
+  - een toets die met de "⏹ Stoppen"-knop handmatig afgesloten werd → leerling krijgt
+    terecht "afgesloten door je leerkracht" te zien; na "↻ Toets heropenen" kan die ene
+    leerling alsnog starten, terwijl de toets voor iedereen ANDERS gewoon gestopt blijft.
+  - de volledige knop-en-popup-flow in de browser: knop verschijnt enkel bij een gestopte/
+    verstreken toets, de popup weigert te bevestigen zonder gekozen leerling of zonder
+    geldig (toekomstig) tijdstip, en een geslaagde heropening toont een bevestiging.
+
+## v2026.2.51.94 — Anti-spiek-respijt (sprint 92) is nu instelbaar per toets
+
+### Aanleiding
+"v2026.2.51.92 is de 5sec variabel -> instelbaar" — het respijt vóór een tabwissel/
+fullscreen-exit écht meetelt, tot nu toe vast op 5 seconden (sprint 92), moest per toets
+aanpasbaar worden.
+
+### Wat er nu instelbaar is
+Bij het aanmaken of bewerken van een toets staat er nu, naast de bestaande drempel
+("na hoeveel keer wisselen"), een nieuw veld **"Respijt bij een wissel"**: hoeveel seconden
+een leerling krijgt om terug te keren (volledig scherm/tabblad/venster) vóór het alsnog als
+een tabwissel telt. Instelbaar van **0** (geen respijt — telt onmiddellijk, het gedrag van
+vóór sprint 92) tot **30 seconden**. Standaard blijft dit **5**, dus een bestaande toets
+verandert niet vanzelf van gedrag.
+
+Deze waarde wordt overal consistent doorgegeven: het startscherm van de leerling vermeldt
+het juiste aantal seconden in de spelregels vóór het starten, en de eigenlijke aftel-overlay
+tijdens de toets gebruikt exact dezelfde waarde — niet langer een los hardgecodeerd getal.
+
+### Hoe getest
+- Volledige testsuite: 385 tests (6 nieuwe, gericht op de begrenzing 0–30 sec en het
+  onderscheid tussen "0 is een geldige waarde" en "ontbrekend/ongeldig valt terug op 5"),
+  100% groen.
+- Live smoke test in een echte browser: een toets aangemaakt met een respijt van 1 seconde
+  toont in de spelregels effectief "1 seconden" (niet de oude vaste tekst), en een tabwissel
+  wordt — gecontroleerd op het onderliggende websocket-verkeer — na ongeveer 1,4 seconde al
+  gemeld, niet pas na de oude vaste 5 seconden.
+- Volledige aanmaak → bewerken → opslaan-cyclus getest via de API: een gewijzigde waarde
+  (15 sec) komt na het opslaan ook effectief terug uit het bewerkscherm.
+
+## v2026.2.51.93 — Nieuw: back-up van toetsantwoorden, los van de databank
+
+### Aanleiding
+"ik wil nu ook een soort van backup van de antwoorden bij een toets dat een leerling
+geeft. Nu lijkt het soms alsof er zaken niet worden opgeslagen ... geef advies hoe je dit
+backup gedeelte zou aanpakken (dit zou los moeten staan van de database)."
+
+Na overleg gekozen: een dubbele, van elkaar onafhankelijke back-up, bovenop de bestaande
+(al robuuste, sinds v91) opslag naar PostgreSQL. Beide lagen leven op de bestaande,
+blijvende `./logs`-map op de NAS (dezelfde map die al langer via docker-compose gekoppeld
+is) — geen nieuwe installatiestap, geen nieuwe map om aan te maken of te beheren.
+
+### Laag 1 — ruwe back-up bij élk antwoord, volledig los van PostgreSQL
+Elk antwoord dat een leerling probeert op te slaan (bij elke tussentijdse autosave, elke
+vraagwissel, en bij het indienen) komt voortaan — ONAFHANKELIJK van of de schrijving naar
+de databank zelf lukt — ook terecht in een gewoon tekstbestand op schijf:
+`logs/quiz-backups/<sessiecode>.ndjson` (één regel per opgeslagen antwoord, met tijdstip,
+leerling, vraag en de volledige code/antwoordinhoud). Dit is de eigenlijke bescherming
+tegen dataverlies: als PostgreSQL om welke reden dan ook een schrijving weigert (vol,
+corrupt, verbinding weg, herstart), staat het antwoord toch ergens, in leesbare vorm,
+direct op de server-schijf.
+
+### Laag 2 — automatische PDF per leerling bij indienen
+Zodra een leerling zijn toets indient — op eender welke manier (zelf, timer, deadline,
+tabwissel, of de leerkracht die stopt) — wordt automatisch een PDF weggeschreven naar
+`logs/quiz-backups/pdf/<sessiecode>/<leerling>__<id>.pdf`, met dezelfde opmaak als het
+bestaande antwoordformulier (vraag + ingediende code, per vraag). Dit is de "tastbare"
+laag: iets om te tonen, printen of doorsturen, ook wanneer alles verder normaal werkt.
+Deze PDF wordt zelf wél uit de databank opgebouwd (herbruikt de bestaande
+`generateQuizPDF()`-functie), dus is bedoeld als leesbaar overzicht, niet als het
+primaire herstelmechanisme bij een databankstoring — dat is laag 1.
+
+Beide lagen zijn bewust "best effort" en nooit blokkerend: een probleem in de back-up zelf
+(bv. schijf vol) kan nooit de eigenlijke opslag of indiening van een leerling laten
+mislukken — enkel een foutmelding in de serverlogs.
+
+### Hoe getest
+- Volledige testsuite: 379 tests, 100% groen (geen regressies).
+- Live smoke test: een leerling slaat een antwoord op → staat meteen in het
+  NDJSON-back-uplogbestand. Bij het indienen verschijnt automatisch een geldige PDF
+  (gecontroleerd op bestandsgrootte én de PDF-signatuur zelf).
+- Doorslaggevende test: de PostgreSQL-databank werd tijdens een lopende toets ECHT
+  gestopt (niet gesimuleerd), waarna een leerling een antwoord probeerde op te slaan. De
+  databank-schrijving faalde zoals verwacht (`{ok:false, reason:'db_error'}`, met het
+  bestaande onbeperkte herprobeermechanisme uit v91 dat op de achtergrond blijft
+  aandringen) — maar het antwoord stond, ondanks de databankstoring, toch correct in het
+  onafhankelijke back-uplogbestand. Dit is exact het scenario ("het lijkt soms alsof er
+  zaken niet worden opgeslagen") dat met deze update afgedekt is.
+
+## v2026.2.51.92 — Anti-spiek: 5 seconden respijt bij tabwissel + tussentijdse code-autosave
+
+### Aanleiding
+Feedback op de sprint-91-fix (antwoorden opslaan): "antispiek werkt heel goed, MAAR je zou
+een soort timer op de waarschuwing moeten zetten. Als de leerling dan binnen de 5 sec op
+terugkeren drukt gebeurt er niet (gewoon maximaliseren opnieuw openen) anders gaat het wel
+naar auto inleveren. Nu bij een per ongelukke actie is er al een probleem. OOK zouden
+codelijnen tussenin ook moeten worden opgeslagen, niet enkel met de run of volgende
+vraag/indienen."
+
+Twee afzonderlijke verbeteringen, gebundeld in dit ene verzoek.
+
+### 1) Vijf seconden respijt bij een (vermoedelijk per ongeluk) tabwissel
+Voorheen telde de allereerste tabwissel, alt-tab, of fullscreen-exit tijdens een toets
+onmiddellijk mee — bij de standaarddrempel van 1 keer betekende dat: één verkeerde klik of
+toets, en de toets werd meteen automatisch ingediend, zonder enige kans op herstel.
+
+Een tabwissel/fullscreen-exit/venster-blur toont nu eerst 5 seconden lang een duidelijke
+rode overlay met aftelling ("⚠️ Je hebt de toets verlaten!") en een knop om onmiddellijk
+terug te keren naar volledig scherm. Keert de leerling **binnen** die 5 seconden terug
+(volledig scherm opnieuw, tabblad terug actief, venster terug in focus), dan gebeurt er
+**helemaal niets** — geen melding naar de server, geen teller die oploopt, exact zoals
+gevraagd. Pas als de 5 seconden verstrijken zonder terugkeer, telt het alsnog mee als een
+tabwissel en loopt de bestaande logica (drempel, automatisch inleveren) ongewijzigd verder.
+Meerdere gelijktijdige triggers voor dezelfde onderbreking (blur + tabblad verborgen +
+fullscreen-exit vuren vaak samen bij één fysieke actie) starten geen aparte tellers — er
+loopt nooit meer dan één respijt-venster tegelijk.
+
+### 2) Tussentijdse autosave van het antwoord (niet enkel bij RUN/volgende vraag/indienen)
+Tot nu toe werd een antwoord alleen effectief naar de server gestuurd bij het indrukken van
+RUN, het overstappen naar de volgende vraag, of het indienen van de toets. Code die een
+leerling aan het typen was maar nog niet had uitgevoerd of ingeleverd, bestond enkel lokaal
+in de browser — bij een vastgelopen tabblad, een crash of een stroomonderbreking kon die
+tussentijdse code dus alsnog verloren gaan.
+
+De code-editor, het open-antwoordveld én de tekstvelden van een samengestelde vraag slaan nu
+**tijdens het typen** automatisch op, met een korte debounce van 0,8 seconden (dezelfde
+timing die het stroomdiagram-antwoord al langer gebruikt) zodat dit niet bij elke toetsaanslag
+apart naar de server gaat. Deze tussentijdse autosave gebruikt dezelfde robuuste
+bevestiging-en-onbeperkt-herproberen-opslagketen die sprint 91 al invoerde voor de
+antwoord-opslag bij navigatie — een tussentijds getypte regel code geniet dus exact dezelfde
+garantie als een antwoord bij het wisselen van vraag.
+
+### Bijkomende opruiming
+De quiz-editor viel voorheen (onbedoeld) in dezelfde code-tak als de leerkracht-editor in
+`app.js`, wat een niet-terzake-doende `code_update`-bericht en een leerkracht-syntaxcheck
+triggerde voor elke toetsaanslag. Die tak deed uiteindelijk niets nuttigs voor een toets
+(`updateTeacherLiveView()` in `server.js` doet toch niets buiten examenmodus), maar heeft nu
+een eigen, opgeruimde tak gekregen die enkel de nieuwe tussentijdse autosave aanstuurt.
+
+### Hoe getest
+- Volledige testsuite: 379 tests, 100% groen (geen regressies).
+- Live smoke test in een echte browser (Playwright): een leerling start een toets, typt code
+  in de editor **zonder ooit op RUN te klikken of naar de volgende vraag te gaan** — na 0,8
+  à 1,4 seconden staat die code al bevestigd in de databank. Vervolgens: een `blur`-event
+  (tabwissel) toont de respijt-overlay; keert de simulatie **binnen** 5 seconden terug via een
+  `focus`-event, dan wordt er (gecontroleerd op het onderliggende websocket-verkeer)
+  **geen enkel** `quiz_tab_switch`-bericht verstuurd en verdwijnt de overlay. Herhaald zonder
+  terugkeer: na de volle 5 seconden wordt precies één `quiz_tab_switch`-bericht verstuurd en
+  verdwijnt de overlay opnieuw, exact zoals de bestaande automatische-inleverlogica verwacht.
+
+## v2026.2.51.91 — 🔴 KRITIEKE BUGFIX: antwoorden konden bij verbindingsproblemen stilzwijgend verloren gaan
+
+### Aanleiding
+"Na de toets van vandaag met de nodige sessieverbindingsproblemen bleek dat voor bepaalde
+leerlingen niet alle antwoorden waren opgeslagen. Dit moet ten alle tijde vermeden worden!"
+
+### Wat er precies misging
+Het opslaan van een antwoord (bij elke overstap naar een andere vraag) gebeurde tot nu toe
+via een kale, onbevestigde `socket.emit()` — exact hetzelfde architecturale gat dat sprint 88
+al dichtte voor de RUN-knop, maar dan voor de antwoorden zelf, wat oneindig erger is om te
+verliezen. Concreet: na een korte wifi-hapering krijgt de verbinding een NIEUWE, nog niet
+heropnieuw-geregistreerde socket-id (de server moet eerst opnieuw "weten" welke leerling dit
+is, via een nieuwe `quiz_start`). Stuurde de leerling zijn antwoord van vraag N net in dat
+korte venster, dan deed de server destijds stilzwijgend niets — geen foutmelding, geen
+opslag, geen enkel spoor — en de leerling navigeerde gewoon door naar vraag N+1, in de
+overtuiging dat alles goed stond. Bij "Terugbladeren niet toegestaan" is dat onherstelbaar:
+die vraag is dan voorgoed onbereikbaar. Bij een automatische inzending (tijd op, deadline,
+leerkracht stopt de toets, tabwissel) gebruikt de server bovendien ENKEL wat op dat moment al
+in de databank stond — er is geen tweede kans om alsnog iets aan te vullen.
+
+### De oplossing
+Het opslaan van een antwoord werkt voortaan **exact zoals de RUN-knop sinds sprint 88**: de
+server bevestigt élke opslag expliciet (pas ná een geslaagde databank-schrijving, niet
+ervoor), en de leerling-pagina **wacht op die bevestiging vóór ze naar de volgende vraag
+overstapt** — desnoods met automatisch, onbeperkt herproberen (met telkens een zichtbare
+melding: "🔄 Antwoord opslaan..." en bij aanhoudende problemen "⚠️ Antwoord nog niet
+bevestigd — bezig met opnieuw proberen"). Geen enkele harde limiet op het aantal pogingen:
+beter een leerling die even moet wachten tot de verbinding herstelt, dan een stil verloren
+antwoord. Bij elke (her)verbinding worden bovendien alle nog niet bevestigde antwoorden
+automatisch opnieuw aangeboden, en elke aanhoudende storing wordt gelogd in het bestaande
+"📶 Verbindingsproblemen"-paneel (sprint 89) zodat dit voortaan ook zichtbaar is voor de
+leerkracht, per leerling.
+
+**Bijkomend, gerelateerd verbeterd:** bij een verbindingsonderbreking sprong de toetspagina
+voorheen altijd terug naar vraag 1, ongeacht waar de leerling écht stond — verwarrend en bij
+een langere toets nodeloos storend. De pagina herstelt voortaan op de laatst bevestigde
+vraag.
+
+*Belangrijk voorbehoud: deze fix voorkomt dit voortaan structureel, maar kan de reeds
+opgetreden onvolledige toets van vandaag niet met terugwerkende kracht herstellen — daarvoor
+is er geen data om op terug te vallen (de antwoorden zijn nooit bij de server aangekomen).*
+
+**Getest:**
+- Volledige testsuite: 379 tests, 100% groen (geen regressies).
+- Live smoke test die het incident van vandaag LETTERLIJK nabootst: een leerling beantwoordt
+  vraag 1 (bevestigd opgeslagen), de verbinding valt weg en een nieuwe verbinding komt tot
+  stand (nieuwe socket-id, nog niet geregistreerd) — een opslagpoging in dat venster krijgt nu
+  een expliciete `not_registered`-fout i.p.v. stilzwijgend te verdwijnen; na de automatische
+  herregistratie (die de pagina nu zelf uitvoert) wordt vraag 2 alsnog correct en volledig
+  opgeslagen, en beide antwoorden staan nadien effectief in de databank. Ook getest: hervatten
+  op de laatst bevestigde vraag na zo'n onderbreking (i.p.v. terug naar vraag 1), en dat een
+  reeds ingediende toets geen eindeloze herprobeerlus veroorzaakt.
+
+## v2026.2.51.90 — Nieuw: verplichte zelfevaluatie-enquête ná het indienen van een toets (aan/uit per toets)
+
+### Aanleiding
+[Bijlage: PDF-voorbeeld van een papieren zelfevaluatie ("Hoe vond je dat de toets ging?" +
+een lijstje stellingen per categorie)] "Na elke toets zou ik als student een kleine enquete
+moeten invullen — bekijk hieronder hoe dit in PDF wordt gedaan: geef eerst advies over hoe
+je het zou doen."
+
+Na advies vooraf (zonder code) werden drie keuzes voorgelegd en beantwoord: **aan/uit per
+toets** (niet automatisch bij elke toets, en nooit bij een taak), **volledig verplicht
+invullen** (geen "overslaan"-knop), en **resultaten zichtbaar als zowel een samenvatting
+als per leerling** ("Beide").
+
+### Wat er nu is
+Bij het aanmaken of bewerken van een toets staat een nieuwe, optionele instelling
+"📝 Zelfevaluatie na het indienen". Staat ze aan, dan krijgt de leerling vlak vóór het
+definitief indienen (na de bestaande controle-checklist, vóór de effectieve inzending) een
+kort, vast enquêtescherm: een stemming kiezen (💀 heel slecht t/m ⭐ uitstekend) en, per
+categorie (Voorbereiding, Verwerking van de leerstof, Oefenen, Planning, Aandachtspunten),
+minstens één van enkele vaste stellingen aanvinken. De "Definitief indienen"-knop op dit
+scherm blijft uitgeschakeld tot alles ingevuld is — volledig verplicht, zoals gevraagd. De
+vragenlijst zelf is vast en niet aanpasbaar door de leerkracht (enkel aan/uit).
+
+De enquête gaat mee in dezelfde inzending als de toetsantwoorden (geen apart round-trip) en
+wordt eenmalig opgeslagen. Een ontbrekende of ongeldige enquête (bv. door een technisch
+probleem) kan de eigenlijke toetsinzending nooit blokkeren of laten mislukken — "verplicht"
+is hier een regel voor de leerling (de knop blijft uit), geen harde afwijzingsregel op de
+server die de echte antwoorden in gevaar zou kunnen brengen.
+
+Bij de Voortgang van een toets met deze enquête aan verschijnt een nieuw paneel
+"📝 Zelfevaluatie" met: hoeveel leerlingen al invulden, de verdeling van de gekozen stemming,
+en per stelling hoeveel leerlingen (en welk percentage) ze aanvinkten. Een knop "📋 Per
+leerling" toont daarnaast het volledige antwoord van elke individuele leerling — zowel de
+samenvatting als het per-leerling-detail, zoals gevraagd.
+
+Een taak kan deze enquête nooit krijgen, ook niet als dat via een rechtstreekse aanroep
+geforceerd zou worden geprobeerd — dezelfde soort grendel als bij de anti-spiek-instelling
+(sprint 83), toegepast op zowel het aanmaken als het bewerken van een toets/taak.
+
+**Getest:**
+- Volledige testsuite: 379 tests (22 nieuw), 100% groen (geen regressies).
+- Live smoke test tegen de sandbox-databank: (1) een taak met de enquête "aan" gedwongen
+  meegestuurd krijgt ze toch nooit (server-side gecontroleerd, niet enkel op het scherm);
+  (2) een toets zonder de instelling toont geen enquête en de Voortgang toont er niets over;
+  (3) een toets mét de instelling: het enquêtescherm verschijnt voor de leerling, de
+  inzending (antwoorden + enquête) wordt in één keer correct opgeslagen, en de Voortgang
+  toont zowel de correcte samenvatting (stemmingsverdeling, percentages per stelling) als
+  het volledige per-leerling-detail; (4) een ONGELDIGE of onvolledige enquête (bv. een
+  niet-bestaande stemming of een lege categorie) wordt genegeerd zonder de echte
+  toetsinzending te raken — geen enquête-rij in de databank, maar de antwoorden zelf gewoon
+  correct opgeslagen.
+
 ## v2026.2.51.89 — Drie verbeteringen: geen vraagnummers overslaan bij "terugbladeren niet toegestaan", X/Y-voortgang zichtbaar bij Voortgang, en een logboek van netwerk-/RUN-problemen
 
 ### 1. "Terugbladeren niet toegestaan" kon toch omzeild worden via de vraagnummers bovenaan

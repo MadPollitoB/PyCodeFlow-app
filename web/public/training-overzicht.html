@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="nl"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PyCodeFlow — Trainingen</title>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.97"/>
+<link rel="icon" href="assets/favicon.png" type="image/png">
+<style>
+  .tabs2 { display:flex; gap:6px; border-bottom:2px solid var(--border); margin:14px 0; }
+  .tabs2 button { background:none; border:none; padding:10px 14px; font-size:0.95rem; font-weight:700; color:var(--muted); cursor:pointer; border-bottom:3px solid transparent; margin-bottom:-2px; }
+  .tabs2 button[aria-selected=true] { color:var(--primary); border-bottom-color:var(--primary); }
+  .filter { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; margin:12px 0; }
+  .filter label { display:block; font-size:0.8rem; font-weight:600; margin-bottom:3px; }
+  .filter select, .filter input { padding:9px 12px; border:1.5px solid var(--border); border-radius:9px; background:var(--surface); color:var(--text); font-size:0.95rem; }
+  .kaarten { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin:12px 0; }
+  .kaart { border:1.5px solid var(--border); border-radius:10px; padding:12px 14px; }
+  .kaart .l { font-size:0.8rem; color:var(--muted); }
+  .kaart .w { font-size:1.6rem; font-weight:800; }
+  table.tbl { width:100%; border-collapse:collapse; font-size:0.9rem; }
+  table.tbl th { text-align:left; font-size:0.78rem; color:var(--muted); padding:8px 10px; border-bottom:2px solid var(--border); }
+  table.tbl td { padding:9px 10px; border-bottom:1px solid var(--border); vertical-align:top; }
+  table.tbl tr.klik { cursor:pointer; } table.tbl tr.klik:hover { background:var(--bg); }
+  .rand { overflow:auto; border:1.5px solid var(--border); border-radius:12px; }
+  .raster { display:grid; grid-template-columns:150px repeat(10,minmax(34px,1fr)); gap:3px; font-size:0.8rem; align-items:center; min-width:560px; }
+  .raster .k { text-align:center; padding:6px 0; border-radius:6px; font-weight:700; }
+  .ok { background:rgba(34,197,94,.22); } .mid { background:rgba(245,158,11,.25); } .laag { background:rgba(239,68,68,.22); } .nul { background:var(--bg); color:var(--muted); }
+  textarea.json { width:100%; min-height:220px; box-sizing:border-box; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:0.85rem; padding:10px; border:1.5px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); }
+  .melding { margin:8px 0; font-size:0.9rem; }
+  .melding.fout { color:#991b1b; } .melding.goed { color:#166534; }
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
+  .grid2 label { display:block; font-size:0.82rem; font-weight:600; margin-bottom:3px; }
+  .grid2 input { width:100%; box-sizing:border-box; padding:9px 12px; border:1.5px solid var(--border); border-radius:9px; background:var(--surface); color:var(--text); }
+  .pill { display:inline-block; font-size:0.76rem; padding:2px 8px; border-radius:99px; background:var(--bg); border:1px solid var(--border); }
+</style>
+</head><body>
+<div class="topbar"><div class="topbar-inner">
+  <div class="logo-group"><img src="/assets/pycodeflow-logo.png" class="logo-small" alt=""/><span>PyCodeFlow</span></div>
+  <div class="top-actions"><a href="/teacher-sessions.html" class="btn btn-muted small">← Sessies</a>
+    <a href="/api/teacher-logout" class="btn btn-muted small">Afmelden</a></div>
+</div></div>
+<div class="subnav"><div class="subnav-inner">
+  <a href="/quiz-bank.html">📋 Vragenbank</a>
+  <a href="/toets-overzicht.html">🧪 Toets overzicht</a>
+  <a href="/taak-overzicht.html">📝 Taak overzicht</a>
+  <a href="/mijn-klassen.html">👥 Mijn klassen</a>
+  <a href="/klasmatrix.html">📊 Klasoverzicht</a>
+  <a href="/training-overzicht.html" class="active">🎯 Trainingen</a>
+  <a href="/sjablonen.html">📚 Bibliotheek</a>
+  <a href="/quiz-archive.html">📦 Archief</a>
+  <div class="subnav-sep"></div>
+  <a href="/admin.html">👤 Beheer</a>
+  <a href="/monitoring.html">⚙️ Systeem</a>
+</div></div>
+
+<div class="page">
+  <h1>🎯 Trainingscenter</h1>
+  <p class="muted">Wie heeft getraind, hoe het ging, en de vragenpool. Trainingen tellen niet mee voor punten.</p>
+
+  <div class="tabs2" role="tablist">
+    <button role="tab" id="tab-ov" aria-selected="true" aria-controls="p-ov">Overzicht per klas</button>
+    <button role="tab" id="tab-pool" aria-selected="false" aria-controls="p-pool">Vragenpool</button>
+    <button role="tab" id="tab-inst" aria-selected="false" aria-controls="p-inst">Instellingen</button>
+  </div>
+
+  <!-- overzicht -->
+  <section id="p-ov" role="tabpanel" aria-labelledby="tab-ov">
+    <div class="filter">
+      <div><label for="klas">Klas</label><select id="klas" style="min-width:220px;"></select></div>
+      <div><label for="dagen">Periode</label><select id="dagen">
+        <option value="30">Laatste 30 dagen</option><option value="90">Laatste 3 maanden</option><option value="0">Alles</option></select></div>
+      <button class="btn btn-muted small" id="vernieuw" type="button">↻ Vernieuwen</button>
+    </div>
+    <div class="kaarten" id="kaarten"></div>
+    <div class="rand"><table class="tbl" id="tabel"><thead><tr>
+      <th>Leerling</th><th>Trainingen</th><th>Gestopt</th><th>Laatste</th><th>Gem. score</th><th>Hoogste niveau</th><th>Beste titel</th></tr></thead><tbody></tbody></table></div>
+    <h2 style="font-size:1.05rem;margin:18px 0 6px;">Verdeling van titels</h2>
+    <p class="muted" style="margin:0 0 6px;font-size:0.85rem;">Staan bijna alle leerlingen bovenaan? Dan zijn de grenzen te mild: pas ze aan onder Instellingen.</p>
+    <div id="verdeling" class="muted"></div>
+    <div id="detail" style="margin-top:16px;"></div>
+  </section>
+
+  <!-- pool -->
+  <section id="p-pool" role="tabpanel" aria-labelledby="tab-pool" hidden>
+    <p class="muted" style="font-size:0.88rem;">Aantal vragen per onderwerp en niveau. Groen: minstens 10. Een leerkracht ziet de algemene pool plus zijn eigen vragen; eigen vragen zijn enkel zichtbaar voor leerlingen in zijn klassen.</p>
+    <div class="rand" style="padding:10px;"><div id="raster"></div></div>
+
+    <h2 style="font-size:1.05rem;margin:20px 0 6px;">Vragen toevoegen via JSON</h2>
+    <div class="filter">
+      <div><label for="scope">Zichtbaar voor</label><select id="scope"><option value="own">Alleen mijn eigen klassen</option><option value="general">Iedereen (algemene pool, platformbeheerder)</option></select></div>
+      <div><label for="json-bestand">Of kies een .json-bestand</label><input type="file" id="json-bestand" accept=".json,application/json"/></div>
+    </div>
+    <label for="json" class="muted" style="font-size:0.82rem;">JSON (een lijst van vragen)</label>
+    <textarea class="json" id="json" spellcheck="false" placeholder='[{"topic":"herhaling","level":3,"type":"single","text":"...","choices":["a","b","c"],"correct":[1],"explanation":"..."}]'></textarea>
+    <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;">
+      <button class="btn btn-muted" id="controleer" type="button">Controleren</button>
+      <button class="btn btn-primary" id="importeer" type="button" disabled>Importeren</button>
+      <button class="btn btn-muted" id="voorbeeld" type="button">Voorbeeld invoegen</button>
+    </div>
+    <div class="melding" id="imp-melding" role="status"></div>
+
+    <h2 style="font-size:1.05rem;margin:20px 0 6px;">Vragen bekijken</h2>
+    <div class="filter">
+      <div><label for="q-topic">Onderwerp</label><select id="q-topic"></select></div>
+      <div><label for="q-level">Niveau</label><select id="q-level"></select></div>
+    </div>
+    <div class="rand"><table class="tbl" id="qtabel"><thead><tr><th>Niv.</th><th>Type</th><th>Vraag</th><th>Van</th><th></th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <!-- instellingen -->
+  <section id="p-inst" role="tabpanel" aria-labelledby="tab-inst" hidden>
+    <p class="muted" style="font-size:0.88rem;">Deze instellingen gelden voor alle trainingen. Een niveau stijgt of daalt pas als het gemiddelde van de laatste antwoorden de grens bereikt.</p>
+    <div class="grid2" id="inst-velden"></div>
+    <h2 style="font-size:1.05rem;margin:18px 0 6px;">Titels</h2>
+    <div class="rand"><table class="tbl" id="titels"><thead><tr><th>Niveau</th><th>Score vanaf (%)</th><th>Titel</th></tr></thead><tbody></tbody></table></div>
+    <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
+      <button class="btn btn-primary" id="bewaar" type="button">Opslaan</button>
+      <button class="btn btn-muted" id="herstel" type="button">Standaardwaarden laden</button>
+    </div>
+    <div class="melding" id="inst-melding" role="status"></div>
+  </section>
+</div>
+
+<script src="/app.js?v=v2026.2.51.98"></script>
+<script src="/nav-rechten.js"></script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const apiFetch = window.apiFetch || ((u, o) => fetch(u, o));
+function el(tag, attrs, ...kinderen) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === 'class') e.className = v; else if (k === 'text') e.textContent = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v === true ? '' : v);
+  }
+  for (const k of kinderen.flat()) if (k != null) e.append(k.nodeType ? k : document.createTextNode(String(k)));
+  return e;
+}
+async function api(url, opties) {
+  const o = Object.assign({ headers: {} }, opties || {});
+  if (o.body && typeof o.body !== 'string') { o.body = JSON.stringify(o.body); o.headers['Content-Type'] = 'application/json'; }
+  const r = await apiFetch(url, o);
+  let d = {}; try { d = await r.json(); } catch (e) { /* leeg */ }
+  if (!r.ok) { const f = new Error(d.error || 'Er ging iets mis.'); f.data = d; throw f; }
+  return d;
+}
+const datum = ms => ms ? new Date(ms).toLocaleDateString('nl-BE', { day: 'numeric', month: 'numeric', year: 'numeric' }) : '—';
+
+// ── tabs ────────────────────────────────────────────────────────────────────
+const TABS = { ov: 'p-ov', pool: 'p-pool', inst: 'p-inst' };
+function kiesTab(naam) {
+  for (const [k, p] of Object.entries(TABS)) {
+    $('tab-' + k).setAttribute('aria-selected', String(k === naam));
+    $(p).hidden = k !== naam;
+  }
+  if (naam === 'pool' && !_poolGeladen) laadPool();
+  if (naam === 'inst' && !_instGeladen) laadInst();
+}
+Object.keys(TABS).forEach(k => $('tab-' + k).addEventListener('click', () => kiesTab(k)));
+
+// ── overzicht ───────────────────────────────────────────────────────────────
+async function laadKlassen() {
+  const r = await apiFetch('/api/classes'); const k = r.ok ? await r.json() : [];
+  const s = $('klas'); s.replaceChildren();
+  k.forEach(c => s.append(el('option', { value: c.id, text: c.name + (c.school_year ? ' (' + c.school_year + ')' : '') })));
+  if (!k.length) s.append(el('option', { value: '', text: 'Geen klassen' }));
+}
+async function laadOverzicht() {
+  const klas = $('klas').value; if (!klas) return;
+  $('detail').replaceChildren();
+  try {
+    const d = await api(`/api/teacher/training/overview?classId=${encodeURIComponent(klas)}&dagen=${$('dagen').value}`);
+    const s = d.samenvatting;
+    $('kaarten').replaceChildren(
+      kaart('Leerlingen die trainden', `${s.getraind} van ${s.aantalLeerlingen}`),
+      kaart('Afgeronde trainingen', String(s.trainingen)),
+      kaart('Gemiddelde score', s.gemScore == null ? '—' : s.gemScore + '%'),
+      kaart('Zwakste onderwerp', s.zwaksteOnderwerp ? `${s.zwaksteOnderwerp.naam} (${s.zwaksteOnderwerp.gem}%)` : '—'));
+    const tb = $('tabel').querySelector('tbody'); tb.replaceChildren();
+    d.leerlingen.forEach(l => {
+      tb.append(el('tr', { class: 'klik', tabindex: '0', onclick: () => laadLeerling(l), onkeydown: e => { if (e.key === 'Enter') laadLeerling(l); } },
+        el('td', { text: l.name }), el('td', { text: String(l.klaar) }), el('td', { text: String(l.gestopt) }),
+        el('td', { text: datum(l.laatste) }), el('td', { text: l.gemScore == null ? '—' : l.gemScore + '%' }),
+        el('td', { text: l.hoogsteNiveau == null ? '—' : String(l.hoogsteNiveau) }), el('td', { text: l.besteTitel || '—' })));
+    });
+    $('verdeling').replaceChildren(...d.verdeling.map(v => el('span', { class: 'pill', style: 'margin:0 6px 6px 0;', text: `${v.titel}: ${v.aantal}` })));
+  } catch (e) { $('kaarten').replaceChildren(el('div', { class: 'melding fout', text: e.message })); }
+}
+function kaart(l, w) { return el('div', { class: 'kaart' }, el('div', { class: 'l', text: l }), el('div', { class: 'w', text: w })); }
+
+async function laadLeerling(l) {
+  const doel = $('detail'); doel.replaceChildren(el('h2', { style: 'font-size:1.05rem;', text: 'Trainingen van ' + l.name }), el('p', { class: 'muted', text: 'Laden…' }));
+  try {
+    const d = await api('/api/teacher/training/student/' + encodeURIComponent(l.id));
+    doel.replaceChildren(el('h2', { style: 'font-size:1.05rem;', text: 'Trainingen van ' + l.name }));
+    if (!d.runs.length) { doel.append(el('p', { class: 'muted', text: 'Nog geen trainingen.' })); return; }
+    const tb = el('tbody');
+    d.runs.forEach(r => {
+      const uit = el('tr', { class: 'klik', tabindex: '0' },
+        el('td', { text: datum(r.startedAt) }), el('td', { text: r.status === 'klaar' ? 'Afgerond' : 'Gestopt' + (r.stopReason === 'fullscreen_verlaten' ? ' (volledig scherm verlaten)' : '') }),
+        el('td', { text: r.scorePct == null ? '—' : Math.round(r.scorePct) + '%' }), el('td', { text: r.title || '—' }),
+        el('td', { text: r.aantal + ' vragen · ' + r.topics.join(', ') }));
+      const open = async () => {
+        if (uit.nextSibling && uit.nextSibling.dataset && uit.nextSibling.dataset.det) { uit.nextSibling.remove(); return; }
+        const a = await api('/api/teacher/training/run/' + r.id);
+        const rij = el('tr', { 'data-det': '1' }, el('td', { colspan: '5' },
+          el('table', { class: 'tbl' }, el('thead', {}, el('tr', {}, el('th', { text: '#' }), el('th', { text: 'Onderwerp' }), el('th', { text: 'Niv.' }), el('th', { text: 'Vraag' }), el('th', { text: 'Score' }))),
+            el('tbody', {}, a.antwoorden.map(x => el('tr', {}, el('td', { text: String(x.seq) }), el('td', { text: x.topic }), el('td', { text: String(x.level) }), el('td', { text: x.text }), el('td', { text: x.score + '%' })))))));
+        uit.after(rij);
+      };
+      uit.addEventListener('click', open); uit.addEventListener('keydown', e => { if (e.key === 'Enter') open(); });
+      tb.append(uit);
+    });
+    doel.append(el('div', { class: 'rand' }, el('table', { class: 'tbl' },
+      el('thead', {}, el('tr', {}, el('th', { text: 'Datum' }), el('th', { text: 'Status' }), el('th', { text: 'Score' }), el('th', { text: 'Titel' }), el('th', { text: 'Inhoud' }))), tb)));
+  } catch (e) { doel.append(el('div', { class: 'melding fout', text: e.message })); }
+}
+$('klas').addEventListener('change', laadOverzicht); $('dagen').addEventListener('change', laadOverzicht);
+$('vernieuw').addEventListener('click', laadOverzicht);
+
+// ── pool ────────────────────────────────────────────────────────────────────
+let _poolGeladen = false; let POOL = null;
+async function laadPool() {
+  _poolGeladen = true;
+  POOL = await api('/api/teacher/training/pool');
+  const som = {};
+  POOL.counts.forEach(c => { const k = c.topic + '|' + c.level; som[k] = (som[k] || 0) + c.n; });
+  const r = el('div', { class: 'raster' }, el('div', {}), ...Array.from({ length: 10 }, (_, i) => el('div', { class: 'k', text: String(i + 1) })));
+  POOL.topics.forEach(t => {
+    r.append(el('div', { text: t.name }));
+    for (let n = 1; n <= 10; n++) {
+      const a = som[t.id + '|' + n] || 0;
+      r.append(el('div', { class: 'k ' + (a >= 10 ? 'ok' : a >= 5 ? 'mid' : a > 0 ? 'laag' : 'nul'), text: String(a), title: `${t.name}, niveau ${n}: ${a} vragen` }));
+    }
+  });
+  $('raster').replaceChildren(r);
+  if (!POOL.kanAlgemeenBeheren) $('scope').querySelector('option[value=general]')?.remove();
+  if (!POOL.heeftAccount) $('scope').querySelector('option[value=own]')?.remove();
+  const ts = $('q-topic'); ts.replaceChildren(el('option', { value: '', text: 'Alle onderwerpen' }), ...POOL.topics.map(t => el('option', { value: t.id, text: t.name })));
+  const ls = $('q-level'); ls.replaceChildren(el('option', { value: '', text: 'Alle niveaus' }), ...Array.from({ length: 10 }, (_, i) => el('option', { value: String(i + 1), text: 'Niveau ' + (i + 1) })));
+  laadVragen();
+}
+async function laadVragen() {
+  const q = new URLSearchParams(); if ($('q-topic').value) q.set('topic', $('q-topic').value); if ($('q-level').value) q.set('level', $('q-level').value);
+  const d = await api('/api/teacher/training/questions?' + q);
+  const tb = $('qtabel').querySelector('tbody'); tb.replaceChildren();
+  d.questions.forEach(x => tb.append(el('tr', {}, el('td', { text: String(x.level) }), el('td', { text: x.type }), el('td', { text: x.text }),
+    el('td', { text: x.algemeen ? 'Algemeen' : (x.eigen ? 'Mijzelf' : 'Collega') }),
+    el('td', {}, (x.eigen || POOL.kanAlgemeenBeheren) ? el('button', { class: 'btn btn-muted small', type: 'button', text: 'Verwijderen',
+      onclick: async () => { if (!confirm('Deze vraag verwijderen uit de pool?')) return; await api('/api/teacher/training/questions/' + x.id, { method: 'DELETE' }); laadPool(); } }) : null))));
+  if (!d.questions.length) tb.append(el('tr', {}, el('td', { colspan: '5', class: 'muted', text: 'Geen vragen voor deze keuze.' })));
+}
+$('q-topic').addEventListener('change', laadVragen); $('q-level').addEventListener('change', laadVragen);
+
+function leesJson() {
+  const t = $('json').value.trim(); if (!t) throw new Error('Plak eerst JSON of kies een bestand.');
+  let x; try { x = JSON.parse(t); } catch (e) { throw new Error('Geen geldige JSON: ' + e.message); }
+  return x;
+}
+function toonImp(tekst, soort) { const m = $('imp-melding'); m.className = 'melding ' + (soort || ''); m.replaceChildren(...(Array.isArray(tekst) ? tekst : [tekst]).map(t => el('div', { text: t }))); }
+$('json').addEventListener('input', () => { $('importeer').disabled = true; });
+$('json-bestand').addEventListener('change', async e => { const f = e.target.files[0]; if (f) { $('json').value = await f.text(); $('importeer').disabled = true; } });
+$('controleer').addEventListener('click', async () => {
+  try {
+    const d = await api('/api/teacher/training/import', { method: 'POST', body: { scope: $('scope').value, questions: leesJson(), check: true } });
+    if (d.totaalFouten) toonImp([`${d.geldig} vragen geldig, ${d.totaalFouten} met fouten:`, ...d.fouten.map(f => `Vraag ${f.nr}: ${f.fouten.join(' ')}`)], 'fout');
+    else { toonImp(`${d.geldig} vragen geldig. Klik op Importeren om op te slaan.`, 'goed'); $('importeer').disabled = d.geldig === 0; }
+  } catch (e) { toonImp(e.message, 'fout'); }
+});
+$('importeer').addEventListener('click', async () => {
+  try {
+    const d = await api('/api/teacher/training/import', { method: 'POST', body: { scope: $('scope').value, questions: leesJson() } });
+    toonImp(`${d.toegevoegd} vragen toegevoegd${d.dubbel ? `, ${d.dubbel} bestonden al` : ''}.`, 'goed');
+    $('importeer').disabled = true; laadPool();
+  } catch (e) { toonImp(e.data && e.data.fouten ? [e.message, ...e.data.fouten.map(f => `Vraag ${f.nr}: ${f.fouten.join(' ')}`)] : e.message, 'fout'); }
+});
+$('voorbeeld').addEventListener('click', () => {
+  $('json').value = JSON.stringify([
+    { topic: 'herhaling', level: 3, type: 'single', text: 'Hoe vaak wordt print uitgevoerd?', code: 'for i in range(3):\n    print(i)', choices: ['2 keer', '3 keer', '4 keer'], correct: [1], explanation: 'range(3) geeft 0, 1 en 2.' },
+    { topic: 'herhaling', level: 4, type: 'multiple', text: 'Kies alle juiste antwoorden: welke lussen tellen tot 3?', choices: ['for i in range(1, 4)', 'for i in range(3)', 'while i < 3 (met i = 1 en i += 1)', 'for i in 3'], correct: [0, 2], explanation: 'range(1, 4) en een while-lus met i < 3 starten bij 1.' },
+    { topic: 'herhaling', level: 6, type: 'code', text: 'Lees een getal n in en toon de tafel van 7 tot n keer 7, onder elkaar. Gebruik input() zonder tekst tussen de haakjes.', starter: '', tests: [{ input: ['3'], output: '7\n14\n21' }, { input: ['1'], output: '7' }] },
+  ], null, 2);
+  $('importeer').disabled = true;
+});
+
+// ── instellingen ────────────────────────────────────────────────────────────
+let _instGeladen = false; let INST = null;
+const VELDEN = [
+  ['upPct', 'Omhoog vanaf gemiddeld (%)', 1, 100], ['downPct', 'Omlaag bij gemiddeld (%)', 0, 99],
+  ['venster', 'Aantal antwoorden dat meetelt', 1, 5], ['startNiveau', 'Startniveau (nieuw onderwerp)', 1, 10],
+  ['startOffset', 'Start dit aantal niveaus lager', 0, 5], ['topNiveauMinVragen', 'Hoogste titel vraagt minstens … vragen', 1, 100],
+];
+async function laadInst() {
+  _instGeladen = true;
+  const d = await api('/api/teacher/training/settings'); INST = d;
+  tekenInst(d.instellingen, d.mayEdit);
+}
+function tekenInst(i, mag) {
+  $('inst-velden').replaceChildren(...VELDEN.map(([k, naam, min, max]) => el('div', {},
+    el('label', { for: 'f-' + k, text: naam }), el('input', { id: 'f-' + k, type: 'number', min: String(min), max: String(max), value: String(i[k]), disabled: !mag }))));
+  const tb = $('titels').querySelector('tbody'); tb.replaceChildren();
+  i.titels.forEach(t => tb.append(el('tr', {}, el('td', { text: String(t.niveau) }),
+    el('td', {}, el('input', { type: 'number', min: '0', max: '100', value: String(t.vanaf), 'data-v': String(t.niveau), 'aria-label': 'Score vanaf niveau ' + t.niveau, disabled: !mag || t.niveau === 1, style: 'width:90px;padding:6px 8px;' })),
+    el('td', {}, el('input', { type: 'text', maxlength: '40', value: t.titel, 'data-t': String(t.niveau), 'aria-label': 'Titel niveau ' + t.niveau, disabled: !mag, style: 'width:100%;padding:6px 8px;box-sizing:border-box;' })))));
+  $('bewaar').disabled = !mag; $('herstel').disabled = !mag;
+  if (!mag) { const m = $('inst-melding'); m.className = 'melding'; m.textContent = 'Enkel de platformbeheerder kan deze instellingen wijzigen.'; }
+}
+$('herstel').addEventListener('click', () => tekenInst(INST.standaard, true));
+$('bewaar').addEventListener('click', async () => {
+  const body = {}; VELDEN.forEach(([k]) => { body[k] = Number($('f-' + k).value); });
+  body.titels = [...document.querySelectorAll('#titels input[data-v]')].map(v => {
+    const n = Number(v.dataset.v);
+    return { niveau: n, vanaf: n === 1 ? 0 : Number(v.value), titel: document.querySelector(`#titels input[data-t="${n}"]`).value };
+  });
+  const m = $('inst-melding');
+  try { const d = await api('/api/teacher/training/settings', { method: 'PUT', body }); INST.instellingen = d.instellingen; m.className = 'melding goed'; m.textContent = 'Opgeslagen.'; }
+  catch (e) { m.className = 'melding fout'; m.textContent = e.message; }
+});
+
+(async function () { await laadKlassen(); laadOverzicht(); })();
+</script>
+</body></html>

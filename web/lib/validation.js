@@ -367,6 +367,19 @@ const ENQUETE_CATEGORIEEN = [
       { id: 'niet_voldoende', tekst: 'Ik heb niet (voldoende) geleerd.' },
       { id: 'verkeerde_leerstof', tekst: 'Ik heb de verkeerde leerstof geleerd.' },
       { id: 'vergeten', tekst: 'Ik was vergeten dat er een toets was.' },
+      // Sprint 96: deze 3 waren tot nu toe de ENIGE opties — een leerling die een goede
+      // toets aflegde, moest dus verplicht iets negatiefs aanvinken. Aanvulling met meer
+      // mogelijke aandachtspunten, plus (helemaal onderaan, zie 'geen_aandachtspunten')
+      // een uitweg voor wie er geen heeft.
+      { id: 'gestrest', tekst: 'Ik was gestresseerd/nerveus tijdens de toets.' },
+      { id: 'te_weinig_tijd', tekst: 'Ik had te weinig tijd om alles af te werken.' },
+      { id: 'niet_goed_gevoeld', tekst: 'Ik voelde me niet goed (ziek, moe, ...).' },
+      { id: 'vraagstelling_onduidelijk', tekst: 'Ik begreep bepaalde vragen niet goed.' },
+      { id: 'afgeleid', tekst: 'Ik liet me afleiden tijdens het leren of tijdens de toets.' },
+      // Sprint 96: bewust EXCLUSIEF (zie exclusiefId hieronder) en HELEMAAL ONDERAAN —
+      // aanvinken wist/schakelt de rest van deze categorie uit en omgekeerd, zodat "geen
+      // aandachtspunten" nooit tegenstrijdig naast een echt aandachtspunt kan staan.
+      { id: 'geen_aandachtspunten', tekst: 'Ik had geen aandachtspunten — het verliep goed.', exclusief: true },
     ],
   },
 ];

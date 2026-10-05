@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="nl"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PyCodeFlow — Trainingscenter</title>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.97"/>
+<link rel="icon" href="assets/favicon.png" type="image/png">
+<style>
+  .tc-wrap { max-width:980px; margin:0 auto; }
+  .tc-start { border:2px solid var(--primary); border-radius:14px; padding:20px 22px; display:flex; gap:20px;
+    align-items:center; justify-content:space-between; flex-wrap:wrap; }
+  .tc-start h2 { margin:0 0 6px; font-size:1.2rem; }
+  .tc-hist { margin-top:22px; }
+  .tc-hist-rij { display:flex; gap:12px; align-items:center; padding:10px 0; border-bottom:1px solid var(--border); font-size:0.92rem; flex-wrap:wrap; }
+  .tc-hist-rij:last-child { border-bottom:none; }
+  .tc-score { font-weight:800; min-width:56px; }
+  .tc-titel { font-weight:700; }
+  .tc-pill { display:inline-block; font-size:0.78rem; padding:2px 9px; border-radius:99px; background:var(--bg); border:1px solid var(--border); color:var(--muted); }
+
+  /* popup */
+  .tc-modal-bg { position:fixed; inset:0; background:rgba(15,23,42,.55); display:none; align-items:center; justify-content:center; z-index:1000; padding:14px; }
+  .tc-modal-bg.open { display:flex; }
+  .tc-modal { background:var(--surface); color:var(--text); border-radius:14px; width:100%; max-width:560px; max-height:94vh; overflow:auto; padding:22px 24px; box-shadow:0 20px 60px rgba(0,0,0,.35); }
+  .tc-modal h2 { margin:0 0 14px; }
+  .tc-modal fieldset { border:1.5px solid var(--border); border-radius:10px; padding:10px 14px 12px; margin:0 0 14px; }
+  .tc-modal legend { font-weight:700; font-size:0.92rem; padding:0 6px; }
+  .tc-check { display:flex; gap:10px; align-items:center; min-height:40px; font-size:0.97rem; cursor:pointer; }
+  .tc-check input { width:20px; height:20px; flex:none; }
+  .tc-check.uit { opacity:.5; cursor:not-allowed; }
+  .tc-aantal { display:flex; gap:12px; align-items:center; }
+  .tc-aantal input[type=range] { flex:1; height:44px; }
+  .tc-aantal output { min-width:36px; font-weight:800; font-size:1.2rem; text-align:right; }
+  .tc-fout { color:#991b1b; font-size:0.88rem; min-height:1.2em; margin:6px 0; }
+  .tc-acties { display:flex; gap:10px; justify-content:flex-end; margin-top:10px; }
+
+  /* vraag */
+  .tc-kop { display:flex; gap:14px; align-items:center; justify-content:space-between; flex-wrap:wrap; margin-bottom:8px; font-size:0.92rem; }
+  .tc-niveau { display:inline-flex; gap:3px; align-items:center; }
+  .tc-niveau i { width:16px; height:9px; border-radius:3px; background:var(--border); display:inline-block; }
+  .tc-niveau i.aan { background:var(--primary); }
+  .tc-voortgang { height:8px; background:var(--border); border-radius:4px; margin-bottom:14px; }
+  .tc-voortgang div { height:8px; background:var(--primary); border-radius:4px; transition:width .3s; }
+  .tc-vraag { border:1.5px solid var(--border); border-radius:12px; padding:18px 20px; }
+  .tc-type { font-size:0.76rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-bottom:8px; }
+  .tc-tekst { font-size:1.05rem; line-height:1.5; margin:0 0 12px; white-space:pre-wrap; }
+  pre.tc-code { background:#0f172a; color:#e2e8f0; padding:12px 14px; border-radius:8px; overflow:auto; font-size:0.9rem; line-height:1.45; margin:0 0 12px; }
+  .tc-keuze { display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1.5px solid var(--border); border-radius:10px; margin-bottom:8px; cursor:pointer; min-height:44px; box-sizing:border-box; }
+  .tc-keuze input { width:20px; height:20px; margin-top:1px; flex:none; }
+  .tc-keuze.juist { border-color:#16a34a; background:rgba(34,197,94,.12); }
+  .tc-keuze.fout { border-color:#dc2626; background:rgba(239,68,68,.10); }
+  .tc-keuze .tag { margin-left:auto; font-size:0.78rem; font-weight:700; white-space:nowrap; }
+  textarea.tc-editor { width:100%; min-height:190px; box-sizing:border-box; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:0.95rem; padding:10px 12px; border:1.5px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); tab-size:4; }
+  textarea.tc-invoer { min-height:60px; }
+  .tc-uitvoer { background:#0f172a; color:#e2e8f0; border-radius:8px; padding:10px 12px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:0.88rem; white-space:pre-wrap; min-height:44px; margin-top:8px; }
+  .tc-feedback { margin-top:14px; border-radius:10px; padding:12px 14px; font-size:0.95rem; line-height:1.5; }
+  .tc-feedback.goed { background:rgba(34,197,94,.14); border:1.5px solid #16a34a; }
+  .tc-feedback.deels { background:rgba(245,158,11,.14); border:1.5px solid #d97706; }
+  .tc-feedback.fout { background:rgba(239,68,68,.10); border:1.5px solid #dc2626; }
+  .tc-feedback strong.kop { display:block; margin-bottom:4px; }
+  .tc-voet { display:flex; gap:10px; justify-content:space-between; align-items:center; margin-top:14px; flex-wrap:wrap; }
+
+  /* resultaat */
+  .tc-res { text-align:center; padding:10px 0; }
+  .tc-res .groot { font-size:4rem; font-weight:800; color:var(--primary); line-height:1.1; }
+  .tc-titelkaart { display:inline-block; border:2px solid var(--primary); border-radius:12px; padding:14px 30px; margin:14px 0; }
+  .tc-titelkaart .naam { font-size:1.6rem; font-weight:800; }
+  table.tc-tabel { width:100%; max-width:520px; margin:10px auto; border-collapse:collapse; font-size:0.92rem; text-align:left; }
+  table.tc-tabel td, table.tc-tabel th { padding:7px 8px; border-bottom:1px solid var(--border); }
+  table.tc-tabel th { color:var(--muted); font-size:0.8rem; }
+
+  /* fullscreen-waarschuwing */
+  .tc-overlay { position:fixed; inset:0; background:rgba(127,29,29,.94); color:#fff; display:none; flex-direction:column; align-items:center; justify-content:center; gap:14px; z-index:1100; text-align:center; padding:20px; }
+  .tc-overlay.open { display:flex; }
+  .tc-overlay .tel { font-size:3.4rem; font-weight:800; }
+</style>
+</head><body>
+<div class="topbar"><div class="topbar-inner">
+  <div class="logo-group"><img src="/assets/pycodeflow-logo.png" class="logo-small" alt=""/><span>PyCodeFlow</span></div>
+  <div class="top-actions"><a href="/student-thuis.html" class="btn btn-muted small" id="terug-home">Terug naar start</a></div>
+</div></div>
+
+<div class="page"><div class="card screen tc-wrap">
+
+  <!-- 1. startscherm -->
+  <section id="scherm-start" aria-labelledby="t-start">
+    <h1 class="titel-compact" id="t-start" style="margin:0 0 14px;">Trainingscenter</h1>
+    <div class="tc-start">
+      <div>
+        <h2>Train in je eigen tempo</h2>
+        <p class="muted" style="margin:0 0 6px;max-width:520px;">Kies onderwerpen en een aantal vragen. De moeilijkheid past zich aan je antwoorden aan.
+          Op het einde krijg je een score en een titel. Dit telt niet mee voor je punten.</p>
+        <p class="muted" id="laatste" style="margin:0;font-size:0.88rem;"></p>
+      </div>
+      <button class="btn btn-primary" id="knop-start" type="button" style="min-height:48px;padding:0 24px;">Start training</button>
+    </div>
+    <div class="tc-hist">
+      <h2 style="font-size:1.05rem;margin:0 0 6px;">Mijn trainingen</h2>
+      <div id="historiek"><p class="muted" style="margin:0;font-size:0.9rem;">Laden…</p></div>
+    </div>
+  </section>
+
+  <!-- 2. vraagscherm -->
+  <section id="scherm-vraag" hidden>
+    <div class="tc-kop">
+      <strong id="v-teller"></strong>
+      <span class="tc-niveau" id="v-niveau" aria-label=""></span>
+      <button class="btn btn-muted small" id="knop-stop" type="button">Training stoppen</button>
+    </div>
+    <div class="tc-voortgang"><div id="v-balk" style="width:0%"></div></div>
+    <div class="tc-vraag" id="v-kaart"></div>
+  </section>
+
+  <!-- 3. resultaat -->
+  <section id="scherm-resultaat" hidden></section>
+</div></div>
+
+<!-- popup: training instellen -->
+<div class="tc-modal-bg" id="modal" role="dialog" aria-modal="true" aria-labelledby="m-titel">
+  <form class="tc-modal" id="setup-form" autocomplete="off">
+    <h2 id="m-titel">Training instellen</h2>
+    <fieldset>
+      <legend>Aantal vragen</legend>
+      <div class="tc-aantal">
+        <input type="range" id="aantal" min="10" max="30" value="15" aria-label="Aantal vragen"/>
+        <output id="aantal-uit" for="aantal">15</output>
+      </div>
+      <div class="muted" style="font-size:0.82rem;">Tussen 10 en 30 vragen.</div>
+    </fieldset>
+    <fieldset id="topics-set">
+      <legend>Onderwerpen <span class="muted" id="topics-teller" style="font-weight:400;">(kies 1 tot 5)</span></legend>
+      <div id="topics"></div>
+    </fieldset>
+    <fieldset>
+      <legend>Volledig scherm</legend>
+      <div class="muted" style="font-size:0.88rem;margin-bottom:4px;">Je training start in volledig scherm. Mag je dat tijdens de training verlaten?</div>
+      <label class="tc-check"><input type="radio" name="fs" value="ja" checked/> Ja, dat mag</label>
+      <label class="tc-check"><input type="radio" name="fs" value="nee"/> Nee, stop de training als ik het volledige scherm verlaat</label>
+    </fieldset>
+    <div class="tc-fout" id="setup-fout" role="alert"></div>
+    <div class="tc-acties">
+      <button type="button" class="btn btn-muted" id="knop-annuleer">Annuleren</button>
+      <button type="submit" class="btn btn-primary" id="knop-go">Start</button>
+    </div>
+  </form>
+</div>
+
+<!-- waarschuwing: volledig scherm verlaten -->
+<div class="tc-overlay" id="fs-overlay" role="alertdialog" aria-labelledby="fs-titel">
+  <h2 id="fs-titel" style="margin:0;">Keer terug naar volledig scherm</h2>
+  <p style="margin:0;max-width:440px;">Je hebt gekozen dat je het volledige scherm niet mag verlaten. Keer binnen
+    <strong id="fs-tel">5</strong> seconden terug, anders stopt je training.</p>
+  <button class="btn btn-primary" id="fs-terug" type="button" style="min-height:48px;padding:0 24px;">Terug naar volledig scherm</button>
+</div>
+
+<script src="/schud.js?v=v2026.2.51.98"></script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+function el(tag, attrs, ...kinderen) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === 'class') e.className = v;
+    else if (k === 'text') e.textContent = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v === true ? '' : v);
+  }
+  for (const k of kinderen.flat()) if (k != null) e.append(k.nodeType ? k : document.createTextNode(String(k)));
+  return e;
+}
+async function api(url, opties) {
+  const o = Object.assign({ headers: {} }, opties || {});
+  if (o.body && typeof o.body !== 'string') { o.body = JSON.stringify(o.body); o.headers['Content-Type'] = 'application/json'; }
+  const r = await fetch(url, o);
+  if (r.status === 401) { location.href = '/student-login.html'; throw new Error('niet ingelogd'); }
+  let d = {}; try { d = await r.json(); } catch (e) { /* leeg */ }
+  if (!r.ok) { const f = new Error(d.error || 'Er ging iets mis.'); f.status = r.status; throw f; }
+  return d;
+}
+
+let OVERZICHT = null;
+let RUN = null;            // { id, aantal, verplicht, vraag, beantwoord }
+let VRAAGSTAND = null;     // huidige invoer
+let _fsTimer = null;
+
+// ── scherm wisselen ─────────────────────────────────────────────────────────
+function toon(naam) {
+  $('scherm-start').hidden = naam !== 'start';
+  $('scherm-vraag').hidden = naam !== 'vraag';
+  $('scherm-resultaat').hidden = naam !== 'resultaat';
+  window.scrollTo(0, 0);
+}
+
+function datum(ms) {
+  return new Date(ms).toLocaleDateString('nl-BE', { day: 'numeric', month: 'numeric', year: 'numeric' });
+}
+
+// ── startscherm ─────────────────────────────────────────────────────────────
+async function laadStart() {
+  OVERZICHT = await api('/api/training/overzicht');
+  const l = OVERZICHT.laatste;
+  $('laatste').textContent = l && l.status === 'klaar'
+    ? `Laatste training: ${l.topics.join(', ')} · ${Math.round(l.scorePct)}% · ${l.title}`
+    : 'Je hebt nog geen training afgerond.';
+  try {
+    const h = await api('/api/training/geschiedenis');
+    const doel = $('historiek'); doel.replaceChildren();
+    if (!h.runs.length) { doel.append(el('p', { class: 'muted', style: 'margin:0;font-size:0.9rem;', text: 'Nog geen trainingen.' })); return; }
+    for (const r of h.runs) {
+      doel.append(el('div', { class: 'tc-hist-rij' },
+        el('span', { class: 'muted', text: datum(r.startedAt) }),
+        el('span', { class: 'tc-score', text: r.status === 'klaar' ? Math.round(r.scorePct) + '%' : '—' }),
+        el('span', { class: 'tc-titel', text: r.status === 'klaar' ? r.title : 'Gestopt' }),
+        el('span', { class: 'tc-pill', text: r.aantal + ' vragen' }),
+        el('span', { class: 'muted', text: r.topics.join(', ') })));
+    }
+  } catch (e) { /* historiek is niet cruciaal */ }
+}
+
+// ── popup ───────────────────────────────────────────────────────────────────
+function openModal() {
+  const doel = $('topics'); doel.replaceChildren();
+  for (const t of OVERZICHT.topics) {
+    const leeg = t.aantal < 1;
+    const cb = el('input', { type: 'checkbox', value: t.id, disabled: leeg, onchange: bijwerkenTopics });
+    doel.append(el('label', { class: 'tc-check' + (leeg ? ' uit' : '') }, cb,
+      el('span', { text: t.name + (leeg ? ' (nog geen vragen)' : '') }),
+      t.niveau ? el('span', { class: 'tc-pill', style: 'margin-left:auto;', text: 'jouw niveau ' + t.niveau }) : null));
+  }
+  $('setup-fout').textContent = '';
+  bijwerkenTopics();
+  $('modal').classList.add('open');
+  $('aantal').focus();
+}
+function bijwerkenTopics() {
+  const boxes = [...document.querySelectorAll('#topics input[type=checkbox]')];
+  const n = boxes.filter(b => b.checked).length;
+  const max = OVERZICHT.grenzen.maxOnderwerpen;
+  // een onderwerp zonder vragen blijft altijd uit; bij het maximum zijn de overige uit
+  OVERZICHT.topics.forEach((t, i) => {
+    const b = boxes[i]; if (!b) return;
+    b.disabled = t.aantal < 1 || (!b.checked && n >= max);
+    b.parentElement.classList.toggle('uit', b.disabled);
+  });
+  $('topics-teller').textContent = `(kies 1 tot ${max}) · ${n} gekozen`;
+}
+$('aantal').addEventListener('input', () => { $('aantal-uit').textContent = $('aantal').value; });
+$('knop-start').addEventListener('click', async () => {
+  try { await laadStart(); } catch (e) { /* overzicht blijft het laatst bekende */ }
+  openModal();
+});
+$('knop-annuleer').addEventListener('click', () => $('modal').classList.remove('open'));
+
+async function vraagVolledigScherm() {
+  const el0 = document.documentElement;
+  const req = el0.requestFullscreen || el0.webkitRequestFullscreen;
+  if (!req) return false;
+  try { await req.call(el0); return true; } catch (e) { return false; }
+}
+
+$('setup-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const topics = [...document.querySelectorAll('#topics input:checked')].map(b => b.value);
+  const verplicht = document.querySelector('input[name=fs]:checked').value === 'nee';
+  const fout = $('setup-fout'); fout.textContent = '';
+  if (!topics.length) { fout.textContent = 'Kies minstens één onderwerp.'; return; }
+  $('knop-go').disabled = true;
+  try {
+    // moet binnen dezelfde klik gebeuren, anders weigert de browser het volledige scherm
+    const fsOk = await vraagVolledigScherm();
+    if (verplicht && !fsOk) { fout.textContent = 'Je browser liet het volledige scherm niet toe. Kies "Ja, dat mag" of probeer een andere browser.'; return; }
+    const d = await api('/api/training/start', { method: 'POST', body: { aantal: Number($('aantal').value), topics, fullscreenVerplicht: verplicht } });
+    $('modal').classList.remove('open');
+    RUN = { id: d.runId, aantal: d.aantal, verplicht, vraag: d.vraag, beantwoord: false };
+    toonVraag();
+  } catch (e) {
+    fout.textContent = e.message;
+    if (document.fullscreenElement) { try { document.exitFullscreen(); } catch (x) { /* stil */ } }
+  } finally { $('knop-go').disabled = false; }
+});
+
+// ── vraag tonen ─────────────────────────────────────────────────────────────
+const TYPE_NAAM = { single: 'Meerkeuzevraag', multiple: 'Meerdere juiste antwoorden', code: 'Programmeeropdracht' };
+
+function toonVraag() {
+  const v = RUN.vraag; RUN.beantwoord = false;
+  toon('vraag');
+  $('v-teller').textContent = `Vraag ${v.nr} van ${v.totaal} · ${OVERZICHT.topics.find(t => t.id === v.topic)?.name || v.topic}`;
+  const niv = $('v-niveau'); niv.replaceChildren(el('span', { class: 'muted', style: 'margin-right:6px;', text: 'Niveau' }));
+  for (let i = 1; i <= 10; i++) niv.append(el('i', { class: i <= v.niveau ? 'aan' : '' }));
+  niv.append(el('strong', { style: 'margin-left:6px;', text: v.niveau + ' / 10' }));
+  $('v-balk').style.width = Math.round(((v.nr - 1) / v.totaal) * 100) + '%';
+
+  const k = $('v-kaart'); k.replaceChildren();
+  k.append(el('div', { class: 'tc-type', text: TYPE_NAAM[v.type] || '' }));
+  k.append(el('p', { class: 'tc-tekst', text: v.text }));
+  if (v.code) k.append(el('pre', { class: 'tc-code', text: v.code }));
+
+  VRAAGSTAND = { gekozen: new Set() };
+  if (v.type === 'code') {
+    const ta = el('textarea', { class: 'tc-editor', id: 'editor', spellcheck: 'false', 'aria-label': 'Jouw code', autocapitalize: 'off' });
+    ta.value = v.starter || '';
+    ta.addEventListener('keydown', e => {
+      if (e.key === 'Tab') { e.preventDefault(); const s = ta.selectionStart; ta.setRangeText('    ', s, ta.selectionEnd, 'end'); }
+    });
+    k.append(el('label', { for: 'editor', style: 'font-weight:700;font-size:0.9rem;display:block;margin-bottom:4px;', text: 'Jouw code' }), ta);
+    k.append(el('label', { for: 'invoer', class: 'muted', style: 'display:block;font-size:0.82rem;margin:8px 0 3px;', text: 'Invoer voor "Code uitvoeren" (één regel per input())' }));
+    k.append(el('textarea', { class: 'tc-editor tc-invoer', id: 'invoer', spellcheck: 'false', 'aria-label': 'Invoer' }));
+    k.append(el('div', { class: 'tc-uitvoer', id: 'uitvoer', 'aria-live': 'polite', text: 'De uitvoer van je code verschijnt hier.' }));
+    k.append(el('div', { class: 'tc-voet' },
+      el('button', { class: 'btn btn-muted', id: 'knop-run', type: 'button', onclick: voerUit, text: 'Code uitvoeren' }),
+      el('button', { class: 'btn btn-primary', id: 'knop-dien-in', type: 'button', onclick: dienIn, text: 'Antwoord indienen' })));
+  } else {
+    const soort = v.type === 'multiple' ? 'checkbox' : 'radio';
+    const groep = el('fieldset', { style: 'border:0;padding:0;margin:0;' },
+      el('legend', { class: 'muted', style: 'font-size:0.82rem;margin-bottom:6px;padding:0;', text: v.type === 'multiple' ? 'Kies alle juiste antwoorden.' : 'Kies één antwoord.' }));
+    // opties in willekeurige (per training+vraag vaste) volgorde; de waarde blijft de oorspronkelijke index
+    window.pySchud(v.choices.map((tekst, i) => ({ text: tekst, i })), 'training|' + RUN.id + '|' + v.id).forEach(({ text: tekst, i }) => {
+      const inp = el('input', { type: soort, name: 'keuze', value: String(i), onchange: () => {
+        if (soort === 'radio') VRAAGSTAND.gekozen = new Set([i]);
+        else if (inp.checked) VRAAGSTAND.gekozen.add(i); else VRAAGSTAND.gekozen.delete(i);
+      } });
+      groep.append(el('label', { class: 'tc-keuze', 'data-i': String(i) }, inp, el('span', { text: tekst })));
+    });
+    k.append(groep);
+    k.append(el('div', { class: 'tc-voet' }, el('span'),
+      el('button', { class: 'btn btn-primary', id: 'knop-dien-in', type: 'button', onclick: dienIn, text: 'Antwoord indienen' })));
+  }
+  k.append(el('div', { id: 'tc-melding', class: 'tc-fout', role: 'alert' }));
+}
+
+async function voerUit() {
+  const knop = $('knop-run'); knop.disabled = true; $('uitvoer').textContent = 'Bezig…';
+  try {
+    const d = await api('/api/training/run', { method: 'POST', body: { code: $('editor').value, invoer: $('invoer').value } });
+    $('uitvoer').textContent = (d.output || '(geen uitvoer)') + (d.melding ? '\n\n' + d.melding : '');
+  } catch (e) { $('uitvoer').textContent = e.message; }
+  finally { setTimeout(() => { knop.disabled = false; }, 800); }
+}
+
+async function dienIn() {
+  if (RUN.beantwoord) return;
+  const v = RUN.vraag;
+  let antwoord;
+  if (v.type === 'code') antwoord = $('editor').value;
+  else {
+    antwoord = [...VRAAGSTAND.gekozen].sort((a, b) => a - b);
+    if (!antwoord.length) { $('tc-melding').textContent = 'Kies eerst een antwoord.'; return; }
+  }
+  RUN.beantwoord = true;
+  const knop = $('knop-dien-in'); knop.disabled = true; knop.textContent = v.type === 'code' ? 'Bezig met nakijken…' : 'Bezig…';
+  try {
+    const d = await api(`/api/training/${RUN.id}/answer`, { method: 'POST', body: { questionId: v.id, answer: antwoord } });
+    toonFeedback(d);
+  } catch (e) {
+    RUN.beantwoord = false; knop.disabled = false; knop.textContent = 'Antwoord indienen';
+    $('tc-melding').textContent = e.message;
+  }
+}
+
+function toonFeedback(d) {
+  const v = RUN.vraag; const k = $('v-kaart');
+  // keuzes markeren
+  if (d.juist) {
+    k.querySelectorAll('.tc-keuze').forEach(l => {
+      const i = Number(l.dataset.i); const inp = l.querySelector('input'); inp.disabled = true;
+      const juist = d.juist.includes(i);
+      if (juist) { l.classList.add('juist'); l.append(el('span', { class: 'tag', style: 'color:#166534;', text: 'Juist' })); }
+      else if (inp.checked) { l.classList.add('fout'); l.append(el('span', { class: 'tag', style: 'color:#991b1b;', text: 'Fout' })); }
+    });
+  } else { $('editor').readOnly = true; $('invoer').readOnly = true; $('knop-run').disabled = true; }
+  const kop = d.uitslag === 'goed' ? 'Goed zo!' : d.uitslag === 'deels' ? 'Gedeeltelijk juist' : 'Niet juist';
+  const fb = el('div', { class: 'tc-feedback ' + d.uitslag, role: 'status' }, el('strong', { class: 'kop', text: kop }));
+  if (v.type === 'code') {
+    fb.append(el('div', { text: `${d.details.geslaagd} van ${d.details.totaal} testen geslaagd.` }));
+    const f = d.details.eersteFout;
+    if (f) {
+      fb.append(el('div', { style: 'margin-top:6px;font-size:0.88rem;' },
+        f.invoer && f.invoer.length ? el('div', { text: 'Bij invoer: ' + f.invoer.join(' / ') }) : null,
+        el('div', { text: 'Verwacht: ' + (f.verwacht || '(niets)').replace(/\n/g, ' / ') }),
+        el('div', { text: 'Jouw programma gaf: ' + (f.gekregen || '(niets)').replace(/\n/g, ' / ') })));
+    }
+  } else if (d.uitslag === 'deels') {
+    fb.append(el('div', { text: 'Je had een deel van de juiste antwoorden, maar niet alle (of er stond ook een fout antwoord bij).' }));
+  }
+  if (d.uitleg) fb.append(el('div', { style: 'margin-top:6px;', text: d.uitleg }));
+  if (d.niveauWijziging) {
+    const w = d.niveauWijziging;
+    fb.append(el('div', { style: 'margin-top:6px;font-weight:700;', text: (w.naar > w.van ? 'Niveau omhoog' : 'Iets makkelijker') + ' voor ' + w.topic + ': niveau ' + w.naar }));
+  }
+  k.append(fb);
+  const oud = $('knop-dien-in'); if (oud) oud.parentElement.remove();
+  const volgende = d.volgende;
+  k.append(el('div', { class: 'tc-voet' }, el('span'),
+    el('button', { class: 'btn btn-primary', type: 'button', id: 'knop-volgende', text: d.resultaat ? 'Resultaat bekijken' : 'Volgende vraag',
+      onclick: () => {
+        if (d.resultaat) toonResultaat(d.resultaat);
+        else { RUN.vraag = volgende; toonVraag(); }
+      } })));
+  $('knop-volgende').focus();
+}
+
+// ── resultaat ───────────────────────────────────────────────────────────────
+function stopFsBewaking() { RUN = null; clearInterval(_fsTimer); $('fs-overlay').classList.remove('open'); }
+
+function toonResultaat(r, gestopt) {
+  stopFsBewaking();
+  if (document.fullscreenElement) { try { document.exitFullscreen(); } catch (e) { /* stil */ } }
+  toon('resultaat');
+  const doel = $('scherm-resultaat'); doel.replaceChildren();
+  const rij = el('div', { class: 'tc-res' });
+  if (r.status === 'gestopt' || gestopt) {
+    rij.append(el('h2', { text: 'Training gestopt' }),
+      el('p', { class: 'muted', text: (r.aantal ? `Je beantwoordde ${r.aantal} vragen (${Math.round(r.scorePct)}%). ` : '') + 'Er is geen titel voor een gestopte training.' }));
+  } else {
+    rij.append(el('div', { class: 'muted', style: 'font-weight:700;text-transform:uppercase;letter-spacing:.06em;font-size:0.82rem;', text: 'Training afgerond' }),
+      el('div', { class: 'groot', text: Math.round(r.scorePct) + '%' }),
+      el('div', { class: 'muted', text: `${r.aantalJuist} van ${r.aantal} vragen helemaal juist` }),
+      el('div', { class: 'tc-titelkaart' },
+        el('div', { class: 'muted', style: 'font-size:0.82rem;', text: 'Jouw titel' }),
+        el('div', { class: 'naam', text: r.titel }),
+        el('div', { style: 'font-size:0.9rem;', text: `Titelniveau ${r.titelNiveau} van 10 · bereikt moeilijkheidsniveau ${r.bereiktNiveau}` })));
+  }
+  const tabel = el('table', { class: 'tc-tabel' },
+    el('thead', {}, el('tr', {}, el('th', { text: 'Onderwerp' }), el('th', { text: 'Vragen' }), el('th', { text: 'Score' }), el('th', { text: 'Eindniveau' }))),
+    el('tbody', {}, r.perTopic.map(t => el('tr', {}, el('td', { text: t.naam }), el('td', { text: String(t.n) }),
+      el('td', { text: t.scorePct == null ? '—' : t.scorePct + '%' }), el('td', { text: String(t.niveau) })))));
+  rij.append(tabel,
+    el('div', { style: 'display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap;' },
+      el('button', { class: 'btn btn-primary', type: 'button', text: 'Nieuwe training', onclick: async () => { toon('start'); await laadStart(); openModal(); } }),
+      el('a', { class: 'btn btn-muted', href: '/student-thuis.html', text: 'Terug naar start' })));
+  doel.append(rij);
+}
+
+$('knop-stop').addEventListener('click', async () => {
+  if (!RUN || !confirm('Training stoppen? Je krijgt dan geen titel.')) return;
+  await stopTraining('zelf_gestopt');
+});
+
+async function stopTraining(reden) {
+  const id = RUN && RUN.id;
+  if (!id) return;
+  try {
+    const d = await api(`/api/training/${id}/stop`, { method: 'POST', body: { reason: reden } });
+    toonResultaat(d.resultaat || { status: 'gestopt', aantal: 0, scorePct: 0, perTopic: [] }, true);
+  } catch (e) { toon('start'); await laadStart(); }
+}
+
+// ── volledig scherm bewaken (zoals bij toetsen: 5 seconden respijt) ─────────
+function fsVerlaten() {
+  if (!RUN || !RUN.verplicht || document.fullscreenElement) { if (document.fullscreenElement) herstelFs(); return; }
+  if (_fsTimer) return;
+  let over = RUN.respijt || 5; RUN.respijt = null;
+  $('fs-tel').textContent = over; $('fs-overlay').classList.add('open');
+  _fsTimer = setInterval(() => {
+    over -= 1; $('fs-tel').textContent = Math.max(0, over);
+    if (over <= 0) { clearInterval(_fsTimer); _fsTimer = null; $('fs-overlay').classList.remove('open'); stopTraining('fullscreen_verlaten'); }
+  }, 1000);
+}
+function herstelFs() { clearInterval(_fsTimer); _fsTimer = null; $('fs-overlay').classList.remove('open'); }
+document.addEventListener('fullscreenchange', fsVerlaten);
+$('fs-terug').addEventListener('click', () => { vraagVolledigScherm(); });
+
+// ── start: openstaande training hervatten ───────────────────────────────────
+(async function init() {
+  try {
+    await laadStart();
+    if (OVERZICHT.actief) {
+      const d = await api(`/api/training/${OVERZICHT.actief}/state`);
+      if (d.status === 'bezig' && d.vraag) {
+        RUN = { id: OVERZICHT.actief, aantal: d.aantal, verplicht: !!d.fullscreenVerplicht, vraag: d.vraag, beantwoord: false, respijt: 15 };
+        toonVraag();
+        if (RUN.verplicht && !document.fullscreenElement) fsVerlaten();
+      }
+    }
+  } catch (e) {
+    if (e.message !== 'niet ingelogd') $('laatste').textContent = e.message;
+  }
+})();
+</script>
+</body></html>

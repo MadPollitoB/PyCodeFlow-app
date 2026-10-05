@@ -14,6 +14,8 @@ let _dbReady = false;
 dbModule.init().then(async () => {
   _dbReady = true;
   log.info('[db] PostgreSQL schema OK');
+  // Sprint 97: onderwerpen + startpool van het Trainingscenter (enkel bij een lege pool)
+  try { await trainingRoutes.zaai(); } catch (e) { log.error('[training] zaaien mislukt:', e.message); }
   // 27m: bootstrap admin — als teachers-tabel leeg is én .env credentials beschikbaar zijn,
   // maak automatisch een admin-account aan zodat inloggen altijd mogelijk is.
   // Sprint 50f: dit is nu de ENIGE rol van POC_BASIC_* — het zaaien van de eerste
@@ -906,8 +908,11 @@ app.use((req, res, next) => {
 const LOGO_MAX_KB = Math.max(16, Math.min(4096, parseInt(process.env.SCHOOL_LOGO_MAX_KB || '512', 10) || 512));
 const LOGO_UPLOAD_PAD = /^\/api\/admin\/schools\/[^/]+\/logo$/;
 const globaleJson = express.json({ limit: '64kb' });
+// Sprint 97: een JSON-import van trainingsvragen (tot 1000 vragen) past niet in 64 kB.
+const trainingImportJson = express.json({ limit: '2mb' });
 app.use((req, res, next) => {
   if (LOGO_UPLOAD_PAD.test(req.path)) return next();   // eigen parser op de route zelf
+  if (req.path === '/api/teacher/training/import') return trainingImportJson(req, res, next);
   return globaleJson(req, res, next);
 });
 // base64 is ~33% groter dan de ruwe bytes; +40% marge voor de JSON-omhulling.
@@ -1117,6 +1122,16 @@ app.get('/student-register.html', (req, res) => res.sendFile(path.join(__dirname
 app.get('/student-login.html',    (req, res) => res.sendFile(path.join(__dirname, 'public', 'student-login.html')));
 app.get('/student-recover.html',  (req, res) => res.sendFile(path.join(__dirname, 'public', 'student-recover.html')));
 app.get('/student-thuis.html',    (req, res) => res.sendFile(path.join(__dirname, 'public', 'student-thuis.html')));
+// Sprint 97: Trainingscenter (leerling: enkel na inloggen — de pagina zelf stuurt zonder sessie door)
+app.get('/training.html',         (req, res) => res.sendFile(path.join(__dirname, 'public', 'training.html')));
+app.get('/training-overzicht.html', requireTeacherAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'training-overzicht.html'));
+});
+const trainingRoutes = require('./lib/training-routes').registerTrainingRoutes(app, {
+  dbModule, requireStudentAuth, requireTeacherAuth, requireCsrf, log,
+  isSuperAdmin: authLib.isSuperAdmin, magKlasZien: magKlasResultatenZien,
+  runnerStart, runnerEvents, runnerInput, runnerCancel,
+});
 
 // 52c — Zelfregistratie: klascode (actief) + voornaam + achternaam + school-e-mail
 // (domeincheck) + wachtwoord (2×) → account met status 'pending', gekoppeld aan de klas.

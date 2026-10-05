@@ -1672,6 +1672,12 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       { id: 'niet_voldoende', tekst: 'Ik heb niet (voldoende) geleerd.' },
       { id: 'verkeerde_leerstof', tekst: 'Ik heb de verkeerde leerstof geleerd.' },
       { id: 'vergeten', tekst: 'Ik was vergeten dat er een toets was.' },
+      { id: 'gestrest', tekst: 'Ik was gestresseerd/nerveus tijdens de toets.' },
+      { id: 'te_weinig_tijd', tekst: 'Ik had te weinig tijd om alles af te werken.' },
+      { id: 'niet_goed_gevoeld', tekst: 'Ik voelde me niet goed (ziek, moe, ...).' },
+      { id: 'vraagstelling_onduidelijk', tekst: 'Ik begreep bepaalde vragen niet goed.' },
+      { id: 'afgeleid', tekst: 'Ik liet me afleiden tijdens het leren of tijdens de toets.' },
+      { id: 'geen_aandachtspunten', tekst: 'Ik had geen aandachtspunten — het verliep goed.' },
     ] },
   ];
 

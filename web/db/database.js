@@ -970,6 +970,81 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_quiz_individual_access_session
       ON quiz_individual_access(session_code);
 
+    -- ── Sprint 97: Trainingscenter ───────────────────────────────────────────
+    -- Eén algemene vragenpool (owner_teacher_id IS NULL, zichtbaar voor iedereen) plus
+    -- eigen vragen van een leerkracht (enkel zichtbaar voor leerlingen in zijn klassen).
+    -- Geen koppeling met toetsen/taken: een training telt nooit mee voor punten.
+    CREATE TABLE IF NOT EXISTS training_settings (
+      key        TEXT PRIMARY KEY,
+      value      TEXT NOT NULL,
+      updated_at BIGINT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS training_topics (
+      id         TEXT PRIMARY KEY,
+      name       TEXT NOT NULL,
+      max_level  INTEGER NOT NULL DEFAULT 10,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      active     BOOLEAN NOT NULL DEFAULT true
+    );
+    CREATE TABLE IF NOT EXISTS training_questions (
+      id               SERIAL PRIMARY KEY,
+      topic_id         TEXT NOT NULL REFERENCES training_topics(id) ON DELETE CASCADE,
+      level            INTEGER NOT NULL,
+      type             TEXT NOT NULL,                 -- single | multiple | code
+      text             TEXT NOT NULL,
+      code             TEXT NOT NULL DEFAULT '',
+      choices_json     TEXT NOT NULL DEFAULT '[]',
+      correct_json     TEXT NOT NULL DEFAULT '[]',   -- NOOIT naar de leerling sturen
+      starter          TEXT NOT NULL DEFAULT '',
+      tests_json       TEXT NOT NULL DEFAULT '[]',   -- NOOIT naar de leerling sturen
+      explanation      TEXT NOT NULL DEFAULT '',
+      owner_teacher_id TEXT,                          -- NULL = algemene pool
+      text_hash        TEXT NOT NULL,
+      active           BOOLEAN NOT NULL DEFAULT true,
+      created_at       BIGINT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_training_q_hash
+      ON training_questions(text_hash, (COALESCE(owner_teacher_id, '')));
+    CREATE INDEX IF NOT EXISTS idx_training_q_topic ON training_questions(topic_id, level);
+    CREATE TABLE IF NOT EXISTS training_runs (
+      id                  SERIAL PRIMARY KEY,
+      student_id          TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      student_name        TEXT NOT NULL DEFAULT '',
+      started_at          BIGINT NOT NULL,
+      finished_at         BIGINT,
+      status              TEXT NOT NULL DEFAULT 'bezig',   -- bezig | klaar | gestopt
+      question_count      INTEGER NOT NULL,
+      topics_json         TEXT NOT NULL,
+      fullscreen_verplicht BOOLEAN NOT NULL DEFAULT false,
+      score_pct           NUMERIC,
+      final_level         INTEGER,
+      title               TEXT,
+      title_level         INTEGER,
+      stop_reason         TEXT,
+      state_json          TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_training_runs_student ON training_runs(student_id, started_at);
+    CREATE TABLE IF NOT EXISTS training_run_answers (
+      id          SERIAL PRIMARY KEY,
+      run_id      INTEGER NOT NULL REFERENCES training_runs(id) ON DELETE CASCADE,
+      seq         INTEGER NOT NULL,
+      question_id INTEGER,
+      topic_id    TEXT NOT NULL,
+      level       INTEGER NOT NULL,
+      answer_json TEXT NOT NULL DEFAULT 'null',
+      score       NUMERIC NOT NULL DEFAULT 0,
+      details_json TEXT NOT NULL DEFAULT '{}',
+      answered_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_training_answers_run ON training_run_answers(run_id, seq);
+    CREATE TABLE IF NOT EXISTS training_student_levels (
+      student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      topic_id   TEXT NOT NULL,
+      level      INTEGER NOT NULL,
+      updated_at BIGINT NOT NULL,
+      PRIMARY KEY (student_id, topic_id)
+    );
+
     CREATE TABLE IF NOT EXISTS quiz_general_comments (
       session_code TEXT NOT NULL,
       student_id   TEXT NOT NULL,
@@ -2134,6 +2209,264 @@ module.exports = {
     const r = await query(
       `SELECT 1 FROM teacher_classes WHERE class_id = $1 LIMIT 1`, [classId]
     );
+    return r.rows.length > 0;
+  },
+
+  // ── Sprint 97: Trainingscenter ──────────────────────────────────────────────
+  // Zichtbaarheid voor een leerling: algemene pool + eigen vragen van leerkrachten van
+  // zijn actieve klassen.
+  _trainingZichtbaarSql(p) {
+    return `(q.owner_teacher_id IS NULL OR q.owner_teacher_id IN (
+              SELECT tc.teacher_id FROM class_memberships m
+                JOIN teacher_classes tc ON tc.class_id = m.class_id
+               WHERE m.student_id = $${p} AND m.status = 'active'))`;
+  },
+
+  async getTrainingConfig() {
+    const r = await query(`SELECT value FROM training_settings WHERE key = 'config'`);
+    if (!r.rows[0]) return null;
+    try { return JSON.parse(r.rows[0].value); } catch { return null; }
+  },
+  async setTrainingConfig(obj) {
+    await query(
+      `INSERT INTO training_settings (key, value, updated_at) VALUES ('config', $1, $2)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
+      [JSON.stringify(obj), Date.now()]);
+  },
+
+  async seedTrainingTopics(topics) {
+    for (const t of topics) {
+      await query(
+        `INSERT INTO training_topics (id, name, max_level, sort_order) VALUES ($1,$2,$3,$4)
+         ON CONFLICT (id) DO NOTHING`,
+        [t.id, t.name, t.maxLevel || 10, t.sort || 0]);
+    }
+  },
+  async listTrainingTopics() {
+    const r = await query(
+      `SELECT id, name, max_level, sort_order FROM training_topics WHERE active ORDER BY sort_order, name`);
+    return r.rows;
+  },
+  async countTrainingQuestions() {
+    const r = await query(`SELECT COUNT(*)::int AS n FROM training_questions`);
+    return r.rows[0].n;
+  },
+
+  // Voegt vragen toe; dubbels (zelfde hash, zelfde eigenaar) worden overgeslagen.
+  async insertTrainingQuestions(vragen, ownerTeacherId, hashFn) {
+    let toegevoegd = 0; let dubbel = 0;
+    for (const v of vragen) {
+      const r = await query(
+        `INSERT INTO training_questions
+           (topic_id, level, type, text, code, choices_json, correct_json, starter, tests_json,
+            explanation, owner_teacher_id, text_hash, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         ON CONFLICT DO NOTHING RETURNING id`,
+        [v.topic, v.level, v.type, v.text, v.code || '', JSON.stringify(v.choices || []),
+         JSON.stringify(v.correct || []), v.starter || '', JSON.stringify(v.tests || []),
+         v.explanation || '', ownerTeacherId || null, hashFn(v), Date.now()]);
+      if (r.rows.length) toegevoegd++; else dubbel++;
+    }
+    return { toegevoegd, dubbel };
+  },
+
+  // Onderwerpen met het aantal voor deze leerling zichtbare vragen + opgeslagen niveau.
+  async listTrainingTopicsForStudent(studentId) {
+    const r = await query(
+      `SELECT t.id, t.name, t.max_level, COUNT(q.id)::int AS aantal,
+              l.level AS opgeslagen_niveau
+         FROM training_topics t
+         LEFT JOIN training_questions q ON q.topic_id = t.id AND q.active
+              AND ${this._trainingZichtbaarSql(1)}
+         LEFT JOIN training_student_levels l ON l.topic_id = t.id AND l.student_id = $1
+        WHERE t.active
+        GROUP BY t.id, t.name, t.max_level, t.sort_order, l.level
+        ORDER BY t.sort_order, t.name`,
+      [studentId]);
+    return r.rows;
+  },
+  async getTrainingCandidates(studentId, topics) {
+    const r = await query(
+      `SELECT q.id, q.topic_id AS topic, q.level FROM training_questions q
+        WHERE q.active AND q.topic_id = ANY($2) AND ${this._trainingZichtbaarSql(1)}`,
+      [studentId, topics]);
+    return r.rows;
+  },
+  async getTrainingQuestion(id) {
+    const r = await query(`SELECT * FROM training_questions WHERE id = $1`, [id]);
+    const q = r.rows[0];
+    if (!q) return null;
+    const j = (s, d) => { try { return JSON.parse(s); } catch { return d; } };
+    return {
+      id: q.id, topic: q.topic_id, level: q.level, type: q.type, text: q.text, code: q.code,
+      choices: j(q.choices_json, []), correct: j(q.correct_json, []), starter: q.starter,
+      tests: j(q.tests_json, []), explanation: q.explanation, owner: q.owner_teacher_id,
+    };
+  },
+  // question_id → tijdstip waarop deze leerling de vraag het laatst kreeg
+  async getTrainingSeen(studentId) {
+    const r = await query(
+      `SELECT a.question_id, MAX(a.answered_at) AS t
+         FROM training_run_answers a JOIN training_runs r ON r.id = a.run_id
+        WHERE r.student_id = $1 AND a.question_id IS NOT NULL GROUP BY a.question_id`,
+      [studentId]);
+    const m = {};
+    for (const x of r.rows) m[x.question_id] = Number(x.t);
+    return m;
+  },
+
+  async createTrainingRun({ studentId, studentName, aantal, topics, fullscreenVerplicht, state }) {
+    const r = await query(
+      `INSERT INTO training_runs (student_id, student_name, started_at, question_count, topics_json,
+                                  fullscreen_verplicht, state_json)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [studentId, studentName || '', Date.now(), aantal, JSON.stringify(topics),
+       !!fullscreenVerplicht, JSON.stringify(state)]);
+    return r.rows[0].id;
+  },
+  async getTrainingRun(id) {
+    const r = await query(`SELECT * FROM training_runs WHERE id = $1`, [id]);
+    const x = r.rows[0];
+    if (!x) return null;
+    const j = (s, d) => { try { return JSON.parse(s); } catch { return d; } };
+    return { ...x, started_at: Number(x.started_at), finished_at: x.finished_at == null ? null : Number(x.finished_at),
+      topics: j(x.topics_json, []), state: j(x.state_json, {}),
+      score_pct: x.score_pct == null ? null : Number(x.score_pct) };
+  },
+  async getActiveTrainingRun(studentId) {
+    const r = await query(
+      `SELECT id FROM training_runs WHERE student_id = $1 AND status = 'bezig'
+        ORDER BY started_at DESC LIMIT 1`, [studentId]);
+    return r.rows[0] ? r.rows[0].id : null;
+  },
+  async saveTrainingRunState(id, state) {
+    await query(`UPDATE training_runs SET state_json = $2 WHERE id = $1`, [id, JSON.stringify(state)]);
+  },
+  async addTrainingAnswer({ runId, seq, questionId, topic, level, answer, score, details }) {
+    await query(
+      `INSERT INTO training_run_answers (run_id, seq, question_id, topic_id, level, answer_json,
+                                         score, details_json, answered_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [runId, seq, questionId, topic, level, JSON.stringify(answer == null ? null : answer),
+       score, JSON.stringify(details || {}), Date.now()]);
+  },
+  async getTrainingRunAnswers(runId) {
+    const r = await query(
+      `SELECT a.seq, a.question_id, a.topic_id, a.level, a.answer_json, a.score, a.details_json,
+              a.answered_at, q.text, q.type
+         FROM training_run_answers a LEFT JOIN training_questions q ON q.id = a.question_id
+        WHERE a.run_id = $1 ORDER BY a.seq`, [runId]);
+    const j = (s, d) => { try { return JSON.parse(s); } catch { return d; } };
+    return r.rows.map(x => ({ seq: x.seq, questionId: x.question_id, topic: x.topic_id, level: x.level,
+      answer: j(x.answer_json, null), score: Number(x.score), details: j(x.details_json, {}),
+      answeredAt: Number(x.answered_at), text: x.text || '', type: x.type || '' }));
+  },
+  async finishTrainingRun(id, { status, scorePct, finalLevel, title, titleLevel, stopReason }) {
+    await query(
+      `UPDATE training_runs SET status = $2, finished_at = $3, score_pct = $4, final_level = $5,
+              title = $6, title_level = $7, stop_reason = $8
+        WHERE id = $1 AND status = 'bezig'`,
+      [id, status, Date.now(), scorePct, finalLevel, title || null, titleLevel || null, stopReason || null]);
+  },
+  async setStudentTrainingLevels(studentId, levels) {
+    for (const [topic, level] of Object.entries(levels)) {
+      await query(
+        `INSERT INTO training_student_levels (student_id, topic_id, level, updated_at)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (student_id, topic_id) DO UPDATE SET level = EXCLUDED.level, updated_at = EXCLUDED.updated_at`,
+        [studentId, topic, level, Date.now()]);
+    }
+  },
+  async listTrainingRunsForStudent(studentId, limit = 20) {
+    const r = await query(
+      `SELECT id, started_at, finished_at, status, question_count, topics_json, score_pct,
+              final_level, title, title_level, stop_reason
+         FROM training_runs WHERE student_id = $1 AND status <> 'bezig'
+        ORDER BY started_at DESC LIMIT $2`, [studentId, limit]);
+    const j = (s, d) => { try { return JSON.parse(s); } catch { return d; } };
+    return r.rows.map(x => ({ id: x.id, startedAt: Number(x.started_at), status: x.status,
+      aantal: x.question_count, topics: j(x.topics_json, []),
+      scorePct: x.score_pct == null ? null : Number(x.score_pct),
+      finalLevel: x.final_level, title: x.title, titleLevel: x.title_level, stopReason: x.stop_reason }));
+  },
+
+  // Overzicht voor de leerkracht: alle actieve leerlingen van een klas + hun trainingen.
+  async getTrainingOverviewForClass(classId, sinceMs = 0) {
+    const r = await query(
+      `SELECT s.id, s.name,
+              COUNT(r.id) FILTER (WHERE r.status = 'klaar')::int AS klaar,
+              COUNT(r.id) FILTER (WHERE r.status = 'gestopt')::int AS gestopt,
+              MAX(r.started_at) AS laatste,
+              AVG(r.score_pct) FILTER (WHERE r.status = 'klaar') AS gem_score,
+              MAX(r.title_level) FILTER (WHERE r.status = 'klaar') AS beste_titel_niveau,
+              MAX(r.final_level) FILTER (WHERE r.status = 'klaar') AS hoogste_niveau
+         FROM class_memberships m
+         JOIN students s ON s.id = m.student_id
+         LEFT JOIN training_runs r ON r.student_id = s.id AND r.started_at >= $2
+        WHERE m.class_id = $1 AND m.status = 'active'
+        GROUP BY s.id, s.name
+        ORDER BY s.name`, [classId, sinceMs]);
+    return r.rows.map(x => ({ id: x.id, name: x.name, klaar: x.klaar, gestopt: x.gestopt,
+      laatste: x.laatste == null ? null : Number(x.laatste),
+      gemScore: x.gem_score == null ? null : Math.round(Number(x.gem_score)),
+      besteTitelNiveau: x.beste_titel_niveau, hoogsteNiveau: x.hoogste_niveau }));
+  },
+  async getTrainingTopicsOfStudents(studentIds, sinceMs = 0) {
+    if (!studentIds.length) return [];
+    const r = await query(
+      `SELECT r.student_id, r.topics_json FROM training_runs r
+        WHERE r.student_id = ANY($1) AND r.status = 'klaar' AND r.started_at >= $2`, [studentIds, sinceMs]);
+    return r.rows;
+  },
+  // Welke titels hebben de leerlingen van een klas (beste per leerling)?
+  async getTrainingZwakstePerTopic(classId, sinceMs = 0) {
+    const r = await query(
+      `SELECT a.topic_id, AVG(a.score) AS gem, COUNT(*)::int AS n
+         FROM training_run_answers a
+         JOIN training_runs r ON r.id = a.run_id
+         JOIN class_memberships m ON m.student_id = r.student_id AND m.class_id = $1 AND m.status = 'active'
+        WHERE r.started_at >= $2
+        GROUP BY a.topic_id`, [classId, sinceMs]);
+    return r.rows.map(x => ({ topic: x.topic_id, gem: Math.round(Number(x.gem) * 100), n: x.n }));
+  },
+  async isStudentInClass(studentId, classId) {
+    const r = await query(
+      `SELECT 1 FROM class_memberships WHERE student_id = $1 AND class_id = $2 AND status = 'active' LIMIT 1`,
+      [studentId, classId]);
+    return r.rows.length > 0;
+  },
+
+  // Pool-beheer
+  async getActiveClassIdsOfStudent(studentId) {
+    const r = await query(`SELECT class_id FROM class_memberships WHERE student_id = $1 AND status = 'active'`, [studentId]);
+    return r.rows.map(x => x.class_id);
+  },
+  async getTrainingPoolCounts(teacherId) {
+    const r = await query(
+      `SELECT q.topic_id AS topic, q.level, (q.owner_teacher_id IS NULL) AS algemeen, COUNT(*)::int AS n
+         FROM training_questions q
+        WHERE q.active AND (q.owner_teacher_id IS NULL OR q.owner_teacher_id = $1)
+        GROUP BY q.topic_id, q.level, (q.owner_teacher_id IS NULL)`,
+      [teacherId || '']);
+    return r.rows;
+  },
+  async listTrainingQuestions({ teacherId, topic, level, limit = 200 }) {
+    const r = await query(
+      `SELECT q.id, q.topic_id, q.level, q.type, q.text, q.owner_teacher_id
+         FROM training_questions q
+        WHERE q.active AND ($2::text IS NULL OR q.topic_id = $2) AND ($3::int IS NULL OR q.level = $3)
+          AND (q.owner_teacher_id IS NULL OR q.owner_teacher_id = $1)
+        ORDER BY q.topic_id, q.level, q.id LIMIT $4`,
+      [teacherId || '', topic || null, level || null, limit]);
+    return r.rows.map(x => ({ id: x.id, topic: x.topic_id, level: x.level, type: x.type,
+      text: x.text, algemeen: x.owner_teacher_id == null, eigen: x.owner_teacher_id === teacherId }));
+  },
+  async deactivateTrainingQuestion(id, teacherId, magAlgemeen) {
+    const r = await query(
+      `UPDATE training_questions SET active = false
+        WHERE id = $1 AND active AND (owner_teacher_id = $2 OR ($3 AND owner_teacher_id IS NULL))
+        RETURNING id`,
+      [id, teacherId || '', !!magAlgemeen]);
     return r.rows.length > 0;
   },
 

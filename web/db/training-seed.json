@@ -1,0 +1,3209 @@
+[
+ {
+  "topic": "stroomdiagrammen",
+  "level": 1,
+  "type": "single",
+  "text": "Wat is een algoritme?",
+  "choices": [
+   "Een eindige, geordende lijst van duidelijke stappen om een doel te bereiken",
+   "Een programmeertaal waarmee je de computer bestuurt",
+   "Een tekening met vormen en pijlen van een programma",
+   "Een foutmelding die Python toont"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "Een algoritme is een eindige, geordende lijst van duidelijke stappen, zoals een recept. De tekening ervan heet een stroomdiagram."
+ },
+ {
+  "topic": "stroomdiagrammen",
+  "level": 1,
+  "type": "single",
+  "text": "Hoe heet de stap in een stroomdiagram waarin je een ja/nee-vraag stelt die de weg splitst?",
+  "choices": [
+   "Proces",
+   "Beslissing",
+   "Terminator",
+   "Invoer/uitvoer"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "Een beslissing is een ja/nee-vraag die de weg in twee splitst. Je volgt daarna maar een van de twee paden."
+ },
+ {
+  "topic": "stroomdiagrammen",
+  "level": 1,
+  "type": "multiple",
+  "text": "Welke uitspraken over stroomdiagrammen kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "Een stroomdiagram is een tekening van een algoritme",
+   "Pijlen geven de richting aan waarin je de stappen volgt",
+   "Elke vorm in een stroomdiagram heeft een vaste betekenis",
+   "Een stroomdiagram is een programmeertaal",
+   "De kleuren van de vormen zijn een officiele internationale norm"
+  ],
+  "correct": [
+   0,
+   1,
+   2
+  ],
+  "explanation": "Een stroomdiagram tekent een algoritme met vaste vormen en pijlen. De kleuren zijn enkel een klasafspraak, geen norm."
+ },
+ {
+  "topic": "stroomdiagrammen",
+  "level": 2,
+  "type": "single",
+  "text": "Je wilt in een stroomdiagram de stap \"Vraag de naam van de gebruiker\" tekenen. Welke vorm gebruik je?",
+  "choices": [
+   "Proces",
+   "Beslissing",
+   "Invoer/uitvoer",
+   "Terminator"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "Iets vragen of iets tonen is een invoer/uitvoer-stap."
+ },
+ {
+  "topic": "stroomdiagrammen",
+  "level": 2,
+  "type": "single",
+  "text": "Volgens onze klasafspraak: welke kleur heeft de vorm voor een proces (een gewone stap)?",
+  "choices": [
+   "Zacht blauw",
+   "Zacht paars",
+   "Zacht groen",
+   "Zacht geel"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "In de klas: terminator = blauw, proces = geel, invoer/uitvoer = paars, beslissing = groen."
+ },
+ {
+  "topic": "stroomdiagrammen",
+  "level": 2,
+  "type": "multiple",
+  "text": "Welke van deze stappen zijn processen (gewone stappen of bewerkingen)? Kies alle juiste antwoorden.",
+  "choices": [
+   "Tel 5 bij de score op",
+   "Smeer boter op het brood",
+   "Is de score hoger dan 10?",
+   "Einde",
+   "Toon: Welkom!"
+  ],
+  "correct": [
+   0,
+   1
+  ],
+  "explanation": "Een proces is een gewone bewerking. Een vraag is een beslissing, iets tonen is uitvoer en Einde is een terminator."
+ },
+ {
+  "topic": "stroomdiagrammen",
+  "level": 3,
+  "type": "single",
+  "text": "Wat wordt getoond wanneer je dit stroomdiagram volgt?",
+  "code": "Start\n  |\n  v\nGetal = 5\n  |\n  v\nGetal = Getal + 2\n  |\n  v\nToon Getal\n  |\n  v\nEinde",
+  "choices": [
+   "7",
+   "5",
+   "2",
+   "Niets"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "Getal wordt eerst 5, dan 5 + 2 = 7, en dat wordt getoond."
+ },
+ {
+  "topic": "stroomdiagrammen",
+  "level": 3,
+  "type": "single",
+  "text": "Welke tekst wordt getoond als de gebruiker 16 invoert?",
+  "code": "Start\n  |\n  v\nVraag leeftijd\n  |\n  v\nLeeftijd >= 18 ?\n  |-- ja  --> Toon: Volwassen --> Einde\n  |-- nee --> Toon: Jong      --> Einde",
+  "choices": [
+   "Volwassen",
+   "Jong",
+   "Volwassen en Jong",
+   "Niets"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "16 >= 18 is onwaar, dus je volgt het pad nee en toont Jong."
+ },
+ {
+  "topic": "stroomdiagrammen",
+  "level": 3,
+  "type": "multiple",
+  "text": "Welke uitspraken over dit stroomdiagram kloppen? Kies alle juiste antwoorden.",
+  "code": "Start\n  |\n  v\nteller = 0\n  |\n  v\n+--> teller < 3 ? --nee--> Einde\n|        |\n|       ja\n|        v\n|    Toon teller\n|        |\n|        v\n|    teller = teller + 1\n|        |\n+--------+",
+  "choices": [
+   "De waarde 3 wordt getoond",
+   "De lus stopt nooit",
+   "De pijl die terugkeert naar de beslissing vormt een lus",
+   "De getoonde waarden zijn 0, 1 en 2",
+   "De beslissing wordt 4 keer gecontroleerd"
+  ],
+  "correct": [
+   2,
+   3,
+   4
+  ],
+  "explanation": "Bij teller 0, 1 en 2 wordt getoond. Bij teller 3 is de voorwaarde onwaar (4e controle) en ga je naar Einde."
+ },
+ {
+  "topic": "stroomdiagrammen",
+  "level": 4,
+  "type": "single",
+  "text": "Een algoritme vraagt een getal, controleert of het groter is dan 10 en toont een melding. Welke reeks vormen hoort daarbij?",
+  "choices": [
+   "Proces (vragen), proces (controle), proces (tonen)",
+   "Beslissing (vragen), invoer/uitvoer (controle), proces (tonen)",
+   "Invoer/uitvoer (vragen), beslissing (controle), invoer/uitvoer (tonen)",
+   "Terminator (vragen), beslissing (controle), terminator (tonen)"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "Vragen en tonen zijn invoer/uitvoer, de controle is een ja/nee-vraag en dus een beslissing."
+ },
+ {
+  "topic": "stroomdiagrammen",
+  "level": 4,
+  "type": "single",
+  "text": "In het diagram staan de stappen \"Vraag de naam\" en \"Is de naam leeg?\". Welke kleuren (klasafspraak) horen bij die twee vormen, in die volgorde?",
+  "choices": [
+   "Geel en groen",
+   "Paars en geel",
+   "Blauw en paars",
+   "Paars en groen"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "Vragen is invoer/uitvoer (paars), een ja/nee-vraag is een beslissing (groen)."
+ },
+ {
+  "topic": "stroomdiagrammen",
+  "level": 4,
+  "type": "multiple",
+  "text": "Een goed stroomdiagram is bijna kant-en-klare code. Welke koppelingen kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "Terminators worden het begin en het einde van je programma",
+   "Processen worden opdrachten",
+   "Een beslissing wordt een gewone opdracht zonder voorwaarde",
+   "Een proces wordt een if-vraag",
+   "Beslissingen worden if-vragen"
+  ],
+  "correct": [
+   0,
+   1,
+   4
+  ],
+  "explanation": "Terminator = begin/einde, proces = opdracht, beslissing = if-vraag."
+ },
+ {
+  "topic": "stroomdiagrammen",
+  "level": 5,
+  "type": "single",
+  "text": "In dit diagram zit een fout. Wat is er mis?",
+  "code": "Start\n  |\n  v\nVraag leeftijd\n  |\n  v\nLeeftijd >= 18 ?\n  |-- ja --> Toon: Welkom --> Einde\n  |-- nee --> ???",
+  "choices": [
+   "De beslissing heeft geen nee-pad, dus het diagram zegt niet wat er bij nee gebeurt",
+   "Er staat te veel invoer/uitvoer in",
+   "Het diagram heeft geen proces",
+   "De terminator Einde mag niet na een beslissing"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "Elke beslissing splitst de weg in twee. Beide uitgangen (ja en nee) moeten getekend zijn."
+ },
+ {
+  "topic": "stroomdiagrammen",
+  "level": 5,
+  "type": "single",
+  "text": "Je wilt tekenen: \"blijf water bijgieten zolang de emmer niet vol is\". Welke opbouw klopt?",
+  "choices": [
+   "Giet bij, daarna meteen naar Einde, zonder beslissing",
+   "Beslissing \"Emmer vol?\": bij nee giet je bij en de pijl keert terug naar de beslissing, bij ja ga je naar Einde",
+   "Beslissing \"Emmer vol?\": bij ja giet je bij en ga je naar Einde",
+   "Giet bij, beslissing \"Emmer vol?\" met zowel ja als nee naar Einde"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "Een herhaling teken je met een pijl die terugkeert naar boven, hier naar de beslissing. Dat is een lus."
+ },
+ {
+  "topic": "stroomdiagrammen",
+  "level": 5,
+  "type": "multiple",
+  "text": "Een leerling schrijft dit algoritme voor een boterham op: 1) Leg beleg op een snede 2) Smeer boter op de sneden 3) Neem twee sneden brood 4) Leg de andere snede erbovenop. Welke opmerkingen kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "De volgorde is fout: eerst moet je de sneden brood nemen",
+   "Stap 4 moet de eerste stap zijn",
+   "De volgorde maakt niet uit zolang alle stappen er staan",
+   "De boter moet gesmeerd zijn voor je beleg legt",
+   "Er ontbreekt een beslissing"
+  ],
+  "correct": [
+   0,
+   3
+  ],
+  "explanation": "Een algoritme is geordend: de computer (of de boterham) doet exact wat er staat, in die volgorde."
+ },
+ {
+  "topic": "stroomdiagrammen",
+  "level": 6,
+  "type": "single",
+  "text": "Een leerling kleurt een proces rood in plaats van geel en zegt dat het diagram nu fout is. Wat klopt?",
+  "choices": [
+   "Fout: de kleuren zijn een officiele norm",
+   "Fout: een proces mag enkel blauw zijn",
+   "Niet fout: de kleuren zijn een klasafspraak, de vorm bepaalt de betekenis",
+   "Fout: dan wordt het een beslissing"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "De vormen zijn de echte standaard. De kleuren zijn een afspraak in de klas om het duidelijker te maken."
+ },
+ {
+  "topic": "stroomdiagrammen",
+  "level": 6,
+  "type": "single",
+  "text": "Wat gebeurt er als je dit diagram volgt?",
+  "code": "Start\n  |\n  v\nteller = 0\n  |\n  v\n+--> teller < 5 ? --nee--> Einde\n|        |\n|       ja\n|        v\n|    Toon teller\n|        |\n+--------+",
+  "choices": [
+   "Er wordt 0, 1, 2, 3 en 4 getoond",
+   "Er wordt 5 keer 0 getoond",
+   "Er wordt niets getoond",
+   "Er wordt eindeloos 0 getoond (een oneindige lus)"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "teller verandert nooit, dus teller < 5 blijft altijd waar. De lus stopt nooit."
+ },
+ {
+  "topic": "stroomdiagrammen",
+  "level": 6,
+  "type": "multiple",
+  "text": "Welke uitspraken over een beslissing in een stroomdiagram kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "Bij een doorloop wordt maar een van de uitgaande paden gevolgd",
+   "Een beslissing kan nooit in een lus voorkomen",
+   "Beide paden worden na elkaar doorlopen",
+   "De uitgaande pijlen krijgen een label zoals ja en nee",
+   "Een beslissing mag niet gevolgd worden door een terminator"
+  ],
+  "correct": [
+   0,
+   3
+  ],
+  "explanation": "Een beslissing kiest een pad. Ze kan wel de voorwaarde van een lus zijn, zoals bij teller < 3."
+ },
+ {
+  "topic": "print-input",
+  "level": 1,
+  "type": "single",
+  "text": "Wat doet print()?",
+  "choices": [
+   "Het toont iets op het scherm",
+   "Het vraagt iets aan de gebruiker",
+   "Het slaat een waarde op in een variabele",
+   "Het schrijft commentaar"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "print() toont tekst of waarden op het scherm. Iets vragen doe je met input()."
+ },
+ {
+  "topic": "print-input",
+  "level": 1,
+  "type": "single",
+  "text": "Hoe heet tekst tussen aanhalingstekens in Python?",
+  "choices": [
+   "Een variabele",
+   "Een string",
+   "Een commentaar",
+   "Een getal"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "Tekst tussen aanhalingstekens heet een string."
+ },
+ {
+  "topic": "print-input",
+  "level": 1,
+  "type": "multiple",
+  "text": "Welke uitspraken over print() en input() kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "Alles achter een # wordt extra getoond",
+   "Tekst in print() zet je tussen aanhalingstekens",
+   "input() geeft een getal terug als de gebruiker een getal typt",
+   "print() toont iets op het scherm",
+   "input() geeft het antwoord van de gebruiker terug als tekst"
+  ],
+  "correct": [
+   1,
+   3,
+   4
+  ],
+  "explanation": "input() geeft altijd tekst terug. Alles achter # is commentaar en wordt genegeerd."
+ },
+ {
+  "topic": "print-input",
+  "level": 2,
+  "type": "single",
+  "text": "Welke regel toont de tekst Hallo?",
+  "choices": [
+   "print(Hallo)",
+   "print(\"Hallo')",
+   "print(\"Hallo\")",
+   "print \"Hallo\""
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "Tekst zet je tussen haakjes en tussen aanhalingstekens van hetzelfde soort."
+ },
+ {
+  "topic": "print-input",
+  "level": 2,
+  "type": "single",
+  "text": "Welke regel zet de variabele naam in de zin met een f-string?",
+  "choices": [
+   "print(\"Hallo {naam}\")",
+   "print(f\"Hallo naam\")",
+   "print(f\"Hallo\" {naam})",
+   "print(f\"Hallo {naam}\")"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "Een f-string heeft een f vlak voor de aanhalingstekens en de variabele tussen { }."
+ },
+ {
+  "topic": "print-input",
+  "level": 2,
+  "type": "code",
+  "text": "Schrijf een programma dat een naam vraagt en daarna Hallo, gevolgd door de naam en een uitroepteken afdrukt. Bij Ada is de uitvoer: Hallo, Ada! Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Je bewaart de invoer in een variabele en toont die met een f-string.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "Ada"
+    ],
+    "output": "Hallo, Ada!"
+   },
+   {
+    "input": [
+     "Sam"
+    ],
+    "output": "Hallo, Sam!"
+   },
+   {
+    "input": [
+     "Emma"
+    ],
+    "output": "Hallo, Emma!"
+   }
+  ]
+ },
+ {
+  "topic": "print-input",
+  "level": 3,
+  "type": "single",
+  "text": "Wat toont deze code?",
+  "code": "print(\"Mijn naam is\", \"Ada\")",
+  "choices": [
+   "Mijn naam is Ada",
+   "Mijn naam is, Ada",
+   "Mijn naamis Ada",
+   "\"Mijn naam is\" \"Ada\""
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "Een komma in print() zet automatisch een spatie tussen de delen."
+ },
+ {
+  "topic": "print-input",
+  "level": 3,
+  "type": "single",
+  "text": "Wat toont deze code?",
+  "code": "naam = \"Sam\"\nprint(\"Hoi\", naam, \"!\")",
+  "choices": [
+   "Hoi Sam!",
+   "Hoi Sam !",
+   "HoiSam!",
+   "Hoi Sam !!"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "Tussen de delen komt telkens een spatie, dus ook voor het uitroepteken."
+ },
+ {
+  "topic": "print-input",
+  "level": 3,
+  "type": "code",
+  "text": "Lees twee woorden in. Toon het tweede woord, een spatie en dan het eerste woord. Bij boven en water is de uitvoer: water boven Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Je leest eerst beide woorden in en toont ze in omgekeerde volgorde.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "boven",
+     "water"
+    ],
+    "output": "water boven"
+   },
+   {
+    "input": [
+     "a",
+     "b"
+    ],
+    "output": "b a"
+   },
+   {
+    "input": [
+     "zon",
+     "zon"
+    ],
+    "output": "zon zon"
+   }
+  ]
+ },
+ {
+  "topic": "print-input",
+  "level": 4,
+  "type": "single",
+  "text": "De gebruiker typt 14. Wat toont deze code?",
+  "code": "leeftijd = input()\nprint(f\"{leeftijd} jaar\")",
+  "choices": [
+   "leeftijd jaar",
+   "{leeftijd} jaar",
+   "14 jaar",
+   "14jaar"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "De invoer komt in leeftijd te staan (als tekst) en de f-string zet die tussen de rest van de tekst."
+ },
+ {
+  "topic": "print-input",
+  "level": 4,
+  "type": "single",
+  "text": "Wat toont deze code? (Meerdere regels worden gescheiden door /.)",
+  "code": "# Dit is een notitie\nprint(\"Start\")  # nog een notitie\nprint(\"Klaar!\")",
+  "choices": [
+   "Klaar! # dit ook",
+   "Start / Klaar! / # notitie",
+   "Start # notitie",
+   "Start / Klaar!"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "Alles achter een # wordt genegeerd en de regel met alleen commentaar doet niets."
+ },
+ {
+  "topic": "print-input",
+  "level": 4,
+  "type": "multiple",
+  "text": "Na naam = \"Ada\" en leeftijd = 14 moet de uitvoer Ada is 14 jaar oud zijn. Welke regels geven dat? Kies alle juiste antwoorden.",
+  "code": "naam = \"Ada\"\nleeftijd = 14",
+  "choices": [
+   "print(f\"{naam} is {leeftijd} jaar oud\")",
+   "print(naam is leeftijd jaar oud)",
+   "print(\"{naam} is {leeftijd} jaar oud\")",
+   "print(naam, \"is 14 jaar oud\")",
+   "print(\"naam is leeftijd jaar oud\")",
+   "print(naam, \"is\", leeftijd, \"jaar oud\")"
+  ],
+  "correct": [
+   0,
+   3,
+   5
+  ],
+  "explanation": "Met komma's of met een f-string werkt het. Zonder f blijven de accolades staan en zonder aanhalingstekens ontstaat een fout."
+ },
+ {
+  "topic": "print-input",
+  "level": 5,
+  "type": "single",
+  "text": "Een leerling typt dit programma en ziet als uitvoer Welkom, {naam}! (letterlijk). Wat ontbreekt er?",
+  "code": "naam = input()\nprint(\"Welkom, {naam}!\")",
+  "choices": [
+   "Een f vlak voor de aanhalingstekens",
+   "Een komma na Welkom",
+   "Een # voor de print",
+   "Aanhalingstekens rond naam"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "Zonder de f toont Python de letterlijke tekst. Met f worden de accolades vervangen door de inhoud van de variabele."
+ },
+ {
+  "topic": "print-input",
+  "level": 5,
+  "type": "multiple",
+  "text": "Welke programma's tonen precies Klaar! en niets anders? Kies alle juiste antwoorden.",
+  "choices": [
+   "print(\"Klaar!\")",
+   "print('Klaar!')",
+   "# print(\"Klaar!\")",
+   "print(\"Klaar!')",
+   "print(\"Klaar!\")  # einde"
+  ],
+  "correct": [
+   0,
+   1,
+   4
+  ],
+  "explanation": "Dubbele of enkele aanhalingstekens mogen, zolang begin en einde hetzelfde zijn. Commentaar voert niets uit en gemengde aanhalingstekens geven een fout."
+ },
+ {
+  "topic": "print-input",
+  "level": 5,
+  "type": "code",
+  "text": "Lees een naam en een leeftijd in (in die volgorde) en toon: <naam> is <leeftijd> jaar oud. Bij Ada en 14: Ada is 14 jaar oud Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Beide invoeren blijven tekst, en dat is hier prima omdat je niet rekent.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "Ada",
+     "14"
+    ],
+    "output": "Ada is 14 jaar oud"
+   },
+   {
+    "input": [
+     "Tom",
+     "15"
+    ],
+    "output": "Tom is 15 jaar oud"
+   },
+   {
+    "input": [
+     "Lotte",
+     "9"
+    ],
+    "output": "Lotte is 9 jaar oud"
+   }
+  ]
+ },
+ {
+  "topic": "print-input",
+  "level": 6,
+  "type": "single",
+  "text": "De gebruiker typt twee keer een getal: eerst 12 en dan 30. Wat toont deze code?",
+  "code": "x = input()\ny = input()\nprint(x + y)",
+  "choices": [
+   "42",
+   "1230",
+   "12 30",
+   "1230 ."
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "input() geeft tekst terug. Twee teksten met + plak je aan elkaar, je telt ze niet op."
+ },
+ {
+  "topic": "print-input",
+  "level": 6,
+  "type": "multiple",
+  "text": "Welke uitspraken kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "Een komma in print() zet automatisch een spatie tussen de delen",
+   "Een # na een print-regel schakelt die print-regel uit",
+   "Zonder f voor de aanhalingstekens toont Python {naam} letterlijk",
+   "input() geeft altijd tekst terug, ook als de gebruiker een getal typt",
+   "Je mag een string met \" beginnen en met ' eindigen"
+  ],
+  "correct": [
+   0,
+   2,
+   3
+  ],
+  "explanation": "Commentaar achter # wordt genegeerd, maar de code ervoor werkt gewoon. Begin en einde van een string moeten hetzelfde aanhalingsteken hebben."
+ },
+ {
+  "topic": "print-input",
+  "level": 6,
+  "type": "code",
+  "text": "Lees een voornaam en een achternaam in (in die volgorde). Toon eerst de achternaam, dan een komma, een spatie en de voornaam. Bij Ada en Lovelace: Lovelace, Ada. Pas op: er mag geen spatie voor de komma staan. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Met een komma in print() krijg je een spatie voor de komma. Met een f-string bepaal je zelf exact waar de spaties staan.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "Ada",
+     "Lovelace"
+    ],
+    "output": "Lovelace, Ada"
+   },
+   {
+    "input": [
+     "Tom",
+     "Jansen"
+    ],
+    "output": "Jansen, Tom"
+   },
+   {
+    "input": [
+     "A",
+     "B"
+    ],
+    "output": "B, A"
+   }
+  ]
+ },
+ {
+  "topic": "variabelen",
+  "level": 1,
+  "type": "single",
+  "text": "Wat is een variabele?",
+  "choices": [
+   "Een stukje tekst tussen aanhalingstekens",
+   "Een foutmelding",
+   "Een naam waaronder je een waarde bewaart",
+   "Een vraag die je aan de gebruiker stelt"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "Een variabele is als een doosje met een etiket: de naam, met de waarde erin."
+ },
+ {
+  "topic": "variabelen",
+  "level": 1,
+  "type": "single",
+  "text": "Wat doet het teken = in leeftijd = 14?",
+  "choices": [
+   "Het vergelijkt leeftijd met 14",
+   "Het stopt 14 in 14",
+   "Het toont 14 op het scherm",
+   "Het kent de waarde rechts toe aan de naam links"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "Lees = als \"krijgt de waarde\". Rechts staat de waarde, links de naam."
+ },
+ {
+  "topic": "variabelen",
+  "level": 1,
+  "type": "multiple",
+  "text": "Welke uitspraken over variabelen kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "Je kunt later een nieuwe waarde toewijzen",
+   "Hoofdletters tellen mee in de naam",
+   "Een variabele kan maar een keer een waarde krijgen",
+   "Spaties in een variabelenaam zijn toegestaan",
+   "Je bewaart een waarde in een variabele met ="
+  ],
+  "correct": [
+   0,
+   1,
+   4
+  ],
+  "explanation": "Een nieuwe toewijzing overschrijft de oude waarde. Gebruik een underscore in plaats van een spatie."
+ },
+ {
+  "topic": "variabelen",
+  "level": 2,
+  "type": "single",
+  "text": "Welke variabelenaam is toegestaan?",
+  "choices": [
+   "aantal_punten",
+   "aantal punten",
+   "3score",
+   "1e_ronde"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "Geen spaties (gebruik een underscore) en begin met een letter, niet met een cijfer."
+ },
+ {
+  "topic": "variabelen",
+  "level": 2,
+  "type": "single",
+  "text": "Wat toont deze code?",
+  "code": "score = 10\nscore = score + 5\nprint(score)",
+  "choices": [
+   "10",
+   "15",
+   "5",
+   "score"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "score wordt 10 en daarna 10 + 5 = 15. De oude waarde wordt overschreven."
+ },
+ {
+  "topic": "variabelen",
+  "level": 2,
+  "type": "code",
+  "text": "Lees een woord in en bewaar het in een variabele. Toon het woord twee keer, onder elkaar op twee regels. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Een variabele kun je zo vaak gebruiken als je wilt.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "hoi"
+    ],
+    "output": "hoi\nhoi"
+   },
+   {
+    "input": [
+     "Python"
+    ],
+    "output": "Python\nPython"
+   },
+   {
+    "input": [
+     "a"
+    ],
+    "output": "a\na"
+   }
+  ]
+ },
+ {
+  "topic": "variabelen",
+  "level": 3,
+  "type": "single",
+  "text": "Wat toont deze code?",
+  "code": "x = 3\ny = x\nx = 5\nprint(x, y)",
+  "choices": [
+   "3 3",
+   "5 5",
+   "5 3",
+   "3 5"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "y krijgt de waarde van x op dat moment (3). Daarna verandert x naar 5, maar y blijft 3."
+ },
+ {
+  "topic": "variabelen",
+  "level": 3,
+  "type": "single",
+  "text": "Wat toont deze code?",
+  "code": "naam = \"ada\"\nNaam = \"Sam\"\nprint(naam, Naam)",
+  "choices": [
+   "ada ada",
+   "Sam Sam",
+   "Sam ada",
+   "ada Sam"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "naam en Naam zijn twee verschillende variabelen, want hoofdletters tellen mee."
+ },
+ {
+  "topic": "variabelen",
+  "level": 3,
+  "type": "code",
+  "text": "Lees een naam en een stad in (in die volgorde). Toon: Ik ben <naam> en woon in <stad>. Bij Ada en Hoboken: Ik ben Ada en woon in Hoboken Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Gebruik twee variabelen in een f-string.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "Ada",
+     "Hoboken"
+    ],
+    "output": "Ik ben Ada en woon in Hoboken"
+   },
+   {
+    "input": [
+     "Tom",
+     "Gent"
+    ],
+    "output": "Ik ben Tom en woon in Gent"
+   },
+   {
+    "input": [
+     "Zoe",
+     "Rome"
+    ],
+    "output": "Ik ben Zoe en woon in Rome"
+   }
+  ]
+ },
+ {
+  "topic": "variabelen",
+  "level": 4,
+  "type": "single",
+  "text": "Wat toont deze code?",
+  "code": "naam = \"Ada\"\nleeftijd = 14\nleeftijd = leeftijd + 1\nprint(f\"{naam} is {leeftijd}\")",
+  "choices": [
+   "Ada is 15",
+   "Ada is 14",
+   "Ada is leeftijd",
+   "Ada is 15 jaar"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "leeftijd wordt eerst 14 en dan 14 + 1 = 15. De f-string toont de nieuwste waarde."
+ },
+ {
+  "topic": "variabelen",
+  "level": 4,
+  "type": "single",
+  "text": "Wat toont deze code?",
+  "code": "a = 4\nb = a + 1\na = b + 1\nprint(a, b)",
+  "choices": [
+   "5 6",
+   "6 5",
+   "4 5",
+   "6 6"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "b = 4 + 1 = 5, daarna a = b + 1 = 6. Dus a is 6 en b is 5."
+ },
+ {
+  "topic": "variabelen",
+  "level": 4,
+  "type": "multiple",
+  "text": "Na score = 10 moet score 15 worden. Welke regels doen dat? Kies alle juiste antwoorden.",
+  "code": "score = 10",
+  "choices": [
+   "score = score + 5\nprint(score)",
+   "score + 5 = score\nprint(score)",
+   "score = 5 + score\nprint(score)",
+   "score = 5\nprint(score)",
+   "score = 15\nprint(score)"
+  ],
+  "correct": [
+   0,
+   2,
+   4
+  ],
+  "explanation": "Je kunt de oude waarde gebruiken om de nieuwe te berekenen. Links van = moet altijd een naam staan."
+ },
+ {
+  "topic": "variabelen",
+  "level": 5,
+  "type": "single",
+  "text": "Een leerling schrijft het volgende en krijgt een foutmelding. Wat is het probleem?",
+  "code": "naam = input()\nprint(Naam)",
+  "choices": [
+   "Je mag print niet met een variabele gebruiken",
+   "input() mag niet in een variabele",
+   "Naam bestaat niet: hoofdletters tellen mee, naam en Naam zijn verschillende variabelen",
+   "naam is een verboden woord"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "De variabele heet naam (kleine letter). Naam met hoofdletter is nooit aangemaakt."
+ },
+ {
+  "topic": "variabelen",
+  "level": 5,
+  "type": "multiple",
+  "text": "Welke variabelenamen zijn toegestaan? Kies alle juiste antwoorden.",
+  "choices": [
+   "3score",
+   "2e_ronde",
+   "leeftijd_nu",
+   "score3",
+   "aantal_punten",
+   "mijn naam"
+  ],
+  "correct": [
+   2,
+   3,
+   4
+  ],
+  "explanation": "Een naam begint met een letter en bevat geen spaties."
+ },
+ {
+  "topic": "variabelen",
+  "level": 5,
+  "type": "code",
+  "text": "Lees twee woorden in a en b. Wissel de inhoud van a en b om met een derde variabele, en toon daarna a en b onder elkaar. Bij x en y toon je y en dan x. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Zonder een extra variabele zou de eerste waarde overschreven worden voor je ze kunt bewaren.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "x",
+     "y"
+    ],
+    "output": "y\nx"
+   },
+   {
+    "input": [
+     "links",
+     "rechts"
+    ],
+    "output": "rechts\nlinks"
+   },
+   {
+    "input": [
+     "a",
+     "a"
+    ],
+    "output": "a\na"
+   }
+  ]
+ },
+ {
+  "topic": "variabelen",
+  "level": 6,
+  "type": "single",
+  "text": "Wat toont deze code?",
+  "code": "a = 1\nb = 2\na = b\nb = a\nprint(a, b)",
+  "choices": [
+   "1 2",
+   "2 1",
+   "1 1",
+   "2 2"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "Na a = b is a gelijk aan 2. Daarna b = a geeft b ook 2: de oude waarde van a (1) is weg."
+ },
+ {
+  "topic": "variabelen",
+  "level": 6,
+  "type": "multiple",
+  "text": "Welke uitspraken kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "naam en Naam zijn twee verschillende variabelen",
+   "In leeftijd = 14 staat de naam links en de waarde rechts",
+   "Na y = x en daarna x = 9 wordt y ook automatisch 9",
+   "x = 5 en 5 = x betekenen hetzelfde",
+   "Na x = 5 en daarna x = 8 is de waarde 5 weg"
+  ],
+  "correct": [
+   0,
+   1,
+   4
+  ],
+  "explanation": "Toewijzen werkt van rechts naar links en een kopie volgt latere wijzigingen niet."
+ },
+ {
+  "topic": "variabelen",
+  "level": 6,
+  "type": "code",
+  "text": "Lees drie woorden in a, b en c. Roteer ze: a krijgt de waarde van b, b krijgt de waarde van c en c krijgt de oorspronkelijke waarde van a. Toon daarna a, b en c onder elkaar. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Bewaar eerst de oorspronkelijke a, want die wordt als eerste overschreven.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "1",
+     "2",
+     "3"
+    ],
+    "output": "2\n3\n1"
+   },
+   {
+    "input": [
+     "x",
+     "y",
+     "z"
+    ],
+    "output": "y\nz\nx"
+   },
+   {
+    "input": [
+     "a",
+     "a",
+     "b"
+    ],
+    "output": "a\nb\na"
+   }
+  ]
+ },
+ {
+  "topic": "datatypes",
+  "level": 1,
+  "type": "single",
+  "text": "Welke vier basistypes kent Python in deze cursus?",
+  "choices": [
+   "str, int, float en bool",
+   "str, int, char en double",
+   "text, number, decimal en bit",
+   "int, float, bool en tuple"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "De vier basistypes zijn str (tekst), int (geheel getal), float (kommagetal) en bool (waar/onwaar)."
+ },
+ {
+  "topic": "datatypes",
+  "level": 1,
+  "type": "single",
+  "text": "Van welk datatype is de waarde 3.14?",
+  "choices": [
+   "int",
+   "float",
+   "str",
+   "bool"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "Een getal met komma (punt in Python) is een float."
+ },
+ {
+  "topic": "datatypes",
+  "level": 1,
+  "type": "multiple",
+  "text": "Welke waarden zijn van het type str? Kies alle juiste antwoorden.",
+  "choices": [
+   "\"14\"",
+   "14",
+   "\"Ada\"",
+   "True",
+   "'3.14'"
+  ],
+  "correct": [
+   0,
+   2,
+   4
+  ],
+  "explanation": "Alles tussen aanhalingstekens is een str, ook als het op een getal lijkt. 14 is een int en True is een bool."
+ },
+ {
+  "topic": "datatypes",
+  "level": 2,
+  "type": "single",
+  "text": "Wat toont print(type(3.14))?",
+  "code": "print(type(3.14))",
+  "choices": [
+   "<class 'int'>",
+   "<class 'str'>",
+   "<class 'float'>",
+   "<class 'bool'>"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "3.14 is een kommagetal, dus een float."
+ },
+ {
+  "topic": "datatypes",
+  "level": 2,
+  "type": "single",
+  "text": "Welke functie zet de tekst \"14\" om naar het getal 14?",
+  "choices": [
+   "str()",
+   "type()",
+   "print()",
+   "int()"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "Met int() zet je een tekst die een geheel getal voorstelt om naar een int."
+ },
+ {
+  "topic": "datatypes",
+  "level": 2,
+  "type": "code",
+  "text": "Lees een geheel getal in (als tekst, via input()) en toon dat getal plus 1. Bij 14 is de uitvoer 15.",
+  "explanation": "Zet de invoer eerst om met int() voor je rekent.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "14"
+    ],
+    "output": "15"
+   },
+   {
+    "input": [
+     "-1"
+    ],
+    "output": "0"
+   },
+   {
+    "input": [
+     "0"
+    ],
+    "output": "1"
+   }
+  ]
+ },
+ {
+  "topic": "datatypes",
+  "level": 3,
+  "type": "single",
+  "text": "Wat toont deze code? (Meerdere regels worden gescheiden door /.)",
+  "code": "print(3 + 4)\nprint(\"3\" + \"4\")",
+  "choices": [
+   "7 / 34",
+   "7 / 7",
+   "34 / 34",
+   "34 / 7"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "Bij getallen telt + op, bij strings plakt + de tekst aan elkaar."
+ },
+ {
+  "topic": "datatypes",
+  "level": 3,
+  "type": "single",
+  "text": "Wat toont deze code? (Meerdere regels worden gescheiden door /.)",
+  "code": "print(type(\"14\"))\nprint(type(14))",
+  "choices": [
+   "<class 'int'> / <class 'str'>",
+   "<class 'str'> / <class 'int'>",
+   "<class 'str'> / <class 'str'>",
+   "<class 'int'> / <class 'int'>"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "\"14\" met aanhalingstekens is een str, 14 zonder is een int."
+ },
+ {
+  "topic": "datatypes",
+  "level": 3,
+  "type": "code",
+  "text": "Lees twee gehele getallen in en toon hun som. Bij 3 en 4 is de uitvoer 7. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Beide invoeren moeten eerst naar int omgezet worden.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "3",
+     "4"
+    ],
+    "output": "7"
+   },
+   {
+    "input": [
+     "10",
+     "-4"
+    ],
+    "output": "6"
+   },
+   {
+    "input": [
+     "0",
+     "0"
+    ],
+    "output": "0"
+   }
+  ]
+ },
+ {
+  "topic": "datatypes",
+  "level": 4,
+  "type": "single",
+  "text": "Wat toont deze code?",
+  "code": "x = int(\"5\")\ny = float(\"2\")\nprint(x + y)",
+  "choices": [
+   "7",
+   "52",
+   "7.0",
+   "Een foutmelding"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "x is een int (5) en y een float (2.0). Hun som is een float: 7.0."
+ },
+ {
+  "topic": "datatypes",
+  "level": 4,
+  "type": "single",
+  "text": "Wat toont deze code?",
+  "code": "a = str(7)\nb = int(a) + 1\nprint(a, b)",
+  "choices": [
+   "7 7",
+   "8 8",
+   "78 8",
+   "7 8"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "a is de tekst \"7\". int(a) + 1 is 8, a zelf blijft de tekst 7."
+ },
+ {
+  "topic": "datatypes",
+  "level": 4,
+  "type": "multiple",
+  "text": "Na x = \"10\" moet het resultaat 11 getoond worden. Welke code doet dat? Kies alle juiste antwoorden.",
+  "code": "x = \"10\"",
+  "choices": [
+   "x = int(x)\nprint(x + 1)",
+   "print(x + 1)",
+   "print(x + \"1\")",
+   "print(float(x) + 1)",
+   "print(int(x) + 1)"
+  ],
+  "correct": [
+   0,
+   4
+  ],
+  "explanation": "x is een tekst en moet naar int omgezet worden. float geeft 11.0 en tekst plakken geeft 101."
+ },
+ {
+  "topic": "datatypes",
+  "level": 5,
+  "type": "single",
+  "text": "Een leerling typt dit en krijgt bij invoer 14 een TypeError. Wat is de oplossing?",
+  "code": "leeftijd = input()\nprint(leeftijd + 1)",
+  "choices": [
+   "Zet de invoer om met int(): leeftijd = int(input())",
+   "Vervang print door input",
+   "Zet aanhalingstekens rond 1",
+   "Geef de variabele een andere naam"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "input() geeft tekst terug en tekst + getal kan niet. Met int() wordt het een getal."
+ },
+ {
+  "topic": "datatypes",
+  "level": 5,
+  "type": "multiple",
+  "text": "Bij invoer 14 moet de uitvoer 15 zijn. Welke programma's doen dat? Kies alle juiste antwoorden.",
+  "choices": [
+   "leeftijd = int(input())\nprint(leeftijd + 1)",
+   "leeftijd = input()\nprint(leeftijd + 1)",
+   "leeftijd = float(input())\nprint(leeftijd + 1)",
+   "print(input() + 1)",
+   "print(int(input()) + 1)"
+  ],
+  "correct": [
+   0,
+   4
+  ],
+  "explanation": "Met int() krijg je 15. Met float() krijg je 15.0 en zonder omzetten krijg je een TypeError."
+ },
+ {
+  "topic": "datatypes",
+  "level": 5,
+  "type": "code",
+  "text": "Lees een kommagetal in (float) en toon het dubbele ervan met print(). Bij 2.5 is de uitvoer 5.0. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Met float() maak je van de invoer een kommagetal. Het resultaat is dan ook een float.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "2.5"
+    ],
+    "output": "5.0"
+   },
+   {
+    "input": [
+     "0.5"
+    ],
+    "output": "1.0"
+   },
+   {
+    "input": [
+     "10"
+    ],
+    "output": "20.0"
+   }
+  ]
+ },
+ {
+  "topic": "datatypes",
+  "level": 6,
+  "type": "single",
+  "text": "De gebruiker typt 5. Wat toont deze code?",
+  "code": "x = input()\nprint(type(x))",
+  "choices": [
+   "<class 'int'>",
+   "<class 'str'>",
+   "<class 'float'>",
+   "<class 'bool'>"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "input() geeft altijd een string terug, ook als de gebruiker een getal typt."
+ },
+ {
+  "topic": "datatypes",
+  "level": 6,
+  "type": "multiple",
+  "text": "Welke uitspraken kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "input() geeft altijd een str terug",
+   "3 + 4 geeft 7 maar \"3\" + \"4\" geeft \"34\"",
+   "\"3\" + 4 geeft 7",
+   "type(True) is str",
+   "int(\"14\") geeft het getal 14"
+  ],
+  "correct": [
+   0,
+   1,
+   4
+  ],
+  "explanation": "Tekst en getal mengen met + geeft een foutmelding, en True is een bool."
+ },
+ {
+  "topic": "datatypes",
+  "level": 6,
+  "type": "code",
+  "text": "Lees twee gehele getallen in. Toon eerst de twee ingevoerde teksten aan elkaar geplakt (zonder spatie) en op de volgende regel hun som. Bij 12 en 30: 1230 en dan 42. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "De invoer is tekst: plakken kan meteen, optellen pas na int().",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "12",
+     "30"
+    ],
+    "output": "1230\n42"
+   },
+   {
+    "input": [
+     "1",
+     "2"
+    ],
+    "output": "12\n3"
+   },
+   {
+    "input": [
+     "0",
+     "5"
+    ],
+    "output": "05\n5"
+   }
+  ]
+ },
+ {
+  "topic": "expressies",
+  "level": 1,
+  "type": "single",
+  "text": "Wat is een operator?",
+  "choices": [
+   "Een soort variabele",
+   "Een vraag die je aan de gebruiker stelt",
+   "Een symbool dat een bewerking uitvoert op een of meer waarden",
+   "Tekst tussen aanhalingstekens"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "Een operator, zoals + of *, voert een bewerking uit."
+ },
+ {
+  "topic": "expressies",
+  "level": 1,
+  "type": "single",
+  "text": "Welke operator gebruik je in Python voor machtsverheffing?",
+  "choices": [
+   "^",
+   "//",
+   "%",
+   "**"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "Voor \"tot de macht\" gebruik je twee sterretjes. Het dakje ^ betekent iets anders."
+ },
+ {
+  "topic": "expressies",
+  "level": 1,
+  "type": "multiple",
+  "text": "Welke uitspraken kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "^ is machtsverheffing in Python",
+   "** is machtsverheffing",
+   "// is gehele deling",
+   "/ geeft altijd een geheel getal",
+   "% geeft de rest bij een deling"
+  ],
+  "correct": [
+   1,
+   2,
+   4
+  ],
+  "explanation": "Gewone deling / geeft altijd een float, ook als de uitkomst rond is."
+ },
+ {
+  "topic": "expressies",
+  "level": 2,
+  "type": "single",
+  "text": "Wat is de uitkomst van 17 // 5?",
+  "code": "print(17 // 5)",
+  "choices": [
+   "3",
+   "3.4",
+   "2",
+   "4"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "5 past 3 keer in 17. // rondt af naar beneden tot een geheel getal."
+ },
+ {
+  "topic": "expressies",
+  "level": 2,
+  "type": "single",
+  "text": "Welke voorwaarde controleert of het getal even is?",
+  "choices": [
+   "getal // 2 == 0",
+   "getal % 2 == 0",
+   "getal / 2 == 0",
+   "getal % 2 == 1"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "Een even getal laat rest 0 over bij deling door 2."
+ },
+ {
+  "topic": "expressies",
+  "level": 2,
+  "type": "code",
+  "text": "Lees een geheel getal n in en toon n // 10. Bij 57 is de uitvoer 5. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "// geeft de gehele deling.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "57"
+    ],
+    "output": "5"
+   },
+   {
+    "input": [
+     "7"
+    ],
+    "output": "0"
+   },
+   {
+    "input": [
+     "100"
+    ],
+    "output": "10"
+   }
+  ]
+ },
+ {
+  "topic": "expressies",
+  "level": 3,
+  "type": "single",
+  "text": "Wat toont deze code? (Meerdere regels worden gescheiden door /.)",
+  "code": "print(2 + 3 * 4)\nprint((2 + 3) * 4)",
+  "choices": [
+   "20 / 14",
+   "14 / 14",
+   "14 / 20",
+   "20 / 20"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "Vermenigvuldigen gaat voor optellen: 2 + 12 = 14. Met haakjes: 5 * 4 = 20."
+ },
+ {
+  "topic": "expressies",
+  "level": 3,
+  "type": "single",
+  "text": "Wat toont deze code?",
+  "code": "x = 20\nx += 5\nx -= 3\nx *= 2\nprint(x)",
+  "choices": [
+   "47",
+   "22",
+   "25",
+   "44"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "20 + 5 = 25, min 3 = 22, keer 2 = 44."
+ },
+ {
+  "topic": "expressies",
+  "level": 3,
+  "type": "code",
+  "text": "Lees een geheel getal n in en toon de rest bij deling door 3. Bij 10 is de uitvoer 1. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "% geeft de rest.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "10"
+    ],
+    "output": "1"
+   },
+   {
+    "input": [
+     "9"
+    ],
+    "output": "0"
+   },
+   {
+    "input": [
+     "2"
+    ],
+    "output": "2"
+   }
+  ]
+ },
+ {
+  "topic": "expressies",
+  "level": 4,
+  "type": "single",
+  "text": "Wat toont deze code?",
+  "code": "print(7 / 2, 7 // 2, 7 % 2)",
+  "choices": [
+   "3.5 3 1",
+   "3 3 1",
+   "3.5 3.5 1",
+   "3.5 4 1"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "7 / 2 is 3.5, 7 // 2 is 3 (naar beneden afgerond) en 7 % 2 is 1."
+ },
+ {
+  "topic": "expressies",
+  "level": 4,
+  "type": "single",
+  "text": "Wat toont deze code?",
+  "code": "x = 5\ny = 2\nx = x + y\ny = y * x\nprint(x, y)",
+  "choices": [
+   "7 10",
+   "7 14",
+   "5 14",
+   "7 2"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "x wordt 5 + 2 = 7. Daarna gebruikt y * x de nieuwe x: 2 * 7 = 14."
+ },
+ {
+  "topic": "expressies",
+  "level": 4,
+  "type": "multiple",
+  "text": "Na x = 6 moet x gelijk worden aan 12. Welke regels doen dat? Kies alle juiste antwoorden.",
+  "code": "x = 6",
+  "choices": [
+   "x += 2\nprint(x)",
+   "x = x * x\nprint(x)",
+   "x = x * 2\nprint(x)",
+   "x *= 2\nprint(x)",
+   "x += 6\nprint(x)",
+   "x /= 2\nprint(x)"
+  ],
+  "correct": [
+   2,
+   3,
+   4
+  ],
+  "explanation": "Een bewerking op x bewaar je terug in x. x * x geeft 36 en x /= 2 geeft 3.0."
+ },
+ {
+  "topic": "expressies",
+  "level": 5,
+  "type": "single",
+  "text": "Een leerling wil 2 tot de macht 5 berekenen en schrijft print(2 ^ 5). Wat is er aan de hand?",
+  "code": "print(2 ^ 5)",
+  "choices": [
+   "Het toont 32, maar met een afrondingsfout",
+   "Het geeft een SyntaxError",
+   "Het resultaat is niet 32: ^ is geen machtsverheffing, gebruik **",
+   "Het toont 25"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "Het dakje ^ is in Python een bitsgewijze bewerking. Gebruik 2 ** 5 voor 32."
+ },
+ {
+  "topic": "expressies",
+  "level": 5,
+  "type": "multiple",
+  "text": "Na n = 14 moet True getoond worden. Welke regels doen dat? Kies alle juiste antwoorden.",
+  "code": "n = 14",
+  "choices": [
+   "print(n // 2 == 0)",
+   "print(n / 2 == 7)",
+   "print(n // 2 * 2 == n)",
+   "print(n % 7 == 1)",
+   "print(n % 2 == 1)",
+   "print(n % 2 == 0)"
+  ],
+  "correct": [
+   1,
+   2,
+   5
+  ],
+  "explanation": "Even betekent: rest 0 bij deling door 2. 14 / 2 is 7.0 en dat is gelijk aan 7."
+ },
+ {
+  "topic": "expressies",
+  "level": 5,
+  "type": "code",
+  "text": "Lees een geheel getal in. Toon True als het even is en anders False. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Een vergelijking levert zelf True of False op.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "4"
+    ],
+    "output": "True"
+   },
+   {
+    "input": [
+     "7"
+    ],
+    "output": "False"
+   },
+   {
+    "input": [
+     "0"
+    ],
+    "output": "True"
+   }
+  ]
+ },
+ {
+  "topic": "expressies",
+  "level": 6,
+  "type": "single",
+  "text": "Wat toont print(0.1 + 0.2)?",
+  "code": "print(0.1 + 0.2)",
+  "choices": [
+   "0.3",
+   "0.30",
+   "0.3000000000000000",
+   "0.30000000000000004"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "Computers slaan kommagetallen intern anders op, dus je ziet een klein verschil. Dat is geen fout in je code."
+ },
+ {
+  "topic": "expressies",
+  "level": 6,
+  "type": "multiple",
+  "text": "Welke uitspraken kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "17 // 5 rondt af naar beneden",
+   "2 + 3 * 4 geeft 20",
+   "Met x = 5, y = 2, x = x + y en y = y * x is y gelijk aan 14",
+   "6 / 3 geeft 2.0 en niet 2",
+   "17 % 5 geeft 3"
+  ],
+  "correct": [
+   0,
+   2,
+   3
+  ],
+  "explanation": "2 + 3 * 4 = 14 en 17 % 5 = 2 (de rest)."
+ },
+ {
+  "topic": "expressies",
+  "level": 6,
+  "type": "code",
+  "text": "Lees een aantal seconden (geheel getal) in. Toon het als minuten en seconden in de vorm: <minuten> min <seconden> sec. Bij 125 is dat: 2 min 5 sec Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Minuten met //, de rest met %.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "125"
+    ],
+    "output": "2 min 5 sec"
+   },
+   {
+    "input": [
+     "59"
+    ],
+    "output": "0 min 59 sec"
+   },
+   {
+    "input": [
+     "60"
+    ],
+    "output": "1 min 0 sec"
+   }
+  ]
+ },
+ {
+  "topic": "beslissingen",
+  "level": 1,
+  "type": "single",
+  "text": "Wat doet een if?",
+  "choices": [
+   "Het voert code alleen uit als een voorwaarde waar is",
+   "Het herhaalt code zolang iets waar is",
+   "Het toont tekst op het scherm",
+   "Het bewaart een waarde in een variabele"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "Met if voer je een stuk code alleen uit als de voorwaarde waar is."
+ },
+ {
+  "topic": "beslissingen",
+  "level": 1,
+  "type": "single",
+  "text": "Welk datatype levert een voorwaarde (zoals 5 < 10) op?",
+  "choices": [
+   "str",
+   "bool",
+   "int",
+   "float"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "Een voorwaarde levert altijd True of False op: het datatype bool."
+ },
+ {
+  "topic": "beslissingen",
+  "level": 1,
+  "type": "multiple",
+  "text": "Welke uitspraken over if, elif en else kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "De code die bij een if hoort, is ingesprongen",
+   "Na if VOORWAARDE staat een dubbelepunt",
+   "else heeft altijd een voorwaarde nodig",
+   "elif staat tussen if en else",
+   "Indentatie is enkel een stijlkeuze"
+  ],
+  "correct": [
+   0,
+   1,
+   3
+  ],
+  "explanation": "else heeft geen voorwaarde en indentatie is in Python verplicht."
+ },
+ {
+  "topic": "beslissingen",
+  "level": 2,
+  "type": "single",
+  "text": "Welk teken gebruik je om te vergelijken of twee waarden gelijk zijn?",
+  "choices": [
+   "=",
+   "!=",
+   "==",
+   "=>"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "Een enkele = is een toewijzing, een dubbele == is een vergelijking."
+ },
+ {
+  "topic": "beslissingen",
+  "level": 2,
+  "type": "single",
+  "text": "Wat toont print(5 != 5)?",
+  "code": "print(5 != 5)",
+  "choices": [
+   "True",
+   "5",
+   "Niets",
+   "False"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "!= betekent is verschillend van. 5 is niet verschillend van 5, dus False."
+ },
+ {
+  "topic": "beslissingen",
+  "level": 2,
+  "type": "code",
+  "text": "Lees een geheel getal in. Toon positief als het groter is dan 0, anders niet positief. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Het else-pad geldt voor 0 en alle negatieve getallen.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "5"
+    ],
+    "output": "positief"
+   },
+   {
+    "input": [
+     "0"
+    ],
+    "output": "niet positief"
+   },
+   {
+    "input": [
+     "-2"
+    ],
+    "output": "niet positief"
+   }
+  ]
+ },
+ {
+  "topic": "beslissingen",
+  "level": 3,
+  "type": "single",
+  "text": "Wat toont deze code?",
+  "code": "score = 65\nif score < 50:\n    print(\"Onvoldoende\")\nelif score < 80:\n    print(\"Voldoende\")\nelse:\n    print(\"Uitstekend\")",
+  "choices": [
+   "Voldoende",
+   "Onvoldoende",
+   "Uitstekend",
+   "Voldoende en Uitstekend"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "65 < 50 is onwaar. 65 < 80 is waar, dus Voldoende. Daarna stopt de controle."
+ },
+ {
+  "topic": "beslissingen",
+  "level": 3,
+  "type": "single",
+  "text": "Wat toont deze code? (Meerdere regels worden gescheiden door /.)",
+  "code": "x = 3\nif x > 5:\n    print(\"groot\")\nprint(\"klaar\")",
+  "choices": [
+   "groot / klaar",
+   "klaar",
+   "groot",
+   "Niets"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "x > 5 is onwaar, dus print(\"groot\") wordt overgeslagen. print(\"klaar\") is niet ingesprongen en hoort niet bij de if."
+ },
+ {
+  "topic": "beslissingen",
+  "level": 3,
+  "type": "code",
+  "text": "Lees een geheel getal in. Toon even als het even is en oneven als het oneven is. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Combineer % met een if-else.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "4"
+    ],
+    "output": "even"
+   },
+   {
+    "input": [
+     "7"
+    ],
+    "output": "oneven"
+   },
+   {
+    "input": [
+     "0"
+    ],
+    "output": "even"
+   }
+  ]
+ },
+ {
+  "topic": "beslissingen",
+  "level": 4,
+  "type": "single",
+  "text": "Wat toont deze code? (Meerdere regels worden gescheiden door /.)",
+  "code": "leeftijd = 15\nheeft_ticket = \"ja\"\nif leeftijd >= 12 and heeft_ticket == \"ja\":\n    print(\"Welkom op het concert!\")\nelse:\n    print(\"Geen toegang.\")",
+  "choices": [
+   "Geen toegang.",
+   "Welkom op het concert! / Geen toegang.",
+   "Welkom op het concert!",
+   "Niets"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "15 >= 12 en \"ja\" == \"ja\" zijn allebei waar, dus and is waar."
+ },
+ {
+  "topic": "beslissingen",
+  "level": 4,
+  "type": "single",
+  "text": "Wat toont deze code? (Meerdere regels worden gescheiden door /.)",
+  "code": "x = 3\nif not x > 5:\n    print(\"klein\")\nelse:\n    print(\"groot\")",
+  "choices": [
+   "groot",
+   "klein / groot",
+   "Niets",
+   "klein"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "3 > 5 is onwaar. not draait dat om naar waar, dus klein."
+ },
+ {
+  "topic": "beslissingen",
+  "level": 4,
+  "type": "multiple",
+  "text": "Na n = 10 moet ja getoond worden. Welke code doet dat? Kies alle juiste antwoorden.",
+  "code": "n = 10",
+  "choices": [
+   "if n > 5 or n > 20:\n    print(\"ja\")",
+   "if n > 5 and n < 20:\n    print(\"ja\")",
+   "if not n < 5:\n    print(\"ja\")",
+   "if not n > 5:\n    print(\"ja\")",
+   "if n == 5 or n == 20:\n    print(\"ja\")",
+   "if n > 5 and n > 20:\n    print(\"ja\")"
+  ],
+  "correct": [
+   0,
+   1,
+   2
+  ],
+  "explanation": "and eist dat beide delen waar zijn, or dat minstens een deel waar is, en not draait om."
+ },
+ {
+  "topic": "beslissingen",
+  "level": 5,
+  "type": "single",
+  "text": "Een leerling schrijft if score = 65: en krijgt een foutmelding. Wat is er fout?",
+  "code": "score = 10\nif score = 65:\n    print(\"gelijk\")",
+  "choices": [
+   "Een enkele = is een toewijzing: voor vergelijken gebruik je ==",
+   "Na if mag geen dubbelepunt staan",
+   "score moet tussen aanhalingstekens",
+   "65 moet een float zijn"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "= wijst een waarde toe, == vergelijkt. In een if-voorwaarde heb je een vergelijking nodig."
+ },
+ {
+  "topic": "beslissingen",
+  "level": 5,
+  "type": "multiple",
+  "text": "Na score = 90 moet Uitstekend getoond worden. Welke code doet dat? Kies alle juiste antwoorden.",
+  "code": "score = 90",
+  "choices": [
+   "if score >= 80:\n    print(\"Uitstekend\")\nelif score >= 50:\n    print(\"Voldoende\")\nelse:\n    print(\"Onvoldoende\")",
+   "if score >= 50:\n    print(\"Voldoende\")\nelif score >= 80:\n    print(\"Uitstekend\")\nelse:\n    print(\"Onvoldoende\")",
+   "if score < 50:\n    print(\"Onvoldoende\")\nelif score < 80:\n    print(\"Voldoende\")",
+   "if score < 50:\n    print(\"Onvoldoende\")\nelif score < 80:\n    print(\"Voldoende\")\nelse:\n    print(\"Uitstekend\")",
+   "if score >= 80:\n    print(\"Uitstekend\")\nelse:\n    print(\"Anders\")"
+  ],
+  "correct": [
+   0,
+   3,
+   4
+  ],
+  "explanation": "In de foute versies wordt 90 al in de eerste tak opgevangen of valt het in geen enkele tak."
+ },
+ {
+  "topic": "beslissingen",
+  "level": 5,
+  "type": "code",
+  "text": "Lees een score op 100 in (geheel getal). Toon Onvoldoende bij minder dan 50, Voldoende vanaf 50 tot en met 79, en Uitstekend vanaf 80. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Test de grenswaarden: 49, 50, 79 en 80.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "49"
+    ],
+    "output": "Onvoldoende"
+   },
+   {
+    "input": [
+     "50"
+    ],
+    "output": "Voldoende"
+   },
+   {
+    "input": [
+     "79"
+    ],
+    "output": "Voldoende"
+   },
+   {
+    "input": [
+     "80"
+    ],
+    "output": "Uitstekend"
+   }
+  ]
+ },
+ {
+  "topic": "beslissingen",
+  "level": 6,
+  "type": "single",
+  "text": "Wat toont deze code?",
+  "code": "score = 90\nif score >= 50:\n    print(\"Voldoende\")\nelif score >= 80:\n    print(\"Uitstekend\")\nelse:\n    print(\"Onvoldoende\")",
+  "choices": [
+   "Uitstekend",
+   "Voldoende",
+   "Onvoldoende",
+   "Voldoende en Uitstekend"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "elif-voorwaarden worden van boven naar onder gecontroleerd en de eerste die waar is wint. 90 >= 50 is al waar, dus Voldoende."
+ },
+ {
+  "topic": "beslissingen",
+  "level": 6,
+  "type": "multiple",
+  "text": "Welke uitspraken kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "Een else-tak wordt ook uitgevoerd als de if-voorwaarde waar is",
+   "Bij if-elif-else worden alle takken met een ware voorwaarde uitgevoerd",
+   "Bij if-elif-else voert Python de eerste tak uit waarvan de voorwaarde waar is",
+   "else heeft geen voorwaarde",
+   "Bij if x = 5: krijg je een foutmelding"
+  ],
+  "correct": [
+   2,
+   3,
+   4
+  ],
+  "explanation": "Er wordt maar een tak uitgevoerd, en else enkel als alle voorgaande voorwaarden onwaar waren."
+ },
+ {
+  "topic": "beslissingen",
+  "level": 6,
+  "type": "code",
+  "text": "Lees een leeftijd (geheel getal) in. Gebruik een geneste if. Onder 17: Nog even wachten. Precies 17: Theorie-examen mogelijk. Vanaf 18: Praktijkexamen mogelijk. Druk de zin exact zo af, met punt op het einde. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "De tweede beslissing wordt pas genomen nadat de eerste is beantwoord met nee.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "16"
+    ],
+    "output": "Nog even wachten."
+   },
+   {
+    "input": [
+     "17"
+    ],
+    "output": "Theorie-examen mogelijk."
+   },
+   {
+    "input": [
+     "18"
+    ],
+    "output": "Praktijkexamen mogelijk."
+   },
+   {
+    "input": [
+     "40"
+    ],
+    "output": "Praktijkexamen mogelijk."
+   }
+  ]
+ },
+ {
+  "topic": "herhaling",
+  "level": 1,
+  "type": "single",
+  "text": "Wat noem je een iteratie?",
+  "choices": [
+   "Een fout in een lus",
+   "Een variabele die telt",
+   "Een keer dat de code in de lus wordt uitgevoerd",
+   "Het einde van het programma"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "Elke keer dat de code binnen de lus wordt doorlopen, is een iteratie."
+ },
+ {
+  "topic": "herhaling",
+  "level": 1,
+  "type": "single",
+  "text": "Welke lus herhaalt code zolang een voorwaarde waar blijft?",
+  "choices": [
+   "if",
+   "print",
+   "range",
+   "while"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "Een while-lus herhaalt zolang de voorwaarde waar is. Een if controleert maar een keer."
+ },
+ {
+  "topic": "herhaling",
+  "level": 1,
+  "type": "multiple",
+  "text": "Welke uitspraken kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "Een for-lus is handig bij een vast aantal herhalingen",
+   "range(5) bevat het getal 5",
+   "Een for-lus kan letter voor letter door een string gaan",
+   "if herhaalt code zolang de voorwaarde waar is",
+   "while herhaalt zolang de voorwaarde waar is"
+  ],
+  "correct": [
+   0,
+   2,
+   4
+  ],
+  "explanation": "if controleert maar een keer. range(5) loopt van 0 tot en met 4."
+ },
+ {
+  "topic": "herhaling",
+  "level": 2,
+  "type": "single",
+  "text": "Welke getallen maakt range(5)?",
+  "choices": [
+   "0, 1, 2, 3, 4",
+   "1, 2, 3, 4, 5",
+   "0, 1, 2, 3, 4, 5",
+   "1, 2, 3, 4"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "range(5) begint bij 0 en stopt voor 5."
+ },
+ {
+  "topic": "herhaling",
+  "level": 2,
+  "type": "single",
+  "text": "Hoeveel keer wordt Hallo getoond?",
+  "code": "for i in range(5):\n    print(\"Hallo\")",
+  "choices": [
+   "4 keer",
+   "5 keer",
+   "6 keer",
+   "1 keer"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "range(5) geeft vijf waarden, dus vijf iteraties."
+ },
+ {
+  "topic": "herhaling",
+  "level": 2,
+  "type": "code",
+  "text": "Lees een geheel getal n in. Toon n keer het woord Hoi, telkens op een nieuwe regel. Bij 0 toon je niets. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "for i in range(n) herhaalt n keer.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "3"
+    ],
+    "output": "Hoi\nHoi\nHoi"
+   },
+   {
+    "input": [
+     "1"
+    ],
+    "output": "Hoi"
+   },
+   {
+    "input": [
+     "0"
+    ],
+    "output": ""
+   }
+  ]
+ },
+ {
+  "topic": "herhaling",
+  "level": 3,
+  "type": "single",
+  "text": "Wat toont deze code? (Meerdere regels worden gescheiden door /.)",
+  "code": "for n in range(2, 6):\n    print(n)",
+  "choices": [
+   "2 / 3 / 4 / 5 / 6",
+   "3 / 4 / 5 / 6",
+   "2 / 3 / 4 / 5",
+   "2 / 3 / 4"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "range(2, 6) begint bij 2 en stopt voor 6."
+ },
+ {
+  "topic": "herhaling",
+  "level": 3,
+  "type": "single",
+  "text": "Wat toont deze code? (Meerdere regels worden gescheiden door /.)",
+  "code": "teller = 0\nwhile teller < 3:\n    print(teller)\n    teller = teller + 1",
+  "choices": [
+   "1 / 2 / 3",
+   "0 / 1 / 2 / 3",
+   "0 / 1",
+   "0 / 1 / 2"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "teller start op 0 en de lus loopt zolang teller < 3: bij 0, 1 en 2."
+ },
+ {
+  "topic": "herhaling",
+  "level": 3,
+  "type": "code",
+  "text": "Lees een geheel getal n in. Toon de getallen van 0 tot n, waarbij n niet inbegrepen is, onder elkaar. Bij 3: 0, 1 en 2. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "range(n) stopt voor n.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "3"
+    ],
+    "output": "0\n1\n2"
+   },
+   {
+    "input": [
+     "1"
+    ],
+    "output": "0"
+   },
+   {
+    "input": [
+     "5"
+    ],
+    "output": "0\n1\n2\n3\n4"
+   }
+  ]
+ },
+ {
+  "topic": "herhaling",
+  "level": 4,
+  "type": "single",
+  "text": "Wat toont deze code? (Meerdere regels worden gescheiden door /.)",
+  "code": "for i in range(3):\n    print(i * 2)",
+  "choices": [
+   "0 / 2 / 4",
+   "2 / 4 / 6",
+   "0 / 1 / 2",
+   "0 / 2 / 4 / 6"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "i is 0, 1 en 2. De uitvoer is i * 2: 0, 2 en 4."
+ },
+ {
+  "topic": "herhaling",
+  "level": 4,
+  "type": "single",
+  "text": "Wat toont deze code?",
+  "code": "som = 0\nfor n in range(1, 5):\n    som += n\nprint(som)",
+  "choices": [
+   "15",
+   "10",
+   "6",
+   "5"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "som wordt 1, dan 3, dan 6, dan 10. range(1, 5) bevat 1, 2, 3 en 4."
+ },
+ {
+  "topic": "herhaling",
+  "level": 4,
+  "type": "multiple",
+  "text": "Welke code toont precies 2, 4 en 6 onder elkaar? Kies alle juiste antwoorden.",
+  "choices": [
+   "for n in range(1, 4):\n    print(n * 2)",
+   "n = 2\nwhile n <= 6:\n    print(n)\n    n += 2",
+   "for n in range(2, 6):\n    print(n)",
+   "for n in range(3):\n    print(n * 2)",
+   "for n in range(2, 7, 2):\n    print(n)",
+   "for n in range(2, 6, 2):\n    print(n)"
+  ],
+  "correct": [
+   0,
+   1,
+   4
+  ],
+  "explanation": "Let op het eindpunt: dat is nooit inbegrepen. Bij de foute versies mist de 6 of komt er een 0 of een extra getal bij."
+ },
+ {
+  "topic": "herhaling",
+  "level": 5,
+  "type": "single",
+  "text": "Wat gaat er mis met dit programma?",
+  "code": "teller = 0\nwhile teller < 5:\n    print(teller)",
+  "choices": [
+   "De lus wordt nooit uitgevoerd",
+   "teller mag niet 0 zijn",
+   "De teller wordt nooit verhoogd, dus de lus stopt nooit (oneindige lus)",
+   "print mag niet in een lus"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "Zonder teller = teller + 1 blijft teller < 5 altijd waar."
+ },
+ {
+  "topic": "herhaling",
+  "level": 5,
+  "type": "multiple",
+  "text": "Welke code toont precies 1, 2 en 3 onder elkaar? Kies alle juiste antwoorden.",
+  "choices": [
+   "for i in range(3):\n    print(i)",
+   "n = 1\nwhile n < 4:\n    print(n)\n    n += 1",
+   "for i in range(3):\n    print(i + 1)",
+   "for i in range(1, 4):\n    print(i)",
+   "n = 1\nwhile n < 3:\n    print(n)\n    n += 1",
+   "for i in range(1, 3):\n    print(i)"
+  ],
+  "correct": [
+   1,
+   2,
+   3
+  ],
+  "explanation": "Controleer telkens het beginpunt en het eindpunt van de reeks."
+ },
+ {
+  "topic": "herhaling",
+  "level": 5,
+  "type": "code",
+  "text": "Lees een geheel getal n in. Toon de som van alle getallen van 1 tot en met n. Bij 4 is dat 1 + 2 + 3 + 4 = 10, dus je toont 10. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Gebruik range(1, n + 1) zodat n zelf meetelt.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "4"
+    ],
+    "output": "10"
+   },
+   {
+    "input": [
+     "1"
+    ],
+    "output": "1"
+   },
+   {
+    "input": [
+     "10"
+    ],
+    "output": "55"
+   }
+  ]
+ },
+ {
+  "topic": "herhaling",
+  "level": 6,
+  "type": "single",
+  "text": "Hoeveel regels toont deze code?",
+  "code": "for i in range(1, 5):\n    print(i)",
+  "choices": [
+   "5",
+   "3",
+   "6",
+   "4"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "range(1, 5) bevat 1, 2, 3 en 4. De 5 hoort er niet bij."
+ },
+ {
+  "topic": "herhaling",
+  "level": 6,
+  "type": "multiple",
+  "text": "Welke uitspraken kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "Een for-lus over \"abc\" voert 2 iteraties uit",
+   "range(5) eindigt op 5",
+   "range(0, 10, 2) eindigt op 8",
+   "range(1, 5) bevat 4 maar niet 5",
+   "Een while-lus met teller = 0 en teller < 3 voert 3 iteraties uit"
+  ],
+  "correct": [
+   2,
+   3,
+   4
+  ],
+  "explanation": "Het eindpunt van range is nooit inbegrepen, en \"abc\" heeft drie letters."
+ },
+ {
+  "topic": "herhaling",
+  "level": 6,
+  "type": "code",
+  "text": "Lees een geheel getal n in. Toon alle even getallen van 2 tot en met n (n inbegrepen als het even is), onder elkaar. Bij 6: 2, 4 en 6. Bij 1 toon je niets. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "range(2, n + 1, 2) neemt stappen van 2 en laat n zelf toe.",
+  "starter": "",
+  "tests": [
+   {
+    "input": [
+     "6"
+    ],
+    "output": "2\n4\n6"
+   },
+   {
+    "input": [
+     "7"
+    ],
+    "output": "2\n4\n6"
+   },
+   {
+    "input": [
+     "1"
+    ],
+    "output": ""
+   },
+   {
+    "input": [
+     "2"
+    ],
+    "output": "2"
+   }
+  ]
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 1,
+  "type": "single",
+  "text": "Welke drie soorten fouten onderscheid je?",
+  "choices": [
+   "Syntactische fouten, runtime fouten en logische fouten",
+   "Kleine fouten, grote fouten en dodelijke fouten",
+   "Tekstfouten, getalfouten en boolfouten",
+   "Syntaxfouten, typefouten en printfouten"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "De drie soorten zijn syntactisch, runtime en logisch."
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 1,
+  "type": "single",
+  "text": "Wat is een bug?",
+  "choices": [
+   "Een speciaal soort variabele",
+   "Een fout in je programma waardoor het zich niet gedraagt zoals verwacht",
+   "Een opdracht om het programma te stoppen",
+   "Een commentaar met #"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "Bug is het woord voor een fout in een programma."
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 1,
+  "type": "multiple",
+  "text": "Welke uitspraken kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "Een runtime fout wordt gevonden voor het programma start",
+   "Een logische fout geeft altijd een foutmelding",
+   "Een runtime fout gebeurt tijdens het uitvoeren",
+   "Een syntactische fout verhindert dat het programma start",
+   "Een logische fout geeft geen foutmelding"
+  ],
+  "correct": [
+   2,
+   3,
+   4
+  ],
+  "explanation": "Bij een logische fout loopt het programma zonder klacht, maar de uitkomst klopt niet."
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 2,
+  "type": "single",
+  "text": "Welke foutmelding krijg je als je print(x) uitvoert zonder dat x ooit is aangemaakt?",
+  "code": "print(x)",
+  "choices": [
+   "TypeError",
+   "SyntaxError",
+   "NameError",
+   "ZeroDivisionError"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "NameError betekent dat je een variabele gebruikt die niet bestaat."
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 2,
+  "type": "single",
+  "text": "Welke foutmelding krijg je bij print(10 / 0)?",
+  "code": "print(10 / 0)",
+  "choices": [
+   "NameError",
+   "TypeError",
+   "SyntaxError",
+   "ZeroDivisionError"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "Delen door nul geeft een ZeroDivisionError."
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 2,
+  "type": "code",
+  "text": "De startcode bevat een syntactische fout. Herstel ze zodat het programma Hallo, gevolgd door de naam toont. Bij Ada: Hallo, Ada Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Er ontbrak een komma (of een +) tussen de twee delen.",
+  "starter": "naam = input()\nprint(\"Hallo,\" naam)",
+  "tests": [
+   {
+    "input": [
+     "Ada"
+    ],
+    "output": "Hallo, Ada"
+   },
+   {
+    "input": [
+     "Sam"
+    ],
+    "output": "Hallo, Sam"
+   },
+   {
+    "input": [
+     "Emma"
+    ],
+    "output": "Hallo, Emma"
+   }
+  ]
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 3,
+  "type": "single",
+  "text": "Welke foutmelding geeft deze code?",
+  "code": "leeftijd = \"14\"\nprint(leeftijd + 1)",
+  "choices": [
+   "TypeError",
+   "NameError",
+   "SyntaxError",
+   "ZeroDivisionError"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "Je kunt tekst en een getal niet met + combineren. Dat geeft een TypeError."
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 3,
+  "type": "single",
+  "text": "Dit programma moet de som van x en y tonen. Welk soort fout zit erin?",
+  "code": "x = 10\ny = 4\nprint(\"som =\", x - y)",
+  "choices": [
+   "Een syntactische fout",
+   "Een logische fout: er is geen foutmelding, maar de uitkomst klopt niet",
+   "Een runtime fout",
+   "Er zit geen fout in"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "Het programma draait zonder klacht maar toont 6 in plaats van 14: x - y is het verschil."
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 3,
+  "type": "code",
+  "text": "De startcode moet de som van twee gehele getallen tonen, in de vorm: som = <som>. Zoek en herstel de fout. Bij 10 en 4: som = 14 Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Er was geen foutmelding, maar - telt niet op: dat was een logische fout.",
+  "starter": "a = int(input())\nb = int(input())\nprint(\"som =\", a - b)",
+  "tests": [
+   {
+    "input": [
+     "10",
+     "4"
+    ],
+    "output": "som = 14"
+   },
+   {
+    "input": [
+     "1",
+     "2"
+    ],
+    "output": "som = 3"
+   },
+   {
+    "input": [
+     "0",
+     "0"
+    ],
+    "output": "som = 0"
+   }
+  ]
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 4,
+  "type": "single",
+  "text": "Wanneer meldt Python een syntactische fout?",
+  "choices": [
+   "Pas wanneer de foute regel tijdens het uitvoeren wordt bereikt",
+   "Nooit: de uitvoer is dan gewoon verkeerd",
+   "Meteen, voor het programma start",
+   "Alleen als de gebruiker iets verkeerd typt"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "Een syntactische fout is een fout tegen de schrijfregels. Python merkt ze meteen op en het programma start niet."
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 4,
+  "type": "single",
+  "text": "Welke fout geeft deze code?",
+  "code": "Naam = \"Ada\"\nprint(naam)",
+  "choices": [
+   "TypeError, omdat Naam een tekst is",
+   "SyntaxError, omdat de hoofdletter fout is",
+   "Geen fout: Python maakt naam vanzelf aan",
+   "NameError, omdat naam niet bestaat (hoofdletters tellen mee)"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "Naam en naam zijn verschillende variabelen. naam werd nooit aangemaakt."
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 4,
+  "type": "multiple",
+  "text": "Welke regels geven een runtime fout (een foutmelding tijdens het uitvoeren)? Kies alle juiste antwoorden.",
+  "choices": [
+   "if 3 > 2\n    print(\"ja\")",
+   "print(x)",
+   "print(10 / 0)",
+   "print(\"Hallo\" 5)",
+   "print(\"som =\", 10 - 4)",
+   "print(\"3\" + 4)"
+  ],
+  "correct": [
+   1,
+   2,
+   5
+  ],
+  "explanation": "Een ontbrekende komma of dubbelepunt is een syntaxfout, en een verkeerde uitkomst zonder melding is een logische fout."
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 5,
+  "type": "single",
+  "text": "Je ziet de melding TypeError: can only concatenate str (not \"int\") to str. Wat is de oorzaak?",
+  "choices": [
+   "Je plakt tekst en een getal aan elkaar met +",
+   "Je deelt door nul",
+   "Je gebruikt een variabele die niet bestaat",
+   "Je bent een dubbelepunt vergeten"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "Tekst en getal mengen met + kan niet. Zet het getal om met str() of gebruik een komma."
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 5,
+  "type": "multiple",
+  "text": "Je ziet NameError: name 'x' is not defined. Welke uitspraken kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "Het programma start niet eens",
+   "Je gebruikt een variabele die niet bestaat",
+   "Het is een logische fout",
+   "Het is een runtime fout",
+   "Een typefout in een variabelenaam kan dit veroorzaken"
+  ],
+  "correct": [
+   1,
+   3,
+   4
+  ],
+  "explanation": "De syntax is correct, de fout komt pas tijdens het uitvoeren."
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 5,
+  "type": "code",
+  "text": "De startcode geeft een TypeError. Herstel de fout zodat het programma toont hoe oud je volgend jaar bent. Bij 14 is de uitvoer 15. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "input() geeft tekst. Zet ze om met int() voor je rekent.",
+  "starter": "leeftijd = input()\nprint(leeftijd + 1)",
+  "tests": [
+   {
+    "input": [
+     "14"
+    ],
+    "output": "15"
+   },
+   {
+    "input": [
+     "0"
+    ],
+    "output": "1"
+   },
+   {
+    "input": [
+     "99"
+    ],
+    "output": "100"
+   }
+  ]
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 6,
+  "type": "single",
+  "text": "Je programma bevat meerdere syntactische fouten. Hoe pak je dat aan?",
+  "choices": [
+   "Begin bij de laatste regel van het programma",
+   "Los ze een voor een op, van boven naar onder, te beginnen met de eerste foutmelding",
+   "Verwijder het hele programma en begin opnieuw",
+   "Negeer ze: Python start het programma toch"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "De eerste foutmelding wijst meestal naar de juiste regel. Daarna kan een volgende fout zichtbaar worden."
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 6,
+  "type": "multiple",
+  "text": "Welke uitspraken kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "Een logische fout levert geen foutmelding op",
+   "Een SyntaxError wordt gemeld voor het programma start",
+   "ZeroDivisionError kan optreden als de gebruiker 0 invoert en je erdoor deelt",
+   "NameError betekent dat je door nul deelt",
+   "Een programma zonder foutmelding is altijd correct"
+  ],
+  "correct": [
+   0,
+   1,
+   2
+  ],
+  "explanation": "Zonder foutmelding kan de uitkomst nog altijd verkeerd zijn."
+ },
+ {
+  "topic": "foutmeldingen",
+  "level": 6,
+  "type": "code",
+  "text": "De startcode geeft een ZeroDivisionError als je 0 invoert. Herstel dat: toon 10 gedeeld door het getal, maar bij 0 toon je Delen door nul kan niet. Bij 4 is de uitvoer 2.5. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Controleer met een if of de deler 0 is, voor je deelt.",
+  "starter": "getal = int(input())\nprint(10 / getal)",
+  "tests": [
+   {
+    "input": [
+     "2"
+    ],
+    "output": "5.0"
+   },
+   {
+    "input": [
+     "4"
+    ],
+    "output": "2.5"
+   },
+   {
+    "input": [
+     "0"
+    ],
+    "output": "Delen door nul kan niet"
+   }
+  ]
+ },
+ {
+  "topic": "debuggen",
+  "level": 1,
+  "type": "single",
+  "text": "Wat is debuggen?",
+  "choices": [
+   "Een programma sneller maken",
+   "Een programma versleutelen",
+   "Een bug in je programma opzoeken en oplossen",
+   "Commentaar bij je code schrijven"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "Debuggen is het opsporen en oplossen van fouten."
+ },
+ {
+  "topic": "debuggen",
+  "level": 1,
+  "type": "single",
+  "text": "Wat is een debugger?",
+  "choices": [
+   "Een programma dat fouten automatisch voorkomt",
+   "Een soort foutmelding",
+   "Een variabele waarin je fouten bewaart",
+   "Een hulpmiddel dat je programma stap voor stap uitvoert en de tussentijdse waarden toont"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "Met een debugger doorloop je je code stap voor stap en bekijk je de waarden van de variabelen."
+ },
+ {
+  "topic": "debuggen",
+  "level": 1,
+  "type": "multiple",
+  "text": "Welke tips horen bij debuggen? Kies alle juiste antwoorden.",
+  "choices": [
+   "Verwijder de regel met de foutmelding zonder te kijken",
+   "Los fouten een voor een op",
+   "Wijzig alles tegelijk",
+   "Lees de foutmelding aandachtig",
+   "Zet tijdelijk print()-regels in je code"
+  ],
+  "correct": [
+   1,
+   3,
+   4
+  ],
+  "explanation": "Werk systematisch: een fout per keer, en gebruik de foutmelding en tussentijdse prints."
+ },
+ {
+  "topic": "debuggen",
+  "level": 2,
+  "type": "single",
+  "text": "Je krijgt een foutmelding. Wat doe je eerst?",
+  "choices": [
+   "De foutmelding aandachtig lezen: welk soort fout en op welke regel",
+   "De regel met de fout verwijderen",
+   "Het hele programma herschrijven",
+   "De computer opnieuw opstarten"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "De foutmelding vertelt het soort fout, een korte uitleg en vaak het regelnummer."
+ },
+ {
+  "topic": "debuggen",
+  "level": 2,
+  "type": "single",
+  "text": "Welke simpele techniek toont tijdens het uitvoeren de waarde van een variabele?",
+  "choices": [
+   "Een # voor de variabele zetten",
+   "Tijdelijk een extra print()-regel toevoegen",
+   "De variabele een hoofdletter geven",
+   "Het programma twee keer uitvoeren"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "Met tijdelijke prints zie je op elk moment welke waarde een variabele heeft."
+ },
+ {
+  "topic": "debuggen",
+  "level": 2,
+  "type": "code",
+  "text": "De startcode geeft een foutmelding. Herstel ze zodat het programma Welkom, gevolgd door de naam toont. Bij Ada: Welkom, Ada Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Naam met hoofdletter bestaat niet: hoofdletters tellen mee, het was een NameError.",
+  "starter": "naam = input()\nprint(\"Welkom,\", Naam)",
+  "tests": [
+   {
+    "input": [
+     "Ada"
+    ],
+    "output": "Welkom, Ada"
+   },
+   {
+    "input": [
+     "Sam"
+    ],
+    "output": "Welkom, Sam"
+   },
+   {
+    "input": [
+     "Zoe"
+    ],
+    "output": "Welkom, Zoe"
+   }
+  ]
+ },
+ {
+  "topic": "debuggen",
+  "level": 3,
+  "type": "single",
+  "text": "Wat toont deze code (debug-prints)? (Meerdere regels worden gescheiden door /.)",
+  "code": "score = 0\nprint(\"start:\", score)\nscore += 5\nprint(\"na +5:\", score)\nscore *= 2\nprint(\"na keer 2:\", score)",
+  "choices": [
+   "start: 0 / na +5: 5 / na keer 2: 5",
+   "start: 0 / na +5: 10 / na keer 2: 10",
+   "start: 0 / na +5: 5 / na keer 2: 10",
+   "start: 5 / na +5: 10 / na keer 2: 20"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "score is 0, dan 5, dan 5 * 2 = 10."
+ },
+ {
+  "topic": "debuggen",
+  "level": 3,
+  "type": "single",
+  "text": "Wat toont deze debug-code? (Meerdere regels worden gescheiden door /.)",
+  "code": "x = 4\ny = x * 2\nprint(\"y =\", y)\nx = y + 1\nprint(\"x =\", x)",
+  "choices": [
+   "y = 8 / x = 8",
+   "y = 4 / x = 5",
+   "y = 8 / x = 5",
+   "y = 8 / x = 9"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "y = 4 * 2 = 8 en daarna x = y + 1 = 9."
+ },
+ {
+  "topic": "debuggen",
+  "level": 3,
+  "type": "code",
+  "text": "De startcode moet de getallen van 1 tot en met n onder elkaar tonen, maar de uitvoer klopt niet. Herstel de fout. Bij 3 toon je 1, 2 en 3. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "range(n) begint bij 0 en stopt voor n. Je hebt range(1, n + 1) nodig.",
+  "starter": "n = int(input())\nfor i in range(n):\n    print(i)",
+  "tests": [
+   {
+    "input": [
+     "3"
+    ],
+    "output": "1\n2\n3"
+   },
+   {
+    "input": [
+     "1"
+    ],
+    "output": "1"
+   },
+   {
+    "input": [
+     "5"
+    ],
+    "output": "1\n2\n3\n4\n5"
+   }
+  ]
+ },
+ {
+  "topic": "debuggen",
+  "level": 4,
+  "type": "single",
+  "text": "Je programma geeft geen foutmelding maar de uitkomst klopt niet. Wat is dit en wat doe je?",
+  "choices": [
+   "Een logische fout: controleer de uitvoer zelf en voeg tijdelijk print()-regels toe",
+   "Een syntactische fout: lees de foutmelding",
+   "Een runtime fout: wacht tot Python de regel meldt",
+   "Er is niets aan de hand: zonder melding klopt het programma altijd"
+  ],
+  "correct": [
+   0
+  ],
+  "explanation": "Bij een logische fout verschijnt geen melding. Jij moet de uitkomst controleren en tussenwaarden bekijken."
+ },
+ {
+  "topic": "debuggen",
+  "level": 4,
+  "type": "single",
+  "text": "Wat toont de laatste regel van deze code?",
+  "code": "a = 3\nb = a * 2\na = b - a\nprint(\"a =\", a, \"b =\", b)",
+  "choices": [
+   "a = 3 b = 3",
+   "a = 3 b = 6",
+   "a = 6 b = 6",
+   "a = 3 b = 3 6"
+  ],
+  "correct": [
+   1
+  ],
+  "explanation": "b = 3 * 2 = 6 en a = 6 - 3 = 3."
+ },
+ {
+  "topic": "debuggen",
+  "level": 4,
+  "type": "multiple",
+  "text": "Welke stappen horen bij de aanpak van een detective? Kies alle juiste antwoorden.",
+  "choices": [
+   "De foutmelding volledig lezen",
+   "Controleren of de types van de variabelen kloppen",
+   "De aangegeven regel opzoeken en bekijken",
+   "Tijdelijk print()-regels toevoegen",
+   "Meerdere fouten tegelijk oplossen voor je opnieuw uitvoert",
+   "Beginnen met het hele programma herschrijven"
+  ],
+  "correct": [
+   0,
+   1,
+   2,
+   3
+  ],
+  "explanation": "Los een fout op, voer opnieuw uit en herhaal."
+ },
+ {
+  "topic": "debuggen",
+  "level": 5,
+  "type": "single",
+  "text": "Je herstelt een fout en meteen verschijnt een nieuwe foutmelding. Wat betekent dat?",
+  "choices": [
+   "Je hebt de eerste fout niet echt opgelost",
+   "Python is kapot",
+   "Normaal: de eerste fout verborg de tweede. Los die ook op en voer opnieuw uit",
+   "Je moet alle wijzigingen ongedaan maken"
+  ],
+  "correct": [
+   2
+  ],
+  "explanation": "Door de eerste fout te herstellen kan een tweede zichtbaar worden. Dat is normaal."
+ },
+ {
+  "topic": "debuggen",
+  "level": 5,
+  "type": "multiple",
+  "text": "Welke uitspraken over debuggen kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "Verwijder de extra prints achteraf weer",
+   "Debuggen gaat enkel over syntactische fouten",
+   "Een debugger werkt enkel bij syntaxfouten",
+   "Een debugger toont de tussentijdse waarden van variabelen",
+   "Bij een logische fout moet je zelf de uitvoer controleren"
+  ],
+  "correct": [
+   0,
+   3,
+   4
+  ],
+  "explanation": "Debuggen is voor alle drie de soorten fouten, en een debugger helpt vooral bij het volgen van waarden."
+ },
+ {
+  "topic": "debuggen",
+  "level": 5,
+  "type": "code",
+  "text": "De startcode moet het gemiddelde van twee gehele getallen tonen in de vorm: Gemiddelde: <waarde>. De uitvoer klopt niet. Herstel de fout. Bij 4 en 6 is de uitvoer Gemiddelde: 5.0 Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Deling gaat voor optellen: je hebt haakjes nodig om eerst x + y te berekenen.",
+  "starter": "x = int(input())\ny = int(input())\nprint(\"Gemiddelde:\", x + y / 2)",
+  "tests": [
+   {
+    "input": [
+     "4",
+     "6"
+    ],
+    "output": "Gemiddelde: 5.0"
+   },
+   {
+    "input": [
+     "10",
+     "20"
+    ],
+    "output": "Gemiddelde: 15.0"
+   },
+   {
+    "input": [
+     "3",
+     "4"
+    ],
+    "output": "Gemiddelde: 3.5"
+   }
+  ]
+ },
+ {
+  "topic": "debuggen",
+  "level": 6,
+  "type": "single",
+  "text": "Je programma bevat een SyntaxError en ook een logische fout. Welke vind je eerst?",
+  "choices": [
+   "De logische fout, want die staat altijd bovenaan",
+   "Ze verschijnen tegelijk in dezelfde foutmelding",
+   "Geen van beide: Python meldt ze niet",
+   "De SyntaxError, want het programma start pas als die is opgelost"
+  ],
+  "correct": [
+   3
+  ],
+  "explanation": "Syntactische fouten verhinderen dat het programma start. De logische fout zie je pas wanneer het draait."
+ },
+ {
+  "topic": "debuggen",
+  "level": 6,
+  "type": "multiple",
+  "text": "Welke uitspraken kloppen? Kies alle juiste antwoorden.",
+  "choices": [
+   "Bij een logische fout klopt de uitvoer niet terwijl er geen foutmelding is",
+   "Na het herstellen van een fout kan een andere fout zichtbaar worden",
+   "Een uitvoering zonder foutmelding bewijst dat het programma klopt",
+   "Je lost best alle fouten tegelijk op",
+   "Het loont om te controleren of de types van variabelen kloppen"
+  ],
+  "correct": [
+   0,
+   1,
+   4
+  ],
+  "explanation": "Los fouten een voor een op en controleer altijd of de uitvoer klopt met wat je verwacht."
+ },
+ {
+  "topic": "debuggen",
+  "level": 6,
+  "type": "code",
+  "text": "De startcode bevat meerdere fouten (let op: los ze een voor een op). Herstel ze zodat het programma even toont voor een even geheel getal en oneven voor een oneven getal. Gebruik input() zonder tekst tussen de haakjes.",
+  "explanation": "Er waren een ontbrekende dubbelepunt, een = in plaats van == en een invoer die nog tekst was.",
+  "starter": "getal = input()\nif getal % 2 = 0:\n    print(\"even\")\nelse\n    print(\"oneven\")",
+  "tests": [
+   {
+    "input": [
+     "4"
+    ],
+    "output": "even"
+   },
+   {
+    "input": [
+     "7"
+    ],
+    "output": "oneven"
+   },
+   {
+    "input": [
+     "0"
+    ],
+    "output": "even"
+   }
+  ]
+ }
+]

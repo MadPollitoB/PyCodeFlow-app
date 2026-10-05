@@ -1151,7 +1151,7 @@ async function goToQuestion(idx) {
           return `<div>
             <label style="font-size:0.85rem;color:var(--muted);display:block;margin-bottom:6px;">${escHtml(p.label || 'Antwoord')}</label>
             <div style="display:flex;flex-direction:column;gap:8px;">
-              ${(p.choices || []).map(c => `
+              ${window.pySchud(p.choices || [], [_sessionCode || urlCode, urlName, q.id, p.id].join('|')).map(c => `
                 <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;">
                   <input type="${inputType}" name="${groupName}" value="${escHtml(c.id)}" ${gekozen.includes(c.id) ? 'checked' : ''}
                     onchange="saveCompositeChoiceAnswer('${p.id}', '${c.id}', ${p.type === 'multiple'})"/>
@@ -1193,7 +1193,8 @@ async function goToQuestion(idx) {
     try {
       const choices = JSON.parse(q.choices_json || '[]');
       const selected = savedAns?.selectedChoices || [];
-      renderChoices(choices, qType, selected);
+      // Sprint 98: opties in een vaste, per leerling willekeurige volgorde
+      renderChoices(window.pySchud(choices, [_sessionCode || urlCode, urlName, q.id].join('|')), qType, selected);
     } catch { renderChoices([], qType, []); }
   }
 
@@ -1643,6 +1644,13 @@ const ZELFEVAL_CATEGORIEEN = [
     { id: 'niet_voldoende', tekst: 'Ik heb niet (voldoende) geleerd.' },
     { id: 'verkeerde_leerstof', tekst: 'Ik heb de verkeerde leerstof geleerd.' },
     { id: 'vergeten', tekst: 'Ik was vergeten dat er een toets was.' },
+    { id: 'gestrest', tekst: 'Ik was gestresseerd/nerveus tijdens de toets.' },
+    { id: 'te_weinig_tijd', tekst: 'Ik had te weinig tijd om alles af te werken.' },
+    { id: 'niet_goed_gevoeld', tekst: 'Ik voelde me niet goed (ziek, moe, ...).' },
+    { id: 'vraagstelling_onduidelijk', tekst: 'Ik begreep bepaalde vragen niet goed.' },
+    { id: 'afgeleid', tekst: 'Ik liet me afleiden tijdens het leren of tijdens de toets.' },
+    // Sprint 96: exclusief + helemaal onderaan, zie de afhandeling in renderZelfevaluatieScherm().
+    { id: 'geen_aandachtspunten', tekst: 'Ik had geen aandachtspunten — het verliep goed.', exclusief: true },
   ] },
 ];
 let _zelfevalKeuzes = { stemming: null, antwoorden: {} };
@@ -1673,7 +1681,7 @@ function renderZelfevaluatieScherm() {
     <div class="zelfeval-categorie">
       <h4>${c.titel}</h4>
       ${c.items.map(it => `
-        <label class="zelfeval-item">
+        <label class="zelfeval-item"${it.exclusief ? ' style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);font-style:italic;"' : ''}>
           <input type="checkbox" data-cat="${c.id}" data-item="${it.id}"/>
           <span>${it.tekst}</span>
         </label>
@@ -1683,9 +1691,25 @@ function renderZelfevaluatieScherm() {
   catEl.querySelectorAll('input[type="checkbox"]').forEach(cb => {
     cb.addEventListener('change', () => {
       const cat = cb.dataset.cat, item = cb.dataset.item;
-      const lijst = _zelfevalKeuzes.antwoorden[cat];
-      if (cb.checked) { if (!lijst.includes(item)) lijst.push(item); }
-      else { _zelfevalKeuzes.antwoorden[cat] = lijst.filter(x => x !== item); }
+      const categorie = ZELFEVAL_CATEGORIEEN.find(c => c.id === cat);
+      const itemDef = categorie?.items.find(it => it.id === item);
+      let lijst = _zelfevalKeuzes.antwoorden[cat];
+      if (cb.checked) {
+        if (!lijst.includes(item)) lijst.push(item);
+        // Sprint 96: "geen aandachtspunten" (exclusief) sluit alle andere vinkjes in
+        // dezelfde categorie uit, en omgekeerd — nooit allebei tegelijk mogelijk.
+        const andereIds = categorie.items
+          .filter(it => (itemDef?.exclusief ? it.id !== item : it.exclusief))
+          .map(it => it.id);
+        if (andereIds.length) {
+          lijst = _zelfevalKeuzes.antwoorden[cat] = lijst.filter(x => !andereIds.includes(x));
+          catEl.querySelectorAll(`input[data-cat="${cat}"]`).forEach(andere => {
+            if (andereIds.includes(andere.dataset.item)) andere.checked = false;
+          });
+        }
+      } else {
+        _zelfevalKeuzes.antwoorden[cat] = lijst.filter(x => x !== item);
+      }
       bijwerkenZelfevalIndienKnop();
     });
   });
