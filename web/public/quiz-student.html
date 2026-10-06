@@ -4,25 +4,20 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.81"/>
-  <link rel="stylesheet" href="/flowchart-widget.css?v=v2026.2.51.81"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.12"/>
   <style>
     .quiz-topbar { background:var(--primary); color:#fff; padding:10px 20px;
       display:flex; align-items:center; justify-content:space-between; }
-    #hand-btn.hand-op { background:#fde047; color:#713f12; border-color:#eab308; font-weight:800; }
     .quiz-timer { font-size:1.4rem; font-weight:800; font-family:Consolas,monospace; }
     .quiz-timer.warning { color:#fde68a; }
     .quiz-timer.danger  { color:#fca5a5; }
     .quiz-nav { display:flex; gap:6px; flex-wrap:wrap; margin:12px 16px; }
     .qnav-btn { width:36px; height:36px; border-radius:8px; border:2px solid var(--border);
       background:var(--surface); cursor:pointer; font-weight:700; font-size:0.88rem; position:relative; }
-    /* Sprint 71: nog maar 2 fases (geel = bezocht, niets ingevuld; groen = iets
-       ingevuld) — enkel als gekleurde RAND, nooit als volledig gevulde knop (dat
-       zag er voorheen bij "saved"/"no-run" uit als een verwarrende 3de status).
-       .current komt daar los bovenop (dikke lichtblauwe rand), niet in plaats van. */
-    .qnav-btn.visited  { border-color:#d97706; color:#92400e; }
-    .qnav-btn.answered { border-color:var(--primary); color:var(--primary); }
-    .qnav-btn.current  { box-shadow:0 0 0 3px rgba(37,99,235,0.45); border-color:#2563eb; }
+    .qnav-btn.visited  { border-color:var(--primary); color:var(--primary); }
+    .qnav-btn.saved    { background:var(--primary); color:#fff; border-color:var(--primary); }
+    .qnav-btn.no-run   { background:#fef3c7; border-color:#d97706; color:#92400e; }
+    .qnav-btn.current  { box-shadow:0 0 0 3px rgba(37,99,235,0.35); }
     .quiz-question { margin:0 16px 12px; padding:14px 16px;
       background:var(--surface-soft); border-radius:12px; border-left:4px solid var(--primary); }
     .quiz-question h3 { margin:0 0 6px; font-size:0.95rem; color:var(--muted); }
@@ -36,16 +31,6 @@
       display:flex; align-items:center; justify-content:center; z-index:9999;
       color:#fff; font-size:1.5rem; font-weight:800; display:none; }
     .pause-overlay.visible { display:flex; }
-    /* Sprint 92: kort respijt bij een (vermoedelijk per ongeluk) tabwissel/fullscreen-exit —
-       enkel zichtbaar als de pagina zelf nog zichtbaar is (anders kan de leerling ze
-       sowieso niet zien terwijl hij weg is). */
-    .tabwissel-overlay { position:fixed; inset:0; background:rgba(127,29,29,0.92);
-      display:none; align-items:center; justify-content:center; z-index:10000;
-      color:#fff; text-align:center; flex-direction:column; gap:16px; padding:20px; }
-    .tabwissel-overlay.visible { display:flex; }
-    .tabwissel-overlay .aftellen { font-size:3rem; font-weight:800; }
-    .tabwissel-overlay h2 { margin:0; font-size:1.4rem; }
-    .tabwissel-overlay p { margin:0; font-size:1rem; max-width:480px; opacity:0.95; }
     /* Startscherm */
     .start-screen { display:flex; align-items:center; justify-content:center;
       min-height:80vh; padding:20px; }
@@ -63,15 +48,6 @@
     .done-screen { display:none; text-align:center; padding:60px 20px; }
     .done-screen.visible { display:block; }
     .done-screen .done-icon { font-size:4rem; margin-bottom:16px; }
-    /* Sprint 90: zelfevaluatie-enquête ná het indienen */
-    .zelfeval-stemming-btn { flex:1; text-align:center; padding:12px 6px; border-radius:12px;
-      border:1.5px solid var(--border); background:var(--surface-soft); cursor:pointer;
-      font-size:1.6rem; transition:border-color .15s, background .15s; }
-    .zelfeval-stemming-btn.gekozen { border-color:var(--accent, #4f46e5); background:var(--surface); }
-    .zelfeval-categorie { margin-bottom:18px; }
-    .zelfeval-categorie h4 { margin:0 0 8px; font-size:0.95rem; }
-    .zelfeval-item { display:flex; align-items:flex-start; gap:8px; padding:4px 0;
-      font-size:0.9rem; cursor:pointer; }
     /* Editor wrapper */
     .quiz-editor-wrap { padding:0 16px; }
 
@@ -138,54 +114,18 @@
   ⏸ Toets gepauzeerd door de leerkracht — wacht even...
 </div>
 
-<!-- Sprint 92: respijt-overlay bij een (vermoedelijk per ongeluk) tabwissel/fullscreen-exit —
-     telt pas écht mee als de leerling niet op tijd terugkeert. -->
-<div class="tabwissel-overlay" id="tabwissel-overlay">
-  <h2>⚠️ Je hebt de toets verlaten!</h2>
-  <div class="aftellen" id="tabwissel-aftellen">5</div>
-  <p>Keer <strong>onmiddellijk</strong> terug naar volledig scherm, anders wordt dit
-     automatisch geteld als een tabwissel.</p>
-  <button class="btn btn-primary" onclick="vraagVolledigScherm()" style="font-size:1.1rem;padding:12px 28px;">
-    ↩️ Terug naar volledig scherm
-  </button>
-</div>
-
 <!-- Quiz scherm -->
 <div id="quiz-screen" style="display:none;">
   <div class="quiz-topbar">
     <span style="font-weight:700;">📝 <span id="qs-session-name"></span></span>
     <div class="quiz-timer" id="quiz-timer">--:--</div>
     <span id="qs-progress" style="font-size:0.85rem;opacity:0.85;"></span>
-    <!-- Sprint 91: zichtbare bevestiging dat het antwoord écht bij de server aankwam —
-         blijft leeg zolang alles bevestigd is, toont een waarschuwing zolang dat niet zo is. -->
-    <span id="qs-save-status" style="font-size:0.85rem;font-weight:700;"></span>
-    <!-- Sprint 83: enkel zichtbaar als de leerkracht een cursus-link instelde. -->
-    <button id="cursus-toggle-btn" class="btn btn-soft small" style="display:none;"
-      title="Cursusmateriaal tonen/verbergen">📄 Cursus</button>
-    <!-- v99: hand opsteken (toets altijd, taak enkel met vinkje bij het aanmaken) -->
-    <button id="hand-btn" class="btn btn-soft small" style="display:none;" aria-pressed="false"
-      title="Laat de leerkracht weten dat je een vraag hebt">✋ Hand opsteken</button>
-  </div>
-
-  <!-- Sprint 83: cursus-zijpaneel — toont de cursus-link IN dezelfde pagina/tabblad, zodat
-       er tijdens een toets geen apart tabblad nodig is (dat zou anders zelf als een
-       "wissel" geteld worden). -->
-  <div id="cursus-panel" style="position:fixed;top:0;right:-46vw;width:46vw;max-width:640px;
-    height:100vh;background:var(--surface,#fff);box-shadow:-4px 0 18px rgba(0,0,0,0.18);
-    z-index:5000;display:flex;flex-direction:column;transition:right 0.25s ease;">
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;
-      border-bottom:1px solid var(--border,#e2e8f0);flex-shrink:0;">
-      <strong>📄 Cursusmateriaal</strong>
-      <button class="btn btn-muted small" id="cursus-close-btn">✕ Sluiten</button>
-    </div>
-    <iframe id="cursus-iframe" style="flex:1;border:0;width:100%;" title="Cursusmateriaal"></iframe>
   </div>
   <div class="warning-banner" id="warning-banner"></div>
   <div class="quiz-nav" id="quiz-nav"></div>
   <div class="quiz-question" id="quiz-question" style="display:none;">
     <h3 id="q-header"></h3>
     <p id="q-text"></p>
-    <div id="q-flowchart-stem" style="display:none;margin:10px 0 16px;"></div>
   </div>
   <div class="quiz-editor-wrap">
 
@@ -223,12 +163,9 @@
           border-top:2px solid #93c5fd;color:#1e40af;font-weight:700;font-size:0.92rem;">
           ⌨️ Wacht op jouw invoer...
         </div>
-        <div id="quiz-input-wrap" style="display:none;padding:10px 16px;border-top:1px solid var(--border);gap:8px;align-items:center;">
-          <input id="quiz-input-field" style="flex:1;padding:8px;border:1.5px solid var(--border);
+        <div id="quiz-input-wrap" style="display:none;padding:10px 16px;border-top:1px solid var(--border);">
+          <input id="quiz-input-field" style="width:100%;padding:8px;border:1.5px solid var(--border);
             border-radius:8px;font-family:Consolas,monospace;font-size:1rem;"/>
-          <!-- Bugfix: enter was de enige manier om in te voeren — niet iedereen weet dat.
-               Een expliciete knop ernaast maakt dit duidelijker. -->
-          <button class="btn btn-primary small" id="quiz-input-send-btn" onclick="sendInput()">Invoeren</button>
         </div>
         <div id="quiz-output-panel" class="output-panel output-dark hidden"></div>
       </div><!-- /editor-shell -->
@@ -258,18 +195,10 @@
       </div>
     </div>
 
-    <!-- Sprint 63: antwoordtype 'stroomdiagram' — de leerling tekent zelf het antwoord. -->
-    <div id="panel-flowchart" style="display:none;">
-      <div class="card" style="padding:16px;">
-        <label style="font-size:0.85rem;color:var(--muted);display:block;margin-bottom:8px;">Teken hier je antwoord:</label>
-        <div id="quiz-flowchart-answer"></div>
-      </div>
-    </div>
-
   </div>
   <div class="quiz-nav-row">
     <button class="btn btn-muted small" id="quiz-prev-btn" title="Ga naar de vorige vraag" onclick="navigate(-1)">← Vorige</button>
-    <button class="btn btn-muted small" id="quiz-submit-btn" onclick="openSubmitScreen()" style="background:#fef3c7;color:#92400e;border:none;">📤 Indienen</button>
+    <button class="btn btn-muted small" onclick="openSubmitScreen()" style="background:#fef3c7;color:#92400e;border:none;">📤 Indienen</button>
     <button class="btn btn-soft small" id="quiz-next-btn" title="Ga naar de volgende vraag" onclick="navigate(1)">Volgende →</button>
   </div>
 </div>
@@ -285,25 +214,7 @@
     </p>
     <div style="display:flex;gap:10px;">
       <button class="btn btn-muted small" onclick="closeSubmitScreen()">← Terug naar toets</button>
-      <button class="btn btn-primary small" id="submit-verder-btn" onclick="naarIndienenOfZelfevaluatie()">✅ Definitief indienen</button>
-    </div>
-  </div>
-</div>
-
-<!-- Zelfevaluatie-enquête (Sprint 90) — enkel getoond als de leerkracht dit voor
-     deze toets heeft aangezet. Volledig verplicht: de indien-knop blijft
-     uitgeschakeld tot een stemming gekozen is en elke categorie minstens 1
-     aangevinkte stelling heeft. -->
-<div class="screen submit-screen" id="zelfeval-screen">
-  <div class="card" style="max-width:640px;margin:40px auto;padding:28px;">
-    <h2>📝 Zelfevaluatie</h2>
-    <p class="muted">Vul dit kort in vóór je definitief indient. Dit is verplicht.</p>
-    <p style="font-weight:600;margin-bottom:8px;">Hoe vond je dat de toets ging?</p>
-    <div id="zelfeval-stemmingen" style="display:flex;gap:10px;margin-bottom:20px;"></div>
-    <div id="zelfeval-categorieen"></div>
-    <div style="display:flex;gap:10px;margin-top:16px;">
-      <button class="btn btn-muted small" onclick="closeZelfevaluatieScreen()">← Terug</button>
-      <button class="btn btn-primary small" id="zelfeval-indien-btn" disabled onclick="submitAll()">✅ Definitief indienen</button>
+      <button class="btn btn-primary small" onclick="submitAll()">✅ Definitief indienen</button>
     </div>
   </div>
 </div>
@@ -335,13 +246,11 @@
      ("Can only have one anonymous define call" + "io is not defined"). -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="/vendor/marked/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.81"></script>
+<script src="/code-highlight.js?v=v2026.2.51.12"></script>
 <script src="/vendor/dompurify/purify.min.js"></script>
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/flowchart-widget.js?v=v2026.2.51.81"></script>
-<script src="/app.js?v=v2026.2.51.103"></script>
-<script src="/schud.js?v=v2026.2.51.103"></script>
-<script src="/quiz-student.js?v=v2026.2.51.103"></script>
-<script src="/privacy.js?v=v2026.2.51.81"></script></body>
+<script src="/app.js?v=v2026.2.51.12"></script>
+<script src="/quiz-student.js?v=v2026.2.51.12"></script>
+<script src="/privacy.js?v=v2026.2.51.12"></script></body>
 </html>
