@@ -97,7 +97,15 @@ const SESSION_ABSOLUTE_MAX_MS = Math.round(SESSION_ABSOLUTE_MAX_HOURS * 3600 * 1
 // Stuur het mee als cookie; clients moeten het terugsturen als X-CSRF-Token header.
 // Fix SEC-5: globale CSRF token (server-wide) — per-sessie tokens via cookie
 // De globale token blijft voor de API maar we voegen een per-sessie nonce toe
-const CSRF_TOKEN = crypto.randomBytes(32).toString('hex');
+// v101: het CSRF-token was bij elke serverstart een nieuwe willekeurige waarde. Een leerkracht-
+// pagina die al open stond (bv. tijdens het verbeteren) kreeg na een herstart of nieuwe deploy
+// dus 403 "CSRF validatie mislukt" op elke opslag-actie tot de pagina herladen werd. Is er een
+// vaste geheime sleutel geconfigureerd (POC_BASIC_COOKIE_SECRET), dan wordt het token daaruit
+// afgeleid en blijft het over herstarts heen gelijk. Zonder sleutel blijft het willekeurig
+// (en vangt de client het op door het token opnieuw op te halen, zie apiFetch in app.js).
+const CSRF_TOKEN = (process.env.POC_BASIC_COOKIE_SECRET || '').length >= 16
+  ? crypto.createHmac('sha256', process.env.POC_BASIC_COOKIE_SECRET).update('pycodeflow-csrf-v1').digest('hex')
+  : crypto.randomBytes(32).toString('hex');
 // Per-socket CSRF nonces voor extra bescherming
 const socketCsrfNonces = new Map();
 

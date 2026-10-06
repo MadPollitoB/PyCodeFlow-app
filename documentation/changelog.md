@@ -1,3 +1,21 @@
+## v2026.2.51.101 — Bugfix: 403-fout bij opslaan tijdens het verbeteren
+
+Tijdens het verbeteren (en andere leerkrachtpagina's) kon een opslag-actie plots een 403 geven
+("CSRF validatie mislukt"); na herladen lukte het weer. Oorzaak: het CSRF-token werd bij elke
+serverstart opnieuw willekeurig gekozen. Een pagina die al open stond (bv. de nakijkpagina) hield
+het oude token vast en werd na een herstart of nieuwe deploy van de server geweigerd.
+
+- `apiFetch` (public/app.js): bij een 403 met CSRF-melding wordt één keer een vers token opgehaald
+  en dezelfde aanvraag herhaald. De leerkracht merkt er niets van.
+- `server.js`: is `POC_BASIC_COOKIE_SECRET` ingesteld (min. 16 tekens), dan wordt het CSRF-token
+  daaruit afgeleid (HMAC) en blijft het gelijk over serverherstarts heen. Zonder die sleutel blijft
+  het willekeurig (de herhaling in de client vangt dat op).
+- Tests: `tests/csrf-retry.test.js` (3).
+
+**Betrokken bestanden:** `server.js` · `public/app.js` · `tests/csrf-retry.test.js`
+
+---
+
 ## v2026.2.51.100 — Bugfix: onderdeelscores opslaan bij een gecombineerde vraag
 
 Bij het verbeteren van een gecombineerde vraag gaf "Onderdeelscores & opmerkingen opslaan" geen

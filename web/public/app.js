@@ -49,9 +49,9 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
     } catch (e) { console.warn('[csrf] token ophalen mislukt:', e.message); }
     return _csrfToken || '';
   }
-  async function apiFetch(url, options = {}) {
+  async function apiFetch(url, options = {}, _herhaald = false) {
     const token = await getCSRFToken();
-    return fetch(url, {
+    const antwoord = await fetch(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -59,6 +59,18 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
         ...(options.headers || {}),
       },
     });
+    // v101: na een serverherstart/deploy is het onthouden CSRF-token ongeldig (403 "CSRF
+    // validatie mislukt") terwijl de pagina nog openstaat. Eén keer een vers token ophalen
+    // en dezelfde aanvraag herhalen, i.p.v. de gebruiker te laten herladen.
+    if (antwoord.status === 403 && !_herhaald) {
+      let tekst = '';
+      try { tekst = await antwoord.clone().text(); } catch { /* geen body */ }
+      if (/CSRF/i.test(tekst)) {
+        _csrfToken = null;
+        return apiFetch(url, options, true);
+      }
+    }
+    return antwoord;
   }
 
   // Sprint 10J: sneltoetsen overlay
