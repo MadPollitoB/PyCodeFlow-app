@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.12**
+**Huidige versie: v2026.2.51.104**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -215,6 +215,72 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 84 | **58** | **Brandingfix** — `/api/school-info` las de leerkracht-cookie, waardoor een leerling op een gedeelde computer de school van de leerkracht zag; leerling-modus kijkt enkel naar de leerling-sessie | v2026.2.49.0 |
 | 85 | **50** | **5 bugfixes** — (1) toets/taak enkel voor eigen, niet-gearchiveerde klassen (`/api/classes` + server-validatie); (2) toets/taak **aanpassen** (nieuw, enkel zolang niemand gestart is, type onveranderlijk); (3) `/logout`-fout hersteld; (4) leerlingcode stuurt correct door + toets/taak enkel voor ingelogde, aanvaarde leerlingen; (5) schaalbare leerling-picker met zoek/kolommen. Projectmap opgeruimd naar `OLDIES/`. | v2026.2.50.0 |
 | 86 | **51** | **Propere mappenstructuur** — alle scripts → `scripts/app` + `scripts/general`; alle docs → `documentation/`; hoofdmap enkel nog config+Docker. **OLDIES-opruiming** ingebouwd in de rebuild (menu 5) met 2 extra j/n-vragen; rommel gaat naar `OLDIES/v<versie>/` met structuur. | v2026.2.51.0 |
+| 87 | **59** | **Zeven gemelde bugs** — leerling écht verwijderen (volledige cascade, ook voor gewone leerkrachten); sessie ↔ klas-koppeling (`session_classes`) met vinkjes-popup bij het aanmaken; leerling ziet enkel sessies van zijn eigen klas; consistente topbalk (Sessieoverzicht + Afmelden); Klaar/Hand-opsteken enkel op eigen werkblad; admin kan een login-blokkade (te veel pogingen) vrijgeven; verwijderde sessie blijft niet langer zweven in de DB. | v2026.2.51.37 |
+| 88 | **59.1** | **Drie bugs n.a.v. screenshots** — melding + dropdown-refresh bij deelnemen aan een ondertussen verwijderde les; layout-sprong bij "Start individuele werkfase" verholpen (knoppenrij altijd op eigen regel); topbalk-knoppen altijd uiterst rechts uitgelijnd, ook met een 3e element (verbindingsstip) in de balk. | v2026.2.51.38 |
+| 89 | **59.2** | **Klassen zichtbaar in sessieoverzicht** — elke sessiekaart toont nu welke klas(sen) toegang hebben (of "Alle klassen"); **leerling kan altijd terug naar "Mijn overzicht"** vanuit een lopende les of vrij oefenen (nieuwe knop naast Home/Stoppen). | v2026.2.51.39 |
+| 90 | **59.3** | **Startscherm leerling breder benut** — "Snel deelnemen" en "Account" naast elkaar op brede schermen (chromebook), "Vrij oefenen" als apart volle-breedte blok eronder; valt terug naar 1 kolom onder 980px. | v2026.2.51.40 |
+| 91 | **59.4** | **Experimenteel warm kleurenthema + schuifknopje** — enkel op student-start.html, strikt gescheiden in `theme-warm.css`/`theme-toggle.js` (`html[data-theme="warm"]`) zodat het na goed-/afkeuring in één beweging te verhuizen of te verwijderen is. | v2026.2.51.41 |
+| 92 | **59.5** | **Warm thema afgewerkt: meerkleurig + leesbaarder header/footer** — render B (groen/blauw/paars per blok, geïnspireerd op GO! Atheneum Hoboken) doorgevoerd; header/footer iets hoger met groter lettertype; titel "Deelnemen" iets kleiner ter compensatie; echte `.footer-note` i.p.v. privacy.js' povere fallback. | v2026.2.51.42 |
+| 93 | **59.6** | **Paars → roodoranje uit het eigen logo** — "Vrij oefenen" en het kleurstaafje gebruiken nu roodoranje/goud uit het PyCodeFlow-logo i.p.v. paars, dat niet bij het merk paste. | v2026.2.51.43 |
+| 94 | **59.7** | **Footer-bug gefixt (echte oorzaak) + kop/voet voor beide inlogschermen + nieuwe stijl nu standaard.** Lege vooraf-`.footer-note` blokkeerde app.js' eigen footer-opbouw — verwijderd; nieuw `footer-note.js` voor pagina's zonder app.js. `teacher-login.html` volledig herstructureerd (was fixed-overlay zonder kop/voet) naar een gewone pagina met header+footer. Schuifknopje overal omgedraaid naar opt-OUT ("Te verfrissend? → oude look"), warme stijl is nu de standaard. | v2026.2.51.44 |
+| 95 | **59.8** | **"Account" en "Snel deelnemen" verwisseld** — Account staat nu eerst (links), aangezien leerlingen normaal via hun account inloggen. | v2026.2.51.45 |
+| 96 | **59.9** | **Te veel lege ruimte op leerkrachten-inlogscherm** — kaartje werd verticaal gecentreerd over bijna de volle vensterhoogte; nu een vaste bovenmarge, net als bij het leerling-inlogscherm. | v2026.2.51.46 |
+| 97 | **59.10** | **Warme stijl definitief + schuifknopje weg + leerkrachten-inlog 15% groter.** theme-warm.css samengevoegd in styles.css (onvoorwaardelijk); oude stijl bewaard in styles-classic-archief.css; hoogte-bug (`html,body{min-height:100%}`) opgelost met `body.compact-page` op beide inlogschermen; leerkrachten-inlog vergroot, getoetst tegen 1366×768. | v2026.2.51.47 |
+| 98 | **60** | **Leerling-blokkade + reset bij leerkracht niet ingelogd.** Blokkerende popup op student-app.html zodra `session.teacherSocketId` leeg is (join én live), met wachten-of-terug-naar-overzicht; bij elke `teacher_join_session` op een sessie in klasmodus resetten ALLE leerlingen naar geen code/run-rechten (individuele werkmodus blijft ongemoeid); nooit bij toets-/taaksessies. Bevestigd met een volledige socket.io end-to-end-smoketest. | v2026.2.51.48 |
+| 99 | **61** | **Nieuwe stijl op index, registratie, sessiekeuze.** index.html + student-register.html + student-thuis.html krijgen de warme stijl (blauw accent, geïnspireerd op teacher-login); student-thuis.html herstructureerd naar hetzelfde 2-koloms-grid + vrij-oefenen-eronder-patroon als student-start.html; kleurstaaf onderaan toegevoegd op alle 5 betrokken schermen + de 2 bestaande inlogschermen. | v2026.2.51.49 |
+| 100 | **60.1** | **Bugfix leerkracht-blokkade**: werkte niet als de leerkracht een sessie aanmaakte en op het sessieoverzicht bleef staan (nooit "Open" geklikt) — `teacherSocketId` bleef dan bezet zonder echte disconnect. Nieuw signaal `teacher_leave_all_sessions`, verstuurd bij het laden van teacher-sessions.html. Bevestigd met een gerichte end-to-end-smoketest die exact dit scenario naspeelt. | v2026.2.51.50 |
+| 101 | **61.1** | **Bugfix gekleurde randen + kleurenlayout leerkrachten-sessieoverzicht.** Pagina-lokale `border`-regels op student-login/-register/-thuis wonnen van `panel-accent-*` — verwijderd. teacher-sessions.html kreeg dezelfde 3-kleurenbehandeling (groen/blauw/roodoranje) + kleurstaaf; sticky subnav-afstand bijgewerkt naar de nieuwe topbalkhoogte. | v2026.2.51.51 |
+| 102 | **60.2** | **Bugfix: leerkracht-blokkade-popup bleef ~10s hangen (F5 nodig).** `student_reconnect` werd maar één keer verstuurd (bij paginalading), niet bij elke stille socket-herverbinding — nu op elke `'connect'`. Extra vangnet: elke 3s actief de status opvragen (`student_check_status`) zolang de popup zichtbaar is. Bevestigd met een end-to-end-smoketest die het exacte scenario naspeelt. | v2026.2.51.52 |
+| 103 | **62** | **Leerkrachtenscherm herschikt.** Sessie/Status/Systeem/Leerlingen niet langer in één gestapelde kolom — Sessie onder de editor (links), Status+Systeem ernaast gestapeld, Leerlingen rechts over de volle hoogte van editor+Sessie samen (CSS Grid, expliciete rij/kolomplaatsing, valt terug naar 1 kolom onder 980px). | v2026.2.51.53 |
+| 104 | **62.1** | **Bugfix: 30-40s vertraging (of geen doorkomen) bij run/code vrijgeven/blokkeren.** socket.io's pingTimeout+pingInterval (tot 45s) liet een stil weggevallen leerling-verbinding lang "verbonden" lijken — geen enkele server→leerling-melding kwam dan door. Verstrakt naar ~10s detectie + snellere clientherverbinding. | v2026.2.51.54 |
+| 105 | **62.2** | **Bugfix: footer ontbrak overal + groene selectie-indicatie + ping verder verstrakt.** `injectFooter()` was gedefinieerd maar nooit aangeroepen (dode code) — nu op `DOMContentLoaded`; `mijn-klassen.html`/`klasmatrix.html` gebruikten per ongeluk `class="actief"` i.p.v. `class="active"` in de sub-nav; ping-timing verder naar ~5s worst-case. | v2026.2.51.55 |
+| 106 | **63** | **Kamer-brede uitzendingen + onzichtbare AI-val.** Alle "broadcast naar de hele klas"-momenten (code, opdracht, klassikale rechten, annotaties, snippets) via `socket.to(sessiecode)` i.p.v. een kwetsbare lus per opgeslagen socket-ID. Nieuw: onzichtbare "AI-val"-tekst bij een toets-/taakvraag (font-size:0, met AI-opsmuk-knop via de bestaande Ollama-koppeling) om AI-plakwerk te detecteren. Databankvoorbereiding voor stroomdiagram-vraagtypes (punt 2/3, nog te bouwen). | v2026.2.51.56 |
+| 107 | **63.1** | **Stroomdiagram als vraagstelling én als antwoordtype.** Nieuwe herbruikbare stroomdiagram-widget (flowchart-widget.js/css, met JSON-opslag/-herlading die het origineel uit cursus.zip miste). Leerkracht kan een stroomdiagram toevoegen aan eender welke vraagstelling; nieuw vraagtype "Stroomdiagram" waarbij de leerling zelf tekent (altijd manueel na te kijken). End-to-end getest: aanmaken → materialiseren → leerling dient in → correct opgeslagen in de DB. | v2026.2.51.57 |
+| 108 | **63.2** | **Bugfix: naam-botsing bij snelle herverbinding.** `s.online` werd bij een disconnect nooit teruggezet (enkel `s.socketId`) — brak de dubbele-verbinding-check bij toets/taak, de naam-botsing-check bij klassessies, en het online-telertje in het toetsoverzicht. Nu consistent teruggezet. Bevestigd met een end-to-end-smoketest (join → verlaat → herverbindt meteen, zelfde naam, geen blokkade meer). | v2026.2.51.58 |
+| 109 | **63.3** | **Bugfix: "Unexpected token '<'" bij API-aanroepen met verlopen sessie.** `requireTeacherAuth` stuurde bij elke `/api/`-aanroep zonder geldige sessie een HTML-redirect terug i.p.v. JSON — `fetch()` volgde die en crashte op `.json()`. Nu een nette JSON-401 voor `/api/`-routes; paginabezoeken blijven ongewijzigd redirecten. Live bevestigd (401+JSON vs 302, elk in het juiste geval). | v2026.2.51.59 |
+| 110 | **64** | **Testaccount voor leerlingen.** Nieuw schuifknopje "TA" op Mijn klassen (standaard uit) — gedraagt zich overal als een gewone leerling, maar telt niet mee in gemiddelden/statistieken bij toetsen/taken (nakijkscherm, klasmatrix, PDF/Excel-export) en staat apart bij het nakijken (geen verbeterverplichting). Nieuwe kolom `students.is_test_account`. End-to-end getest met een echte toets (8 vs. 2 punten, gemiddelde correct = 8). | v2026.2.51.60 |
+| 111 | **65** | **Toets/taak: navigatieknoppen + input()-knop.** Vorige/Volgende worden nu volledig verborgen i.p.v. uitgeschakeld/hernoemd wanneer niet bruikbaar (eerste/laatste vraag). Nieuwe expliciete "Invoeren"-knop naast het invoerveld bij `input()` (naast Enter). | v2026.2.51.61 |
+| 112 | **66** | **Fullscreen-modus + tag-filter + bugfix Run all/Code all.** Bugfix: knop-status werd enkel op de *huidige* leerlingen berekend (vacuously waar bij 0 leerlingen) — nu een echte, aanhoudende sessie-instelling. Tag-filter bij vraagselectie voor toets/taak. Nieuwe fullscreen-modus in de klassessie (naam-pillen met exclusief run/bewerkrecht, groene "Klaar"- en gele "Hand"-balk met reset, Esc om te verlaten) — editor en opdracht-invoer worden verplaatst i.p.v. gedupliceerd. | v2026.2.51.62 |
+| 113 | **66.3** | **Fullscreen-modus: 2 bugfixes.** Opdracht-knoppen staan nu onder het tekstvak (flex-column i.p.v. een grid-override die niet volstond). Naam-pillen-highlight liep altijd één klik achter door een listener-volgordeprobleem (de hertekenfunctie las de gedeelde sessiedata vóór die bijgewerkt was) — nu wordt de data rechtstreeks uit het event doorgegeven. | v2026.2.51.63 |
+| 114 | **66.4** | **Fullscreen-modus: aan/uit-schakelaar + opdracht-knoppen definitief gefixt.** Klik op een leerling die al de controle heeft trekt die nu net in i.p.v. niets te doen. Opdracht-knoppen via een rechtstreekse inline stijl bij het verplaatsen naar fullscreen (i.p.v. een CSS-override die niet altijd doorkwam) — wint gegarandeerd, wordt bij het verlaten netjes opgeruimd. | v2026.2.51.64 |
+| 115 | **66.5** | **Fullscreen-modus: 3 lay-outbugs.** Editor-hoogteketen liep vast op een hardgecodeerde 540px (`.editor-frame`/`.monaco-editor-host`) — nu doorlopend flex-gebaseerd tot de volle schermhoogte. Overlay kreeg een expliciete rijhoogte + `overflow:hidden` (geen scrollbar meer op het hele scherm). Opdracht-invoer expliciet op `width:100%` gezet. | v2026.2.51.65 |
+| 116 | **66.6** | **Fullscreen-modus: regelnummer-balkje volgt volle hoogte.** Derde plek met dezelfde hardgecodeerde 540px (`.custom-gutter`), pas zichtbaar geworden nu de editor zelf wél de volle hoogte krijgt. | v2026.2.51.66 |
+| 117 | **67** | **Enter-toets-bug + meerdere oefeningen + leesbaarheid.** Globale document-keydown-listener onderschepte Enter overal, ook in tekstvelden — nu enkel actief buiten tekstvelden. Geschiedenis-chips vervangen door een echte vorige/volgende-navigatie voor meerdere voorbereide oefeningen. Fullscreen mode-schakelaar/Esc-knop en naam-pillen iets groter. | v2026.2.51.67 |
+| 118 | **67.1** | **Fullscreen: lege ruimte vóór opdrachtveld definitief weg.** CSS-override kwam niet consistent door — nu elk onderdeel (label, tekstvak, navigatiebalk) rechtstreeks als inline stijl op volle breedte gezet bij het openen van fullscreen, netjes opgeruimd bij het verlaten. | v2026.2.51.68 |
+| 119 | **68** | **Fullscreen: run/code apart per leerling.** Eén naam-pillenrij (run+code altijd samen) vervangen door twee onafhankelijke rijen (Run: oranje, Code: groen) — hergebruikt de al bestaande exclusieve per-veld-logica in `teacher_toggle_student`, geen nieuwe servercode. | v2026.2.51.69 |
+| 120 | **69** | **Fullscreen: blijvend gekleurd kader Run/Code.** Het kader rond elke pillengroep verscheen voorheen enkel voorwaardelijk (en werd in de praktijk nooit geactiveerd) — nu altijd zichtbaar in de kleur van dat recht. | v2026.2.51.70 |
+| 121 | **70.1** | **🔴 MAJOR BUGFIX: antwoorden verdwenen (toets/taak).** `selected_choices`/`part_answers` stonden wél correct in de DB, maar werden nooit teruggegeven bij het (her)opbouwen van de quiz-status — een leerling die na antwoorden herverbond, zag zijn keuze-/samengestelde antwoord leeg terugkomen. End-to-end nagespeeld (antwoord → herverbinding → correct hersteld) voor alle 3 betrokken vraagtypes. | v2026.2.51.71 |
+| 122 | **71** | **Toets/taak: vragennavigatie toonde verkeerde status.** "Is beantwoord?"-logica stond dubbel en onvolledig (geen composite/stroomdiagram) — nu één centrale, vraagtype-bewuste functie. Nog maar 2 kleurfases (geel/groen) als rand, nooit een volledig gevulde knop; huidige vraag behoudt zijn kleur + blauwe rand erbovenop i.p.v. die te verliezen. | v2026.2.51.72 |
+| 123 | **72** | **Toets/taak: "X van Y beantwoord" telde verkeerd na indienen.** Vervolg op #122 — 3 bijkomende plekken (indienen, heropenen na indienen, gedwongen inlevering) gebruikten nog de oude .code-only-telling. Nu overal dezelfde centrale telling. | v2026.2.51.73 |
+| 124 | **73** | **🔴🔴 KRITIEK BEVEILIGINGSLEK: klas-koppeling toets/taak niet gecontroleerd.** Zonder aparte leerling-selectie (het meest voorkomende geval) werd de klas-koppeling volledig genegeerd — wie de sessiecode kende, kon meedoen, ongeacht klas. Nu ook zonder expliciete selectie altijd klaslidmaatschap gecontroleerd. End-to-end bevestigd met 2 echte ingelogde accounts (juiste/verkeerde klas). | v2026.2.51.74 |
+| 125 | **74** | **Toets/taak: mislukte opslag bij indienen kon stil verdwijnen.** Bevestigd dat de laatste vraag correct opgeslagen wordt; daarnaast een opslagfout bij indienen die voorheen stil geslikt werd (geen log, geen melding) nu gelogd + expliciet teruggerapporteerd aan de leerling. | v2026.2.51.75 |
+| 126 | **75** | **Toets/taak: groepen voor onafhankelijke randomisatie.** Bij "Random per leerling" kan de leerkracht nu groepsscheidingen (✂️) zetten in de vragenlijst — elke groep wordt apart gehusseld maar groepen zelf blijven in vaste volgorde t.o.v. elkaar (bv. oefeningen altijd na de theorie, elk intern in willekeurige volgorde). Nieuwe kolom `random_group`; groepsgewijze Fisher-Yates-shuffle in `quiz_start`. Ook: vragen herschikken (▲/▼) rechtstreeks in de selectielijst. | v2026.2.51.76 |
+| 127 | **76** | **Vragenbank: optioneel titelveld.** Nieuw, volledig optioneel `title`-veld op een vraag — mag leeg blijven, geen effect op de toets/taak zelf. Verschijnt in de vragenbank-lijst als vetgedrukte kop vóór de "Delen"-dropdown en de (ingekorte) vraagomschrijving. Wordt meegekopieerd bij dupliceren. | v2026.2.51.77 |
+| 128 | **77** | **🔴 Voortgang: klas-koppeling-bug + live-status.** Een klas is jaargebonden ("6BW 2025-2026" ≠ "6BW 2026-2027"); een toets/taak kon vast blijven hangen aan een oude, ondertussen gearchiveerde klas-rij zonder waarschuwing (het bewerkscherm liet de koppeling stil uit het dropdown vallen). Voortgang detecteert dit nu automatisch (met concrete herkoppel-suggestie) en toont per leerling of die **nu live** verbonden is (🟢), ook voor gasten (naam-terugval, want een gast krijgt geen `students.id` in de sessie). | v2026.2.51.78 |
+| 129 | **78** | **Heropenen na indienen + Indienen enkel op laatste vraag.** Nieuwe "↺ Heropenen"-knop in de Voortgang bij elke leerling die effectief indiende — wist enkel het indien-merkteken (antwoorden blijven staan), werkt ook voor gasten, en verwittigt de leerling meteen als die nog live verbonden is. De "Indienen"-knop in de toets/taak-UI stond voorheen bij elke vraag; nu enkel bij de laatste. | v2026.2.51.79 |
+| 130 | **79** | **🔴 KRITIEKE BUGFIX: zelf-geregistreerde leerlingen onzichtbaar in Voortgang.** `createStudentAccount` schreef de (tijdelijke) ACCOUNT-status 'pending' door als status van het klaslidmaatschap zelf — en niets werkte dat ooit bij zodra het account aanvaard werd. Zo'n leerling bleef voor altijd als 'pending' lid geboekt, onzichtbaar voor de Voortgang (die sinds v78 op 'active' filtert) ook al zag "Mijn klassen" hem gewoon staan. Klaslidmaatschap is nu altijd 'active' bij aanmaak; bestaande 'pending'-rijen worden bij serverstart eenmalig hersteld. | v2026.2.51.80 |
+| 131 | **80** | **Bugfix: "te laat" getoond terwijl de toets/taak nog open staat.** Een leerling die al inhoud had maar nog niet indiende kreeg altijd 'te_laat', ongeacht of de deadline al voorbij was. Nieuwe status **🕓 "bezig"** voor dat geval zolang de deadline nog niet verstreken is (of er geen is); telt nog niet mee voor het klasgemiddelde. "Te laat" betekent voortaan enkel nog: geen indiening + deadline al voorbij. | v2026.2.51.81 |
+| 132 | **81** | **Fix: toets kon niet in een iframe getoond worden (Kiosk4School).** `frame-ancestors 'none'` + `X-Frame-Options: DENY` blokkeerden élke inbedding, ook legitieme — Kiosk4School toont de leerling-toetspagina in een iframe binnen zijn eigen portaal. Enkel `quiz-student.html` mag voortaan ingebed worden, en enkel door `*.kiosk4school.be`; alle andere pagina's (dashboard, admin, login, …) blijven volledig geblokkeerd zoals voorheen. Mogelijke bijwerking om op te volgen: een ingelogde leerling wordt in die iframe-context mogelijk niet als zijn account herkend (`student_sid`-cookie is `SameSite=Strict`). | v2026.2.51.82 |
+| 133 | **82** | **Nieuw: anti-spiek bij een toets.** Volledig scherm altijd verplicht (nooit bij een taak); nieuwe schakelaar "automatisch indienen bij tabwissel" per toets (standaard AAN, drempel instelbaar, standaard 1 — server telt zelf, niet vertrouwd van de client); optionele cursus-link als zijpaneel IN de toets zelf (geen apart tabblad nodig); eenmalige waarschuwing vóór de start. Bestaande toetsen/taken kregen de schakelaar in de databank UIT + drempel 0, zodat geen enkele bestaande toets ongemerkt van gedrag verandert. Nooit van toepassing op een taak, ook niet als dat per ongeluk toch meegestuurd wordt. | v2026.2.51.83 |
+| 134 | **83** | **Fix: anti-spiek auto-indiening was onzichtbaar in de Voortgang/klasmatrix.** Een door de anti-spiek (sprint 82) automatisch ingediende toets zag er exact hetzelfde uit als een gewone "✅ op tijd"-inzending, waardoor de leerkracht geen signaal kreeg om die leerling te heropenen. Nieuwe, eigen status **🚫 "Auto-ingediend (tabwissel)"** in het Voortgang-paneel, de klasmatrix én de Excel-export; telt mee voor het klasgemiddelde (het is een echte momentopname van het werk). "↺ Heropenen" werkte hiervoor al correct (sinds v79) en hoefde niet aangepast te worden. | v2026.2.51.84 |
+| 135 | **84** | **🔴 Kritieke bugfix: een leerling zonder enig antwoord kon na auto-indienen NOOIT meer heropend worden.** `submitQuizAnswers` kon enkel bestaande antwoord-rijen bijwerken (`UPDATE ... WHERE submitted_at IS NULL`) — een leerling die nog niets had opgeslagen op het moment van indienen (bv. een tabwissel meteen na de start) had geen rij om bij te werken, dus werd er HELEMAAL NIETS bewaard, terwijl de leerling zelf al wél vergrendeld was. Voor de leerkracht identiek aan "nog nooit begonnen", zonder "Heropenen"-knop — de leerling zat muurvast. Trof elke indienreden (deadline, timer, stopknop, tabwissel), niet enkel de nieuwe anti-spiek. Nu legt de functie zelf een minimale rij vast wanneer er niets is om bij te werken, zodat tijdstip + reden altijd bewaard blijven en heropenen altijd mogelijk is. | v2026.2.51.85 |
+| 136 | **85** | **Fix: "↺ Heropenen" verscheen/werkte nog nadat de toets/taak zelf al afgelopen was.** Heropenen zet een leerling terug op "bezig", maar zodra de toets/taak zelf gestopt is of de deadline verstreken is, weigert `quiz_start` sowieso iedereen — de knop beloofde dus iets dat niet meer kon. Nieuwe pure functie `magHeropenen()` (getest, in `lib/validation.js`) is de ene bron van waarheid: verbergt de knop op het scherm (met uitleg via tooltip) én weigert de heropen-actie zelf server-side met een duidelijke foutmelding. Wil je een leerling toch nog een kans geven na de deadline, verleng dan eerst de deadline via "Bewerken". | v2026.2.51.86 |
+| 137 | **86** | **🔴 Kritieke bugfix: leerlingen konden tijdens een toets vastlopen na een korte wifi-hapering ("er is al een verbinding actief").** De dubbele-verbinding-check vertrouwde blindelings op een "online"-vlag die nog even `true` bleef staan NA een stille verbindingsbreuk (de server merkt dat pas op na de ping-timeout, de leerling zijn browser probeert vaak al sneller zelf opnieuw te verbinden). Trof die herverbinding dat venster, kreeg een volkomen eerlijke leerling een blokkerende foutmelding — en kon door het verbod op tabwisselen/verversen tijdens een toets zelf niets meer doen: RUN-knop kapot, bij de leerkracht "offline". Voor een ingelogde leerling (verplicht bij een toets, sprint 50) laten we de nieuwste verbinding voortaan altijd winnen en zetten we de oude expliciet buiten, in plaats van de nieuwe eerlijke poging te weigeren. Dezelfde kwetsbaarheid ook gefixt bij de naam-botsing-check van een gewone klassessie. | v2026.2.51.87 |
+| 138 | **87** | **Fix (vervolg op sprint 86): RUN-knop deed soms niets bij een wankele verbinding.** `runCode()` stuurde zijn aanvraag altijd blindelings weg, zonder ooit te checken of de verbinding nog leefde en zonder een antwoord van de server te verwachten — bij een wifi-hapering, of zelfs vlak ná een geslaagde herverbinding terwijl de server die nog aan het herkennen was, verdween de aanvraag dan spoorloos: geen foutmelding, geen uitvoer, niets. De server bevestigt een RUN-aanvraag voortaan altijd expliciet (via een socket.io-ack) i.p.v. soms stil niets terug te sturen; blijft die bevestiging uit, dan herstelt de client zelf de sessie (`quiz_start` opnieuw) en probeert het tot 8x opnieuw — met bij elke stap een zichtbare melding in het uitvoervenster ("Verbinding herstellen...", "poging 2/8..."), naar analogie met de bestaande wachtrij-melding bij vrij oefenen. Meteen ook de ontbrekende "in wachtrij"/"wacht even"-meldingen toegevoegd aan de toets/taak-pagina zelf (die had de leerling-pagina voor vrij oefenen al langer, quiz-student.js nog niet). | v2026.2.51.88 |
+| 139 | **88** | **Drie verbeteringen: nummerbalk sluit nu ook vooruit-skippen af bij "terugbladeren niet toegestaan", Voortgang toont nu X/Y beantwoord (klikbaar voor detail per vraag), en een nieuw logboek van netwerk-/RUN-problemen per leerling.** (1) De vraagnummerbalk blokkeerde voorheen enkel terugspringen — een leerling kon nog vooruit skippen en zo tussenliggende vragen definitief verliezen; nu is bij die instelling enkel de huidige vraag nog aanklikbaar, elke stap gaat via "Volgende". (2) De Voortgang-tabel had een nieuwe kolom "Voortgang" (bv. "7/10"), klikbaar voor een overzicht per vraag in dezelfde stijl als het inleverscherm van de leerling zelf. (3) Systeembeheer heeft een nieuw paneel "📶 Verbindingsproblemen": per leerling het aantal écht weggevallen verbindingen en RUN-problemen (nette afsluitingen tellen niet mee), met een opschoon-knop. Een vierde gevraagd punt (Ollama-container uitschakelbaar maken vanuit Beheer) is na overleg bewust niet gebouwd: dat vereist volledige Docker-controle vanuit de webcontainer. | v2026.2.51.89 |
+| 140 | **89** | **Nieuw: verplichte zelfevaluatie-enquête ná het indienen van een toets, aan/uit per toets.** Naar aanleiding van een PDF-voorbeeld (papieren zelfevaluatie) werd eerst advies gegeven, daarna gekozen: aan/uit **per toets** (nooit automatisch, nooit bij een taak), **volledig verplicht** invullen (geen overslaan), resultaten zichtbaar als **zowel** een samenvatting **als** per leerling. Een nieuwe, optionele instelling bij het aanmaken/bewerken van een toets toont de leerling vlak vóór het definitief indienen een kort vast enquêtescherm (stemming 💀→⭐ + per categorie minstens 1 stelling aanvinken uit Voorbereiding/Verwerking/Oefenen/Planning/Aandachtspunten); de indien-knop blijft uit tot alles is ingevuld. Gaat mee in dezelfde inzending als de toetsantwoorden — een ontbrekende/ongeldige enquête kan de echte inzending nooit blokkeren. De Voortgang krijgt een nieuw paneel met stemmingsverdeling + percentages per stelling, plus een "Per leerling"-detailoverzicht. Nooit mogelijk bij een taak, ook niet als dat geforceerd zou worden meegestuurd (zelfde soort grendel als de anti-spiek-instelling van sprint 82). | v2026.2.51.90 |
+| 141 | **90** | **🔴 KRITIEKE BUGFIX: antwoorden konden bij verbindingsproblemen stilzwijgend verloren gaan.** Naar aanleiding van een echt incident ("na de toets van vandaag ... bleek dat voor bepaalde leerlingen niet alle antwoorden waren opgeslagen"). Het opslaan van een antwoord bij elke vraagwissel gebeurde tot dan via een kale, onbevestigde `socket.emit()` — hetzelfde architecturale gat dat sprint 88 al dichtte voor de RUN-knop, maar dan voor de antwoorden zelf. Na een korte verbindingsonderbreking kreeg de socket een nieuwe, nog niet heropnieuw-geregistreerde id; een opslag die precies in dat venster verstuurd werd, verdween voorheen stilzwijgend — de leerling navigeerde gewoon door, in de overtuiging dat alles goed stond (bij "Terugbladeren niet toegestaan" onherstelbaar: die vraag is dan voorgoed onbereikbaar). Nu bevestigt de server elke opslag expliciet pas ná een geslaagde databank-schrijving, en de leerling-pagina wacht op die bevestiging vóór ze naar de volgende vraag overstapt — met onbeperkt automatisch herproberen (zichtbare melding bij aanhoudende problemen) i.p.v. een harde limiet, en met automatische hervatting van alle nog niet bevestigde antwoorden bij elke (her)verbinding. Bijkomend: de toetspagina sprong bij een onderbreking voorheen altijd terug naar vraag 1 — hervat nu op de laatst bevestigde vraag. Aanhoudende problemen komen terecht in het bestaande "📶 Verbindingsproblemen"-logboek (sprint 89), zichtbaar per leerling. | v2026.2.51.91 |
+| 142 | **91** | **Anti-spiek: 5 seconden respijt bij tabwissel + tussentijdse code-autosave.** Feedback op de sprint-91-fix: "antispiek werkt heel goed, MAAR ... als de leerling binnen de 5 sec op terugkeren drukt gebeurt er niet, anders gaat het wel naar auto inleveren ... OOK zouden codelijnen tussenin ook moeten worden opgeslagen." (1) Een tabwissel/fullscreen-exit toont nu eerst 5 seconden een rode overlay met aftelling; keert de leerling **binnen** die tijd terug, dan gebeurt er helemaal niets (geen melding naar de server, geen teller die oploopt) — pas na 5 seconden zonder terugkeer telt het alsnog mee en loopt de bestaande drempel/auto-indien-logica ongewijzigd verder. (2) De code-editor, het open-antwoordveld en de tekstvelden van een samengestelde vraag slaan voortaan ook **tijdens het typen** automatisch op (0,8s debounce, zelfde timing als het stroomdiagram), niet enkel bij RUN, de volgende vraag of het indienen — via dezelfde robuuste bevestiging-en-herproberen-opslagketen uit sprint 90. Bijkomende opruiming: de quiz-editor viel voorheen onbedoeld in de leerkracht-code-tak in `app.js` (een niet-terzake-doende `code_update` + syntaxcheck); heeft nu een eigen, opgeruimde tak. | v2026.2.51.92 |
+| 143 | **92** | **Nieuw: back-up van toetsantwoorden, los van de databank.** Naar aanleiding van: "ik wil een soort backup van de antwoorden ... nu lijkt het soms alsof er zaken niet worden opgeslagen ... dit zou los moeten staan van de database." Twee onafhankelijke lagen, beide op de bestaande, blijvende `./logs`-map (geen nieuwe installatiestap): **(1)** elk antwoord komt — ongeacht of de schrijving naar PostgreSQL zelf lukt — ook terecht in een NDJSON-logbestand per sessie op schijf (de eigenlijke bescherming bij een databankstoring); **(2)** bij elke indiening (zelf, timer, deadline, tabwissel, leerkracht-stop) wordt automatisch een leesbare PDF per leerling weggeschreven (hergebruikt de bestaande antwoordformulier-opmaak) als tastbaar, doorstuurbaar overzicht. Doorslaggevend getest door de PostgreSQL-databank tijdens een lopende toets ECHT te stoppen: de databankschrijving faalde zoals verwacht, maar het antwoord bleef toch bewaard in het onafhankelijke back-uplogbestand. | v2026.2.51.93 |
+| 144 | **93** | **Anti-spiek-respijt (sprint 92) is nu instelbaar per toets.** "v2026.2.51.92 is de 5sec variabel -> instelbaar." Het respijt vóór een tabwissel/fullscreen-exit écht meetelt was vast op 5 seconden; nu een eigen veld bij het aanmaken/bewerken van een toets, instelbaar van 0 (geen respijt, het gedrag van vóór sprint 92) tot 30 seconden, standaard nog steeds 5 zodat bestaande toetsen niet van gedrag veranderen. Consistent doorgegeven tot in de spelregel-tekst op het startscherm én de aftel-overlay zelf tijdens de toets. | v2026.2.51.94 |
+| 145 | **94** | **Nieuw: "↻ Toets heropenen" — individueel, ook als de toets zelf al gestopt is of de deadline verstreek.** Naar aanleiding van: "als ik een toets doe en ik merk na de toets dat een leerling niet alle vragen is doorgekomen, zou ik eventueel opnieuw toegang willen geven tot DIE toets — ook al is er reeds een deel verbeterd." De bestaande "↺ Heropenen" per leerling (sprint 79) werkt expres niet meer zodra de toets/taak zelf afgelopen is (sprint 86) — precies het moment waarop dit meestal nodig is. Nieuwe knop op het overzicht (enkel bij een gestopte/verstreken toets/taak, eigen afgescheiden balkje boven de leerlingenlijst): een verplicht nieuw "open tot"-tijdstip + een aanvinklijst van alle leerlingen (standaard allemaal UIT). Enkel de aangevinkte leerlingen krijgen een eigen uitzondering tot dat tijdstip; voor iedereen anders blijft de toets/taak gewoon gestopt/voorbij. Bijkomend, losstaand opgemerkt: een "Invalid Date" in de venster-meldingen (enkel de getoonde tekst, nooit de eigenlijke controle) is meteen mee rechtgezet. | v2026.2.51.95 |
+| 146 | **95** | **Zelfevaluatie: aandachtspunten uitgebreid + exclusieve "geen aandachtspunten".** "Het is heel vreemd dat bij 'aandachtspunten' een van de 3 (allemaal negatieve) opties verplicht is, ook als je een goede toets doet." 5 nieuwe, realistische aandachtspunten toegevoegd (gestrest, te weinig tijd, niet goed gevoeld, vraagstelling onduidelijk, afgeleid), plus helemaal onderaan — apart afgescheiden — "Ik had geen aandachtspunten — het verliep goed.", bewust EXCLUSIEF: aanvinken schakelt automatisch alle andere aandachtspunten uit en omgekeerd, nooit allebei tegelijk. De 3 bestaande opties (en hun id's, dus bestaande data) blijven ongewijzigd. | v2026.2.51.96 |
+| 147 | **96** | **Trainingscenter.** Ingelogde leerlingen trainen per onderwerp (1-5 onderwerpen, 10-30 vragen) met oplopende/aflopende moeilijkheid (niveau 1-10, instelbare grenzen 75%/40%), score en titel op het einde, volledig-scherm-keuze zoals bij toetsen. Single, multiple en code (verborgen testen in de runner). Leerkrachtoverzicht per klas, vragenpool met JSON-import en eigen vragen per leerkracht, instellingen voor de platformbeheerder. Startpool van 162 vragen. 31 nieuwe tests. |
+| 148 | **97** | **Antwoordopties in willekeurige volgorde.** Single choice en meerkeuze bij toetsen, taken (incl. onderdelen van samengestelde vragen) en training tonen de opties per leerling in een vaste willekeurige volgorde (seed = leerling + vraag), 'Alle/Geen van bovenstaande' blijft onderaan. Enkel weergave: antwoorden blijven aan id/index hangen. 6 nieuwe tests. |
+| 149 | **98** | **Klasbord + hand opsteken bij toets/taak.** Nieuw scherm `toets-bord.html` (knop 🟩 Klasbord bij toetsen en taken) met een tegel per leerling: groen = bezig (met 'vraag n/totaal' = beantwoord + 1, los van de willekeurige volgorde), geel = hand op (met volgnummer), rood = tab/volledig scherm verlaten (blijft staan tot de leerkracht klikt), blauw = verbinding weg, grijs = ingediend. Klik op een naam zet hand/rood terug op groen. Knop '✋ Hand opsteken' in de topbalk van de leerling (wisselknop, status op de server). Toets: altijd aan; taak: vinkje 'Klasbord en hand opsteken' bij het aanmaken (nieuwe kolom `assignment_bank.klasbord_enabled`, standaard uit). Het rood-signaal staat los van het anti-spiek-auto-indienen. 9 nieuwe tests + live test met meerdere leerlingen. |
+| 150 | **99** | **Bugfix: "Onderdeelscores & opmerkingen opslaan" (gecombineerde vraag) gaf geen melding en sprong niet door.** De scores werden wel bewaard, maar daarna crashte de functie op een niet-bestaande variabele. Nu: melding, door naar de volgende vraag (bij de laatste blijft hij staan), opmerkingen per onderdeel lokaal bijgewerkt en een foutmelding als de server weigert. 3 nieuwe tests. |
+| 151 | **100** | **Bugfix: willekeurige 403-fouten bij het opslaan tijdens het verbeteren.** Oorzaak: het CSRF-token werd bij elke serverstart opnieuw willekeurig gekozen; een al openstaande leerkrachtpagina (bv. de nakijkpagina) kreeg na een herstart/deploy 403 'CSRF validatie mislukt' tot de pagina herladen werd. Nu: `apiFetch` haalt bij zo'n 403 één keer een vers token op en herhaalt de aanvraag; en met `POC_BASIC_COOKIE_SECRET` (min. 16 tekens) wordt het token daaruit afgeleid en blijft het over herstarts gelijk. Gereproduceerd + opgelost (live), 3 nieuwe tests. |
+| 152 | **101** | **Nieuw status-gedreven toets-/taakoverzicht.** Tabs Actief (standaard) · Te verbeteren · Afgerond · Archief · Concepten (rechts); hoofdknop per status met overige acties achter een pijltje; "Afgerond" pas als alles verbeterd is; archief per schooljaar/klas met "Uit archief halen". Zie changelog v2026.2.51.102. | ✅ v2026.2.51.102 |
 
 > **Nummering:** Sprint 50 is qua nummer ouder dan 51-58 maar werd later uitgevoerd
 > (bugfix-sprint). Het staat daarom onderaan de uitvoeringsvolgorde.
@@ -224,6 +290,605 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 ---
 
 ## Detailbeschrijvingen (recentste sprints)
+
+### Sprint 59 — Zeven gemelde bugs (leerling verwijderen, klas-gebonden sessies, UI-consistentie, opruiming) — ✅ AFGEROND (v2026.2.51.37)
+
+Zeven onafhankelijke bugfixes n.a.v. gebruikersfeedback, elk apart getest tegen een
+sandbox-PostgreSQL (schema + 344 tests, incl. 6 nieuwe integratietests) en met een
+end-to-end smoketest (echte HTTP/socket.io-round-trips, inclusief CSRF).
+
+1. **Leerling écht verwijderen.** `deleteStudent()` cascadeerde voorheen enkel via de 3
+   tabellen met een echte FK (`class_memberships`, `student_sessions`,
+   `assignment_students`) — code-snapshots, taakstatus, opmerkingen enz. bleven als
+   wees-data achter. Nu ruimt een transactie ALLE gekoppelde tabellen op. De route
+   (`DELETE /api/admin/students/:id`) was bovendien enkel voor beheerders (`requireBeheer`)
+   bereikbaar; nu mag elke leerkracht dit voor leerlingen in zijn **eigen** klassen
+   (`magDezeLeerling`, hetzelfde patroon als status/klas/notities). Nieuwe
+   "Verwijderen"-knop op het "Mijn klassen"-scherm; audit-log-regel toegevoegd.
+2. **Sessie ↔ klas-koppeling.** Nieuwe tabel `session_classes` (leeg = alle klassen van de
+   leerkracht, bestaand gedrag). Bij het aanmaken van een gewone sessie verschijnt nu een
+   pop-up (`pyClassPicker` in `app.js`) met vinkjes per klas + "Alle klassen".
+3. **Leerling ziet enkel sessies van zijn klas.** `listOpenSessionsForStudent` filtert nu
+   bijkomend via `session_classes` i.p.v. enkel "alle klassen van de leerkracht"
+   (`teacher_classes`).
+4. **Consistente topbalk.** `nav-rechten.js` normaliseert nu op elke leerkrachtpagina de
+   `.top-actions`-knoppen: altijd "Sessieoverzicht" + "Afmelden", behalve enkel "Afmelden"
+   op het sessieoverzicht zelf. Pagina-specifieke extra knoppen (Home, ← Sessies, …)
+   blijven gewoon staan.
+5. **Klaar/Hand-opsteken enkel op eigen werkblad.** Beide knoppen grijzen nu automatisch
+   uit zodra de klascode actief staat (`activeWorkspace !== 'personal'`) en zijn actief op
+   het eigen werkblad of in examenmodus.
+6. **Login-blokkade vrijgeven.** "Te veel mislukte pogingen" is een IP-gebaseerde,
+   in-memory blokkade (`authFailures`) — geen aparte teller per leerling-account. Nieuw
+   paneel op de Systeem-pagina (naast vrij-oefenen-blokkades) toont geblokkeerde IP's met
+   een vrijgeef-knop; nieuwe endpoints `GET/DELETE /api/admin/auth-blocks`.
+7. **Verwijderde sessie bleef zweven.** `DELETE /api/sessions/:code` haalde een sessie
+   enkel uit het in-memory geheugen, nooit uit de DB (`sessions.deleted` bleef 0) — en
+   omdat sessies bij een herstart wél degelijk herladen worden (`loadPersistedSessions`),
+   dook zo'n "verwijderde" sessie na een herstart gewoon weer op. De route markeert de
+   sessie nu ook in de DB. **Bewust geen automatische opruimmigratie** voor de bestaande
+   spooksessies: sessies herladen bij opstart op exact hetzelfde `deleted=0 AND closed=0`-
+   criterium, dus een blanket "markeer alles als verwijderd" zou ook échte, nog lopende
+   lessen vernietigen — niet aanvaardbaar tegen een live productiedatabase. De 3 bestaande
+   spooksessies verschijnen na deze update gewoon terug in het sessieoverzicht van de
+   leerkracht en kunnen daar met de (nu correct werkende) knop verwijderd worden.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/public/app.js` ·
+`web/public/mijn-klassen.js` · `web/public/monitoring.js` · `web/public/monitoring.html` ·
+`web/public/nav-rechten.js` · `web/tests/bugfixes-2026-09.test.js` (nieuw) · `VERSION` ·
+alle `web/public/*.html` (cache-bust)
+
+---
+
+### Sprint 51-ai (v5) — Echte AI-training via periodiek fine-tune-traject — ✅ AFGEROND (v2026.2.51.34)
+
+DB: ai_grade_feedback uitgebreid met corrected_score/corrected_comment + volledige
+context-snapshot-kolommen (vraag_type/vraagstelling/model_antwoord/leerling_antwoord/
+uitvoer_resultaat/model_uitvoer_resultaat/max_punten/ai_score/ai_comment). Nieuwe tabel
+ai_grade_corrections (zelfde snapshot-schema + human_score/human_comment) voor passieve
+vastlegging. Nieuwe db-functies: saveAiGradeFeedback (uitgebreid), saveAiGradeCorrection,
+getAiTrainingExamples (union van beide bronnen, gefilterd op bruikbaarheid),
+getAnswerContextForTraining (gerichte lookup met question_type/model_answer/answer_parts,
+ontbrak in getQuizAnswers).
+
+server.js: nieuwe helper bouwTrainingContext(row, partId) — bouwt {type, vraagstelling,
+modelAntwoord, leerlingAntwoord, maxPunten, aiScore, aiComment}, hergebruikt in het
+feedback-endpoint (nu met correctedScore/correctedComment) EN in de PUT .../score en
+.../part-score endpoints (stille correctie: check ai_graded vóór overschrijven, capture
+voor/na-paar). Per ongeluk tijdens het bouwen de app.post-regel zelf overschreven met de
+helper-functie — direct hersteld en bevestigd met een gerichte syntax-check.
+
+Nieuw web/scripts/export-ai-training.js: query getAiTrainingExamples(), bouwt per rij een
+{prompt, completion}-paar via aiGrading.bouwPrompt() (exacte formaat-pariteit met
+inferentie), schrijft JSONL + een samenvattingsbestand met een eerlijke
+te-weinig-data-waarschuwing (<20 voorbeelden). Draait via `docker exec pycodeflow-web-1
+node scripts/export-ai-training.js <pad>` — bewust geen HTTP-auth nodig, want docker exec
+vereist al NAS-toegang.
+
+pycodeflow.sh: nieuwe actie_ai_training() (menu 22) met submenu download/upload/model-info.
+Upload-pad: unzip → zoek .gguf → bouw Modelfile (FROM huidig-basismodel zonder
+-custom-suffix, ADAPTER) → docker cp naar ollama-container → `ollama create
+pycodeflow-custom:<datum>` → set_env OLLAMA_MODEL → optioneel herstart web-container.
+Oude modelversies blijven behouden (elke training = nieuwe gedateerde tag) voor
+terugvalmogelijkheid.
+
+Getest: end-to-end (mock feedback met expliciete correctie + echte PUT .../score op een
+ai_graded-item) bevestigt beide paden correct wegschrijven; export-script tegen dezelfde DB
+bevestigt geldige JSONL met correct prompt-formaat en gecorrigeerde score/commentaar in de
+completion. 324/324 unit tests.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` ·
+`web/scripts/export-ai-training.js` (nieuw) · `web/public/quiz-review.html` ·
+`web/public/quiz-review.js` · `scripts/app/pycodeflow.sh` · `docker-compose.yml`.
+
+---
+
+### Sprint 51-ai (v4) — Structuurbug, beleid, log & feedback — ✅ AFGEROND (v2026.2.51.33)
+
+Root cause composite-badge: geen opslagplek voor per-onderdeel-commentaar bestond —
+teacher_comment (hoofdvraag) werd per ongeluk overschreven door elk verwerkt onderdeel.
+Nieuwe part_comments-kolom (analoog part_scores/part_ai_graded), _scoreQuizAnswerPartIntern
+herschreven om NOOIT meer teacher_comment aan te raken. UI composite-vraag volledig
+herstructureerd: eigen commentaarveld + eigen 🤖-badge per onderdeel, aparte "Algemene
+opmerking"-sectie met eigen opslagknop (saveScore i.p.v. meegevoerd in savePartScores).
+Doorgetrokken naar leerlingscherm (getMyResult, lib/review-result.js, quiz-student.js).
+
+Prompt-beleid (lib/ai-grading.js): partiële punten bij code i.p.v. 0/vol, expliciete
+instructie voor concreet/niet-verzonnen verschil-beschrijving; open vragen geen
+puntenaftrek voor spelling; vlottere bouwAlgemeenPrompt; "geen puntenverlies" enkel indien
+waar.
+
+Log-feature: job.log-array (server.js) met per-item {student, vraag, onderdeel, score,
+tijd}, popup toont scrollbare lijst (quiz-review.js/html), blijft bekijkbaar na afloop via
+klik op status-pil.
+
+Feedback-mechanisme (nieuw, groot): tabel ai_grade_feedback (uniek op answer_id+part_id),
+endpoints POST/GET .../ai-grade/feedback, UI-knopje bij elke AI-badge (verdwijnt na
+gebruik, via _aiFeedbackGegeven-Set client-side), popup goed/kon_beter+improvement-tekst.
+getRecentImprovementNotes(questionId) haalt laatste 3 "kon_beter"-notities op, meegegeven
+aan bouwPrompt als verbeterNotities — lichte in-context "leer"-stap, expliciet GEEN echte
+model-training (eerlijk gecommuniceerd).
+
+Getest: mock-Ollama (nieuwe versie met multiline-veilige uitvoer-vergelijking) + mock-
+runner die nu ECHTE python3-code uitvoert (i.p.v. patroonherkenning, was te beperkt voor
+string-reversal-scenario's) — bevestigt composite-commentaar-scheiding, letter-per-regel
+partiële score met accuraat commentaar, feedback-terugkoppeling in volgende prompt, en
+badge-verdwijning bij handmatige aanpassing (hoofdvraag én onderdeel). 324/324 unit tests.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/lib/ai-grading.js` ·
+`web/lib/review-result.js` · `web/public/quiz-review.html` · `web/public/quiz-review.js` ·
+`web/public/quiz-student.js`.
+
+---
+
+### Sprint 51-ai (v3) — AI-verbeteren: vijf gemelde problemen — ✅ AFGEROND (v2026.2.51.32)
+
+1) Voortgangspil naast de "AI verbeteren"-knop blijft zichtbaar ongeacht popup open/dicht;
+verschijnt terug bij page-load/terugkeer (nieuw endpoint GET /api/ai-grade/active geeft
+running + <5min-oude done-jobs terug, met toegangscontrole via maakToetsToegangChecker +
+nieuwe db-helper getQuizOwnerInfo want assignment_bank zelf heeft geen teacher_id). Ook
+badge op assignment-overview.js (Toets/Taak overzicht) per toetskaart, met eigen
+polling-loop die stopt zodra niets meer actief is.
+
+2) Algemeen commentaar: nieuwe aiGrading.generateGeneralComment(), aangeroepen na alle
+items van één leerling verwerkt zijn (verwerkAIGradeJob nu gegroepeerd per leerling i.p.v.
+plat over alle items). getAnswersForAIGrading uitgebreid met general_comment (LEFT JOIN
+quiz_general_comments) om te weten of er al iets staat.
+
+3+4) Root cause badge-inconsistentie/overgeslagen vraag: "al beoordeeld"-check sloot
+submitted_by='niet_beantwoord' niet uit — automatische score-0-placeholders (sprint 51s)
+telden ten onrechte als "al door mens/AI beoordeeld". Nieuwe isPlaceholderScore()-check in
+verwerkAIGradeJob sluit dit uit.
+
+5) Te soepele beoordeling: SCORE_SCHEMA kreeg een verplicht 'redenering'-veld vóór
+score/comment (chain-of-thought via structured output, nooit opgeslagen/getoond). Bij
+type='code' wordt nu ook de modeloplossing zelf uitgevoerd (niet enkel leerlingcode) en
+modelUitvoerResultaat meegegeven — AI hoeft dan enkel twee echte teksten te vergelijken i.p.v.
+zelf uit te rekenen. Prompt aangescherpt: afwijkende uitvoer = altijd puntenverlies.
+
+Getest: mock-Ollama (nieuw schema) + zelfgebouwde mock-runner-service (patroonherkenning op
+range() voor realistische output) samen — bevestigt het exacte gemelde scenario
+(range(1,10) i.p.v. range(1,11) → 2/4 punten, letterlijk de voorgestelde commentaartekst).
+Browsertest bevestigt pil-gedrag op beide pagina's. 324/324 unit tests.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/lib/ai-grading.js` ·
+`web/public/quiz-review.html` · `web/public/quiz-review.js` ·
+`web/public/assignment-overview.js`.
+
+---
+
+### Sprint 51-ai — AI-verbeteren + drie grondig onderzochte bugs — ✅ AFGEROND (v2026.2.51.31)
+
+Grote, samengestelde levering na een tussentijdse sandbox-reset (opgelost door reconstructie
+uit de v2026.2.51.30-basis van de gebruiker + de laatste zip, bevestigd met 324/324 tests
+vóór verder werk).
+
+1) **AI-verbeteren**: nieuwe module `lib/ai-grading.js` (Ollama-integratie, structured JSON
+output, applicatie-laag-validatie/clamping), `runCodeNonInteractive()` in server.js
+(hergebruikt runnerStart/runnerEvents voor niet-interactieve code-uitvoering), nieuwe DB-
+kolommen `ai_graded`/`part_ai_graded` (STRIKT gescheiden van teacher_comment — enkel
+leerkracht-endpoints sturen ze mee), nieuwe functies `aiScoreQuizAnswer`/
+`aiScoreQuizAnswerPart`, volledig endpoint-blok met achtergrond-job + voortgang-polling,
+UI (knop/popup/voortgangsbalk/badge) in quiz-review.html/js. Getest met een mock-Ollama-
+server: 10 scenario's voor de module zelf, plus een volledige end-to-end-bevestiging dat de
+leerling-respons geen enkel spoor van AI-markering bevat.
+
+2) **Scrollbar-bug**: `.output-panel` miste max-height/overflow-y, groeide onbeperkt mee
+i.p.v. te scrollen. Één CSS-regel; het bestaande autoscroll-mechanisme in app.js werkte al
+correct maar had nooit effect. Bevestigd met browsertest (scrollHeight > clientHeight).
+
+3) **"3x lopende code"-bug**: de poll-loop in `free_run_request`/`quiz_run_request`
+(server.js) las `student.runId` (gedeeld, muteerbaar) opnieuw bij elke iteratie i.p.v. een
+vaste lokale kopie — bij snel herhaald klikken volgden oudere poll-loops de nieuwste
+run-id, elk vanaf lastSeq=0, wat de output verdrievoudigde. Gefixt op beide plekken +
+Run-knop client-side ook uitgeschakeld tijdens een lopende run (app.js).
+
+4) **Stresstest-analyse**: WebSocket-belastingstest en rate-limit-verificatie faalden in de
+aangeleverde logs. Empirisch gereproduceerd via het ingebouwde stresstest-endpoint
+(`POST /api/stress-test/start`). Rate-limit-logica zelf bewezen correct (geïsoleerd: altijd
+PASS). Root cause: `JOIN_RATE_MAX=10`/min/IP — de test laat 15 clients joinen vanaf
+hetzelfde (lokale) IP, wat niet enkel de test zelf blokkeert maar ook de daaropvolgende
+rate-limit-test (IP-teller al vol). Gefixt met een gerichte uitzondering in `student_join`:
+enkel voor herkenbaar `stresstest_`-verkeer, enkel vanaf localhost — geen verzwakking voor
+echte gebruikers. Bevestigd: rate-limit-test toont nu consistent PASS.
+
+5) **iPad-timeout-bug**: langste onderzoek. Client-side `connect`-handler deed enkel een
+visuele statusupdate, synchroniseerde nooit de run-status na een HERverbinding. Safari/iOS
+sluit WebSockets vaker bij tab-wissel/schermvergrendeling dan andere browsers — server-kant
+`run_end`/state-updates na het aflopen van een vastgelopen lus (via de bestaande CPU-
+tijdslimiet van de runner) gingen dan naar een al-verbroken socket en kwamen nooit aan. Bij
+`connect` na een `disconnect` wordt nu opnieuw `student_join_free`/`quiz_start`
+aangeroepen (app.js resp. quiz-student.js) om de staat te hersynchroniseren. `set_offline()`
+en CDP-netwerk-emulatie bleken geen actieve WebSockets te raken in Playwright — uiteindelijk
+getest via een echte server-herstart (verbreekt de TCP-verbinding daadwerkelijk),
+bevestigd voor zowel vrije editor als toetsafname.
+
+Volledige testsuite: 324/324 na elke stap.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/lib/ai-grading.js`
+(nieuw) · `web/public/app.js` · `web/public/quiz-student.js` · `web/public/quiz-review.html` ·
+`web/public/quiz-review.js` · `web/public/styles.css`.
+
+---
+
+### Sprint 51-fix — Gewettigd afwezig markeren was te beperkt — ✅ AFGEROND (v2026.2.51.30)
+
+Sinds de auto-0-toekenning (sprint 51s) kon een leerling met ENIGE inhoud (halve inlevering
+of volledige score) niet meer als gewettigd afwezig gemarkeerd worden — checkbox enkel bij
+status 'niets'. En waar wel zichtbaar, bleef de score gewoon getoond na aanvinken.
+
+Fix 1: checkbox in de roster-weergave (app.js, Voortgang-modal) nu altijd zichtbaar,
+ongeacht status. Fix 2: score wordt null zodra status='gewettigd', in zowel het
+roster-endpoint als bouwKlasMatrix (server.js) — voorheen volledig onafhankelijk van
+status berekend.
+
+Getest: end-to-end met een leerling met echte score (18/18) — score verdwijnt correct na
+aanvinken, bevestigd via API en browsertest. 324/324 unit tests.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/app.js`.
+
+---
+
+### Sprint 51-fix — Verwarrende Stoppen-knop bij verlopen toets — ✅ AFGEROND (v2026.2.51.29)
+
+`availability='expired'` (tijd-gebaseerd) en `stoppedAt` (enkel gezet bij handmatig
+stoppen) liepen niet synchroon — de deadline-cronjob zette stoppedAt nooit automatisch,
+dus de "Stoppen"-knop (die enkel naar stoppedAt keek) bleef staan bij een vanzelf verlopen
+toets. Fix bij de bron: zowel de cronjob als een nieuwe lazy-check in
+GET /api/quiz-sessions zetten stoppedAt nu ook bij expired (de lazy-check vangt ook
+toetsen die nooit in het geheugen van een actieve server zaten). Fix in de weergave:
+nieuwe isActief()-helper in assignment-overview.js stuurt de knop; badge-volgorde toont
+"⛔ Venster voorbij" vóór het minder specifieke "⏹ gestopt".
+
+Getest: end-to-end (toets met deadline in het verleden, nooit handmatig gestopt) bevestigt
+automatische stoppedAt + verdwenen knop, met browsertest/screenshot die het gemelde scherm
+exact reproduceert. Twee controlescenario's (nog actief, handmatig gestopt vóór deadline)
+bevestigen geen regressie.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/assignment-overview.js`.
+
+---
+
+### Sprint 51-fix (v2) — Nakijkscherm: antwoord vs. antwoordsleutel gescheiden — ✅ AFGEROND (v2026.2.51.28)
+
+Elke vraag in het readonly-nakijkscherm toont nu twee gescheiden secties: "Jouw antwoord"
+(uitsluitend wat de leerling invulde/koos, geen correct/fout-markering — bij een lege
+keuzevraag blijft de volledige lijst zichtbaar, niets gemarkeerd, i.p.v. een verbergende
+"niet ingevuld"-tekst) en "Juiste antwoord" (aparte antwoordsleutel: groen voor keuzevragen,
+een echte readonly Monaco-editor met syntaxkleuren voor code i.p.v. een platte tekstblok).
+Geldt ook per onderdeel van een samengestelde vraag.
+
+Technisch: eigen, lichte Monaco-mount-helper in quiz-student.js voor meerdere gelijktijdige
+readonly-instances (leerlingcode + modelcode naast elkaar) — de gedeelde editor-component
+ondersteunt maar 1 instance per scherm.
+
+Getest: browsertests voor zowel volledig ingevuld (screenshot bevestigt eigen antwoord +
+antwoordsleutel correct naast elkaar, alle vraagtypes incl. composite) als halve inlevering
+(lege keuzelijst ongemarkeerd bij "Jouw antwoord", antwoordsleutel blijft apart zichtbaar).
+
+**Betrokken bestanden:** `web/public/quiz-student.js`.
+
+---
+
+### Sprint 51-fix — Readonly toets bij nakijken + vragenbank-tabs — ✅ AFGEROND (v2026.2.51.27)
+
+1) Nieuwe "📖 Toets openen"-knop op "Mijn resultaten" bij review_mode aan — hergebruikt het
+bestaande naam+klas-nakijkmechanisme, nu ook direct bruikbaar voor ingelogde leerlingen
+(nieuw endpoint `POST /api/student/my-results/:code/review-token`, token via sessionStorage
+i.p.v. URL). Resultatenlijst zelf vereenvoudigd naar enkel score + commentaar per vraag.
+
+Twee pre-existing bugs gevonden tijdens het bouwen (nakijk-scherm nooit eerder e2e getest):
+- `preprocessMarkdown`/`renderMarkdown` stonden per ongeluk genest binnen `goToQuestion()`'s
+  if-blok (block-scoped, dus nergens anders bereikbaar) — verplaatst naar top-level.
+- Composite-vragen werden nergens volledig getoond aan de leerling. `getMyResult` +
+  `buildMyResult` (lib/review-result.js) uitgebreid met answer_parts/part_answers/
+  part_scores; `renderVraagKaart` in quiz-student.js toont nu elk onderdeel apart.
+
+Getest: browsertest met alle vraagtypes (incl. 3-onderdelen composite) — screenshot
+bevestigt correcte weergave, geen JS-fouten. Regressietest van de live toetsafname
+(dezelfde goToQuestion-functie) bevestigt geen impact.
+
+2) Vragenbank: nieuw tabblad "📚 Overneembaar" voor gedeelde (niet-eigen) vragen, gescheiden
+van "Mijn vragen". Bug gevonden: event-delegation voor de vraagkaart-knoppen was enkel aan
+#q-grid gekoppeld, niet aan het nieuwe #q-grid-shared — "Overnemen" deed daardoor stil
+niets. Gefixt door de handler op beide grids te binden.
+
+Getest: browsertest bevestigt correcte tab-splitsing, geen Bewerken/Verwijderen op gedeelde
+vragen, en dat "Overnemen" een echte kopie maakt en het bewerkscherm opent.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/lib/review-result.js` ·
+`web/public/quiz-student.js` · `web/public/student-thuis.html` · `web/public/quiz-bank.html` ·
+`web/public/quiz-bank.js`.
+
+---
+
+### Sprint 51-fix — Vragenbank-eigendom: UI + kritieke bug — ✅ AFGEROND (v2026.2.51.26)
+
+1) "Bewerken"/"Verwijderen" stonden altijd in de vraagkaart, ook bij een gedeelde
+(school-scope) vraag van een collega — server weigerde terecht maar zonder vooraf-hint.
+Nu conditioneel op `isOwner`; niet-eigen vraag krijgt een "⧉ Overnemen"-knop (bestaand
+duplicate-mechanisme, hernoemd/verduidelijkt).
+
+2) Dieperliggende bug gevonden: 5 plekken bepaalden de eigenaar bij het aanmaken/dupliceren
+van een vraag via `parseBasicAuthHeader(req.headers.authorization)` — een mechanisme dat
+niet meer bestaat sinds de overstap naar sessie-cookie-login. Resultaat: nieuwe/overgenomen
+vragen kregen `created_by = null`, wat via de "onbekende eigenaar"-uitzondering in
+`magSessieBeheren` IEDEREEN bewerkrechten gaf i.p.v. enkel de aanmaker. Alle 5 plekken nu
+naar `req.teacher?.id`.
+
+Getest: gedeelde vraag toont enkel Overnemen; rechtstreeks bewerken geweigerd (403); na
+Overnemen krijgt de kopie een echte eigenaar en is bewerkbaar; eigen vraag blijft gewoon
+werken; school-admin-brede rechten (bewuste, bestaande regel) blijven intact.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/quiz-bank.js`.
+
+---
+
+### Sprint 51z — Beveiligingslek Archief + nakijken zonder vrijgave — ✅ AFGEROND (v2026.2.51.25)
+
+1) `GET /api/quiz/archive` had geen eigendom-filter — elke leerkracht zag toetsen van alle
+scholen. Bleek ook `PUT /api/quiz/new-school-year` (kon toetsen van anderen archiveren) en
+`GET /api/quiz/archive/student` (leerlingnamen andere scholen doorzoekbaar) te treffen. Nieuwe
+gedeelde helper `maakToetsToegangChecker()` (zelfde regel als /api/quiz-sessions) toegepast op
+alle drie. Lek bestond al langer maar was pas na de v23-routingfix daadwerkelijk bereikbaar.
+Getest: leerkracht school A vs. school B, volledige isolatie bevestigd.
+
+2) `listReleasedResultsForStudent`/`getReleasedResultDetail` vereisten altijd
+`results_released=true`, ondanks een bestaande comment die zei dat `review_mode` er los van
+zou moeten werken. Enkel "Nakijken" aanzetten (zonder vrijgave) liet de leerling dus volledig
+buiten. Beide functies uitgebreid: toegang bij `results_released OR review_mode`. Getest: 4
+scenario's (geen toegang zonder beide; nakijken-only geeft volledige readonly-toegang;
+release-only toont enkel score, geen code/antwoorden).
+
+Ontdekt maar niet gefixt (apart, niet-security): de "PDF rapport"-knop bij "Per leerling"
+roept een nergens bestaand endpoint aan (altijd 404).
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js`.
+
+---
+
+### Sprint 51-fix (vervolg) — Echte Monaco-editor voor modelantwoorden — ✅ AFGEROND (v2026.2.51.24)
+
+Modelantwoord bij een code-vraag/code-onderdeel gebruikt nu een echte, eigen (niet gedeelde)
+Monaco-editor-instance — dezelfde component als leerlingen tijdens een toets krijgen, i.p.v.
+een donkere textarea. Bewust geen hergebruik van de gedeelde editor-machinerie (die stuurt
+socket-updates naar een live sessie, ongewenst hier).
+
+3 bugs gevonden en gefixt tijdens het bouwen: (1) verkeerde scriptvolgorde t.o.v.
+marked.min.js gaf een RequireJS "anonymous define"-fout — rechtgezet naar dezelfde volgorde
+als quiz-student.html; (2) "+ Nieuwe vraag" initialiseerde de editor niet — nu hergebruikt
+dezelfde resetfunctie als Annuleren; (3) editor bleef leeg bij bewerken van een bestaande
+vraag omdat Monaco zijn containergrootte meet vóórdat het tabblad zichtbaar was — nu wordt
+het tabblad altijd eerst getoond.
+
+Getest: aanmaken, wisselen tussen alle vraagtypes zonder dataverlies, composite met
+code-onderdeel, en — met een volledige round-trip — bewerken van een bestaande vraag toont
+de opgeslagen code correct terug. Geen JS-fouten. Bevestigd met screenshots.
+
+**Betrokken bestanden:** `web/public/quiz-bank.html` · `web/public/quiz-bank.js`.
+
+---
+
+### Sprint 51-fix — Route-onbereikbaarheid + codeveld-styling — ✅ AFGEROND (v2026.2.51.23)
+
+Express matcht routes in registratievolgorde; `GET /api/quiz/:code` (regel 3164) stond vóór
+4 specifieke routes met een vast pad-segment, die daardoor systematisch onbereikbaar waren:
+`/api/quiz/archive` (verklaart "toets niet gevonden" + "undefined toetsen"-teller),
+`/api/quiz/new-school-year` (PUT, verklaart de archiveerfout), plus 2 zelf-ontdekte,
+niet-gemelde gevallen (`/api/quiz/comment-templates`, `/api/quiz/stats`). Alle 4 verplaatst
+naar vóór de wildcard. Getest met een browsertest die het exacte gemelde scenario herhaalt.
+
+Modelantwoord bij een code-vraag/code-onderdeel gebruikt nu de bestaande donkere
+code-editor-stijl (`.choice-code-input`) i.p.v. een gewoon wit veld. Onderweg een CSS-
+specificiteitsbotsing gevonden (`.form-row textarea` overschreef de class stilzwijgend) en
+gefixt. Getest: correct bij initieel laden én bij wisselen tussen vraagtypes.
+
+**Betrokken bestanden:** `web/server.js` · `web/public/quiz-bank.html` ·
+`web/public/quiz-bank.js`.
+
+---
+
+### Sprint 51y/51z — Single/multiple-choice als onderdeel-type + PDF-fix — ✅ AFGEROND (v2026.2.51.22)
+
+Composite-vragen ondersteunen nu ook single/multiple-choice als onderdeel-type (naast
+open/code). `normalizeAnswerParts` uitgebreid met choices-validatie; vragenbank-editor met
+volledige keuze-editor per onderdeel; leerlingscherm met radio's/checkboxes; automatische
+scoring via hergebruik van `computeAutoScore` (fake-question-wrapper per onderdeel);
+verbeterpagina toont gekozen optie(s) + correctheid; PDF toont optietekst + markering.
+
+Twee pre-existing bugs gevonden en gefixt tijdens het testen: (1) `quiz_submit_all` gaf
+`partAnswers` niet door aan `saveQuizAnswer` bij indienen — kon eerder opgeslagen
+onderdeel-antwoorden overschrijven; (2) `compositeAnswerBlock` was enkel bereikbaar binnen
+`generateQuizPDF`'s closure, niet vanuit de aparte ZIP-export-route — `ReferenceError` bij
+elke composite-vraag in een ZIP. Verplaatst naar module-niveau met `doc`/`scored`/
+`codeBlockFn` als parameters.
+
+Getest: volledige HTTP+socket.io end-to-end (correct/fout antwoord → juiste auto-score voor
+single én multiple), alle 4 onderdeel-types samen inclusief PDF- én ZIP-export (beiden
+crashten voorheen, nu bevestigd 200 met geldige inhoud). 324/324 unit tests.
+
+**Betrokken bestanden:** `web/db/database.js` · `web/server.js` · `web/public/quiz-bank.js` ·
+`web/public/quiz-student.js` · `web/public/quiz-review.js`.
+
+---
+
+### Sprint 51x — Vier meldingen na jaarwissel-feedback — ✅ AFGEROND (v2026.2.51.21)
+
+1) Leerling-toevoegen: defensieve try/catch (kon origineel niet reproduceren, wel een
+structurele stille-crash-kwetsbaarheid gevonden en gefixt, zelfde patroon als 51v).
+2) Schooljaar-dropdown gebruikte de kale kalenderberekening i.p.v. het echte actieve jaar
+(51u) — nu via `/api/teacher/active-school-year`, getest na een echte jaarwissel.
+3) Modelantwoord-veld kreeg `spellcheck="false"` (rode kronkels onder NL-woorden in
+Python-code) — bewust een gewoon tekstveld, geen uitvoerbare editor.
+4) Layout-bug composite-onderdelen: `.choice-row` (3-koloms grid voor single/multiple-choice)
+werd hergebruikt met 2 elementen, waardoor Grid alles in de 24px-kolom perste. Nieuwe
+`.part-row`-klasse (2 kolommen) lost dit op — getest: 24px → 957px breedte, screenshot
+bevestigd.
+
+Bewust NIET meegenomen: single/multiple-choice als onderdeel-type — te grote, meerlagige
+uitbreiding (datamodel + editor + leerlingscherm + scoren + verbeterpagina), volgt apart.
+
+**Betrokken bestanden:** `web/public/mijn-klassen.js` · `web/public/quiz-teacher.js` ·
+`web/public/quiz-bank.html` · `web/public/quiz-bank.js`.
+
+---
+
+### Sprint 51w — Onduidelijke actieve tab op het sessiescherm — ✅ AFGEROND (v2026.2.51.20)
+
+`.active-tab` werd correct toegevoegd/verwijderd door showTab() maar had nooit een CSS-regel
+gekregen — visueel dus onzichtbaar. Fix: primaire kleur (donkerblauw/wit) voor de actieve tab.
+Titel boven het paneel bleef ook altijd "Lopende sessies" tonen; wisselt nu mee: "Lopende
+sessies" (Sessies) / "Openstaande toetsen" (Toetsen) / "Openstaande taken" (Taken).
+
+Getest in een echte browser: kleurverschil en titelwissel bevestigd bij elke tab-klik.
+
+**Betrokken bestanden:** `web/public/styles.css` · `web/public/app.js` ·
+`web/public/teacher-sessions.html`.
+
+---
+
+### Sprint 51v — Toets/taak verwijderen + DELETE_ALL — ✅ AFGEROND (v2026.2.51.19)
+
+Verwijderen "lukte niet, geen melding": de knop riep het verkeerde endpoint aan
+(`/api/sessions/:code` i.p.v. `/api/quiz/:code`) zonder de vereiste naam-bevestiging, en de
+respons werd nooit gecontroleerd. Gefixt: juiste endpoint, altijd een duidelijke melding
+(succes of fout). Nieuw: bij bestaande activiteit (scores/commentaren/runs) een tweede,
+zwaardere stap waar "DELETE_ALL" getypt moet worden — anders volstaat de bestaande
+naam-bevestiging. Onderweg een pre-existing crash in `pyPrompt()` gevonden en gefixt
+(ontbrekende `cancelLabel`-declaratie, trof elke tekstinvoer-bevestiging in de app).
+
+Getest: 5 HTTP-scenario's tegen een echte server + een volledige browsertest van de
+tweetraps-modal-flow (eindigt met zichtbare succes-toast).
+
+**Betrokken bestanden:** `web/server.js` · `web/public/app.js`.
+
+---
+
+### Sprint 51u — Jaarwissel-workflow — ✅ AFGEROND (v2026.2.51.18, samen met 51t)
+
+Tweede deel van de jaarwissel-vraag. Nieuw `teachers.active_school_year` (permanent,
+niet sessie-gebonden), afgeleid via `bepaalActiefSchoolJaar` (expliciet → meest recente
+niet-gearchiveerde klas → kalenderberekening). Klas aanmaken en toets/taak zonder
+klaskoppeling gebruiken dit nu i.p.v. de oude hardcoded `'2025-2026'`/kale kalenderberekening.
+
+Nieuwe "Nieuw schooljaar starten"-actie in Mijn klassen: checkbox-lijst van eigen,
+niet-gearchiveerde klassen → archiveert gekozen klassen globaal (alle co-leerkrachten) en
+maakt een lege vervanger met dezelfde naam in het nieuwe jaar aan, gekoppeld aan dezelfde
+leerkracht(en) (geen duplicaten bij een co-leerkracht die al wisselde). Eigendom wordt per
+klas gevalideerd (IDOR-bestendig). Historische data blijft via de gearchiveerde klas
+raadpleegbaar.
+
+Getest: 11 backend-scenario's (incl. co-leerkracht + IDOR-poging), volledige HTTP
+end-to-end-test, browsertest van de modal-UI. Een schema-fout (ontbrekende DO $$-wrapper)
+tijdens het testen gevonden en gefixt.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` ·
+`web/public/mijn-klassen.html` · `web/public/mijn-klassen.js` ·
+`scripts/general/run-tests.sh`.
+
+---
+
+### Sprint 51t — Licentiesysteem per school — ✅ AFGEROND (v2026.2.51.18)
+
+Nieuw `schools.license_expires_at` (vervaldatum, null = nooit verloopt) naast het bestaande
+handmatige `active`. Login-blokkade (teacher-login + student-login) voor accounts van een
+school zonder geldige licentie, super-admin vrijgesteld, telt niet als mislukte poging.
+Beheer-UI toont een statusbadge per school en laat de vervaldatum wijzigen (platform-only).
+
+Ontwerpkeuze: de check zit geïsoleerd in de login-flow, niet verweven met brede
+autorisatiefuncties — voorkomt dat een net-verlopen licentie een lopende sessie breekt.
+
+Getest: 9 scenario's tegen een echte database (incl. een gevonden en gefixte bug —
+getSchoolsForTeacher gaf de vervaldatum niet door) + een volledige HTTP end-to-end-test.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/public/admin.js`.
+
+---
+
+### Sprint 51s — Schooljaar-koppeling, ontbrekende leerlingen & auto-0 — ✅ AFGEROND (v2026.2.51.17)
+
+**Schooljaar-mismatch:** het schooljaar van een toets werd blind uit de systeemdatum berekend,
+nooit uit de klas. Fix: dropdown die het schooljaar van de gekozen klas overneemt en
+vergrendelt (klas = bron van waarheid); vrij instelbaar zonder klas; bij bewerken blijft een
+bestaande mismatch zichtbaar tot de leerkracht de klas zelf aanraakt.
+
+**Ontbrekende leerlingen + auto-0:** `fillMissingQuizAnswers` (uitbreiding van 51o's
+`fillMissingQuizParticipants`) vult nu zowel niet-deelgenomen leerlingen als onbeantwoorde
+vragen van wel-gestarte leerlingen aan, allebei met automatische score 0
+(`geen_deelname`/`niet_beantwoord`-markers). Nu ook getriggerd bij het OPHALEN van de
+verbeterzone (niet enkel bij stoppen), robuust tegen elke manier waarop een toets stopte.
+Gele banner in de verbeterpagina maakt het onderscheid met een leerkracht-gegeven 0 duidelijk.
+
+Getest: backend (echte database, beide scenario's + idempotentie), schooljaar-dropdown (echte
+browser, incl. bewerk-scenario met een bestaande mismatch), en een volledige integratietest
+(aanmaken → klasoverzicht → stoppen → verbeterzone) die alle drie de fixes samen bevestigt.
+
+**Betrokken bestanden:** `web/server.js` · `web/db/database.js` · `web/public/quiz-review.js` ·
+`web/public/quiz-teacher.js` · `web/public/quiz-teacher.html`.
+
+---
+
+### Sprint 51r — Bevestiging bij opslaan algemene commentaar — ✅ AFGEROND (v2026.2.51.16)
+
+`saveGeneralComment()` gaf geen feedback bij succes of falen. Nu consistent met de score-opslag
+(sprint 51q): groene toast bij succes, rode toast bij een mislukte opslag (response niet ok of
+een netwerkfout), i.p.v. stil niets doen. Getest in de browser: beide toast-varianten
+verschijnen met de juiste tekst.
+
+**Betrokken bestanden:** `web/public/quiz-review.js`.
+
+---
+
+### Sprint 51q — Vrijgegeven resultaten + score-opslaan (laatste vraag) — ✅ AFGEROND (v2026.2.51.15)
+
+**Resultaten onzichtbaar:** de class_membership-eis bij de doelklas was te strikt — deelname
+is niet aan de doelklas gebonden (`quiz_start`) en verdwijnt na een klasverhuizing. Vervangen
+door "heeft zelf deelgenomen" (`quiz_answers.student_id`) als grens, in beide functies
+(`listReleasedResultsForStudent`, `getReleasedResultDetail`).
+
+**Score opslaan faalde stil:** zonder `answerId` (vraag nooit bekeken) deed `saveScore` niets.
+Nieuw upsert-endpoint + DB-functie `scoreQuizAnswerByQuestion` (op studentId+questionId,
+maakt de rij aan indien nodig); de verbeterpagina valt hier automatisch op terug.
+
+Getest tegen een echte database: beide fixes bevestigd werkend, plus een regressie-check dat
+wie niet deelnam nog steeds geen toegang krijgt (geen nieuw privacylek).
+
+**Betrokken bestanden:** `web/db/database.js` · `web/server.js` · `web/public/quiz-review.js`.
+
+---
+
+### Sprint 51p — Herhalende output bij code uitvoeren in een toets — ✅ AFGEROND (v2026.2.51.14)
+
+Regressie uit 51n. De server stuurt bij elke stdout-chunk de volledige, al cumulatief
+opgebouwde tekst; de `free_run_output`-listener in quiz-student.js deed echter `+=` i.p.v.
+`=`, wat een kwadratisch groeiend herhalingspatroon gaf (`1, 1,2, 1,2,3, …`). app.js (vrij
+oefenen) deed dit al correct met `=`. Fix: dezelfde `=`-toewijzing in quiz-student.js.
+
+Getest: de oude logica gesimuleerd bevestigt het exacte gemelde patroon; met de fix geeft
+`for i in range(1,11): print(i)` tegen een echte server+runner nu correct `1..10` zonder
+herhaling.
+
+**Betrokken bestanden:** `web/public/quiz-student.js`.
+
+---
+
+### Sprint 51o — Niet-deelgenomen leerlingen in de verbeterzone — ✅ AFGEROND (v2026.2.51.13)
+
+Bij het stoppen (handmatig/deadline) bleven leerlingen zonder enkele `quiz_answers`-rij
+volledig onzichtbaar in de verbeterzone/klasoverzicht. Nieuwe DB-functie
+`fillMissingQuizParticipants(sessionCode)`: voor elke actieve leerling van de doelklas zonder
+inzending, één lege placeholder-rij per vraag (`submitted_by='geen_deelname'`). Gekoppeld aan
+zowel `/api/quiz/:code/stop` als de automatische deadline-cronjob. Verbeterpagina toont nu
+"❌ niet deelgenomen"; klasoverzicht toont automatisch "Niets ingeleverd" via de bestaande
+`heeft_inhoud`-logica (geen aparte aanpassing nodig). Idempotent; enkel `status='active'`
+leerlingen (pending/blocked mochten toch nooit deelnemen).
+
+Getest tegen een echte database + de echte HTTP-flow: correcte aanvulling, idempotentie,
+en de volledige `/stop`-respons/verbeterlijst geverifieerd.
+
+**Betrokken bestanden:** `web/db/database.js` · `web/server.js` · `web/public/quiz-review.js`.
+
+---
 
 ### Sprint 51n — Code uitvoeren in toets/taak + monitoring-widget — ✅ AFGEROND (v2026.2.51.12)
 

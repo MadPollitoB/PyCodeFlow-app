@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets overzicht</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.12"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.81"/>
   <style>
     .ab-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px; }
     @media(max-width:900px){ .ab-grid { grid-template-columns:1fr; } }
@@ -27,6 +27,7 @@
     .empty-state { color:var(--muted); text-align:center; padding:40px; }
     .a-roster { margin-top:10px; padding-top:10px; border-top:1px dashed var(--border); }
   </style>
+  <link rel="stylesheet" href="/overzicht.css?v=v2026.2.51.104"/>
   <link rel="icon" href="/assets/favicon.png" type="image/png">
 </head>
 <body>
@@ -50,6 +51,7 @@
   <a href="/taak-overzicht.html" id="nav-taak">📝 Taak overzicht</a>
   <a href="/mijn-klassen.html">👥 Mijn klassen</a>
     <a href="/klasmatrix.html">📊 Klasoverzicht</a>
+    <a href="/training-overzicht.html">🎯 Trainingen</a>
   <a href="/sjablonen.html">📚 Bibliotheek</a>
   <a href="/quiz-archive.html">📦 Archief</a>
   <div class="subnav-sep"></div>
@@ -57,22 +59,22 @@
   <a href="/monitoring.html">⚙️ Systeem</a>
 </div></div>
 
-<div class="screen" style="max-width:1100px;margin:0 auto;padding:28px 20px;">
-  <h1 id="page-title" style="margin:0 0 6px;">Toets overzicht</h1>
+<div class="screen" style="max-width:1320px;margin:0 auto;padding:28px 20px;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+    <h1 id="page-title" style="margin:0 0 6px;">Toets overzicht</h1>
+    <a href="/quiz-teacher.html?type=toets" class="btn btn-primary small" id="new-btn">+ Nieuwe toets</a>
+  </div>
   <p class="muted" id="page-sub" style="margin:0 0 20px;">Beheer al je toetsen van het schooljaar.</p>
 
-  <div class="stats-bar" id="stats-bar"></div>
+  <div class="ov-tabs" id="ov-tabs"></div>
 
   <div class="filter-bar" id="filter-bar"></div>
 
-  <div style="margin-bottom:8px;">
-    <a href="/quiz-teacher.html?type=toets" class="btn btn-primary small" id="new-btn">+ Nieuwe toets</a>
-  </div>
 
   <div id="assignment-list"><p class="muted">Laden…</p></div>
 </div>
 
-<script src="/app.js?v=v2026.2.51.12"></script>
-<script src="/assignment-overview.js?v=v2026.2.51.12"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.12"></script></body>
+<script src="/app.js?v=v2026.2.51.104"></script>
+<script src="/assignment-overview.js?v=v2026.2.51.104"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.81"></script></body>
 </html>

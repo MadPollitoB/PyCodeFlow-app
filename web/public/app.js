@@ -6,9 +6,25 @@
                         'quiz-review.html', 'index.html', 'student-start.html', 'student', ''];
   const _currentPage = location.pathname.split('/').pop() || 'index.html';
   const socket = _socketPages.includes(_currentPage) && typeof io !== 'undefined'
-    ? io()
+    // Bugfix (sprint 62.1): standaard begint socket.io-client pas na 1s met
+    // herverbinden, oplopend tot 5s tussen pogingen — bovenop de tragere
+    // dode-verbinding-detectie die we nu ook al aan de serverkant verstrakt hebben.
+    // Sneller instellen zodat een herverbinding (en dus elke server->leerling-
+    // melding die daarop wachtte) merkbaar rapper hersteld is.
+    ? io({ reconnectionDelay: 200, reconnectionDelayMax: 1200 })
     : { on: () => {}, emit: () => {}, off: () => {}, connected: false };
   const page = location.pathname.split('/').pop() || 'index.html';
+
+  // Bugfix (sprint 62.2): "mijn-klassen.html mist een footer" — en potentieel andere
+  // pagina's ook, afhankelijk van of er verderop in dit bestand ooit een fout optreedt
+  // voor een specifiek scherm (bv. een ontbrekend DOM-element waar geen qs()-check op
+  // staat). Zo'n fout stopt de rest van DEZE synchrone scriptuitvoering, waardoor de
+  // (voorheen helemaal onderaan geregistreerde) footer-opbouw nooit meer aan de beurt
+  // kwam. injectFooter() is een function-declaratie (dus gehoist binnen deze IIFE) —
+  // door de registratie hier, meteen bovenaan, te zetten i.p.v. onderaan, gebeurt ze
+  // vóór al de rest, en blijft de footer dus gegarandeerd verschijnen ongeacht wat er
+  // verderop in het bestand misloopt op een specifieke pagina.
+  window.addEventListener('DOMContentLoaded', injectFooter);
 
   // Sprint 10T: verbindingsstatus indicator
   function updateConnectionStatus(status) {
@@ -33,9 +49,9 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
     } catch (e) { console.warn('[csrf] token ophalen mislukt:', e.message); }
     return _csrfToken || '';
   }
-  async function apiFetch(url, options = {}) {
+  async function apiFetch(url, options = {}, _herhaald = false) {
     const token = await getCSRFToken();
-    return fetch(url, {
+    const antwoord = await fetch(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -43,6 +59,18 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
         ...(options.headers || {}),
       },
     });
+    // v101: na een serverherstart/deploy is het onthouden CSRF-token ongeldig (403 "CSRF
+    // validatie mislukt") terwijl de pagina nog openstaat. Eén keer een vers token ophalen
+    // en dezelfde aanvraag herhalen, i.p.v. de gebruiker te laten herladen.
+    if (antwoord.status === 403 && !_herhaald) {
+      let tekst = '';
+      try { tekst = await antwoord.clone().text(); } catch { /* geen body */ }
+      if (/CSRF/i.test(tekst)) {
+        _csrfToken = null;
+        return apiFetch(url, options, true);
+      }
+    }
+    return antwoord;
   }
 
   // Sprint 10J: sneltoetsen overlay
@@ -671,11 +699,23 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
         // Vrije editor stuurt geen code_update naar de server (geen sessie-sync)
         if (owner === 'free') {
           scheduleSyntaxCheck('free', '/api/syntax-check-student');
-        } else {
-          socket.emit('code_update', { codeText: editorStore[owner].getValue() });
-          // Syntax check voor leerkracht
-          scheduleSyntaxCheck('teacher', '/api/syntax-check');
+          return;
         }
+        // Sprint 92: de quiz-editor viel voorheen in de catch-all hieronder mee (bedoeld voor
+        // de leerkracht-editor), wat een 'code_update' en een teacher-syntax-check triggerde
+        // die voor een toets nergens toe dienen (updateTeacherLiveView() in server.js doet
+        // sowieso niets buiten examenmodus). Eigen tak: laat quiz-student.js zelf bepalen wat
+        // er met elke tussentijdse wijziging gebeurt (tussentijdse autosave), zonder de
+        // gedeelde ensureEditor()-functie verder te belasten met toets-specifieke logica.
+        if (owner === 'quiz') {
+          if (typeof window.onQuizEditorChange === 'function') {
+            window.onQuizEditorChange(editorStore[owner].getValue());
+          }
+          return;
+        }
+        socket.emit('code_update', { codeText: editorStore[owner].getValue() });
+        // Syntax check voor leerkracht
+        scheduleSyntaxCheck('teacher', '/api/syntax-check');
       });
       editorStore[owner].onDidScrollChange(() => syncCustomGutter(owner));
       editorStore[owner].onDidChangeCursorPosition(() => renderCustomGutter(owner));
@@ -832,7 +872,7 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
           <strong style="font-size:1rem;">${escapeHtml(s.name)}</strong>
           <span class="badge ${s.status === 'geblokkeerd' ? 'badge-warn' : 'badge-success'}" style="font-size:0.75rem;flex-shrink:0;">${s.status}</span>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px;">
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:12px;">
           <div style="background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:6px 10px;">
             <div style="font-size:0.72rem;color:var(--muted);font-weight:700;margin-bottom:2px;">Type</div>
             <div style="font-size:0.85rem;font-weight:700;">${s.mode === 'exam' ? 'Examen' : 'Klas'}</div>
@@ -848,6 +888,10 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
           <div style="background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:6px 10px;">
             <div style="font-size:0.72rem;color:var(--muted);font-weight:700;margin-bottom:2px;">Codehulp</div>
             <div style="font-size:0.85rem;font-weight:700;">${s.editorAssist ? 'Aan' : 'Uit'}</div>
+          </div>
+          <div style="background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;padding:6px 10px;" title="${s.classNames && s.classNames.length ? escapeHtml(s.classNames.join(', ')) : 'Alle klassen van jou hebben toegang'}">
+            <div style="font-size:0.72rem;color:var(--muted);font-weight:700;margin-bottom:2px;">Klassen</div>
+            <div style="font-size:0.85rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.classNames && s.classNames.length ? escapeHtml(s.classNames.join(', ')) : 'Alle klassen'}</div>
           </div>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -1202,6 +1246,11 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
   }
 
   // Sprint 16: tab switcher voor teacher-sessions
+  // Sprint 51w (bugfix): de titel boven het paneel bleef altijd "Lopende sessies" staan,
+  // ongeacht welke tab actief was — samen met de ontbrekende .active-tab-stijl (zie
+  // styles.css) was niet te zien welke van Sessies/Toetsen/Taken je bekeek.
+  const TAB_TITEL = { sessions: 'Lopende sessies', quizzes: 'Lopende sessies',
+                       toetsen: 'Openstaande toetsen', taken: 'Openstaande taken' };
   window.showTab = function(name, btn) {
     const show = (id, on) => { const e = document.getElementById(id); if (e) e.style.display = on ? '' : 'none'; };
     show('tab-sessions', name === 'sessions');
@@ -1210,6 +1259,8 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
     show('tab-taken',    name === 'taken');
     document.querySelectorAll('.active-tab').forEach(b => b.classList.remove('active-tab'));
     if (btn) btn.classList.add('active-tab');
+    const titelEl = qs('sessions-panel-title');
+    if (titelEl && TAB_TITEL[name]) titelEl.textContent = TAB_TITEL[name];
     if (name === 'quizzes') loadQuizSessions();
     if (name === 'toetsen') loadActiveAssignments('toets');
     if (name === 'taken')   loadActiveAssignments('taak');
@@ -1321,6 +1372,7 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
     const activateBtn = q.isPreview ? `<button class="btn btn-primary small" onclick="activateQuiz('${q.code}')" title="Maak hier een echte toets van die je kan starten">▶ Activeren</button>` : '';
     const liveBtns = q.isPreview ? '' :
       `<a class="btn btn-soft small" href="/teacher-grid.html?code=${q.code}" target="_blank" title="Live meekijken">👁 Live</a>
+       <a class="btn btn-soft small" href="/toets-bord.html?code=${q.code}" target="_blank" title="Klasbord voor op de beamer: groen = bezig, geel = hand op, rood = tab verlaten, blauw = verbinding weg">🟩 Klasbord</a>
        <button class="btn btn-soft small" onclick="toggleQuizRoster('${q.code}')" title="Wie is klaar / bezig / nog niet begonnen">👥 Voortgang</button>`;
     return `
       <div class="student-item" style="margin-bottom:8px;">
@@ -1384,14 +1436,58 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
   window.deleteQuiz = async function(code) {
     const item = _quizByCode[code];
     const name = item ? (item.name || code) : code;
-    const msg = `Toets/taak "${name}" definitief uit de bank verwijderen?`;
-    const ok = window.pyConfirm ? await pyConfirm({ title: 'Verwijderen', body: msg, confirmLabel: 'Verwijderen', danger: true }) : window.confirm(msg);
-    if (!ok) return;
-    try {
-      await fetch(`/api/sessions/${encodeURIComponent(code)}`, { method: 'DELETE' });
+
+    // Sprint 51v (bugfix): dit riep voorheen het VERKEERDE endpoint aan (/api/sessions/:code
+    // i.p.v. /api/quiz/:code), zonder de vereiste naam-bevestiging mee te sturen, én zonder
+    // ooit de respons te controleren — dus zowel een succesvolle als een mislukte verwijdering
+    // gaven letterlijk geen enkele melding. Nu: het juiste endpoint, de naam ter bevestiging,
+    // en bij bestaande activiteit (scores/commentaren/runs) een tweede, zwaardere stap waar
+    // "DELETE_ALL" getypt moet worden — en in beide gevallen een duidelijke melding.
+    const typedName = await window.pyPrompt({
+      title: 'Toets/taak verwijderen',
+      body: `Dit verwijdert "${escapeHtml(name)}" definitief. Typ de naam ter bevestiging:`,
+      confirmLabel: 'Verwijderen',
+    });
+    if (typedName === null) return; // geannuleerd
+    if (typedName.trim().toLowerCase() !== name.trim().toLowerCase()) {
+      if (window.pyAlert) await pyAlert('De ingetypte naam komt niet overeen — niets verwijderd.', 'warn');
+      return;
+    }
+
+    const postDelete = async (confirmDeleteAll) => {
+      const r = await (window.apiFetch || fetch)(`/api/quiz/${encodeURIComponent(code)}`, {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmName: typedName, confirmDeleteAll }),
+      });
+      const data = await r.json().catch(() => ({}));
+      return { ok: r.ok, data };
+    };
+
+    let { ok, data } = await postDelete(undefined);
+
+    if (!ok && data.requiresDeleteAll) {
+      const typedDeleteAll = await window.pyPrompt({
+        title: '⚠️ Deze toets/taak heeft al ingeleverd werk',
+        body: (data.error || 'Er zijn al scores/commentaren/runs.') +
+              '<br/><br/>Typ <strong>DELETE_ALL</strong> om te bevestigen dat je ALLE scores, ' +
+              'commentaren en resultaten van leerlingen definitief wil verwijderen:',
+        confirmLabel: 'Alles verwijderen',
+      });
+      if (typedDeleteAll === null) return; // geannuleerd
+      if (typedDeleteAll.trim() !== 'DELETE_ALL') {
+        if (window.pyAlert) await pyAlert('Niet exact "DELETE_ALL" ingetypt — niets verwijderd.', 'warn');
+        return;
+      }
+      ({ ok, data } = await postDelete('DELETE_ALL'));
+    }
+
+    if (ok && data.ok) {
+      if (window.pyToast) pyToast(`"${name}" is verwijderd.`, 'success');
+      else if (window.pyAlert) await pyAlert(`"${name}" is verwijderd.`, 'success');
       await refreshQuizViews();
-    } catch (e) {
-      if (window.pyAlert) pyAlert('Verwijderen mislukt: ' + e.message, 'error'); else alert('Verwijderen mislukt: ' + e.message);
+    } else {
+      const msg = 'Verwijderen mislukt: ' + (data.error || 'onbekende fout');
+      if (window.pyAlert) await pyAlert(msg, 'error'); else alert(msg);
     }
   };
 
@@ -1400,8 +1496,8 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
   const _rosterBg  = { submitted:'#dcfce7', started:'#fef3c7', none:'#f1f5f9' };
   const _rosterLbl = { submitted:'Ingeleverd', started:'Bezig', none:'Nog niets' };
   function rosterChip(s) {
-    return `<span title="${_rosterLbl[s.status]}" style="display:inline-flex;align-items:center;gap:6px;background:${_rosterBg[s.status]};border:1px solid var(--border);border-radius:999px;padding:3px 10px;font-size:0.82rem;">
-      <span style="width:9px;height:9px;border-radius:50%;background:${_rosterDot[s.status]};flex-shrink:0;"></span>${escapeHtml(s.name)}</span>`;
+    return `<span title="${_rosterLbl[s.status] || s.status}" style="display:inline-flex;align-items:center;gap:6px;background:${_rosterBg[s.status] || '#f1f5f9'};border:1px solid var(--border);border-radius:999px;padding:3px 10px;font-size:0.82rem;">
+      <span style="width:9px;height:9px;border-radius:50%;background:${_rosterDot[s.status] || '#94a3b8'};flex-shrink:0;"></span>${escapeHtml(s.name)}${s.online ? ' 🟢' : ''}</span>`;
   }
   window.toggleQuizRoster = async function(code) {
     const box = document.getElementById('roster-' + code);
@@ -1422,6 +1518,12 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       const S = {
         op_tijd:   { icoon: '✅', label: 'op tijd',    kleur: '#166534' },
         te_laat:   { icoon: '🟠', label: 'te laat',    kleur: '#92400e' },
+        // Sprint 81: "bezig" — heeft al iets gedaan maar nog niet ingediend, terwijl de
+        // toets/taak nog gewoon open staat. Dit toonde voorheen ten onrechte als "te laat".
+        bezig:     { icoon: '🕓', label: 'bezig',      kleur: '#a16207' },
+        // Sprint 84: automatisch ingediend door anti-spiek (sprint 83) — een eigen status
+        // zodat dit niet onopgemerkt als gewoon "op tijd" verschijnt.
+        tab_switch: { icoon: '🚫', label: 'auto-ingediend (tabwissel)', kleur: '#dc2626' },
         niets:     { icoon: '⬜', label: 'niets',      kleur: '#64748b' },
         gewettigd: { icoon: '🅰', label: 'gewettigd',  kleur: '#1d4ed8' },
         nvt:       { icoon: '➖', label: 'nog geen lid', kleur: '#94a3b8' },
@@ -1432,25 +1534,80 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
           <strong>${escapeHtml(d.className || 'Klas')}</strong>
           <span style="color:${S.op_tijd.kleur};">✅ ${c.op_tijd} op tijd</span>
           <span style="color:${S.te_laat.kleur};">🟠 ${c.te_laat} te laat</span>
+          ${c.bezig ? `<span style="color:${S.bezig.kleur};">🕓 ${c.bezig} bezig</span>` : ''}
+          ${c.tab_switch ? `<span style="color:${S.tab_switch.kleur};font-weight:700;">🚫 ${c.tab_switch} auto-ingediend (tabwissel)</span>` : ''}
           <span style="color:${S.niets.kleur};">⬜ ${c.niets} niets</span>
           ${c.gewettigd ? `<span style="color:${S.gewettigd.kleur};">🅰 ${c.gewettigd} gewettigd</span>` : ''}
           ${c.nvt ? `<span style="color:${S.nvt.kleur};">➖ ${c.nvt} n.v.t.</span>` : ''}
           <span class="muted">· ${c.total} leerlingen</span>
+          ${c.live ? `<span style="color:#166534;font-weight:700;">🟢 ${c.live} live nu</span>` : ''}
           <button class="btn btn-muted small" style="margin-left:auto;" onclick="toggleQuizRoster('${code}');toggleQuizRoster('${code}')" title="Vernieuwen">↻</button>
         </div>`;
 
+      // Sprint 78: als de gekoppelde klas géén (actieve) leerlingen oplevert terwijl er
+      // een andere, actuele klas met dezelfde naam wél leerlingen heeft (bv. een toets die
+      // nog aan "6BW" van een vorig schooljaar hangt), tonen we dat expliciet i.p.v. enkel
+      // "geen leerlingen" — dat klopte niet en verborg de echte oorzaak.
+      const mismatchBanner = d.classMismatch ? `
+        <div style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:0.82rem;">
+          ⚠️ Deze toets/taak is gekoppeld aan <strong>${escapeHtml(d.classMismatch.linkedClassName)}
+          (${escapeHtml(d.classMismatch.linkedSchoolYear || '?')}${d.classMismatch.linkedArchived ? ', gearchiveerd' : ''})</strong>,
+          maar dat schooljaar komt niet overeen met wat je nu instelde${d.classMismatch.assignmentSchoolYear ? ` (${escapeHtml(d.classMismatch.assignmentSchoolYear)})` : ''}.
+          ${d.classMismatch.suggestion
+            ? `Bedoelde je <strong>${escapeHtml(d.classMismatch.suggestion.name)} (${escapeHtml(d.classMismatch.suggestion.schoolYear)})</strong>,
+               met ${d.classMismatch.suggestion.studentCount} leerling${d.classMismatch.suggestion.studentCount === 1 ? '' : 'en'}?`
+            : ''}
+          Ga naar <strong>Bewerken</strong> en kies de juiste klas opnieuw.
+        </div>` : '';
+
       const rij = st => {
         const info = S[st.status] || S.niets;
-        // Aanvinken kan enkel voor wie NIETS inleverde — wie werk indiende is niet afwezig.
-        const aanvinkbaar = st.status === 'niets' || st.status === 'gewettigd';
+        // Sprint 51-fix: "gewettigd" was voorheen enkel aanvinkbaar bij status 'niets' — een
+        // leerling die WEL iets indiende (bv. een halve inlevering, met sinds sprint 51s
+        // automatisch score 0 voor de onbeantwoorde vragen) bleef op 'op_tijd'/'te_laat'
+        // staan, en kon dan niet meer als gewettigd afwezig gemarkeerd worden — ook niet als
+        // hij bv. ziek werd halverwege de toets. De leerkracht heeft hier altijd het
+        // laatste woord, ongeacht de automatisch berekende status.
+        const aanvinkbaar = true;
+        // Sprint 79: "Heropenen" enkel tonen als er écht een indiening is (submittedAt
+        // gezet) — 'te_laat' kan ook betekenen dat de deadline verstreek zonder dat de
+        // leerling ooit op "indienen" klikte, en dan is er niets om terug open te zetten.
+        // Sprint 86: én enkel als de toets/taak ZELF nog niet afgelopen is (niet gestopt,
+        // deadline nog niet verstreken) — anders kan de leerling er sowieso niet meer in
+        // (quiz_start weigert dat altijd), en zou de knop iets beloven dat niet meer kan.
+        const heropenKnop = (st.submittedAt && d.kanHeropenen)
+          ? `<button class="btn btn-muted small" style="font-size:0.78rem;padding:2px 8px;"
+               onclick="heropenLeerling('${code}','${st.id}','${escapeHtml(st.name).replace(/'/g, "\\'")}')"
+               title="Zet deze toets/taak terug open zodat de leerling verder kan werken">↺ Heropenen</button>`
+          : st.submittedAt && !d.kanHeropenen
+            ? `<span class="muted" style="font-size:0.78rem;" title="${d.stoppedAt ? 'Deze toets/taak is gestopt' : 'De deadline is al verstreken'} — heropenen kan dan niet meer (de leerling kan er sowieso niet meer in)">—</span>`
+            : '<span class="muted" style="font-size:0.78rem;">—</span>';
+        // Sprint 89: "hoeveel vragen al beantwoord?" was hier voorheen nergens te zien —
+        // enkel de globale status (op tijd/te laat/...), niet HOEVER een leerling al staat.
+        // Deze chip toont dat altijd (X/Y), en opent bij klikken hetzelfde soort overzicht
+        // dat de leerling zelf ziet vóór het indienen (welke vragen precies wel/niet).
+        const voortgangChip = (st.progress && st.progress.total > 0)
+          ? `<button class="btn btn-muted small voortgang-chip" style="font-size:0.78rem;padding:2px 8px;"
+               data-student="${escapeHtml(st.name)}"
+               data-progress='${escapeHtml(JSON.stringify(st.progress))}'
+               title="Klik voor een overzicht per vraag">${st.progress.answered}/${st.progress.total}</button>`
+          : '<span class="muted" style="font-size:0.78rem;">—</span>';
+        // Sprint 95: "↻ Toets heropenen" (bulk) gaf deze leerling een eigen, nieuwe
+        // toegang — zichtbaar maken zodat duidelijk is waarom hij/zij, ook ná een gestopte/
+        // verstreken toets, toch weer op "bezig" kan staan.
+        const individueelChip = (st.individueleToegangTot && st.individueleToegangTot > Date.now())
+          ? ` <span class="badge" style="background:#ede9fe;color:#5b21b6;" title="Individueel heropend">↻ tot ${new Date(st.individueleToegangTot).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' })}</span>`
+          : '';
         return `<tr>
-          <td style="padding:4px 8px;">${escapeHtml(st.name)}</td>
-          <td style="padding:4px 8px;color:${info.kleur};white-space:nowrap;">${info.icoon} ${info.label}</td>
+          <td style="padding:4px 8px;">${escapeHtml(st.name)}${st.online ? ' <span title="Nu live verbonden" style="color:#16a34a;">🟢</span>' : ''}</td>
+          <td style="padding:4px 8px;color:${info.kleur};white-space:nowrap;">${info.icoon} ${info.label}${individueelChip}</td>
+          <td style="padding:4px 8px;text-align:center;">${voortgangChip}</td>
           <td style="padding:4px 8px;text-align:center;">${
             aanvinkbaar
               ? `<label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:0.8rem;white-space:nowrap;"><input type="checkbox" ${st.status === 'gewettigd' ? 'checked' : ''}
                    onchange="zetLeerlingStatus('${code}','${st.id}', this.checked)"/><span>gewettigd</span></label>`
               : '<span class="muted" style="font-size:0.78rem;">—</span>'}</td>
+          <td style="padding:4px 8px;text-align:center;">${heropenKnop}</td>
         </tr>`;
       };
 
@@ -1459,20 +1616,184 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
              <thead><tr style="background:var(--bg);">
                <th style="text-align:left;padding:4px 8px;">Leerling</th>
                <th style="text-align:left;padding:4px 8px;">Status</th>
+               <th style="padding:4px 8px;white-space:nowrap;">Voortgang</th>
                <th style="padding:4px 8px;white-space:nowrap;">Afwezigheid</th>
+               <th style="padding:4px 8px;white-space:nowrap;">Indiening</th>
              </tr></thead><tbody>${d.students.map(rij).join('')}</tbody></table></div>
            <p class="muted" style="font-size:0.78rem;margin:6px 0 0;">
-             Gewettigd afwezig telt niet mee voor het klasgemiddelde.</p>`
+             Gewettigd afwezig en 🕓 bezig tellen niet mee voor het klasgemiddelde. 🚫 auto-ingediend
+             (tabwissel) telt wél mee — gebruik "Heropenen" als je die leerling een nieuwe kans wil geven.
+             🟢 = nu live verbonden. Klik op de voortgang (bv. "7/10") voor een overzicht per
+             vraag. "Heropenen" zet een per ongeluk of automatisch ingediende
+             toets/taak terug open voor die leerling (bestaande antwoorden blijven staan).
+             ${!d.kanHeropenen ? `Deze toets/taak is zelf ${d.stoppedAt ? 'gestopt' : 'al voorbij (deadline verstreken)'} —
+             heropenen kan dan niet meer, want de leerling kan er sowieso niet meer in. Verleng eerst de
+             deadline via "Bewerken" als je dat toch nog wil.` : ''}</p>`
         : '<span class="muted" style="font-size:0.85rem;">Geen leerlingen in deze klas voor dit schooljaar.</span>';
 
       const extras = (d.extras && d.extras.length)
         ? `<div style="margin-top:10px;font-size:0.8rem;"><span class="muted">Niet in de klas (andere naam ingetypt?):</span><div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">${d.extras.map(rosterChip).join('')}</div></div>`
         : '';
-      box.innerHTML = legend + tabel + extras;
+
+      // Sprint 90: zelfevaluatie-enquête ná het indienen — samenvatting (stemmingsverdeling
+      // + percentages per stelling) EN per-leerling detail, beide op dezelfde plek als de
+      // rest van de Voortgang ("Beide", zoals gevraagd).
+      const zelfeval = renderZelfevaluatieSamenvatting(d);
+
+      box.innerHTML = mismatchBanner + legend + tabel + extras + zelfeval;
     } catch (e) {
       box.innerHTML = '<span class="muted">Fout bij laden voortgang.</span>';
     }
   };
+
+  // ── Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij toetsen die dit hebben
+  // aanstaan). Vaste vragenlijst — bewust gedupliceerd t.o.v. lib/validation.js/
+  // quiz-student.js (geen gedeelde bundelaar in dit project), enkel om labels te tonen bij
+  // de item-id's die de roster meestuurt.
+  const ZELFEVAL_STEMMINGEN = [
+    { id: 'zeer_slecht', icoon: '💀', label: 'Heel slecht' },
+    { id: 'slecht', icoon: '☹️', label: 'Slecht' },
+    { id: 'neutraal', icoon: '😐', label: 'Neutraal' },
+    { id: 'goed', icoon: '🙂', label: 'Goed' },
+    { id: 'uitstekend', icoon: '⭐', label: 'Uitstekend' },
+  ];
+  const ZELFEVAL_CATEGORIEEN = [
+    { id: 'voorbereiding', titel: 'Voorbereiding', items: [
+      { id: 'gelezen_1x', tekst: 'Ik heb de leerstof 1 keer gelezen.' },
+      { id: 'gelezen_meermaals', tekst: 'Ik heb de leerstof meerdere keren gelezen.' },
+      { id: 'grondig_geleerd', tekst: 'Ik heb de leerstof grondig geleerd.' },
+    ] },
+    { id: 'verwerking', titel: 'Verwerking van de leerstof', items: [
+      { id: 'samenvatting', tekst: 'Ik heb een samenvatting gemaakt.' },
+      { id: 'herhaald_3x', tekst: 'Ik heb de samenvatting minstens 3 keer herhaald.' },
+      { id: 'begrippenlijst', tekst: 'Ik heb een begrippenlijst geleerd.' },
+      { id: 'extra_uitleg', tekst: 'Ik heb extra uitleg gevraagd (aan de leerkracht of een klasgenoot).' },
+      { id: 'ondervraagd', tekst: 'Iemand heeft mij ondervraagd.' },
+    ] },
+    { id: 'oefenen', titel: 'Oefenen', items: [
+      { id: 'oefeningen_gemaakt', tekst: 'Ik heb oefeningen gemaakt.' },
+      { id: 'oefeningen_herhaald', tekst: 'Ik heb oefeningen opnieuw gemaakt / herhaald.' },
+      { id: 'extra_oefeningen', tekst: 'Ik heb extra oefeningen gemaakt (online of in het boek).' },
+      { id: 'geen_oefeningen', tekst: 'Ik heb geen oefeningen gemaakt.' },
+    ] },
+    { id: 'planning', titel: 'Planning', items: [
+      { id: 'op_tijd', tekst: 'Ik ben op tijd begonnen met leren (enkele dagen op voorhand).' },
+      { id: 'laat', tekst: 'Ik ben laat begonnen (de dag ervoor).' },
+      { id: 'zelfde_dag', tekst: 'Ik ben pas op de dag zelf begonnen.' },
+    ] },
+    { id: 'aandachtspunten', titel: 'Aandachtspunten', items: [
+      { id: 'niet_voldoende', tekst: 'Ik heb niet (voldoende) geleerd.' },
+      { id: 'verkeerde_leerstof', tekst: 'Ik heb de verkeerde leerstof geleerd.' },
+      { id: 'vergeten', tekst: 'Ik was vergeten dat er een toets was.' },
+      { id: 'gestrest', tekst: 'Ik was gestresseerd/nerveus tijdens de toets.' },
+      { id: 'te_weinig_tijd', tekst: 'Ik had te weinig tijd om alles af te werken.' },
+      { id: 'niet_goed_gevoeld', tekst: 'Ik voelde me niet goed (ziek, moe, ...).' },
+      { id: 'vraagstelling_onduidelijk', tekst: 'Ik begreep bepaalde vragen niet goed.' },
+      { id: 'afgeleid', tekst: 'Ik liet me afleiden tijdens het leren of tijdens de toets.' },
+      { id: 'geen_aandachtspunten', tekst: 'Ik had geen aandachtspunten — het verliep goed.' },
+    ] },
+  ];
+
+  function renderZelfevaluatieSamenvatting(d) {
+    if (!d.selfEvalEnabled) return '';
+    const z = d.zelfevaluaties;
+    if (!z || !z.totaalIngevuld) {
+      return `<div style="margin-top:14px;padding:10px 12px;background:var(--bg);border-radius:8px;font-size:0.82rem;">
+        <strong>📝 Zelfevaluatie</strong> — nog niemand heeft deze ingevuld.
+      </div>`;
+    }
+    const stemmingRij = ZELFEVAL_STEMMINGEN.map(s => {
+      const n = z.stemmingTellingen?.[s.id] || 0;
+      return n ? `<span title="${escapeHtml(s.label)}">${s.icoon} ${n}</span>` : '';
+    }).filter(Boolean).join(' &nbsp; ');
+    const itemRijen = ZELFEVAL_CATEGORIEEN.map(c => {
+      const items = c.items.map(it => {
+        const n = z.itemTellingen?.[c.id]?.[it.id] || 0;
+        const pct = z.totaalIngevuld ? Math.round((n / z.totaalIngevuld) * 100) : 0;
+        return `<div style="display:flex;justify-content:space-between;gap:10px;font-size:0.78rem;padding:2px 0;">
+          <span class="muted">${escapeHtml(it.tekst)}</span><span>${n} (${pct}%)</span>
+        </div>`;
+      }).join('');
+      return `<div style="margin-top:6px;"><strong style="font-size:0.82rem;">${escapeHtml(c.titel)}</strong>${items}</div>`;
+    }).join('');
+    return `<div style="margin-top:14px;padding:10px 12px;background:var(--bg);border-radius:8px;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <strong style="font-size:0.85rem;">📝 Zelfevaluatie</strong>
+        <span class="muted" style="font-size:0.8rem;">${z.totaalIngevuld} ingevuld</span>
+        <span style="font-size:0.9rem;">${stemmingRij}</span>
+        <button class="btn btn-muted small zelfeval-detail-btn" style="margin-left:auto;font-size:0.78rem;padding:2px 8px;"
+          data-zelfeval='${escapeHtml(JSON.stringify(z))}' title="Overzicht per leerling">📋 Per leerling</button>
+      </div>
+      <div style="margin-top:6px;">${itemRijen}</div>
+    </div>`;
+  }
+
+  window.toonZelfevaluatieDetailPerLeerling = function(z) {
+    if (!z || !z.perStudent || !z.perStudent.length) {
+      if (window.pyAlert) pyAlert('Nog geen zelfevaluaties ingevuld.', 'info');
+      return;
+    }
+    const stemmingMap = new Map(ZELFEVAL_STEMMINGEN.map(s => [s.id, s]));
+    const rijenHtml = z.perStudent
+      .slice()
+      .sort((a, b) => (a.studentName || '').localeCompare(b.studentName || '', 'nl'))
+      .map(p => {
+        const s = stemmingMap.get(p.stemming);
+        const categorieDetail = ZELFEVAL_CATEGORIEEN.map(c => {
+          const gekozen = (p.antwoorden?.[c.id] || [])
+            .map(itemId => c.items.find(it => it.id === itemId)?.tekst)
+            .filter(Boolean);
+          if (!gekozen.length) return '';
+          return `<div style="font-size:0.78rem;margin-top:2px;"><span class="muted">${escapeHtml(c.titel)}:</span> ${gekozen.map(escapeHtml).join('; ')}</div>`;
+        }).join('');
+        return `<div style="padding:8px 0;border-bottom:1px solid #f1f5f9;">
+          <div style="font-weight:700;font-size:0.9rem;">${s ? s.icoon : ''} ${escapeHtml(p.studentName || '(onbekend)')}</div>
+          ${categorieDetail}
+        </div>`;
+      }).join('');
+    if (window.pyAlert) pyAlert(`<div style="font-weight:800;margin-bottom:8px;">Zelfevaluatie per leerling</div>${rijenHtml}`, 'info');
+  };
+
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest && e.target.closest('.zelfeval-detail-btn');
+    if (!btn) return;
+    let z = null;
+    try { z = JSON.parse(btn.dataset.zelfeval || 'null'); } catch { z = null; }
+    toonZelfevaluatieDetailPerLeerling(z);
+  });
+
+  // Sprint 89: overzicht per vraag voor één leerling — dezelfde soort lijst als de leerling
+  // zelf te zien krijgt vóór het indienen (openSubmitScreen() in quiz-student.js), maar dan
+  // voor de leerkracht, opgebouwd uit de progress-data die de roster al meestuurt (geen
+  // extra request nodig). Gebruikt data-attributen i.p.v. inline onclick-argumenten, want
+  // de vraaginhoud (vaknaam e.d.) kan aanhalingstekens bevatten die een inline onclick-string
+  // zouden breken.
+  window.toonVraagOverzichtLeerling = function(studentName, progress) {
+    if (!progress || !progress.total) {
+      if (window.pyAlert) pyAlert(`Nog geen vraaggegevens beschikbaar voor ${escapeHtml(studentName)}.`, 'info');
+      return;
+    }
+    const rijenHtml = progress.perQuestion.map((q, i) => {
+      const icon = q.answered ? '✅' : '⬜';
+      const vak = q.subject ? ` · ${escapeHtml(q.subject)}` : '';
+      return `<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid #f1f5f9;font-size:0.85rem;">
+        <span>${icon} Vraag ${i + 1}${vak}</span>
+        <span class="muted">${q.points} pt</span>
+      </div>`;
+    }).join('');
+    const html = `<div style="font-weight:800;margin-bottom:8px;">${escapeHtml(studentName)} — ${progress.answered}/${progress.total} vragen beantwoord</div>${rijenHtml}`;
+    if (window.pyAlert) pyAlert(html, 'info'); else alert(`${studentName}: ${progress.answered}/${progress.total}`);
+  };
+
+  // Eén gedelegeerde listener voor alle voortgang-chips (die per rij opnieuw gerenderd
+  // worden bij elke ↻ van de Voortgang) i.p.v. telkens opnieuw een listener toevoegen.
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest && e.target.closest('.voortgang-chip');
+    if (!btn) return;
+    let progress = null;
+    try { progress = JSON.parse(btn.dataset.progress || 'null'); } catch { progress = null; }
+    toonVraagOverzichtLeerling(btn.dataset.student || '', progress);
+  });
 
   // Sprint 70: gewettigd afwezig aan/uit voor één leerling bij één toets.
   window.zetLeerlingStatus = async function(code, studentId, aan) {
@@ -1487,6 +1808,28 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       toggleQuizRoster(code); toggleQuizRoster(code);
     } catch (e) {
       await pyAlert('Kon de afwezigheid niet bewaren: ' + e.message, 'error');
+    }
+  };
+
+  // Sprint 79: een per ongeluk ingediende toets/taak terug openzetten voor één leerling.
+  window.heropenLeerling = async function(code, studentId, studentName) {
+    const ok = await pyConfirm({
+      title: 'Heropenen?',
+      body: `De toets/taak van "${studentName}" terug openzetten? De leerling kan dan verder ` +
+            `werken en later opnieuw indienen. Bestaande antwoorden blijven behouden.`,
+      confirmLabel: 'Heropenen',
+    });
+    if (!ok) return;
+    try {
+      const fetcher = window.apiFetch || fetch;
+      const r = await fetcher('/api/quiz-sessions/' + code + '/roster/' + studentId + '/reopen', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentName }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+      toggleQuizRoster(code); toggleQuizRoster(code);
+    } catch (e) {
+      await pyAlert('Kon de toets/taak niet heropenen: ' + e.message, 'error');
     }
   };
 
@@ -1507,6 +1850,12 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
   };
 
   if (page === 'teacher-sessions.html') {
+    // Bugfix (sprint 60.1): dit is de LIJST-pagina, geen specifieke sessie — laat de
+    // server expliciet weten dat deze leerkracht-socket nergens "in" zit. Dekt het
+    // geval waarbij een leerkracht net een sessie aanmaakte en op deze lijst blijft
+    // staan zonder ooit op "Open" te klikken (dan bleef teacherSocketId anders onterecht
+    // bezet, en zagen leerlingen nooit de "leerkracht niet ingelogd"-melding).
+    socket.emit('teacher_leave_all_sessions');
     // Sprint 43.2b/43.7: rechtstreeks naar de toetsen-/takenbank via ?tab=quizzes(&type=toets|taak)
     if (new URLSearchParams(location.search).get('tab') === 'quizzes') {
       const t = new URLSearchParams(location.search).get('type');
@@ -1562,16 +1911,31 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       });
     });
     updateCreateAssistBadge();
-    qs('create-session-btn')?.addEventListener('click', () => {
+    // Bugfix (13a): vóór het aanmaken van een gewone (klas)sessie eerst vragen welke
+    // klassen er toegang toe krijgen. Bij examenmodus slaan we dit bewust over — een
+    // examensessie werkt via de sessiecode, niet via de klassen-dropdown van leerlingen.
+    qs('create-session-btn')?.addEventListener('click', async () => {
       const templateSel = qs('template-select');
       const templateCode = templateSel?.value
         ? (templateSel.options[templateSel.selectedIndex]?.dataset?.code || '')
         : '';
+      let classIds = null;
+      if (selectedMode !== 'exam') {
+        let klassen = [];
+        try {
+          const r = await apiFetch('/api/classes');
+          if (r.ok) klassen = await r.json();
+        } catch (e) { /* geen klassen kunnen laden → gewoon "alle klassen" */ }
+        const keuze = await window.pyClassPicker(klassen);
+        if (keuze === undefined) return; // geannuleerd
+        classIds = keuze; // null = alle klassen, of een array met gekozen klas-id's
+      }
       socket.emit('teacher_create_session', {
         name: qs('session-name').value.trim() || 'Nieuwe sessie',
         mode: selectedMode,
         editorAssist: selectedEditorAssist,
         templateCode: templateCode || undefined,
+        classIds,
       });
     });
     socket.on('session_created', ({ code }) => {
@@ -1769,6 +2133,36 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       socket.emit('student_join_free', { name, className });
     })();
 
+    // Sprint 51-fix: bij een oneindige lus bleef de "Run"-knop op sommige apparaten
+    // (gemeld: iPad, niet reproduceerbaar op laptop) geblokkeerd nadat de server de run al
+    // lang gestopt had. Oorzaak: Safari/iOS sluit een WebSocket-verbinding vaker dan andere
+    // browsers bij tab-wissel, schermvergrendeling of het naar de achtergrond gaan van de
+    // app — de server-kant "free_run_end"-melding werd dan naar een inmiddels VERBROKEN
+    // socket gestuurd en kwam dus nooit aan. Bij de daaropvolgende automatische herverbinding
+    // (nieuw socket.id) bleef de client-kant UI-status (o.a. de gedeactiveerde knop, zie
+    // eerdere sprint 51-fix) gewoon hangen op "run actief", want er was geen enkel mechanisme
+    // dat de status na een herverbinding opnieuw ophaalde. socket.on('connect', ...) triggert
+    // in socket.io ook bij een HERverbinding (niet enkel de allereerste) — we detecteren dat
+    // via een vlag die bij 'disconnect' gezet wordt, en sturen dan gewoon opnieuw
+    // student_join_free: dat geeft een verse, gegarandeerd correcte staat (Run-knop weer
+    // bruikbaar) terug, ook al is de eventuele oude, vastgelopen run zelf niet meer te traceren
+    // (die loopt hoe dan ook af via de CPU-tijdslimiet van de runner zelf).
+    let _freeHadDisconnected = false;
+    socket.on('disconnect', () => { _freeHadDisconnected = true; });
+    socket.on('connect', () => {
+      if (!_freeHadDisconnected) return;
+      _freeHadDisconnected = false;
+      const name = getLS('freeStudentName', '') || 'Gast';
+      const className = getLS('freeStudentClass', '');
+      socket.emit('student_join_free', { name, className });
+      // Reset ook de lokale UI-status defensief, voor het geval het server-antwoord
+      // uitblijft of vertraagd is.
+      _freeRunActive = false;
+      const runBtn = qs('free-run-btn');
+      if (runBtn) runBtn.disabled = false;
+      disableInput('free');
+    });
+
     // Editor initialiseren zodra server bevestigt
     // Sprint 30-copy: contextuele kopieerknop (free-copy-btn) via inline onclick
     updateCopyButtonLabel('free');
@@ -1787,6 +2181,13 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
     // Run-knop
     qs('free-run-btn')?.addEventListener('click', () => {
       _freeRunActive = true;
+      // Sprint 51-fix: de knop bleef voorheen klikbaar tijdens een lopende run (ook
+      // tijdens het wachten op input) — snel meermaals klikken kon zo tot 2-3 tegelijk
+      // lopende poll-loops leiden die elkaars output vermengden (zie server.js-fix).
+      // De server is nu robuust tegen dat scenario, maar de knop hier uitschakelen
+      // voorkomt de nodeloze extra runs meteen aan de bron.
+      const btn = qs('free-run-btn');
+      if (btn) { btn.disabled = true; btn.dataset.wasDisabled = '1'; }
       const panel = qs('free-output-panel');
       if (panel) panel.textContent = '';
       const code = getEditorValue('free');
@@ -1879,6 +2280,8 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
     socket.on('free_run_end', () => {
       _freeRunActive = false;
       disableInput('free');
+      const btn = qs('free-run-btn');
+      if (btn) btn.disabled = false;
     });
     socket.on('free_run_rate_limited', ({ waitMs }) => {
       const panel = qs('free-output-panel');
@@ -1935,6 +2338,238 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
     qs('toggle-run-all-btn')?.addEventListener('click', () => socket.emit('teacher_toggle_all', { field: 'run' }));
     qs('teacher-toggle-workspace-btn')?.addEventListener('click', () => socket.emit('teacher_toggle_class_workspace'));
     qs('toggle-code-all-btn')?.addEventListener('click', () => socket.emit('teacher_toggle_all', { field: 'code' }));
+
+    // ── Sprint 66: fullscreen-modus ──────────────────────────────────────────
+    let _tfsActive = false;
+    let _tfsCurrentIsPersonal = false; // Sprint 66.2: laatst gekende modus, voor de 2-knops-schakelaar
+    function tfsRender(dataOverride) {
+      if (!_tfsActive) return;
+      // Bugfix (sprint 66.3): deze functie werd voorheen aangeroepen via een socket-
+      // listener die AL VÓÓR de listener stond die window._lastTeacherSessionData zelf
+      // bijwerkt (socket.io roept listeners in registratievolgorde aan) — hierdoor zag
+      // elke render altijd de data van de VORIGE gebeurtenis, nooit de nieuwste. Bv.:
+      // klik op naam A → server bevestigt A → deze render draait nog met de data van
+      // VÓÓR die klik (dus A niet gemarkeerd) → pas bij de VOLGENDE gebeurtenis (klik op
+      // B) toont de render eindelijk dat A de controle had gekregen. Nu wordt de data
+      // rechtstreeks meegegeven vanuit het event zelf, ongeacht listener-volgorde.
+      const data = dataOverride || window._lastTeacherSessionData;
+      if (!data) return;
+      const students = (data.students || []).filter(s => !s.removed);
+
+      // Topbalk: 2-knops modusschakelaar — actieve modus gemarkeerd, enkel zichtbaar
+      // in klasmodus-sessies (in examenmodus is er geen klas/individueel-onderscheid).
+      const isPersonal = data.session.classWorkspaceMode === 'personal';
+      _tfsCurrentIsPersonal = isPersonal;
+      const classBtn = qs('tfs-mode-class-btn');
+      const personalBtn = qs('tfs-mode-personal-btn');
+      if (classBtn && personalBtn) {
+        const zichtbaar = data.session.mode === 'class';
+        classBtn.classList.toggle('hidden', !zichtbaar);
+        personalBtn.classList.toggle('hidden', !zichtbaar);
+        classBtn.classList.toggle('tfs-mode-active', !isPersonal);
+        personalBtn.classList.toggle('tfs-mode-active', isPersonal);
+      }
+      const onlineCount = students.filter(s => s.online).length;
+      const countEl = qs('tfs-student-count');
+      if (countEl) countEl.textContent = `${onlineCount} online`;
+
+      // Sprint 68: aparte, onafhankelijke pillenrijen voor Run en Code — hergebruikt
+      // de al bestaande, exclusieve per-veld-logica in teacher_toggle_student (één
+      // "run"-leerling tegelijk, los van één "code"-leerling tegelijk).
+      const gesorteerd = [...students].sort((a, b) => a.name.localeCompare(b.name, 'nl'));
+      const runHost = qs('tfs-pills-row-run');
+      if (runHost) {
+        runHost.innerHTML = gesorteerd.map(s => `<button type="button" class="tfs-pill tfs-pill-run ${s.canRun ? 'tfs-pill-active' : ''}"
+          title="${s.canRun ? 'Heeft momenteel run-recht' : 'Klik om enkel run-recht te geven'}"
+          onclick="window._tfsToggleField('${s.id}','run')">${escapeHtml(s.name)}</button>`).join('');
+      }
+      const codeHost = qs('tfs-pills-row-code');
+      if (codeHost) {
+        codeHost.innerHTML = gesorteerd.map(s => `<button type="button" class="tfs-pill tfs-pill-code ${s.canEdit ? 'tfs-pill-active' : ''}"
+          title="${s.canEdit ? 'Heeft momenteel bewerkrecht' : 'Klik om enkel bewerkrecht te geven'}"
+          onclick="window._tfsToggleField('${s.id}','code')">${escapeHtml(s.name)}</button>`).join('');
+      }
+
+      // Groene "Klaar"-balk.
+      const klaarLeerlingen = students.filter(s => s.isDone);
+      const doneBar = qs('tfs-done-bar');
+      if (doneBar) {
+        doneBar.classList.toggle('hidden', klaarLeerlingen.length === 0);
+        qs('tfs-done-pills').innerHTML = klaarLeerlingen.map(s =>
+          `<button type="button" class="tfs-status-pill" title="Klaar-status van ${escapeHtml(s.name)} resetten"
+            onclick="window._tfsResetDone('${s.id}')">✓ ${escapeHtml(s.name)}</button>`).join('');
+      }
+
+      // Gele "Hand"-balk.
+      const handLeerlingen = students.filter(s => s.handRaised);
+      const handBar = qs('tfs-hand-bar');
+      if (handBar) {
+        handBar.classList.toggle('hidden', handLeerlingen.length === 0);
+        qs('tfs-hand-pills').innerHTML = handLeerlingen.map(s =>
+          `<button type="button" class="tfs-status-pill" title="Hand van ${escapeHtml(s.name)} laten zakken"
+            onclick="window._tfsLowerHand('${s.id}')">✋ ${escapeHtml(s.name)}</button>`).join('');
+      }
+    }
+    // Elke nieuwe sessiedata (komt sowieso al binnen voor de normale weergave)
+    // ook meteen naar de fullscreen-weergave laten doorstromen, indien actief.
+    socket.on('teacher_session_data', (data) => tfsRender(data));
+
+    // Sprint 68: vervangt window._tfsGrantControl — die zette run+code altijd
+    // SAMEN aan/uit; nu onafhankelijk per veld via het bestaande, al geteste
+    // teacher_toggle_student-event.
+    window._tfsToggleField = (studentId, field) => socket.emit('teacher_toggle_student', { studentId, field });
+    window._tfsResetDone = (studentId) => socket.emit('teacher_reset_done', { studentId });
+    window._tfsLowerHand = (studentId) => socket.emit('teacher_lower_hand', { studentId });
+
+    function enterFullscreen() {
+      if (_tfsActive) return;
+      _tfsActive = true;
+      // De echte, levende elementen verhuizen (niet dupliceren) — zo blijft alle
+      // bestaande logica (Monaco-editor, opdracht versturen, ...) gewoon intact.
+      qs('tfs-editor-slot')?.appendChild(document.querySelector('.workspace .editor-shell'));
+      qs('tfs-announcement-slot')?.appendChild(document.querySelector('.announcement-compose'));
+      // Bugfix (sprint 66.5): de CSS-override (.tfs-sidebar .announcement-compose-grid)
+      // bleek — om een reden die ik via codereview alleen niet kon vaststellen (mogelijk
+      // cascade/caching) — niet altijd door te komen: de Sturen/Wissen-knoppen bleven
+      // naast het tekstvak staan i.p.v. eronder. Nu rechtstreeks als inline stijl
+      // opgelegd op het moment van verplaatsen — dat wint altijd, ongeacht CSS-cascade
+      // of caching, en wordt bij het verlaten weer netjes verwijderd (zie exitFullscreen).
+      const announcementGrid = document.querySelector('.announcement-compose-grid');
+      if (announcementGrid) {
+        announcementGrid.style.display = 'flex';
+        announcementGrid.style.flexDirection = 'column';
+        announcementGrid.style.gap = '10px';
+        // Bugfix (sprint 67.1): enkel de GRID zelf op flex-column zetten volstond niet
+        // — er bleef een brede, lege ruimte staan vóór het opdrachtveld. De eerste
+        // rechtstreekse child (het blokje met label + tekstvak + navigatie) kreeg tot nu
+        // toe géén expliciete breedte, en bleef blijkbaar smaller dan de beschikbare
+        // ruimte in bepaalde gevallen. Nu elk onderdeel afzonderlijk, expliciet op volle
+        // breedte gezet — geen enkele CSS-regel kan dit nog tegenhouden.
+        Array.from(announcementGrid.children).forEach(child => {
+          child.style.width = '100%';
+          child.style.boxSizing = 'border-box';
+          child.style.display = 'block';
+        });
+      }
+      const announcementLabel = document.querySelector('.announcement-label');
+      if (announcementLabel) { announcementLabel.style.width = '100%'; announcementLabel.style.display = 'block'; }
+      const announcementTextarea = document.getElementById('teacher-announcement-input');
+      if (announcementTextarea) { announcementTextarea.style.width = '100%'; announcementTextarea.style.boxSizing = 'border-box'; }
+      const announcementNav = document.querySelector('.announcement-nav');
+      if (announcementNav) { announcementNav.style.width = '100%'; announcementNav.style.display = 'flex'; }
+      const announcementActions = document.querySelector('.announcement-actions');
+      if (announcementActions) {
+        announcementActions.style.width = '100%';
+        announcementActions.style.display = 'flex';
+        announcementActions.querySelectorAll('.btn').forEach(btn => { btn.style.flex = '1'; });
+      }
+      qs('teacher-fullscreen-overlay')?.classList.remove('hidden');
+      // Monaco moet expliciet weten dat zijn container van grootte veranderde.
+      setTimeout(() => editorStore.teacher?.layout(), 30);
+      tfsRender();
+      // Best-effort: echte browser-fullscreen, maar niet essentieel — sommige
+      // omgevingen (bv. ingebed in een iframe) staan dit niet toe.
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    }
+    function exitFullscreen() {
+      if (!_tfsActive) return;
+      _tfsActive = false;
+      const editorShell = qs('tfs-editor-slot')?.querySelector('.editor-shell');
+      if (editorShell) qs('tfs-anchor-editor')?.insertAdjacentElement('afterend', editorShell);
+      const announcement = qs('tfs-announcement-slot')?.querySelector('.announcement-compose');
+      if (announcement) qs('tfs-anchor-announcement')?.insertAdjacentElement('afterend', announcement);
+      // Sprint 66.5/67.1: de bij het binnengaan opgelegde inline stijlen weer
+      // opruimen, zodat de normale (niet-fullscreen) weergave er weer precies als
+      // voorheen uitziet.
+      const announcementGrid2 = document.querySelector('.announcement-compose-grid');
+      if (announcementGrid2) {
+        announcementGrid2.style.display = '';
+        announcementGrid2.style.flexDirection = '';
+        announcementGrid2.style.gap = '';
+        Array.from(announcementGrid2.children).forEach(child => {
+          child.style.width = ''; child.style.boxSizing = ''; child.style.display = '';
+        });
+      }
+      const announcementLabel2 = document.querySelector('.announcement-label');
+      if (announcementLabel2) { announcementLabel2.style.width = ''; announcementLabel2.style.display = ''; }
+      const announcementTextarea2 = document.getElementById('teacher-announcement-input');
+      if (announcementTextarea2) { announcementTextarea2.style.width = ''; announcementTextarea2.style.boxSizing = ''; }
+      const announcementNav2 = document.querySelector('.announcement-nav');
+      if (announcementNav2) { announcementNav2.style.width = ''; announcementNav2.style.display = ''; }
+      const announcementActions2 = document.querySelector('.announcement-actions');
+      if (announcementActions2) {
+        announcementActions2.style.width = '';
+        announcementActions2.style.display = '';
+        announcementActions2.querySelectorAll('.btn').forEach(btn => { btn.style.flex = ''; });
+      }
+      qs('teacher-fullscreen-overlay')?.classList.add('hidden');
+      setTimeout(() => editorStore.teacher?.layout(), 30);
+      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    }
+    qs('teacher-fullscreen-btn')?.addEventListener('click', enterFullscreen);
+    qs('tfs-exit-btn')?.addEventListener('click', exitFullscreen);
+    // Sprint 66.2: 2 aparte knoppen i.p.v. één wisselende — enkel emitten als de klik
+    // effectief een wissel betekent (de server-kant is een pure toggle, geen "zet op").
+    qs('tfs-mode-class-btn')?.addEventListener('click', () => {
+      if (_tfsCurrentIsPersonal) socket.emit('teacher_toggle_class_workspace');
+    });
+    qs('tfs-mode-personal-btn')?.addEventListener('click', () => {
+      if (!_tfsCurrentIsPersonal) socket.emit('teacher_toggle_class_workspace');
+    });
+    qs('tfs-done-reset-all-btn')?.addEventListener('click', () => socket.emit('teacher_reset_all_done'));
+    qs('tfs-hand-reset-all-btn')?.addEventListener('click', () => socket.emit('teacher_lower_all_hands'));
+
+    // Sprint 66.2: timerblok — eigen knoppen/invoerveld, dezelfde socket-events als
+    // het origineel in de normale weergave, dus geen dubbele logica nodig.
+    qs('tfs-timer-start-btn')?.addEventListener('click', () => {
+      const minutes = parseInt(qs('tfs-timer-input')?.value || '5', 10);
+      if (!minutes || minutes < 1) return;
+      socket.emit('teacher_start_timer', { durationMs: minutes * 60 * 1000 });
+    });
+    qs('tfs-timer-stop-btn')?.addEventListener('click', () => socket.emit('teacher_stop_timer'));
+    socket.on('timer_update', ({ remainingMs, running }) => {
+      const display = qs('tfs-timer-display');
+      if (!display) return;
+      if (!running || remainingMs <= 0) { display.textContent = '—'; display.style.color = 'var(--text)'; return; }
+      const m = Math.floor(remainingMs / 60000);
+      const s = Math.floor((remainingMs % 60000) / 1000);
+      display.textContent = `${m}:${String(s).padStart(2, '0')}`;
+      display.style.color = remainingMs < 60000 ? 'var(--accent)' : 'var(--text)';
+    });
+
+    // Sprint 66.2: sleepbare scheidingslijn tussen editor en zijkolom.
+    (function setupTfsDivider() {
+      const divider = qs('tfs-divider');
+      const overlay = qs('teacher-fullscreen-overlay');
+      if (!divider || !overlay) return;
+      let slepen = false;
+      divider.addEventListener('mousedown', (e) => {
+        slepen = true;
+        divider.classList.add('tfs-dragging');
+        e.preventDefault();
+      });
+      document.addEventListener('mousemove', (e) => {
+        if (!slepen) return;
+        // Breedte van de zijkolom = afstand van de muis tot de rechterrand van het venster.
+        const nieuweBreedte = Math.min(560, Math.max(220, window.innerWidth - e.clientX - 18));
+        overlay.style.setProperty('--tfs-sidebar-w', nieuweBreedte + 'px');
+      });
+      document.addEventListener('mouseup', () => {
+        if (!slepen) return;
+        slepen = false;
+        divider.classList.remove('tfs-dragging');
+        setTimeout(() => editorStore.teacher?.layout(), 30);
+      });
+    })();
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && _tfsActive) exitFullscreen();
+    });
+    // Verlaat een browser-fullscreen (bv. via de eigen Esc-afhandeling van de browser
+    // zelf, buiten onze eigen listener om) → ook onze overlay netjes sluiten.
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement && _tfsActive) exitFullscreen();
+    });
     qs('teacher-close-session-btn')?.addEventListener('click', () => {
       const online = (window._lastTeacherSessionData?.students || []).filter(s => s.online).length;
       const msg = online > 0
@@ -2145,6 +2780,13 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
     // Sprint 10V: keyboard navigatie leerlingenlijst (leerkracht-app)
     let _focusedStudentIdx = -1;
     document.addEventListener('keydown', e => {
+      // Bugfix (sprint 67): dit luisterde voorheen op het HELE document, ongeacht
+      // welk element de focus had — daardoor werkte de Enter-toets niet meer in bv.
+      // het opdrachtveld (een nieuwe regel typen was onmogelijk, want deze listener
+      // greep de toets af vóór de tekstarea zijn eigen standaardgedrag kon uitvoeren).
+      // Nu enkel actief als de focus NIET in een tekstveld ligt.
+      const actief = document.activeElement;
+      if (actief && (actief.tagName === 'TEXTAREA' || actief.tagName === 'INPUT' || actief.isContentEditable)) return;
       const host = qs('teacher-student-list');
       if (!host) return;
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
@@ -2159,11 +2801,48 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
         items[_focusedStudentIdx].querySelector('[data-live-control]')?.click();
       }
     });
+    // Sprint 67: meerdere voorbereide oefeningen — puur client-side bijgehouden
+    // schrijfblok, "Sturen" verstuurt telkens gewoon de op dat moment zichtbare tekst.
+    let _announcementDrafts = [''];
+    let _announcementDraftIdx = 0;
+    function announcementNavRender() {
+      const posEl = qs('announcement-nav-pos');
+      if (posEl) posEl.textContent = `${_announcementDraftIdx + 1} / ${_announcementDrafts.length}`;
+      const prevBtn = qs('announcement-nav-prev-btn');
+      const nextBtn = qs('announcement-nav-next-btn');
+      if (prevBtn) prevBtn.disabled = _announcementDraftIdx === 0;
+      if (nextBtn) nextBtn.disabled = _announcementDraftIdx === _announcementDrafts.length - 1;
+    }
+    qs('teacher-announcement-input')?.addEventListener('input', () => {
+      _announcementDrafts[_announcementDraftIdx] = qs('teacher-announcement-input').value;
+    });
+    qs('announcement-nav-prev-btn')?.addEventListener('click', () => {
+      if (_announcementDraftIdx === 0) return;
+      _announcementDraftIdx--;
+      qs('teacher-announcement-input').value = _announcementDrafts[_announcementDraftIdx];
+      announcementNavRender();
+    });
+    qs('announcement-nav-next-btn')?.addEventListener('click', () => {
+      if (_announcementDraftIdx >= _announcementDrafts.length - 1) return;
+      _announcementDraftIdx++;
+      qs('teacher-announcement-input').value = _announcementDrafts[_announcementDraftIdx];
+      announcementNavRender();
+    });
+    qs('announcement-nav-add-btn')?.addEventListener('click', () => {
+      _announcementDrafts.push('');
+      _announcementDraftIdx = _announcementDrafts.length - 1;
+      qs('teacher-announcement-input').value = '';
+      qs('teacher-announcement-input').focus();
+      announcementNavRender();
+    });
+    announcementNavRender();
+
     qs('teacher-announcement-send-btn')?.addEventListener('click', () => {
       socket.emit('teacher_send_announcement', { text: qs('teacher-announcement-input').value });
     });
     qs('teacher-announcement-clear-btn')?.addEventListener('click', () => {
       qs('teacher-announcement-input').value = '';
+      _announcementDrafts[_announcementDraftIdx] = '';
       socket.emit('teacher_send_announcement', { text: '' });
     });
     qs('teacher-send-input-btn')?.addEventListener('click', () => {
@@ -2218,39 +2897,11 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       else layoutEditor('teacher');
       qs('teacher-output-panel').textContent = data.view.output || '';
 
-      // Overschrijf de announcement-input NIET als de leerkracht er op dit moment in typt
-      const announcementInput = qs('teacher-announcement-input');
-      if (announcementInput && document.activeElement !== announcementInput) {
-        announcementInput.value = data.announcement || '';
-      }
+      // Sprint 67: de announcement-input wordt niet langer overschreven vanuit de
+      // server — dat is nu een puur client-side beheerd schrijfblok met meerdere
+      // oefeningen (zie announcementDrafts hierboven), losstaand van wat op dit
+      // moment effectief bij de leerlingen zichtbaar staat.
       updateAnnouncement('teacher', data.announcement || '');
-
-      // Aankondigingsgeschiedenis — compact chip-grid
-      const histWrap = qs('announcement-history-wrap');
-      const histHost = qs('announcement-history-list');
-      if (histHost && histWrap) {
-        const history = data.announcementHistory || [];
-        if (history.length > 0) {
-          const historyItems = history.slice().reverse();
-          histHost.innerHTML = historyItems.map((h, i) => `
-            <button class="announcement-chip" data-idx="${i}" title="${escapeHtml(h)}">
-              ${escapeHtml(h.length > 40 ? h.slice(0, 40) + '…' : h)}
-            </button>`).join('');
-          histHost.querySelectorAll('.announcement-chip').forEach(chip => {
-            chip.addEventListener('click', () => {
-              const raw = historyItems[parseInt(chip.dataset.idx, 10)];
-              const input = qs('teacher-announcement-input');
-              if (input && raw !== undefined) {
-                input.value = raw;
-                input.focus();
-              }
-            });
-          });
-          histWrap.classList.remove('hidden');
-        } else {
-          histWrap.classList.add('hidden');
-        }
-      }
 
       setStatusBox(qs('teacher-status-box'), data.statusText, data.statusType);
       // Run all / Code all zijn niet van toepassing in examenmodus:
@@ -2307,24 +2958,44 @@ function getStudentVisibleWorkspace(data = studentWorkspaceState) {
 
 function updateStudentRunAvailability(data = studentWorkspaceState) {
   const btn = qs('student-run-btn');
-  if (!btn) return;
-  const visible = getStudentVisibleWorkspace(data);
-  const activeWorkspace = data.activeWorkspace || 'shared';
-  let runDisabled = true;
-  if (data.mode === 'exam') {
-    runDisabled = !(data.personalCanRun !== false);
-  } else if (activeWorkspace === 'personal') {
-    runDisabled = !(data.personalCanRun !== false);
-  } else {
-    if (visible === 'shared') {
-      runDisabled = !(data.classCanRun !== false);
-    } else if (visible === 'personal') {
-      runDisabled = true;
+  if (btn) {
+    const visible = getStudentVisibleWorkspace(data);
+    const activeWorkspace = data.activeWorkspace || 'shared';
+    let runDisabled = true;
+    if (data.mode === 'exam') {
+      runDisabled = !(data.personalCanRun !== false);
+    } else if (activeWorkspace === 'personal') {
+      runDisabled = !(data.personalCanRun !== false);
     } else {
-      runDisabled = true;
+      if (visible === 'shared') {
+        runDisabled = !(data.classCanRun !== false);
+      } else if (visible === 'personal') {
+        runDisabled = true;
+      } else {
+        runDisabled = true;
+      }
     }
+    btn.disabled = runDisabled;
   }
-  btn.disabled = runDisabled;
+  updateStudentActionButtonsAvailability(data);
+}
+
+// Sprint (bugfix): "Klaar" en "Hand opsteken" horen enkel te kunnen op het EIGEN werkblad —
+// niet terwijl de klascode actief staat (dan werkt iedereen samen op hetzelfde gedeelde
+// scherm en heeft "ik ben klaar"/"ik heb een vraag over MIJN code" geen betekenis). Zodra
+// de leerkracht klascode aanzet, grijzen we de knoppen uit; op het eigen werkblad (of in
+// examenmodus, die altijd op 'personal' werkt) blijven ze gewoon bruikbaar.
+function updateStudentActionButtonsAvailability(data = studentWorkspaceState) {
+  const eigenWerkblad = data.mode === 'exam' ? true : ((data.activeWorkspace || 'shared') === 'personal');
+  const doneBtn = qs('student-done-btn');
+  const handBtn = qs('student-raise-hand-btn');
+  [doneBtn, handBtn].forEach(btn => {
+    if (!btn) return;
+    btn.disabled = !eigenWerkblad;
+    btn.title = eigenWerkblad
+      ? (btn === doneBtn ? 'Meld aan de leerkracht dat je klaar bent' : 'Steek je hand op')
+      : 'Enkel beschikbaar op je eigen werkblad (niet terwijl de klascode actief staat)';
+  });
 }
 
 function refreshStudentWorkspaceUi(data) {
@@ -2428,7 +3099,18 @@ async function applyStudentEditorFromState() {
     if (!state) { go('/student-start.html'); return; }
     const code = getLS('studentSessionCode');
     const studentId = getLS('studentId');
-    socket.emit('student_reconnect', { code, studentId });
+    // Bugfix (sprint 60.2): dit werd voorheen maar ÉÉN keer verstuurd, bij het laden
+    // van de pagina — niet telkens de socket zelf herverbindt (bv. na een korte
+    // netwerkhapering, zonder dat de leerling de pagina herlaadt). socket.io geeft de
+    // herverbonden socket een NIEUW id; zonder een nieuwe student_reconnect bleef de
+    // server dan naar de oude, dode verbinding wijzen (student.socketId), waardoor
+    // GEEN enkele server->leerling-melding (incl. de "leerkracht niet
+    // ingelogd"-popup) nog aankwam — pas een volledige F5 (die dit blok opnieuw
+    // uitvoert) herstelde het. 'connect' vuurt zowel bij de EERSTE verbinding als bij
+    // elke latere herverbinding, dus dit dekt nu ook stille reconnects.
+    socket.on('connect', () => {
+      socket.emit('student_reconnect', { code, studentId });
+    });
 
     qs('student-run-btn')?.addEventListener('click', () => {
       saveStudentLocalDraft();
@@ -2586,6 +3268,32 @@ async function applyStudentState(data) {
   }
   updateAnnouncement('student', data.announcement || '');
   updateStudentRunAvailability(studentWorkspaceState);
+  updateTeacherOnlineOverlay(data.teacherOnline);
+}
+
+// Sprint 60: blokkerende melding tonen/verbergen op basis van of de leerkracht
+// effectief ingelogd is op deze sessie (session.teacherSocketId). Enkel relevant op
+// student-app.html (gewone klas-/examensessie) — quiz-student.html luistert niet
+// naar 'student_state' en krijgt deze melding dus sowieso nooit te zien.
+// Sprint 60.2 (bugfix): zelfcorrigerend vangnet — zolang de "leerkracht niet
+// ingelogd"-popup zichtbaar is, vragen we elke paar seconden actief de actuele status
+// op (naast de gewone broadcast), zodat een gemiste/vertraagde melding (bv. door
+// socket.io's eigen reconnectievertraging) zichzelf binnen enkele seconden herstelt —
+// geen handmatige F5 meer nodig.
+let _teacherOfflinePollInterval = null;
+function updateTeacherOnlineOverlay(teacherOnline) {
+  const overlay = qs('teacher-offline-overlay');
+  if (!overlay) return;
+  const offline = teacherOnline === false;
+  overlay.style.display = offline ? 'flex' : 'none';
+  if (offline && !_teacherOfflinePollInterval) {
+    _teacherOfflinePollInterval = setInterval(() => {
+      if (socket && socket.connected) socket.emit('student_check_status');
+    }, 3000);
+  } else if (!offline && _teacherOfflinePollInterval) {
+    clearInterval(_teacherOfflinePollInterval);
+    _teacherOfflinePollInterval = null;
+  }
 }
 
     if (state) applyStudentState(state);
@@ -2594,6 +3302,12 @@ async function applyStudentState(data) {
     updateCopyButtonLabel('student');
     // Sprint 10U: auto-scroll
     setupAutoScroll('student-output-panel');
+
+    // Sprint 60: "Terug naar mijn overzicht" op de blokkerende "leerkracht niet
+    // ingelogd"-melding.
+    qs('teacher-offline-close-btn')?.addEventListener('click', () => {
+      window.location.href = '/student-thuis.html';
+    });
 
     // Sprint 11C: leerling ziet eigen code-history
     qs('student-history-btn')?.addEventListener('click', async () => {
@@ -2627,6 +3341,15 @@ async function applyStudentState(data) {
       setLS('studentId', data.student.id);
       setLS('studentName', data.student.name);
       await applyStudentState(data);
+    });
+
+    // Sprint 60.2: bij een herverbinding (na een kortstondige netwerkhapering) meteen
+    // de actuele status opvragen i.p.v. te wachten op de eerstvolgende poll — sneller
+    // herstel van de "leerkracht niet ingelogd"-popup als die intussen achterhaald is.
+    socket.on('connect', () => {
+      if (qs('teacher-offline-overlay')?.style.display === 'flex') {
+        socket.emit('student_check_status');
+      }
     });
 
     // Lichtgewicht event: alleen de opdrachttekst bijwerken, zonder volledige state-reset
@@ -3008,7 +3731,8 @@ async function applyStudentState(data) {
   document.body.appendChild(footer);
 }
 
-window.addEventListener('DOMContentLoaded', injectFooter);
+// (De aanroep van injectFooter() gebeurt bovenaan dit bestand, via
+// window.addEventListener('DOMContentLoaded', injectFooter) — zie sprint 62.2.)
 
 // ── Sprint 26: globale window-exports — alle functies bereikbaar vanuit HTML ──
 // app.js zit in een IIFE-closure; functies die vanuit onclick/onchange worden
@@ -3192,6 +3916,10 @@ window.pyPrompt = function(opties) {
   opties = opties || {};
   var title = opties.title || 'Invoer', body = opties.body || '';
   var confirmLabel = opties.confirmLabel || 'OK';
+  // Sprint 51v (bugfix): cancelLabel werd hieronder gebruikt maar nergens gedeclareerd —
+  // elke aanroep van pyPrompt() crashte met "cancelLabel is not defined" (bevestigd met een
+  // browsertest), wat ELKE plek die pyPrompt gebruikt liet falen zonder duidelijke oorzaak.
+  var cancelLabel = opties.cancelLabel || 'Annuleren';
   return new Promise(function(resolve) {
     var existing = document.getElementById('py-modal-overlay');
     if (existing) existing.parentNode.removeChild(existing);
@@ -3226,6 +3954,131 @@ window.pyPrompt = function(opties) {
   });
 };
 
+// Bugfix (13a): pop-up met vinkjes bij het aanmaken van een gewone sessie — welke klas(sen)
+// mogen deze sessie zien? "Alle klassen" (default aangevinkt) schakelt de losse vinkjes uit.
+// Geeft een Promise<string[]|null> terug: een array van gekozen classId's, null voor "alle
+// klassen" (of wanneer de leerkracht geen klassen heeft), of resolve(undefined) bij Annuleren.
+window.pyClassPicker = function(classes) {
+  return new Promise(function (resolve) {
+    if (!classes || !classes.length) { resolve(null); return; }
+    var existing = document.getElementById('py-modal-overlay');
+    if (existing) existing.parentNode.removeChild(existing);
+    var overlay = document.createElement('div');
+    overlay.id = 'py-modal-overlay';
+    var rijen = classes.map(function (c) {
+      return '<label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;">' +
+        '<input type="checkbox" class="py-klas-vink" value="' + c.id + '" checked disabled/>' +
+        '<span>' + (c.name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span></label>';
+    }).join('');
+    overlay.innerHTML =
+      '<div id="py-modal-box">' +
+        '<div id="py-modal-title">Welke klassen krijgen toegang?</div>' +
+        '<div id="py-modal-body">' +
+          '<label style="display:flex;align-items:center;gap:8px;padding:6px 0 10px;border-bottom:1px solid var(--border);margin-bottom:6px;cursor:pointer;font-weight:700;">' +
+            '<input type="checkbox" id="py-klas-alle" checked/><span>Alle klassen</span></label>' +
+          '<div id="py-klas-lijst" style="max-height:260px;overflow-y:auto;">' + rijen + '</div>' +
+        '</div>' +
+        '<div id="py-modal-actions">' +
+          '<button id="py-modal-cancel" class="btn btn-muted small">Annuleren</button>' +
+          '<button id="py-modal-confirm" class="btn btn-primary small">Sessie aanmaken</button>' +
+        '</div>' +
+      '</div>';
+    function close(result) {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    }
+    function onKey(e) { if (e.key === 'Escape') close(undefined); }
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(undefined); });
+    document.body.appendChild(overlay);
+    document.addEventListener('keydown', onKey);
+    var alleVink = document.getElementById('py-klas-alle');
+    var vinkjes = Array.prototype.slice.call(overlay.querySelectorAll('.py-klas-vink'));
+    alleVink.addEventListener('change', function () {
+      vinkjes.forEach(function (v) { v.disabled = alleVink.checked; if (alleVink.checked) v.checked = true; });
+    });
+    document.getElementById('py-modal-cancel').addEventListener('click', function () { close(undefined); });
+    document.getElementById('py-modal-confirm').addEventListener('click', function () {
+      if (alleVink.checked) { close(null); return; }
+      var gekozen = vinkjes.filter(function (v) { return v.checked; }).map(function (v) { return v.value; });
+      if (!gekozen.length) { if (window.pyAlert) pyAlert('Kies minstens één klas, of "Alle klassen".', 'warn'); return; }
+      close(gekozen);
+    });
+  });
+};
+
+// Sprint 95: "↻ Toets heropenen" — kies een nieuw "open tot" (verplicht, in de toekomst)
+// plus specifieke leerlingen (standaard allemaal UIT) die een eigen uitzondering krijgen.
+// Geeft { until: <ms>, studenten: [{id,name}, ...] } terug, of null bij annuleren.
+window.pyHeropenPicker = function (opties) {
+  opties = opties || {};
+  var naam = opties.naam || '';
+  var studenten = opties.studenten || [];
+  return new Promise(function (resolve) {
+    var existing = document.getElementById('py-modal-overlay');
+    if (existing) existing.parentNode.removeChild(existing);
+    var overlay = document.createElement('div');
+    overlay.id = 'py-modal-overlay';
+    // Standaardvoorstel: over 1 dag, zelfde tijdstip als nu.
+    var voorstel = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    var p = function (n) { return String(n).padStart(2, '0'); };
+    var voorstelWaarde = voorstel.getFullYear() + '-' + p(voorstel.getMonth() + 1) + '-' + p(voorstel.getDate()) +
+      'T' + p(voorstel.getHours()) + ':' + p(voorstel.getMinutes());
+    var rijen = studenten.map(function (s, i) {
+      return '<label style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;">' +
+        '<input type="checkbox" class="py-heropen-vink" data-idx="' + i + '"/>' +
+        '<span>' + (window.escapeHtml ? escapeHtml(s.name) : s.name) + '</span></label>';
+    }).join('');
+    overlay.innerHTML =
+      '<div id="py-modal-box">' +
+        '<div id="py-modal-title">' + (window.escapeHtml ? escapeHtml(naam) : naam) + ' heropenen</div>' +
+        '<div id="py-modal-body">' +
+          '<label style="display:block;font-size:0.85rem;margin-bottom:4px;">Open tot <span style="color:#dc2626;">*</span></label>' +
+          '<input id="py-heropen-tot" type="datetime-local" value="' + voorstelWaarde + '" ' +
+            'style="width:100%;box-sizing:border-box;margin-bottom:12px;padding:8px 10px;border:1.5px solid var(--border);border-radius:10px;font-size:1rem;background:var(--surface);color:var(--text);"/>' +
+          '<label style="display:flex;align-items:center;gap:8px;padding:6px 0 8px;border-bottom:1px solid var(--border);margin-bottom:6px;cursor:pointer;font-weight:700;">' +
+            '<input type="checkbox" id="py-heropen-alle"/><span>Alles selecteren</span></label>' +
+          '<div id="py-heropen-lijst" style="max-height:260px;overflow-y:auto;">' + rijen + '</div>' +
+          '<p class="muted" style="font-size:0.78rem;margin-top:8px;">Enkel de hier aangevinkte leerlingen krijgen opnieuw toegang, tot het ' +
+            'hierboven gekozen tijdstip — ook al is deze toets/taak zelf al gestopt of voorbij. Voor iedereen ' +
+            'die niet aangevinkt is, verandert er niets.</p>' +
+        '</div>' +
+        '<div id="py-modal-actions">' +
+          '<button id="py-modal-cancel" class="btn btn-muted small">Annuleren</button>' +
+          '<button id="py-modal-confirm" class="btn btn-primary small">Heropenen</button>' +
+        '</div>' +
+      '</div>';
+    function close(result) {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    }
+    function onKey(e) { if (e.key === 'Escape') close(null); }
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(null); });
+    document.body.appendChild(overlay);
+    document.addEventListener('keydown', onKey);
+    var alleVink = document.getElementById('py-heropen-alle');
+    var vinkjes = Array.prototype.slice.call(overlay.querySelectorAll('.py-heropen-vink'));
+    alleVink.addEventListener('change', function () {
+      vinkjes.forEach(function (v) { v.checked = alleVink.checked; });
+    });
+    document.getElementById('py-modal-cancel').addEventListener('click', function () { close(null); });
+    document.getElementById('py-modal-confirm').addEventListener('click', function () {
+      var totVeld = document.getElementById('py-heropen-tot');
+      var totMs = totVeld.value ? new Date(totVeld.value).getTime() : NaN;
+      if (!totVeld.value || isNaN(totMs) || totMs <= Date.now()) {
+        if (window.pyAlert) pyAlert('Kies een geldig tijdstip in de toekomst.', 'warn');
+        return;
+      }
+      var gekozen = vinkjes.filter(function (v) { return v.checked; }).map(function (v) { return studenten[Number(v.dataset.idx)]; });
+      if (!gekozen.length) {
+        if (window.pyAlert) pyAlert('Selecteer minstens één leerling.', 'warn');
+        return;
+      }
+      close({ until: totMs, studenten: gekozen });
+    });
+  });
+};
 
 // ── Sprint 25g: pyAlert — blokkerende notificatie-modal ─────────────────────
 window.pyAlert = function(message, type) {
