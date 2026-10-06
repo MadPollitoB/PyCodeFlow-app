@@ -107,6 +107,7 @@
       ? '<button class="btn btn-soft small" onclick="openPreviewRun(\'' + a.code + '\')" title="Doorloop deze preview zelf, als leerling">🧑‍🎓 Doorlopen</button>' : '';
     var live = a.isPreview ? '' :
       '<a class="btn btn-soft small" href="/teacher-grid.html?code=' + a.code + '" target="_blank">👁 Live</a>' +
+      '<a class="btn btn-soft small" href="/toets-bord.html?code=' + a.code + '" target="_blank" title="Klasbord voor op de beamer">🟩 Klasbord</a>' +
       '<button class="btn btn-soft small" onclick="toggleQuizRoster(\'' + a.code + '\')">👥 Voortgang</button>' +
       // Sprint 69: stoppen dient ook als "iedereen nu inleveren" — enkel zinvol zolang de
       // toets nog écht actief is. Sprint 51-fix: dit keek voorheen enkel naar stoppedAt, dus

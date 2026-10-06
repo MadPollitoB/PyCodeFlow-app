@@ -1360,6 +1360,7 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
     const activateBtn = q.isPreview ? `<button class="btn btn-primary small" onclick="activateQuiz('${q.code}')" title="Maak hier een echte toets van die je kan starten">▶ Activeren</button>` : '';
     const liveBtns = q.isPreview ? '' :
       `<a class="btn btn-soft small" href="/teacher-grid.html?code=${q.code}" target="_blank" title="Live meekijken">👁 Live</a>
+       <a class="btn btn-soft small" href="/toets-bord.html?code=${q.code}" target="_blank" title="Klasbord voor op de beamer: groen = bezig, geel = hand op, rood = tab verlaten, blauw = verbinding weg">🟩 Klasbord</a>
        <button class="btn btn-soft small" onclick="toggleQuizRoster('${q.code}')" title="Wie is klaar / bezig / nog niet begonnen">👥 Voortgang</button>`;
     return `
       <div class="student-item" style="margin-bottom:8px;">

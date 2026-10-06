@@ -9,6 +9,7 @@
   <style>
     .quiz-topbar { background:var(--primary); color:#fff; padding:10px 20px;
       display:flex; align-items:center; justify-content:space-between; }
+    #hand-btn.hand-op { background:#fde047; color:#713f12; border-color:#eab308; font-weight:800; }
     .quiz-timer { font-size:1.4rem; font-weight:800; font-family:Consolas,monospace; }
     .quiz-timer.warning { color:#fde68a; }
     .quiz-timer.danger  { color:#fca5a5; }
@@ -161,6 +162,9 @@
     <!-- Sprint 83: enkel zichtbaar als de leerkracht een cursus-link instelde. -->
     <button id="cursus-toggle-btn" class="btn btn-soft small" style="display:none;"
       title="Cursusmateriaal tonen/verbergen">📄 Cursus</button>
+    <!-- v99: hand opsteken (toets altijd, taak enkel met vinkje bij het aanmaken) -->
+    <button id="hand-btn" class="btn btn-soft small" style="display:none;" aria-pressed="false"
+      title="Laat de leerkracht weten dat je een vraag hebt">✋ Hand opsteken</button>
   </div>
 
   <!-- Sprint 83: cursus-zijpaneel — toont de cursus-link IN dezelfde pagina/tabblad, zodat
@@ -336,8 +340,8 @@
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
 <script src="/flowchart-widget.js?v=v2026.2.51.81"></script>
-<script src="/app.js?v=v2026.2.51.98"></script>
-<script src="/schud.js?v=v2026.2.51.98"></script>
-<script src="/quiz-student.js?v=v2026.2.51.98"></script>
+<script src="/app.js?v=v2026.2.51.100"></script>
+<script src="/schud.js?v=v2026.2.51.100"></script>
+<script src="/quiz-student.js?v=v2026.2.51.100"></script>
 <script src="/privacy.js?v=v2026.2.51.81"></script></body>
 </html>

@@ -1,3 +1,50 @@
+## v2026.2.51.100 — Bugfix: onderdeelscores opslaan bij een gecombineerde vraag
+
+Bij het verbeteren van een gecombineerde vraag gaf "Onderdeelscores & opmerkingen opslaan" geen
+melding en sprong het niet naar de volgende vraag, hoewel alles wel bewaard werd. Oorzaak: na het
+opslaan verwees de code naar een niet-bestaande variabele (`comment`) en stopte daardoor met een
+fout. Nu verschijnt de melding "Onderdeelscores opgeslagen.", ga je door naar de volgende vraag
+(bij de laatste vraag blijf je staan), blijven de opmerkingen per onderdeel correct getoond en krijg
+je een foutmelding als het opslaan mislukt.
+
+**Betrokken bestanden:** `public/quiz-review.js` · `public/quiz-review.html` · `tests/review-partscores.test.js`
+
+---
+
+## v2026.2.51.99 — Klasbord en hand opsteken bij toets en taak
+
+### Wat
+- **Klasbord** (`/toets-bord.html?code=…`, knop 🟩 Klasbord in het toetsen- en takenoverzicht): groot
+  bord voor op de beamer met een tegel per leerling (standaard 5×5, groeit mee bij meer leerlingen).
+  - 🟩 groen: bezig, met "vraag n/totaal" (n = aantal beantwoorde vragen + 1; dus niet meer
+    afhankelijk van de willekeurige vraagvolgorde)
+  - 🟨 geel: hand op, met het volgnummer van opsteken
+  - 🟥 rood: tabblad/venster of volledig scherm verlaten (enkel bij een toets); blijft rood na
+    terugkeer tot de leerkracht op de naam klikt
+  - 🟦 blauw: verbinding weg
+  - ⬜ grijs met vinkje: ingediend
+  - Klik op een naam: hand omlaag en rood weg, de tegel wordt weer groen.
+- **✋ Hand opsteken** in de topbalk van de toets/taak (wisselknop). De status staat op de
+  server, dus een herlaad laat de hand staan. De leerkracht kan de hand ook via het bord laten zakken.
+- **Taak**: onderaan het aanmaakscherm staat een vinkje "Klasbord en hand opsteken" (standaard uit;
+  handig voor een taak in de les, niet voor een taak thuis). Een toets heeft het altijd.
+
+### Technisch
+- `lib/klasbord.js`: pure logica (kleurvoorrang geel > rood > blauw > groen, ingediend wint van alles;
+  handvolgorde; voortgangsnummer; kolommen).
+- Sockets: `quiz_hand`, `quiz_focus`, `quiz_bord_join`, `quiz_bord_reset`, `quiz_bord_state`.
+  Alleen ingelogde leerkrachten met toegang tot de sessie kunnen het bord openen of resetten.
+- Het rood-signaal wordt altijd verstuurd (los van het anti-spiek-respijt en het auto-indienen, die
+  ongewijzigd blijven).
+- Databank: kolom `assignment_bank.klasbord_enabled` (automatische migratie, standaard `false`).
+- Tests: `tests/klasbord.test.js` (9).
+
+**Betrokken bestanden:** `server.js` · `db/database.js` · `lib/klasbord.js` ·
+`public/toets-bord.html|css|js` · `public/quiz-student.js|html` · `public/quiz-teacher.js|html` ·
+`public/app.js` · `public/assignment-overview.js` · `tests/klasbord.test.js`
+
+---
+
 ## v2026.2.51.98 — Antwoordopties van keuzevragen in willekeurige volgorde
 
 ### Wat

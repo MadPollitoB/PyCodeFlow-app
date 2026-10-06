@@ -581,6 +581,66 @@ function zetTabWisselDetectieAan() {
   });
 }
 
+// ── v99: klasbord — hand opsteken + tab-verlaten-signaal ─────────────────────
+// De status leeft op de server: een herlaad laat een opgestoken hand dus staan
+// (quiz_state geeft handUp mee). De knop is een wisselknop; de leerkracht kan de hand
+// ook via het bord laten zakken (quiz_hand_lowered).
+let _handUp = false;
+function toonHandKnop() {
+  const b = document.getElementById('hand-btn');
+  if (!b) return;
+  b.textContent = _handUp ? '✋ Hand omlaag' : '✋ Hand opsteken';
+  b.classList.toggle('hand-op', _handUp);
+  b.setAttribute('aria-pressed', _handUp ? 'true' : 'false');
+}
+function zetHandKnopOp(actief, handUp) {
+  const b = document.getElementById('hand-btn');
+  if (!b) return;
+  _handUp = handUp === true;
+  b.style.display = actief ? '' : 'none';
+  toonHandKnop();
+  if (b.dataset.gekoppeld === '1') return;
+  b.dataset.gekoppeld = '1';
+  b.addEventListener('click', () => {
+    if (_afgesloten) return;
+    const nieuw = !_handUp;
+    b.disabled = true;
+    socket.timeout(4000).emit('quiz_hand', { up: nieuw }, (err, res) => {
+      b.disabled = false;
+      if (err || !res || res.ok !== true) return; // niet gelukt → knop blijft zoals hij was
+      _handUp = res.handUp === true;
+      toonHandKnop();
+    });
+  });
+}
+socket.on('quiz_hand_lowered', () => { _handUp = false; toonHandKnop(); });
+
+// Tab/venster verlaten → meteen een signaal voor het klasbord (rood), los van het
+// anti-spiek-respijt en -auto-indienen hierboven.
+let _bordFocusAan = false;
+let _bordWeg = false;
+function zetBordFocusSignaalAan() {
+  if (_bordFocusAan) return;
+  _bordFocusAan = true;
+  const meld = (weg) => {
+    if (_afgesloten || weg === _bordWeg) return;
+    _bordWeg = weg;
+    socket.emit('quiz_focus', { away: weg });
+  };
+  document.addEventListener('visibilitychange', () => meld(document.hidden));
+  window.addEventListener('blur', () => {
+    // een klik in het cursus-zijpaneel (iframe) haalt de focus ook weg van het venster,
+    // maar de leerling is dan nog gewoon in de toets
+    setTimeout(() => {
+      const a = document.activeElement;
+      if (a && a.tagName === 'IFRAME') return;
+      if (!document.hasFocus()) meld(true);
+    }, 0);
+  });
+  window.addEventListener('focus', () => meld(false));
+  document.addEventListener('fullscreenchange', () => meld(!document.fullscreenElement));
+}
+
 function setupCursusPaneel(url) {
   const btn = document.getElementById('cursus-toggle-btn');
   const panel = document.getElementById('cursus-panel');
@@ -648,6 +708,9 @@ socket.on('quiz_state', async (state) => {
     zetTabWisselDetectieAan();
   }
   setupCursusPaneel(state.cursusUrl || null);
+  // v99: klasbord — hand opsteken (toets altijd, taak met vinkje) + tab-verlaten-signaal (toets)
+  zetHandKnopOp(state.klasbordActief === true, state.handUp === true);
+  if (_isToets && state.klasbordActief === true) zetBordFocusSignaalAan();
 
   // Initialiseer editor
   await initQuizEditor(state.config || {});

@@ -61,6 +61,9 @@ if (QUIZ_TYPE) {
   // tabwissel) is enkel zinvol bij een toets — verborgen bij een taak.
   const antiSpiekSectie = document.getElementById('quiz-antispiek-sectie');
   if (antiSpiekSectie) antiSpiekSectie.style.display = QUIZ_TYPE === 'toets' ? '' : 'none';
+  // v99: klasbord + hand opsteken is bij een toets altijd aan; bij een taak een keuze (vinkje)
+  const klasbordSectie = document.getElementById('quiz-klasbord-sectie');
+  if (klasbordSectie) klasbordSectie.style.display = QUIZ_TYPE === 'taak' ? '' : 'none';
   const timerRadio = document.querySelector('[name=quiz-timer-type][value="' + meta.defaultTimer + '"]');
   if (timerRadio) {
     timerRadio.checked = true;
@@ -427,6 +430,8 @@ async function createQuiz() {
   const cursusUrl             = isToetsType ? (document.getElementById('quiz-cursus-url')?.value.trim() || '') : '';
   // Sprint 90: zelfevaluatie-enquête — zelfde toets-only redenering als hierboven.
   const selfEvalEnabled       = isToetsType && document.getElementById('quiz-self-eval')?.checked === true;
+  // v99: klasbord + hand opsteken — enkel een keuze bij een taak
+  const klasbordEnabled       = QUIZ_TYPE === 'taak' && document.getElementById('quiz-klasbord')?.checked === true;
 
   if (accessFrom && accessUntil && accessFrom >= accessUntil) {
     await pyAlert('Deadline moet na de startdatum liggen.', "warn"); return;
@@ -469,6 +474,8 @@ async function createQuiz() {
                       tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusUrl,
                       // Sprint 90: zelfevaluatie-enquête
                       selfEvalEnabled,
+                      // v99: klasbord + hand opsteken bij een taak
+                      klasbordEnabled,
                       // Leerling-selectie: in bewerkmodus ALTIJD meesturen (ook leeg =
                       // beperking opheffen). Bij aanmaken enkel als er een selectie is.
                       studentIds: IS_EDIT
@@ -687,6 +694,8 @@ async function loadForEdit() {
     setVal('quiz-cursus-url', m.cursusUrl || '');
     // Sprint 90: zelfevaluatie-enquête
     setChk('quiz-self-eval', m.selfEvalEnabled);
+    // v99: klasbord + hand opsteken bij een taak
+    setChk('quiz-klasbord', m.klasbordEnabled);
     // Sprint 51s: wacht tot de schooljaar-dropdown zijn opties heeft, en voeg het opgeslagen
     // jaar toe als het er nog niet bij staat (bv. een ouder/gearchiveerd jaar) — zo blijft
     // zichtbaar wat er nu echt geconfigureerd staat, ook al is dat een mismatch met de klas.

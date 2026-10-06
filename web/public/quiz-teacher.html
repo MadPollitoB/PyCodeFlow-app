@@ -287,6 +287,20 @@
         </label>
       </div>
 
+      <!-- v99: klasbord + hand opsteken — enkel bij een taak (bij een toets altijd aan). -->
+      <div id="quiz-klasbord-sectie" style="display:none;margin-top:14px;padding:14px;background:var(--surface-soft);
+        border-radius:10px;border:1.5px solid var(--border);">
+        <label class="checkbox-row" style="cursor:pointer;">
+          <input type="checkbox" id="quiz-klasbord"/>
+          <span>
+            <strong>✋ Klasbord en hand opsteken (taak in de les)</strong><br/>
+            <span class="muted" style="font-size:0.82rem;">Leerlingen krijgen een knop "Hand opsteken" en jij
+            kan op de beamer een bord tonen met alle leerlingen (groen = bezig, geel = hand op,
+            blauw = verbinding weg). Handig voor een taak tijdens de les; laat uit voor een taak thuis.</span>
+          </span>
+        </label>
+      </div>
+
       <div style="margin-top:20px;">
         <button class="btn btn-primary" onclick="goStep(2)">Volgende: vragen selecteren →</button>
       </div>
@@ -361,9 +375,9 @@
 </div>
 </div><!-- /wizard-root -->
 
-<script src="/app.js?v=v2026.2.51.98"></script>
+<script src="/app.js?v=v2026.2.51.100"></script>
 <script src="/vendor/marked/marked.min.js"></script>
 <script src="/code-highlight.js?v=v2026.2.51.81"></script>
-<script src="/quiz-teacher.js?v=v2026.2.51.94"></script>
+<script src="/quiz-teacher.js?v=v2026.2.51.100"></script>
 <script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.81"></script></body>
 </html>

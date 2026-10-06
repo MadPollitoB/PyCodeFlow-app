@@ -1,0 +1,44 @@
+/* PyCodeFlow — klasbord (v2026.2.51.99): groot bord voor op de beamer */
+html, body { height: 100%; }
+body { margin: 0; display: flex; flex-direction: column; background: #0f172a; color: #f8fafc;
+  font-family: var(--font-sans, system-ui, sans-serif); overflow: hidden; }
+.bord-top { display: flex; align-items: center; gap: 18px; padding: 10px 20px; background: #111c33;
+  border-bottom: 1px solid #263553; flex-shrink: 0; flex-wrap: wrap; }
+.bord-titel { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.bord-titel h1 { margin: 0; font-size: 1.25rem; font-weight: 800; }
+.bord-sub { color: #94a3b8; font-size: 0.9rem; }
+.bord-legenda { display: flex; gap: 14px; flex-wrap: wrap; flex: 1; font-size: 0.9rem; }
+.bord-legenda span { display: inline-flex; align-items: center; gap: 6px; }
+.bord-stip { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.bord-acties { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.bord-pauze { background: #f59e0b; color: #1f2937; padding: 3px 10px; border-radius: 999px; font-weight: 700; font-size: 0.85rem; }
+
+.bord-grid { flex: 1; display: grid; gap: 12px; padding: 14px; min-height: 0;
+  grid-template-columns: repeat(var(--kol, 5), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--rij, 5), minmax(0, 1fr)); }
+.bord-leeg { grid-column: 1 / -1; align-self: center; justify-self: center; font-size: 1.4rem; color: #94a3b8; }
+
+.tegel { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; border-radius: 16px; border: 0; padding: 8px 10px; color: #fff; cursor: pointer;
+  font-family: inherit; text-align: center; min-height: 0; overflow: hidden;
+  box-shadow: 0 2px 0 rgba(0,0,0,0.25); transition: background-color .25s, transform .1s; }
+.tegel:active { transform: scale(0.98); }
+.tegel:focus-visible { outline: 4px solid #fff; outline-offset: 2px; }
+.tegel-naam { font-weight: 800; line-height: 1.1; word-break: break-word;
+  font-size: clamp(14px, calc(62vw / var(--kol, 5) / 8), 38px); }
+.tegel-info { font-size: clamp(11px, calc(40vw / var(--kol, 5) / 8), 20px); opacity: 0.92; font-weight: 600; }
+.tegel-nr { position: absolute; top: 8px; right: 10px; min-width: 2.1em; height: 2.1em; border-radius: 50%;
+  background: #fff; color: #854d0e; font-weight: 900; display: flex; align-items: center; justify-content: center;
+  font-size: clamp(14px, calc(50vw / var(--kol, 5) / 8), 30px); }
+
+.st-groen { background: #16a34a; }
+.st-geel  { background: #facc15; color: #422006; }
+.st-rood  { background: #dc2626; animation: pulseRood 1.6s ease-in-out infinite; }
+.st-blauw { background: #2563eb; }
+.st-grijs { background: #475569; color: #e2e8f0; }
+@keyframes pulseRood { 0%,100% { box-shadow: 0 0 0 0 rgba(248,113,113,0.0); } 50% { box-shadow: 0 0 0 8px rgba(248,113,113,0.45); } }
+@media (prefers-reduced-motion: reduce) { .st-rood { animation: none; } }
+
+.bord-melding { background: #7f1d1d; color: #fff; padding: 10px 20px; font-weight: 700; }
+.bord-verbinding { position: fixed; left: 0; right: 0; bottom: 0; background: #b45309; color: #fff;
+  padding: 8px 16px; text-align: center; font-weight: 700; }

@@ -856,6 +856,8 @@ async function initSchema() {
       -- had hoe dan ook nooit deze vraag, dus "uit" is voor elke bestaande rij de correcte
       -- historische waarde — geen aparte NULL-normalisatie nodig.
       BEGIN ALTER TABLE assignment_bank ADD COLUMN self_eval_enabled BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- v99: klasbord + hand opsteken bij een taak (bij een toets is dit altijd aan). Standaard uit.
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN klasbord_enabled BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
 
     -- Sprint 43.3: bestaande rijen krijgen hun type afgeleid uit no_timer (timerloos = taak).
@@ -3293,7 +3295,7 @@ module.exports = {
                              noTimer, minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
                              schoolYear, targetClass, accessFrom, accessUntil, autoSubmitLate,
                              type, noBack, tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds,
-                             cursusUrl, selfEvalEnabled }) {
+                             cursusUrl, selfEvalEnabled, klasbordEnabled }) {
     const now = Date.now();
     // noTimer = true → geen tijdslimiet (taak)
     // timerSeconds = null + noTimer = false → gebruik standaard 2700s
@@ -3330,8 +3332,8 @@ module.exports = {
           min_runs_per_q, hide_question_on_screen, results_released, is_teacher_preview,
           school_year, target_class, access_from, access_until, auto_submit_late, type, no_back,
           tab_switch_enabled, tab_switch_threshold, tab_switch_grace_seconds, cursus_url,
-          self_eval_enabled, created_at)
-         VALUES ($1,$2,$3,$4,true,$5,$6,false,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+          self_eval_enabled, klasbord_enabled, created_at)
+         VALUES ($1,$2,$3,$4,true,$5,$6,false,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
         [sessionCode, randomize, effectiveTimer, noTimer || false,
          minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
          schoolYear || currentYear, targetClass || '',
@@ -3344,6 +3346,8 @@ module.exports = {
          effectiveTabSwitchEnabled, effectiveTabSwitchThreshold, effectiveTabSwitchGraceSeconds,
          effectiveCursusUrl,
          effectiveSelfEvalEnabled,
+         // v99: klasbord bij taak (bij een toets altijd aan, dus de vlag zelf is daar irrelevant)
+         effectiveType === 'taak' && klasbordEnabled === true,
          now]
       );
       for (const q of questions) {
@@ -3454,7 +3458,7 @@ module.exports = {
                                 minRunsPerQ, hideQuestionOnScreen, schoolYear, targetClass,
                                 accessFrom, accessUntil, autoSubmitLate, noBack,
                                 tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds,
-                                cursusUrl, selfEvalEnabled }) {
+                                cursusUrl, selfEvalEnabled, klasbordEnabled }) {
     const effectiveTimer = noTimer ? null : (timerSeconds || 2700);
     // Sprint 83/90: server.js heeft deze velden al door validationLib.bepaalTabWisselInstellingen()
     // / bepaalZelfevaluatieInstelling() gehaald (type staat hier vast en verandert niet bij een
@@ -3471,14 +3475,14 @@ module.exports = {
            hide_question_on_screen = $6, school_year = $7, target_class = $8,
            access_from = $9, access_until = $10, auto_submit_late = $11, no_back = $12,
            tab_switch_enabled = $13, tab_switch_threshold = $14, tab_switch_grace_seconds = $15,
-           cursus_url = $16, self_eval_enabled = $17
+           cursus_url = $16, self_eval_enabled = $17, klasbord_enabled = $18
          WHERE session_code = $1`,
         [sessionCode, randomize, effectiveTimer, noTimer || false, minRunsPerQ,
          hideQuestionOnScreen, schoolYear || '', targetClass || '',
          accessFrom || null, accessUntil || null, autoSubmitLate !== false, noBack === true,
          tabSwitchEnabled === true, Math.max(0, parseInt(tabSwitchThreshold) || 0),
          effectiveTabSwitchGraceSeconds, cursusUrl || null,
-         selfEvalEnabled === true]
+         selfEvalEnabled === true, klasbordEnabled === true]
       );
       // Vraag-snapshots volledig vervangen (volgorde + punten kunnen gewijzigd zijn).
       await client.query(`DELETE FROM quiz_question_snapshots WHERE session_code = $1`, [sessionCode]);

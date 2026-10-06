@@ -202,6 +202,7 @@ const freeStudents = new Map();
 const authLib = require('./lib/auth');
 const scoringLib = require('./lib/scoring');
 const validationLib = require('./lib/validation');
+const klasbordLib = require('./lib/klasbord'); // v99: klasbord + hand opsteken bij toets/taak
 // 32b: gestructureerde logger met niveaus (LOG_LEVEL env var, standaard 'info')
 const { createLogger } = require('./lib/logger');
 const log = createLogger();
@@ -2850,6 +2851,7 @@ setInterval(async () => {
       for (const student of Object.values(session.students)) {
         if (student.quizSubmitted || !student.quizStartedAt) continue;
         student.quizSubmitted = true;
+        emitBord(session);
         if (student.socketId) io.to(student.socketId).emit('quiz_force_submit', { reason: 'deadline' });
         await dbModule.submitQuizAnswers(code, student.id, true, 'deadline', student.name).catch(() => {});
         backupSubmissionPDF(code, student.id, student.name, 'deadline');
@@ -2922,6 +2924,7 @@ app.post('/api/quiz/:code/stop', requireTeacherAuth, requireSessionAccess, requi
       for (const student of Object.values(session.students)) {
         if (student.quizSubmitted || !student.quizStartedAt) continue;
         student.quizSubmitted = true;
+        emitBord(session);
         if (student._quizTimerInterval) clearInterval(student._quizTimerInterval);
         if (student.socketId) io.to(student.socketId).emit('quiz_force_submit', { reason: 'gestopt' });
         await dbModule.submitQuizAnswers(code, student.id, true, 'teacher', student.name).catch(() => {});
@@ -2984,6 +2987,7 @@ function startQuizTimer(session, student, totalSeconds) {
       clearInterval(student._quizTimerInterval);
       if (!student.quizSubmitted) {
         student.quizSubmitted = true;
+        emitBord(session);
         if (student.socketId) io.to(student.socketId).emit('quiz_force_submit', { reason: 'timer' });
         // Sla alle in-memory antwoorden op
         const sessionCode = Object.entries(session.students)
@@ -3277,7 +3281,7 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
           hideQuestionOnScreen, isTeacherPreview, templateCode,
           noTimer, accessFrom, accessUntil, autoSubmitLate,
           schoolYear, targetClass, type, studentIds,
-          tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusUrl, selfEvalEnabled } = req.body || {};
+          tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusUrl, selfEvalEnabled, klasbordEnabled } = req.body || {};
   if (!name?.trim()) return res.status(400).json({ error: 'Naam is verplicht.' });
   // Sprint 43.14: type is voortaan EXPLICIET (komt uit de link waarmee het
   // aanmaakscherm geopend werd) — niet langer afgeleid uit noTimer. De server
@@ -3389,6 +3393,8 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
       cursusUrl: type === 'toets' ? (cursusUrl?.trim() || null) : null,
       // Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij een toets).
       selfEvalEnabled: effectiveSelfEval,
+      // v99: klasbord + hand opsteken (enkel een keuze bij een taak; een toets heeft het altijd)
+      klasbordEnabled: klasbordEnabled === true,
     });
     // Sprint 43.4: expliciete leerling-selectie (leeg/afwezig = hele klas mag meedoen)
     if (Array.isArray(studentIds) && studentIds.length) {
@@ -3506,6 +3512,8 @@ app.get('/api/quiz/:code/edit', requireTeacherAuth, requireSessionAccess, async 
         cursusUrl: meta.cursus_url || '',
         // Sprint 90: zelfevaluatie-enquête ná het indienen.
         selfEvalEnabled: meta.self_eval_enabled === true,
+        // v99: klasbord + hand opsteken bij een taak
+        klasbordEnabled: meta.klasbord_enabled === true,
       },
       // Vragen zoals ze nu in de toets zitten (met bank-id zodat het aanmaakscherm ze
       // terugvindt en er nieuwe bij kan selecteren of ze kan verwijderen).
@@ -3553,7 +3561,7 @@ app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf
     const { name, questions, randomize, timerSeconds, noTimer, minRunsPerQ,
             hideQuestionOnScreen, noBack, accessFrom, accessUntil, autoSubmitLate,
             schoolYear, targetClass, studentIds,
-            tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusUrl, selfEvalEnabled } = req.body || {};
+            tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusUrl, selfEvalEnabled, klasbordEnabled } = req.body || {};
 
     if (!name?.trim()) return res.status(400).json({ error: 'Naam is verplicht.' });
     // Sprint 83: type staat vast (kan niet gewijzigd worden bij een update — zie meta
@@ -3621,6 +3629,8 @@ app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf
       cursusUrl: meta.type === 'toets' ? (cursusUrl?.trim() || null) : null,
       // Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij een toets).
       selfEvalEnabled: effectiveSelfEval,
+      // v99: klasbord + hand opsteken (enkel een keuze bij een taak; een toets heeft het altijd)
+      klasbordEnabled: klasbordEnabled === true,
     });
 
     // Naam bijwerken (sessies-tabel + in-memory sessie).
@@ -4044,6 +4054,7 @@ app.post('/api/quiz/:code/pause', requireTeacherAuth, requireSessionAccess, requ
   if (!session || session.mode !== 'quiz') return res.status(404).json({ error: 'Niet gevonden.' });
   session.quizPaused = !session.quizPaused;
   io.to(session.code).emit('quiz_paused', { paused: session.quizPaused });
+  emitBord(session);
   res.json({ ok: true, paused: session.quizPaused });
 });
 
@@ -5540,6 +5551,11 @@ app.get('/teacher-grid.html', requireTeacherAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'teacher-grid.html'));
 });
 
+// v99: klasbord bij toets/taak (groene tegels, hand opsteken, tab verlaten) — op de beamer te tonen
+app.get('/toets-bord.html', requireTeacherAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'toets-bord.html'));
+});
+
 // ── Sprint 20a: Audit log API ────────────────────────────────────────────────
 
 // ── Sprint 50e: het audit-log noteert eindelijk wie het déed ─────────────────
@@ -6923,6 +6939,40 @@ app.delete("/api/sessions/:code", requireTeacherAuth, requireSessionAccess, requ
 
 function getActiveStudents(session) {
   return Object.values(session.students).filter(s => !s.removed);
+}
+
+
+// ── v99: klasbord (toets/taak) ────────────────────────────────────────────────
+// Het bord is een eigen scherm (toets-bord.html) dat via socket.io live meekijkt. De status
+// per leerling (hand, tab verlaten, offline) leeft op de server in de sessie, zodat het
+// een herlaad van het bord of van de leerling overleeft. Zie lib/klasbord.js.
+const BORD_DEBOUNCE_MS = 200;
+async function bouwBordState(session) {
+  const nu = Date.now();
+  if (!session._bordCache || nu - session._bordCache.ts > 30000) {
+    let totaal = 0; let meta = null;
+    try { meta = await dbModule.getQuizMeta(session.code); } catch { /* bord toont dan 0 */ }
+    try { totaal = (await dbModule.getQuizQuestions(session.code)).length; } catch { /* idem */ }
+    session._bordCache = { ts: nu, totaal, actief: klasbordLib.klasbordActief(meta), type: meta?.type || 'toets' };
+  }
+  const leerlingen = klasbordLib.bouwBordLeerlingen(Object.values(session.students || {}), session._bordCache.totaal);
+  return {
+    code: session.code, naam: session.name, type: session._bordCache.type,
+    actief: session._bordCache.actief,
+    kolommen: klasbordLib.bordKolommen(leerlingen.length),
+    gepauzeerd: session.quizPaused === true,
+    leerlingen,
+  };
+}
+const _bordTimers = new Map();
+function emitBord(session) {
+  if (!session || session.mode !== 'quiz') return;
+  if (_bordTimers.has(session.code)) return; // al ingepland → bundelen
+  _bordTimers.set(session.code, setTimeout(async () => {
+    _bordTimers.delete(session.code);
+    try { io.to(session.code + ':bord').emit('quiz_bord_state', await bouwBordState(session)); }
+    catch (e) { log.warn('[klasbord] emit mislukt:', e.message); }
+  }, BORD_DEBOUNCE_MS));
 }
 
 function emitTeacherSession(session) {
@@ -9348,6 +9398,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
 
     socket.join(normalizedCode);
     socketToUser.set(socket.id, { role: 'quiz_student', code: normalizedCode, studentId: student.id });
+    emitBord(session); // v99: klasbord — leerling is (opnieuw) online
 
     // Herstel antwoorden uit DB bij reconnect
     const savedAnswers = await dbModule.getQuizAnswersByStudent(normalizedCode, student.id);
@@ -9393,6 +9444,9 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       // enkel de publieke /startinfo, en gebruikt het om fullscreen af te dwingen, de
       // tabwissel-detectie aan te zetten en het optionele cursus-zijpaneel te tonen.
       type: meta.type || 'toets',
+      // v99: klasbord + hand opsteken (toets altijd, taak enkel met vinkje) + of de hand nu al op staat
+      klasbordActief: klasbordLib.klasbordActief(meta),
+      handUp: student.klasbordHand === true,
       tabSwitchEnabled: meta.tab_switch_enabled === true,
       tabSwitchThreshold: meta.tab_switch_threshold || 0,
       // Sprint 94: instelbaar respijt (sprint 92, tot dan vast op 5 sec) — dit is de
@@ -9453,12 +9507,92 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       const drempel = Math.max(1, meta.tab_switch_threshold || 1);
       if (student.tabSwitchCount >= drempel) {
         student.quizSubmitted = true;
+        emitBord(session);
         io.to(socket.id).emit('quiz_force_submit', { reason: 'tab_switch' });
         await dbModule.submitQuizAnswers(normalizedCode, student.id, true, 'tab_switch', student.name).catch(() => {});
         backupSubmissionPDF(normalizedCode, student.id, student.name, 'tab_switch');
         log.info(`[quiz] ${student.name} automatisch ingediend na ${student.tabSwitchCount}x tabwissel/fullscreen-exit (${normalizedCode})`);
       }
     } catch (e) { log.warn('[quiz_tab_switch] mislukt:', e.message); }
+  });
+
+  // ── v99: klasbord — hand opsteken, tab verlaten, bord live meekijken ─────────
+  // Hand opsteken: wisselknop in de topbalk van toets/taak. De status staat op de server
+  // (sessie), dus een herlaad of korte verbindingsbreuk van de leerling laat de hand staan.
+  socket.on('quiz_hand', async ({ up } = {}, ack) => {
+    const klaar = typeof ack === 'function' ? ack : () => {};
+    try {
+      const ctx = socketToUser.get(socket.id);
+      if (!ctx || ctx.role !== 'quiz_student') return klaar({ ok: false });
+      const session = sessions.get(ctx.code);
+      if (!session || session.mode !== 'quiz') return klaar({ ok: false });
+      const student = session.students[ctx.studentId];
+      if (!student || student.quizSubmitted || student.removed) return klaar({ ok: false });
+      const meta = await dbModule.getQuizMeta(ctx.code);
+      if (!klasbordLib.klasbordActief(meta)) return klaar({ ok: false });
+      // eenvoudige rate-limit: max. 1 wissel per 800 ms per leerling
+      const nu = Date.now();
+      if (student._laatsteHandWissel && nu - student._laatsteHandWissel < 800) return klaar({ ok: false, tePasSnel: true });
+      student._laatsteHandWissel = nu;
+      const omhoog = up === true;
+      if (omhoog && !student.klasbordHand) { student.klasbordHand = true; student.klasbordHandAt = nu; }
+      if (!omhoog) { student.klasbordHand = false; student.klasbordHandAt = null; }
+      emitBord(session);
+      klaar({ ok: true, handUp: student.klasbordHand === true });
+    } catch (e) { log.warn('[quiz_hand] mislukt:', e.message); klaar({ ok: false }); }
+  });
+
+  // Tab/venster verlaten (enkel bij een toets): het bord toont meteen rood, ONAFHANKELIJK
+  // van het anti-spiek-auto-indienen (dat blijft zoals het was, met zijn eigen respijt).
+  // Rood blijft staan na terugkeer tot de leerkracht op de naam klikt.
+  socket.on('quiz_focus', async ({ away } = {}) => {
+    try {
+      const ctx = socketToUser.get(socket.id);
+      if (!ctx || ctx.role !== 'quiz_student') return;
+      const session = sessions.get(ctx.code);
+      if (!session || session.mode !== 'quiz') return;
+      const student = session.students[ctx.studentId];
+      if (!student || student.quizSubmitted || student.removed) return;
+      const meta = await dbModule.getQuizMeta(ctx.code);
+      if (!meta || meta.type !== 'toets') return; // bij een taak mag een andere tab (cursus, docs) gewoon
+      if (away === true) {
+        if (!student.klasbordWeg) student.klasbordWisselCount = (student.klasbordWisselCount || 0) + 1;
+        student.klasbordWeg = true;
+        student.klasbordRood = true;
+      } else {
+        student.klasbordWeg = false; // rood blijft tot de leerkracht erop klikt
+      }
+      emitBord(session);
+    } catch (e) { log.warn('[quiz_focus] mislukt:', e.message); }
+  });
+
+  // Leerkracht opent het bord.
+  socket.on('quiz_bord_join', async ({ code } = {}) => {
+    try {
+      if (!socketIsTeacherAuthorized(socket)) return;
+      const normalizedCode = String(code || '').trim().toUpperCase();
+      const session = sessions.get(normalizedCode);
+      if (!session || session.mode !== 'quiz') return socket.emit('quiz_bord_state', { fout: 'Toets of taak niet actief.' });
+      if (!socketMagSessie(socket, session)) return;
+      socket.join(normalizedCode + ':bord');
+      session._bordCache = null; // vers totaal/meta bij het openen
+      socket.emit('quiz_bord_state', await bouwBordState(session));
+    } catch (e) { log.warn('[quiz_bord_join] mislukt:', e.message); }
+  });
+
+  // Klik op een naam: hand omlaag + rood weg → terug groen.
+  socket.on('quiz_bord_reset', ({ code, studentId } = {}) => {
+    try {
+      if (!socketIsTeacherAuthorized(socket)) return;
+      const session = sessions.get(String(code || '').trim().toUpperCase());
+      if (!session || session.mode !== 'quiz' || !socketMagSessie(socket, session)) return;
+      const student = session.students[studentId];
+      if (!student || student.removed) return;
+      student.klasbordHand = false; student.klasbordHandAt = null;
+      student.klasbordRood = false;
+      if (student.socketId) io.to(student.socketId).emit('quiz_hand_lowered');
+      emitBord(session);
+    } catch (e) { log.warn('[quiz_bord_reset] mislukt:', e.message); }
   });
 
   // 🔴 Sprint 91 (kritieke bugfix): dit was hiervoor volledig "fire-and-forget" — geen ack
@@ -9537,6 +9671,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     socket.emit('quiz_answer_saved', { questionId });
     doAck({ ok: true, questionId });
 
+    emitBord(session); // v99: klasbord — voortgang (beantwoord + 1)
     // Update leerkracht
     const questions = await dbModule.getQuizQuestions(ctx.code);
     if (session.teacherSocketId) {
@@ -9567,6 +9702,8 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     if (!student || student.quizSubmitted) return;
 
     student.quizSubmitted = true;
+    student.klasbordHand = false; student.klasbordHandAt = null;
+    emitBord(session);
 
     // Haal vragen op voor auto-scoring
     const quizQuestions = await dbModule.getQuizQuestions(ctx.code).catch(() => []);
@@ -9758,6 +9895,8 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     student.quizStartedAt = null;
     student.quizAnswers = {};
     student.quizCurrentQuestion = 0;
+    student.klasbordHand = false; student.klasbordHandAt = null; student.klasbordRood = false; student.klasbordWeg = false;
+    emitBord(session);
     // Stuur reset naar leerling als verbonden
     if (student.socketId) {
       io.to(student.socketId).emit('quiz_reset');
@@ -9871,6 +10010,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       }
     }
     emitTeacherSession(session);
+    emitBord(session); // v99: klasbord — leerling offline (blauw)
   });
 });
 

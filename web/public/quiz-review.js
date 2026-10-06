@@ -668,18 +668,29 @@ async function savePartScores(answerId, qIdx) {
   if (!answerId) { if (window.pyToast) pyToast('Nog geen antwoord om te scoren.', 'warn'); return; }
   const scoreInputs = document.querySelectorAll('.part-score-input');
   let partScores = {};
-  for (const el of scoreInputs) {
-    const partId = el.dataset.partId;
-    const val = el.value;
-    const commentEl = document.querySelector(`.part-comment-input[data-part-id="${partId}"]`);
-    const partComment = commentEl ? commentEl.value : undefined;
-    await (window.apiFetch||fetch)(`/api/quiz/${sessionCode}/answers/${answerId}/part-score`, {
-      method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ partId, score: val !== '' ? parseInt(val, 10) : null, teacherComment: partComment }),
-    });
-    partScores[partId] = val !== '' ? parseInt(val, 10) : undefined;
+  let partCommentsNieuw = {};
+  try {
+    for (const el of scoreInputs) {
+      const partId = el.dataset.partId;
+      const val = el.value;
+      const commentEl = document.querySelector(`.part-comment-input[data-part-id="${partId}"]`);
+      const partComment = commentEl ? commentEl.value : undefined;
+      const r = await (window.apiFetch||fetch)(`/api/quiz/${sessionCode}/answers/${answerId}/part-score`, {
+        method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ partId, score: val !== '' ? parseInt(val, 10) : null, teacherComment: partComment }),
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      partScores[partId] = val !== '' ? parseInt(val, 10) : undefined;
+      if (partComment !== undefined) partCommentsNieuw[partId] = partComment;
+    }
+  } catch (e) {
+    if (window.pyToast) pyToast('Opslaan van de onderdeelscores is mislukt: ' + e.message, 'error');
+    return;
   }
   // Lokale data + totaal bijwerken zonder alles opnieuw te laden.
+  // (Bugfix v100: hier stond een verwijzing naar een niet-bestaande variabele "comment";
+  // die gooide een fout NA het opslaan, waardoor de melding en de sprong naar de volgende
+  // vraag nooit kwamen. De opmerkingen per onderdeel worden nu lokaal bijgewerkt.)
   const ans = _answers.find(a => a.id === answerId);
   if (ans) {
     let bestaande = {};
@@ -689,12 +700,19 @@ async function savePartScores(answerId, qIdx) {
     }
     ans.part_scores = JSON.stringify(bestaande);
     ans.score = Object.keys(bestaande).length ? Object.values(bestaande).reduce((s, v) => s + (v || 0), 0) : null;
-    if (comment !== undefined) ans.teacher_comment = comment;
+    let bestaandeOpm = {};
+    try { bestaandeOpm = JSON.parse(ans.part_comments || '{}'); } catch { bestaandeOpm = {}; }
+    for (const [pid, t] of Object.entries(partCommentsNieuw)) {
+      if (t) bestaandeOpm[pid] = t; else delete bestaandeOpm[pid];
+    }
+    ans.part_comments = JSON.stringify(bestaandeOpm);
   }
   renderStudentList();
   document.querySelectorAll('.q-tab')[qIdx]?.classList.add('scored');
-  selectQuestion(qIdx);   // herteken zodat het nieuwe totaal meteen zichtbaar is
   if (window.pyToast) pyToast('Onderdeelscores opgeslagen.', 'success');
+  // Zoals bij "Opslaan & volgende" van een gewone vraag: door naar de volgende vraag;
+  // bij de laatste vraag blijven we staan en herstekenen we zodat het nieuwe totaal klopt.
+  selectQuestion(qIdx < _questions.length - 1 ? qIdx + 1 : qIdx);
 }
 
 async function saveGeneralComment() {
