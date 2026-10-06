@@ -1,3 +1,10 @@
+## v2026.2.51.103 — Overzicht: testaccounts tellen niet mee + tab-scrollbalk weg
+
+- Testaccounts tellen niet meer mee voor "Te verbeteren" / "Afgerond" (verbeter-voortgang en ingediend-teller).
+- Het schuif-icoontje naast Concepten (ongewenste verticale scrollbalk van de tabbalk) is weg.
+
+---
+
 ## v2026.2.51.102 — Nieuw toets- en taakoverzicht (status-gedreven)
 
 Het overzicht is herbouwd rond de levensloop van een toets/taak, zodat het ook bij heel veel

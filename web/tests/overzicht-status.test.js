@@ -62,3 +62,7 @@ test('knoppen: archief heeft uit_archief, geen directe heropen; afgerond heeft h
   assert.ok(!kn('archief').more.includes('heropenen'));
   assert.ok(kn('afgerond').more.includes('heropenen') && kn('afgerond').more.includes('archiveren'));
 });
+test('testaccounts worden vóór de statusbepaling uitgesloten (ingediend telt enkel echte leerlingen)', () => {
+  // Server telt enkel niet-testaccounts; zonder echte inleveringen is een gesloten toets afgerond.
+  assert.equal(st({ availability: 'closed', ingediend: 0, verbeterd: 0 }), 'afgerond');
+});

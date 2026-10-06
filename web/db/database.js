@@ -3467,7 +3467,9 @@ module.exports = {
            FROM quiz_answers a
            LEFT JOIN assignment_student_status ass
                   ON ass.session_code = a.session_code AND ass.student_id = a.student_id
+           LEFT JOIN students st ON st.id = a.student_id
           WHERE a.session_code = ANY($1)
+            AND COALESCE(st.is_test_account, false) = false   -- testaccounts tellen nooit mee
             AND COALESCE(a.submitted_by,'') <> 'geen_deelname'
             AND (ass.status IS NULL OR ass.status <> 'gewettigd')
           GROUP BY a.session_code, a.student_id
