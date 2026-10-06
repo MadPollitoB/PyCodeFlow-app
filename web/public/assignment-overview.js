@@ -8,59 +8,68 @@
   var LABEL = TYPE === 'taak' ? 'taak' : 'toets';
   var LABEL_MV = TYPE === 'taak' ? 'taken' : 'toetsen';
 
-  var items = [];                                   // alles van dit type (incl. previews)
-  var filter = { klas: '', status: '', jaar: '', q: '' };
+  var items = [];                                   // alles van dit type (incl. concepten en archief)
+  var filter = { klas: '', jaar: '', q: '' };
+  var TABS = [
+    { id: 'actief',        label: 'Actief' },
+    { id: 'te_verbeteren', label: 'Te verbeteren' },
+    { id: 'afgerond',      label: 'Afgerond' },
+    { id: 'archief',       label: 'Archief' },
+    { id: 'concept',       label: 'Concepten', rechts: true }   // helemaal rechts, met meegroeiende ruimte ervoor
+  ];
+  var BADGE = {
+    actief:        { bg: '#dfe9fb', fg: '#1e3a8a', t: 'Open' },
+    gepland:       { bg: '#ece6fb', fg: '#4c2f9e', t: 'Nog niet open' },
+    te_verbeteren: { bg: '#fcebc2', fg: '#6b4200', t: 'Te verbeteren' },
+    afgerond:      { bg: '#d5f0de', fg: '#14602f', t: 'Afgerond' },
+    archief:       { bg: '#e8e6e0', fg: '#4b5160', t: 'Archief' },
+    concept:       { bg: '#fef3c7', fg: '#92400e', t: 'Concept' }
+  };
+  var PAGE = 50;                                    // zoveel rijen per tab, daarna "Toon meer"
+  var tab = 'actief';                               // hoofdtabblad
+  var tonen = {};                                   // per tab: aantal getoonde rijen
+  var open = {};                                    // code → rij uitgeklapt
+  var groepDicht = {};                              // archief-groep → ingeklapt
+  try { var _h = (location.hash || '').replace('#', ''); if (TABS.some(function (t) { return t.id === _h; })) tab = _h; } catch (e) { /* hash optioneel */ }
 
   function esc(s) { return window.escapeHtml ? window.escapeHtml(String(s == null ? '' : s)) : String(s == null ? '' : s); }
-
-  // Sprint 51-fix: is deze toets/taak nog écht actief (kan iemand nog deelnemen, heeft
-  // "Stoppen" nog zin)? Vroeger keek de "Stoppen"-knop enkel naar stoppedAt — een toets
-  // waarvan het tijdvenster gewoon vanzelf verstreek (availability='expired') kreeg dat
-  // veld tot voor kort nooit gezet, dus bleef de knop zichtbaar terwijl er niemand meer
-  // kon deelnemen. De server zet stoppedAt nu ook bij een verstreken venster (zie sprint
-  // 51-fix in server.js); deze check is de bijhorende, defensieve client-kant daarvan.
-  function isActief(a) {
-    return !a.isPreview && !a.stoppedAt && a.availability !== 'expired' && a.availability !== 'closed';
-  }
+  function fmt(ms) { return new Date(ms).toLocaleString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
 
   function statusBadge(a) {
-    if (a.isPreview)                 return '<span class="badge" style="background:#fef3c7;color:#92400e;">👁 preview</span>';
-    // Sprint 51-fix: "Venster voorbij" vóór "gestopt" gecheckt — specifieker (vertelt WAAROM
-    // het niet meer loopt: de tijd verstreek, niet dat iemand het bewust afbrak). Beide
-    // velden kunnen nu tegelijk waar zijn (zie hierboven), dus de volgorde bepaalt welke
-    // ene badge je te zien krijgt.
-    if (a.availability === 'expired')return '<span class="badge" style="background:#fee2e2;color:#991b1b;">⛔ Venster voorbij</span>';
-    if (a.stoppedAt)                 return '<span class="badge" style="background:#e2e8f0;color:#475569;">⏹ gestopt</span>';
-    if (a.availability === 'closed') return '<span class="badge" style="background:#e2e8f0;color:#475569;">Gesloten</span>';
-    if (a.availability === 'pending')return '<span class="badge" style="background:#dbeafe;color:#1e40af;">⏳ Nog niet open</span>';
-    return '<span class="badge" style="background:#dcfce7;color:#166534;">🟢 Open</span>';
+    var b = BADGE[a.status === 'actief' && !a.gestart ? 'gepland' : a.status] || BADGE.afgerond;
+    return '<span class="ov-badge" style="background:' + b.bg + ';color:' + b.fg + ';">' + b.t + '</span>';
   }
 
   // Sprint 51e: extra badges voor vrijgave-status, zodat je niet nodeloos opnieuw vrijgeeft.
   function releaseBadges(a) {
     var out = '';
-    if (a.resultsReleased) out += '<span class="badge" style="background:#dcfce7;color:#166534;" title="Scores en feedback zijn vrijgegeven aan de leerlingen">✅ scores vrijgegeven</span>';
-    if (a.reviewMode)      out += '<span class="badge" style="background:#e0e7ff;color:#3730a3;" title="Leerlingen kunnen hun volledige toets nakijken">🔍 nazicht open</span>';
+    if (a.resultsReleased) out += '<span class="ov-badge" style="background:#dcfce7;color:#166534;" title="Scores en feedback zijn vrijgegeven aan de leerlingen">scores vrijgegeven</span>';
+    if (a.reviewMode)      out += '<span class="ov-badge" style="background:#e0e7ff;color:#3730a3;" title="Leerlingen kunnen hun volledige toets nakijken">nazicht open</span>';
     return out;
-  }
-
-  function group(a) {
-    if (a.isPreview) return 'preview';
-    if (a.availability === 'closed' || a.availability === 'expired') return 'done';
-    return 'active';
   }
 
   function matches(a) {
     if (filter.klas && a.className !== filter.klas) return false;
     if (filter.jaar && a.schoolYear !== filter.jaar) return false;
-    if (filter.status === 'preview' && !a.isPreview) return false;
-    if (filter.status === 'active' && group(a) !== 'active') return false;
-    if (filter.status === 'done' && group(a) !== 'done') return false;
     if (filter.q) {
-      var hay = ((a.name || '') + ' ' + (a.code || '')).toLowerCase();
+      var hay = ((a.name || '') + ' ' + (a.code || '') + ' ' + (a.className || '')).toLowerCase();
       if (hay.indexOf(filter.q.toLowerCase()) === -1) return false;
     }
     return true;
+  }
+
+  function renderTabs() {
+    var host = document.getElementById('ov-tabs');
+    if (!host) return;
+    var teller = {};
+    items.filter(matches).forEach(function (a) { teller[a.status] = (teller[a.status] || 0) + 1; });
+    host.innerHTML = TABS.map(function (t) {
+      return '<button type="button" class="ov-tab' + (t.rechts ? ' ov-tab-right' : '') + (tab === t.id ? ' on' : '') + '" data-tab="' + t.id + '">' +
+        esc(t.label) + ' <span class="ov-count">' + (teller[t.id] || 0) + '</span></button>';
+    }).join('');
+    Array.prototype.forEach.call(host.querySelectorAll('.ov-tab'), function (b) {
+      b.addEventListener('click', function () { tab = b.getAttribute('data-tab'); try { history.replaceState(null, '', '#' + tab); } catch (e) { /* ok */ } renderTabs(); renderList(); });
+    });
   }
 
   function renderFilters() {
@@ -74,96 +83,157 @@
     classes.sort(); years.sort().reverse();
     function opt(v, l, sel) { return '<option value="' + esc(v) + '"' + (sel ? ' selected' : '') + '>' + esc(l) + '</option>'; }
     host.innerHTML =
+      '<input id="f-q" placeholder="Zoek op naam, code of klas…" value="' + esc(filter.q) + '"/>' +
       '<select id="f-klas"><option value="">Alle klassen</option>' + classes.map(function (c) { return opt(c, c, filter.klas === c); }).join('') + '</select>' +
-      '<select id="f-status">' + opt('', 'Alle statussen', !filter.status) + opt('active', 'Actief', filter.status === 'active') +
-        opt('preview', 'Preview', filter.status === 'preview') + opt('done', 'Afgerond', filter.status === 'done') + '</select>' +
       (years.length > 1 ? '<select id="f-jaar"><option value="">Alle schooljaren</option>' + years.map(function (y) { return opt(y, y, filter.jaar === y); }).join('') + '</select>' : '') +
-      '<input id="f-q" placeholder="Zoek op naam of code…" value="' + esc(filter.q) + '"/>';
+      '<button type="button" class="btn btn-muted small" id="ov-expand">Alles uitklappen</button>';
     function bind(id, key, ev) {
       var e = document.getElementById(id); if (!e) return;
-      e.addEventListener(ev || 'change', function () { filter[key] = e.value; renderList(); });
+      e.addEventListener(ev || 'change', function () { filter[key] = e.value; renderTabs(); renderList(); });
     }
-    bind('f-klas', 'klas'); bind('f-status', 'status'); bind('f-jaar', 'jaar'); bind('f-q', 'q', 'input');
+    bind('f-klas', 'klas'); bind('f-jaar', 'jaar'); bind('f-q', 'q', 'input');
+    var ex = document.getElementById('ov-expand');
+    if (ex) ex.addEventListener('click', function () {
+      var zichtbaar = items.filter(function (a) { return a.status === tab && matches(a); });
+      var alleOpen = zichtbaar.length && zichtbaar.every(function (a) { return open[a.code]; });
+      zichtbaar.forEach(function (a) { open[a.code] = !alleOpen; });
+      renderList();
+    });
   }
 
-  function renderStats() {
-    var host = document.getElementById('stats-bar');
-    if (!host) return;
-    var act = 0, prev = 0, done = 0;
-    items.forEach(function (a) { var g = group(a); if (g === 'active') act++; else if (g === 'preview') prev++; else done++; });
-    host.innerHTML =
-      '<span class="stat-chip">Totaal: <strong>' + items.length + '</strong></span>' +
-      '<span class="stat-chip">Actief: <strong>' + act + '</strong></span>' +
-      '<span class="stat-chip">Preview: <strong>' + prev + '</strong></span>' +
-      '<span class="stat-chip">Afgerond: <strong>' + done + '</strong></span>';
+  // Knop-definities: id (komt van de server, lib/overzicht-status.js) → HTML
+  function knop(id, a, hoofd) {
+    var c = a.code, n = esc(a.name || a.code), cls = hoofd ? 'btn btn-primary small' : 'btn btn-soft small';
+    var js = function (fn) { return 'onclick="' + fn + '"'; };
+    var q = "'" + c + "'", qn = "'" + n.replace(/'/g, "\\'") + "'";
+    switch (id) {
+      case 'live':       return '<a class="' + cls + '" href="/teacher-grid.html?code=' + c + '" target="_blank">Live</a>';
+      case 'klasbord':   return '<a class="' + cls + '" href="/toets-bord.html?code=' + c + '" target="_blank" title="Klasbord voor op de beamer">Klasbord</a>';
+      case 'voortgang':  return '<button class="' + cls + '" ' + js('toggleQuizRoster(' + q + ')') + '>Voortgang</button>';
+      case 'stoppen':    return '<button class="btn btn-muted small" ' + js('stopQuiz(' + q + ',' + qn + ')') + ' title="Iedereen meteen laten inleveren en de ' + LABEL + ' sluiten">Stoppen</button>';
+      case 'bewerken':   return '<a class="' + cls + '" href="/quiz-teacher.html?type=' + TYPE + '&edit=' + c + '">Bewerken</a>';
+      case 'verbeteren': return '<a class="' + cls + '" href="/quiz-review.html?code=' + c + '">Verbeteren</a>';
+      case 'scores':     return '<a class="' + cls + '" href="/quiz-review.html?code=' + c + '">Scores</a>';
+      case 'heropenen':  return '<button class="btn btn-muted small" ' + js('heropenToetsVoorLeerlingen(' + q + ',' + qn + ')') + '>' + (TYPE === 'taak' ? 'Taak' : 'Toets') + ' heropenen</button>';
+      case 'dupliceren': return '<button class="btn btn-muted small" ' + js('duplicateQuiz(' + q + ')') + '>Dupliceren</button>';
+      case 'sjabloon':   return '<button class="btn btn-muted small" ' + js('saveAsTemplate(' + q + ')') + '>Bewaar als sjabloon</button>';
+      case 'archiveren': return '<button class="btn btn-muted small" ' + js('archiveerToets(' + q + ',true)') + '>Archiveren</button>';
+      case 'uit_archief':return '<button class="btn btn-muted small" ' + js('archiveerToets(' + q + ',false)') + '>Uit archief halen</button>';
+      case 'verwijderen':return '<button class="btn btn-danger small" ' + js('deleteQuiz(' + q + ')') + '>Verwijderen</button>';
+      case 'activeren':  return '<button class="' + cls + '" ' + js('activateQuiz(' + q + ')') + ' title="Maak hier een echte ' + LABEL + ' van">Activeren</button>';
+      case 'doorlopen':  return '<button class="btn btn-soft small" ' + js('openPreviewRun(' + q + ')') + ' title="Doorloop dit concept zelf als leerling">Doorlopen</button>';
+    }
+    return '';
+  }
+
+  function voortgangBalk(a) {
+    if (a.status !== 'te_verbeteren' && !(a.status === 'afgerond' && a.ingediend)) return '';
+    var pct = a.ingediend ? Math.round(100 * a.verbeterd / a.ingediend) : 100;
+    return '<div class="ov-prog" title="' + a.verbeterd + ' van ' + a.ingediend + ' ingediende leerlingen volledig verbeterd">' +
+      '<div class="ov-prog-bar"><div style="width:' + pct + '%"></div></div><span>' + a.verbeterd + '/' + a.ingediend + ' verbeterd</span></div>';
   }
 
   function card(a) {
-    var cls = 'a-card' + (a.isPreview ? ' preview-card' : '');
-    var activate = a.isPreview
-      ? '<button class="btn btn-primary small" onclick="activateQuiz(\'' + a.code + '\')" title="Maak hier een echte ' + LABEL + ' van">▶ Activeren</button>' : '';
-    // Sprint 43.9: een preview moet je ook LATER nog kunnen doorlopen als leerkracht.
-    var walk = a.isPreview
-      ? '<button class="btn btn-soft small" onclick="openPreviewRun(\'' + a.code + '\')" title="Doorloop deze preview zelf, als leerling">🧑‍🎓 Doorlopen</button>' : '';
-    var live = a.isPreview ? '' :
-      '<a class="btn btn-soft small" href="/teacher-grid.html?code=' + a.code + '" target="_blank">👁 Live</a>' +
-      '<a class="btn btn-soft small" href="/toets-bord.html?code=' + a.code + '" target="_blank" title="Klasbord voor op de beamer">🟩 Klasbord</a>' +
-      '<button class="btn btn-soft small" onclick="toggleQuizRoster(\'' + a.code + '\')">👥 Voortgang</button>' +
-      // Sprint 69: stoppen dient ook als "iedereen nu inleveren" — enkel zinvol zolang de
-      // toets nog écht actief is. Sprint 51-fix: dit keek voorheen enkel naar stoppedAt, dus
-      // een toets waarvan het venster gewoon vanzelf verstreek (nog geen stoppedAt) hield
-      // de knop ten onrechte. isActief() dekt beide gevallen (handmatig én automatisch niet
-      // meer actief) — geen dubbele pil, "⛔ Venster voorbij"/"⏹ gestopt" staat al bovenaan.
-      (isActief(a)
-        ? '<button class="btn btn-muted small" onclick="stopQuiz(\'' + a.code + '\',\'' + esc(a.name || a.code) + '\')" ' +
-          'title="Iedereen die bezig is meteen laten inleveren en de ' + LABEL + ' sluiten">⏹ Stoppen</button>'
-        : '');
-    // Sprint 50/51d: "Aanpassen" — enkel op dit overzicht (niet in het live-/sessiescherm) én
-    // ENKEL zolang het nog mag (a.editable van de server: geen preview, niet gearchiveerd/
-    // gesloten/gestopt, en nog geen leerling gestart of resultaten). Kan het niet meer, dan
-    // verdwijnt de knop volledig (vroeger een uitgegrijsde knop). Leerkracht-preview telt niet mee.
-    var edit = (!a.isPreview && a.editable)
-      ? '<a class="btn btn-muted small" href="/quiz-teacher.html?type=' + TYPE + '&edit=' + a.code + '" ' +
-          'title="Pas deze ' + LABEL + ' aan (kan enkel zolang niemand gestart is)">✏️ Aanpassen</a>'
-      : '';
-    var deadline = a.accessUntil
-      ? '<span class="a-sub">⏰ Deadline: ' + new Date(a.accessUntil).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) + '</span>'
-      : '';
-    // Sprint 95: "↻ Toets heropenen" — enkel zinvol zodra de toets/taak zelf niet meer
-    // actief is (gestopt, of het venster verstreek vanzelf). Geeft, anders dan de gewone
-    // "↺ Heropenen" per leerling in de Voortgang (die dan juist NIET meer werkt, zie
-    // magHeropenen), met naam gekozen leerlingen een eigen nieuwe "open tot".
-    var heropenToetsBalk = (!a.isPreview && (a.stoppedAt || a.availability === 'expired'))
-      ? '<div class="a-heropen-balk" style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);">' +
-          '<button class="btn btn-muted small" onclick="heropenToetsVoorLeerlingen(\'' + a.code + '\',\'' + esc(a.name || a.code) + '\')" ' +
-            'title="Geef met naam gekozen leerlingen een eigen, nieuwe toegang tot een zelf gekozen tijdstip — ook al is deze ' + LABEL + ' zelf al gestopt of voorbij">' +
-            '↻ ' + (TYPE === 'taak' ? 'Taak' : 'Toets') + ' heropenen</button>' +
-        '</div>'
-      : '';
-    return '<div class="' + cls + '">' +
-      '<div class="a-meta"><strong>' + esc(a.name || a.code) + '</strong>' + statusBadge(a) + releaseBadges(a) +
-        (a.onlineCount ? '<span class="badge" style="background:#dcfce7;color:#166534;">👥 ' + a.onlineCount + ' online</span>' : '') +
-        '<span id="ai-grade-badge-' + a.code + '"></span>' +
+    var k = a.knoppen || { primary: 'scores', more: [] };
+    var start = a.accessFrom || a.createdAt;
+    var meta = '<span>Code <strong>' + esc(a.code) + '</strong></span>' +
+      (a.className ? '<span>' + esc(a.className) + '</span>' : '') +
+      (a.schoolYear ? '<span>' + esc(a.schoolYear) + '</span>' : '') +
+      (start ? '<span>' + (a.accessFrom ? 'Start ' : 'Aangemaakt ') + fmt(start) + '</span>' : '') +
+      (a.accessUntil ? '<span>Deadline ' + fmt(a.accessUntil) + '</span>' : '');
+    var isOpen = !!open[a.code];
+    var meer = k.more.map(function (id) { return knop(id, a, false); }).join('');
+    return '<div class="ov-row' + (isOpen ? ' open' : '') + '" data-code="' + esc(a.code) + '">' +
+      '<div class="ov-main">' +
+        '<div class="ov-info">' +
+          '<div class="ov-title"><strong>' + esc(a.name || a.code) + '</strong>' + statusBadge(a) + releaseBadges(a) +
+            (a.status === 'actief' && a.onlineCount ? '<span class="ov-badge" style="background:#dcfce7;color:#166534;">' + a.onlineCount + ' online</span>' : '') +
+            '<span id="ai-grade-badge-' + esc(a.code) + '"></span></div>' +
+          '<div class="ov-meta">' + meta + '</div>' + voortgangBalk(a) +
+        '</div>' +
+        '<div class="ov-acts">' + knop(k.primary, a, true) +
+          (meer ? '<button type="button" class="ov-chev" data-toggle="' + esc(a.code) + '" aria-expanded="' + isOpen + '" title="Meer acties">&#9662;</button>' : '') +
+        '</div>' +
       '</div>' +
-      '<div class="a-sub">Code: <strong>' + esc(a.code) + '</strong>' +
-        (a.className ? ' · 👥 ' + esc(a.className) : '') +
-        (a.schoolYear ? ' · ' + esc(a.schoolYear) : '') +
-        ' · ' + new Date(a.createdAt).toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
-      '</div>' + deadline +
-      '<div class="a-actions">' + activate + walk + live +
-        // Sprint 50 (bug 2): bewerken is enkel mogelijk zolang niemand gestart is en er geen
-        // resultaten zijn (a.editable komt van de server). Anders tonen we een uitgeschakelde
-        // knop met uitleg, zodat de leerkracht weet waaróm het niet meer kan.
-        edit +
-        '<a class="btn btn-muted small" href="/quiz-review.html?code=' + a.code + '">✏️ Verbeteren</a>' +
-        '<button class="btn btn-muted small" onclick="duplicateQuiz(\'' + a.code + '\')">📋 Dupliceren</button>' +
-        '<button class="btn btn-muted small" onclick="saveAsTemplate(\'' + a.code + '\')" title="Zet deze ' + LABEL + ' als herbruikbaar sjabloon in de bibliotheek">💾 Bewaar als sjabloon</button>' +
-        '<button class="btn btn-danger small" onclick="deleteQuiz(\'' + a.code + '\')">🗑 Verwijderen</button>' +
-      '</div>' +
-      heropenToetsBalk +
-      '<div id="roster-' + a.code + '" class="a-roster" style="display:none;"></div>' +
+      (meer ? '<div class="ov-more"' + (isOpen ? '' : ' hidden') + '>' + meer + '</div>' : '') +
+      '<div id="roster-' + esc(a.code) + '" class="a-roster" style="display:none;"></div>' +
     '</div>';
   }
+
+  function sorteer(arr) {
+    var t = tab;
+    return arr.slice().sort(function (x, y) {
+      if (t === 'actief') return (x.accessFrom || x.createdAt || 0) - (y.accessFrom || y.createdAt || 0) || (y.createdAt || 0) - (x.createdAt || 0);
+      if (t === 'archief') return (y.archivedAt || 0) - (x.archivedAt || 0);
+      return (y.stoppedAt || y.createdAt || 0) - (x.stoppedAt || x.createdAt || 0);
+    });
+  }
+
+  function renderList() {
+    var el = document.getElementById('assignment-list');
+    if (!el) return;
+    var lijst = sorteer(items.filter(function (a) { return a.status === tab && matches(a); }));
+    var leeg = {
+      actief: 'Geen actieve ' + LABEL_MV + '.', te_verbeteren: 'Niets te verbeteren. Goed bezig!',
+      afgerond: 'Nog geen afgeronde ' + LABEL_MV + '.', archief: 'Het archief is leeg.', concept: 'Geen concepten.'
+    }[tab];
+    if (!lijst.length) {
+      el.innerHTML = '<p class="empty-state">' + (items.length ? leeg : 'Nog geen ' + LABEL_MV + '. Klik op "+ Nieuwe ' + LABEL + '".') + '</p>';
+      return;
+    }
+    if (tab === 'archief') {
+      // Gegroepeerd per schooljaar · klas, ingeklapt-beheersbaar bij heel veel items.
+      var groepen = {}, volgorde = [];
+      lijst.forEach(function (a) {
+        var g = (a.schoolYear || 'Onbekend schooljaar') + ' · ' + (a.className || 'Geen klas');
+        if (!groepen[g]) { groepen[g] = []; volgorde.push(g); }
+        groepen[g].push(a);
+      });
+      volgorde.sort().reverse();
+      var typ = filter.q || filter.klas || filter.jaar;
+      el.innerHTML = volgorde.map(function (g) {
+        var dicht = groepDicht[g] === undefined ? !typ && volgorde.length > 3 : groepDicht[g];
+        return '<div class="ov-group"><button type="button" class="ov-group-head" data-group="' + esc(g) + '">' +
+          '<span>' + (dicht ? '&#9656;' : '&#9662;') + ' ' + esc(g) + '</span><span class="ov-count">' + groepen[g].length + '</span></button>' +
+          (dicht ? '' : '<div class="ov-list">' + groepen[g].map(card).join('') + '</div>') + '</div>';
+      }).join('');
+      Array.prototype.forEach.call(el.querySelectorAll('.ov-group-head'), function (b) {
+        b.addEventListener('click', function () {
+          var g = b.getAttribute('data-group');
+          var nu = groepDicht[g] === undefined ? !typ && volgorde.length > 3 : groepDicht[g];
+          groepDicht[g] = !nu; renderList();
+        });
+      });
+    } else {
+      var n = tonen[tab] || PAGE;
+      el.innerHTML = '<div class="ov-list">' + lijst.slice(0, n).map(card).join('') + '</div>' +
+        (lijst.length > n ? '<div style="text-align:center;margin-top:12px;"><button type="button" class="btn btn-muted small" id="ov-meer">Toon meer (' + (lijst.length - n) + ' resterend)</button></div>' : '');
+      var m = document.getElementById('ov-meer');
+      if (m) m.addEventListener('click', function () { tonen[tab] = n + PAGE; renderList(); });
+    }
+    Array.prototype.forEach.call(el.querySelectorAll('.ov-chev'), function (b) {
+      b.addEventListener('click', function () {
+        var code = b.getAttribute('data-toggle');
+        open[code] = !open[code];
+        var row = b.closest('.ov-row'), more = row && row.querySelector('.ov-more');
+        if (row) row.classList.toggle('open', !!open[code]);
+        if (more) more.hidden = !open[code];
+        b.setAttribute('aria-expanded', String(!!open[code]));
+      });
+    });
+    pollAiGradeJobs();
+  }
+
+  // v102: archiveren / uit archief halen (uit archief → Afgerond, niet direct heropenen).
+  window.archiveerToets = async function (code, archiveren) {
+    try {
+      var r = await window.apiFetch('/api/quiz/' + encodeURIComponent(code) + (archiveren ? '/archive' : '/unarchive'), { method: 'PUT' });
+      var d = await r.json().catch(function () { return {}; });
+      if (!r.ok) throw new Error(d.error || r.status);
+      if (window.pyToast) pyToast(archiveren ? 'Gearchiveerd.' : 'Uit het archief gehaald, staat nu bij Afgerond.', 'success');
+      await window.reloadAssignments();
+    } catch (e) { if (window.pyAlert) pyAlert('Mislukt: ' + e.message, 'error'); }
+  };
 
   // Sprint 95: "↻ Toets heropenen" — haalt de roster (klas + gasten) op, laat de
   // leerkracht een nieuw tijdstip + specifieke leerlingen kiezen, en stuurt dat naar de
@@ -198,29 +268,6 @@
     }
   };
 
-  function renderList() {
-    var el = document.getElementById('assignment-list');
-    if (!el) return;
-    var list = items.filter(matches);
-    if (!list.length) {
-      el.innerHTML = items.length
-        ? '<p class="empty-state">Geen ' + LABEL_MV + ' die aan de filter voldoen.</p>'
-        : '<p class="empty-state">Nog geen ' + LABEL_MV + '. Klik op "+ Nieuwe ' + LABEL + '".</p>';
-      return;
-    }
-    var g = { active: [], preview: [], done: [] };
-    list.forEach(function (a) { g[group(a)].push(a); });
-    function section(arr, title, color) {
-      if (!arr.length) return '';
-      return '<div class="group-head" style="color:' + color + ';">' + title + ' (' + arr.length + ')</div>' +
-             '<div class="ab-grid">' + arr.map(card).join('') + '</div>';
-    }
-    el.innerHTML =
-      section(g.active, '🟢 Actief', '#166534') +
-      section(g.preview, '👁 Preview / onafgewerkt', '#92400e') +
-      section(g.done, '✅ Afgerond / te verbeteren', '#334155');
-  }
-
   window.reloadAssignments = async function () {
     var el = document.getElementById('assignment-list');
     try {
@@ -229,8 +276,7 @@
       var all = await r.json();
       items = all.filter(function (a) { return a.quizType === TYPE; });
       if (window.cacheAssignments) window.cacheAssignments(all);
-      renderStats(); renderFilters(); renderList();
-      pollAiGradeJobs();
+      renderTabs(); renderFilters(); renderList();
     } catch (e) {
       if (el) el.innerHTML = '<p class="empty-state">Kon niet laden.</p>';
     }

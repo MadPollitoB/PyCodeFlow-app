@@ -1,3 +1,27 @@
+## v2026.2.51.102 — Nieuw toets- en taakoverzicht (status-gedreven)
+
+Het overzicht is herbouwd rond de levensloop van een toets/taak, zodat het ook bij heel veel
+toetsen beheersbaar blijft. De status wordt automatisch bepaald.
+
+- **Tabs:** Actief (hoofdtabblad, standaard) · Te verbeteren · Afgerond · Archief, en helemaal rechts
+  **Concepten**. Elke tab toont een teller; zoeken en filteren op klas/schooljaar; "Toon meer" per 50.
+- **Statussen:** Actief (gepland, open, of een open individuele heropening) → Te verbeteren
+  (gesloten, niet alle ingediende leerlingen volledig verbeterd) → Afgerond (alles verbeterd) → Archief.
+- **Hoofdknop + pijltje:** Actief gestart = Klasbord (taak zonder klasbord: Live), Actief niet gestart =
+  Bewerken, Te verbeteren = Verbeteren, Afgerond/Archief = Scores. Overige acties staan standaard
+  ingeklapt achter het pijltje ("Alles uitklappen" voor alle rijen).
+- Live, Klasbord, Voortgang en Stoppen verdwijnen na het sluiten en komen terug na heropenen.
+- **Archief:** gegroepeerd per schooljaar en klas (inklapbaar). "Uit archief halen" zet terug op Afgerond;
+  heropenen kan daarna vanuit Afgerond. Op elke rij staan startdatum/-tijd en deadline.
+- Voortgangsbalk "x/y verbeterd" bij Te verbeteren.
+- Server: `lib/overzicht-status.js`; `GET /api/quiz-sessions?bank=1` geeft nu `status`, `knoppen`,
+  `ingediend`, `verbeterd`, `individualOpen`, `gestart`.
+- Tests: `tests/overzicht-status.test.js` (12).
+- Niet gebouwd: automatisch archiveren bij een nieuw schooljaar (de bestaande knop "nieuw schooljaar"
+  in het Archief blijft werken).
+
+---
+
 ## v2026.2.51.101 — Bugfix: 403-fout bij opslaan tijdens het verbeteren
 
 Tijdens het verbeteren (en andere leerkrachtpagina's) kon een opslag-actie plots een 403 geven

@@ -210,6 +210,7 @@ const freeStudents = new Map();
 const authLib = require('./lib/auth');
 const scoringLib = require('./lib/scoring');
 const validationLib = require('./lib/validation');
+const overzichtStatus = require('./lib/overzicht-status');
 const klasbordLib = require('./lib/klasbord'); // v99: klasbord + hand opsteken bij toets/taak
 // 32b: gestructureerde logger met niveaus (LOG_LEVEL env var, standaard 'info')
 const { createLogger } = require('./lib/logger');
@@ -6200,6 +6201,13 @@ app.get("/api/quiz-sessions", requireTeacherAuth, async (req, res) => {
     const codes = metas.map(m => m.session_code);
     activiteitSet = new Set(await dbModule.quizCodesWithActivity(codes));
   } catch (e) { log.warn('[quiz-sessions] activiteit-check mislukt:', e.message); }
+  // v102: verbeter-voortgang + open individuele heropeningen voor de statusbepaling.
+  let verbeterStats = {}, heropenSet = new Set();
+  try {
+    const codes = metas.map(m => m.session_code);
+    verbeterStats = await dbModule.quizVerbeterStats(codes);
+    heropenSet = new Set(await dbModule.quizCodesMetOpenHeropening(codes));
+  } catch (e) { log.warn('[quiz-sessions] verbeterstatus mislukt:', e.message); }
 
   for (const meta of metas) {
     const code = meta.session_code;
@@ -6248,6 +6256,16 @@ app.get("/api/quiz-sessions", requireTeacherAuth, async (req, res) => {
     // mag zijn volledige toets nakijken.
     row.resultsReleased = !!(meta && meta.results_released);
     row.reviewMode      = !!(meta && meta.review_mode);
+    // v102: status-gedreven overzicht (status, hoofdknop, knoppen achter het pijltje).
+    const vs = verbeterStats[code] || { ingediend: 0, verbeterd: 0 };
+    row.ingediend = vs.ingediend;
+    row.verbeterd = vs.verbeterd;
+    row.individualOpen = heropenSet.has(code);
+    row.klasbordActief = klasbordLib.klasbordActief(meta);
+    row.archivedAt = meta && meta.archived_at ? Number(meta.archived_at) : null;
+    row.status = overzichtStatus.bepaalOverzichtStatus(row);
+    row.gestart = overzichtStatus.isGestart(row);
+    row.knoppen = overzichtStatus.knoppenVoorStatus(row.status, row);
     out.push(row);
   }
 

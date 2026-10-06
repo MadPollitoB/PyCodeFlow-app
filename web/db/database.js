@@ -3449,6 +3449,46 @@ module.exports = {
     return r.rows.map(x => x.session_code);
   },
 
+  // v102: per toets het aantal ingediende leerlingen en hoeveel daarvan volledig verbeterd zijn
+  // (elke vraag heeft een score), plus welke toetsen nog een open individuele heropening hebben.
+  // Eén batch-query voor het hele overzicht. Gewettigd afwezigen en 'geen_deelname' tellen niet mee.
+  async quizVerbeterStats(codes) {
+    const out = {};
+    if (!Array.isArray(codes) || !codes.length) return out;
+    const r = await query(
+      `WITH n AS (
+         SELECT session_code, COUNT(*) AS totaal FROM quiz_question_snapshots
+          WHERE session_code = ANY($1) GROUP BY session_code
+       ), per AS (
+         SELECT a.session_code, a.student_id,
+                COUNT(*) AS rijen,
+                COUNT(a.score) AS gescoord,
+                BOOL_OR(a.submitted_at IS NOT NULL) AS ingediend
+           FROM quiz_answers a
+           LEFT JOIN assignment_student_status ass
+                  ON ass.session_code = a.session_code AND ass.student_id = a.student_id
+          WHERE a.session_code = ANY($1)
+            AND COALESCE(a.submitted_by,'') <> 'geen_deelname'
+            AND (ass.status IS NULL OR ass.status <> 'gewettigd')
+          GROUP BY a.session_code, a.student_id
+       )
+       SELECT p.session_code,
+              COUNT(*) FILTER (WHERE p.ingediend) AS ingediend,
+              COUNT(*) FILTER (WHERE p.ingediend AND p.gescoord >= GREATEST(n.totaal, p.rijen)) AS verbeterd
+         FROM per p JOIN n ON n.session_code = p.session_code
+        GROUP BY p.session_code`, [codes]);
+    for (const x of r.rows) out[x.session_code] = { ingediend: Number(x.ingediend), verbeterd: Number(x.verbeterd) };
+    return out;
+  },
+
+  async quizCodesMetOpenHeropening(codes) {
+    if (!Array.isArray(codes) || !codes.length) return [];
+    const r = await query(
+      `SELECT DISTINCT session_code FROM quiz_individual_access
+        WHERE session_code = ANY($1) AND access_until > $2`, [codes, Date.now()]);
+    return r.rows.map(x => x.session_code);
+  },
+
   // Volledige update van een toets/taak (Sprint 50, bug 2). Wijzigt de instellingen én
   // vervangt de vraag-snapshots. Het TYPE (toets/taak) en de preview-vlag blijven
   // ONGEWIJZIGD — een taak blijft een taak en een toets een toets. De aanroeper (server)
