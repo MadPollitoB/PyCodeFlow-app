@@ -681,10 +681,16 @@ socket.on('quiz_state', async (state) => {
     // Bugfix (sprint 72): telde voorheen Object.keys(_answers).length — dat telt
     // ELKE bezochte vraag mee (er komt al een antwoord-rij zodra je een vraag
     // opent, ook zonder iets in te vullen), niet enkel de effectief beantwoorde.
-    const aantalBeantwoord = (_state?.questions || []).filter(q => heeftAntwoord(q, _answers[q.id])).length;
-    showDoneScreen(state.studentName, aantalBeantwoord);
+    // v105: na indienen stuurt de server geen vragen/antwoorden meer, enkel het aantal.
+    const aantalBeantwoord = typeof state.answeredCount === 'number'
+      ? state.answeredCount
+      : (_state?.questions || []).filter(q => heeftAntwoord(q, _answers[q.id])).length;
+    _state.totalQuestions = state.totalQuestions;
+    markeerIngediend(true);
+    showDoneScreen(state.studentName, aantalBeantwoord, state.totalQuestions);
     return;
   }
+  markeerIngediend(false); // v105: wel (opnieuw) open, bv. na een heropening door de leerkracht
   if (state.paused) document.getElementById('pause-overlay').classList.add('visible');
 
   // Verberg timer bij taken zonder tijdslimiet
@@ -1826,6 +1832,56 @@ function submitAll() {
   showDoneScreen(urlName, aantalBeantwoord);
 }
 
+// ── v105: ingediend = definitief dicht (terug-knop, herladen, bfcache) ─────────────────────
+// De server is de echte grendel (stuurt na indienen geen vragen meer). Dit is de bijhorende
+// client-kant: onthoud 'ingediend' per toets+leerling, wis de vragen uit het scherm en uit het
+// geheugen, en laat de terug-knop nooit naar een zichtbare vraag terugkeren.
+function _ingediendSleutel() { return 'pycf_ingediend_' + (urlCode || '') + '_' + (urlName || '').toLowerCase(); }
+function markeerIngediend(waar) {
+  try { if (waar) sessionStorage.setItem(_ingediendSleutel(), '1'); else sessionStorage.removeItem(_ingediendSleutel()); } catch (e) { /* opslag optioneel */ }
+}
+function isIngediendOnthouden() {
+  try { return sessionStorage.getItem(_ingediendSleutel()) === '1'; } catch (e) { return false; }
+}
+function wisVragenUitScherm() {
+  try {
+    const qs = document.getElementById('quiz-screen');
+    if (qs) { qs.style.display = 'none'; qs.querySelectorAll('textarea, .monaco-editor, [id^="q-"], #question-text, #question-area').forEach(el => { if (el.tagName === 'TEXTAREA') el.value = ''; }); }
+    document.querySelectorAll('.question-text, #question-text, #q-text, .qs-question').forEach(el => { el.textContent = ''; });
+    if (_state) { _state.questions = []; }
+    _answers = {};
+    // Lokale kopieën van vragen/antwoorden (indien aanwezig) weg; naam en klas blijven bewust staan.
+    try { Object.keys(localStorage).filter(k => /^(pycf_(draft|quiz|answers)|quiz_(draft|answers))/i.test(k)).forEach(k => localStorage.removeItem(k)); } catch (e) { /* ok */ }
+  } catch (e) { /* nooit blokkeren */ }
+}
+function _houIngediendScherm() {
+  const done = document.getElementById('done-screen');
+  if (!done) return;
+  document.getElementById('quiz-screen').style.display = 'none';
+  document.getElementById('start-screen').style.display = 'none';
+  done.style.display = 'block'; done.classList.add('visible');
+}
+// Terug-knop: een extra geschiedenisstap zodat "terug" op het eindscherm blijft.
+let _doneGeschiedenis = false;
+function _zetGeschiedenisGrendel() {
+  if (_doneGeschiedenis) return;
+  _doneGeschiedenis = true;
+  try { history.pushState({ pycfDone: 1 }, '', location.href); } catch (e) { /* optioneel */ }
+}
+window.addEventListener('popstate', () => {
+  if (isIngediendOnthouden()) {
+    try { history.pushState({ pycfDone: 1 }, '', location.href); } catch (e) { /* optioneel */ }
+    _houIngediendScherm();
+  }
+});
+// Bevroren pagina (bfcache) terug in beeld: nooit een zichtbare vraag tonen. De server
+// beslist opnieuw (herlaad); intussen meteen het eindscherm als we weten dat het ingediend is.
+window.addEventListener('pageshow', (ev) => {
+  if (isIngediendOnthouden()) _houIngediendScherm();
+  if (ev.persisted) location.reload();
+});
+if (isIngediendOnthouden()) { document.addEventListener('DOMContentLoaded', _houIngediendScherm); }
+
 function showDoneScreen(name, count) {
   document.getElementById('quiz-screen').style.display = 'none';
   document.getElementById('submit-screen').classList.remove('visible');
@@ -1834,7 +1890,11 @@ function showDoneScreen(name, count) {
   document.getElementById('done-screen').style.display = 'block';
   document.getElementById('done-screen').classList.add('visible');
   document.getElementById('done-info').textContent =
-    `${name} · ${count} van ${_state?.questions?.length || '?'} vragen beantwoord`;
+    `${name} · ${count} van ${_state?.totalQuestions || _state?.questions?.length || '?'} vragen beantwoord`;
+  if (_state && !_state.totalQuestions) _state.totalQuestions = (_state.questions || []).length;
+  wisVragenUitScherm();
+  markeerIngediend(true);
+  _zetGeschiedenisGrendel();
   // Sprint 83: geen reden meer om de leerling in volledig scherm vast te houden zodra
   // de toets/taak effectief ingediend is (ook bij automatisch indienen door tabwissel).
   if (document.fullscreenElement) { try { document.exitFullscreen().catch(() => {}); } catch (e) {} }

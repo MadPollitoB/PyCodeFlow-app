@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.104**
+**Huidige versie: v2026.2.51.105**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -281,6 +281,7 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 150 | **99** | **Bugfix: "Onderdeelscores & opmerkingen opslaan" (gecombineerde vraag) gaf geen melding en sprong niet door.** De scores werden wel bewaard, maar daarna crashte de functie op een niet-bestaande variabele. Nu: melding, door naar de volgende vraag (bij de laatste blijft hij staan), opmerkingen per onderdeel lokaal bijgewerkt en een foutmelding als de server weigert. 3 nieuwe tests. |
 | 151 | **100** | **Bugfix: willekeurige 403-fouten bij het opslaan tijdens het verbeteren.** Oorzaak: het CSRF-token werd bij elke serverstart opnieuw willekeurig gekozen; een al openstaande leerkrachtpagina (bv. de nakijkpagina) kreeg na een herstart/deploy 403 'CSRF validatie mislukt' tot de pagina herladen werd. Nu: `apiFetch` haalt bij zo'n 403 één keer een vers token op en herhaalt de aanvraag; en met `POC_BASIC_COOKIE_SECRET` (min. 16 tekens) wordt het token daaruit afgeleid en blijft het over herstarts gelijk. Gereproduceerd + opgelost (live), 3 nieuwe tests. |
 | 152 | **101** | **Nieuw status-gedreven toets-/taakoverzicht.** Tabs Actief (standaard) · Te verbeteren · Afgerond · Archief · Concepten (rechts); hoofdknop per status met overige acties achter een pijltje; "Afgerond" pas als alles verbeterd is; archief per schooljaar/klas met "Uit archief halen". Zie changelog v2026.2.51.102. | ✅ v2026.2.51.102 |
+| 153 | **102** | **Bugfix: ingediende toets/taak toonde via de terug-knop opnieuw de vragen.** Server stuurt na indienen geen vragen/antwoorden meer, `no-store` op de leerlingpagina, terug-knop/herladen/bfcache tonen enkel het eindscherm; heropenen en nazicht blijven werken. | ✅ v2026.2.51.105 |
 
 > **Nummering:** Sprint 50 is qua nummer ouder dan 51-58 maar werd later uitgevoerd
 > (bugfix-sprint). Het staat daarom onderaan de uitvoeringsvolgorde.

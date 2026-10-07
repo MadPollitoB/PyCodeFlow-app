@@ -838,6 +838,9 @@ app.use((req, res, next) => {
   // leerkracht-dashboard, admin, login, … — blijven zoals voorheen volledig
   // geblokkeerd voor framing (frame-ancestors 'none' + X-Frame-Options DENY).
   const magIngebedWorden = req.path === '/quiz-student.html';
+  // v105: de leerlingpagina nooit in de browsercache/bfcache laten bewaren — de terug-knop mag
+  // geen bevroren toetsscherm met vragen terugbrengen na indienen.
+  if (magIngebedWorden) res.setHeader('Cache-Control', 'no-store');
   const frameAncestors = magIngebedWorden
     ? "frame-ancestors 'self' https://*.kiosk4school.be;"
     : "frame-ancestors 'none';";
@@ -9431,8 +9434,27 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     const savedOrder = await dbModule.getQuizStudentOrder(normalizedCode, student.id);
     const questions = await dbModule.getQuizQuestions(normalizedCode);
 
+    // v105: ingediend = definitief dicht. De databank is de waarheid (na een serverherstart is het
+    // geheugenobject nieuw en zou 'quizSubmitted' ten onrechte false zijn). Een heropening zet
+    // submitted_at terug op NULL, dus die leerling valt hier automatisch buiten.
+    if (!student.quizSubmitted && savedAnswers.length && savedAnswers.every(a => a.submitted_at != null)) {
+      student.quizSubmitted = true;
+    }
+    // Na indienen sturen we GEEN vragen of antwoorden meer terug (ook niet via de terug-knop of
+    // een herlaad): enkel het aantal beantwoorde vragen voor het eindscherm. Nazicht na vrijgave
+    // loopt via een apart token (review-login), dat blijft ongemoeid.
+    const dichtGezet = student.quizSubmitted === true;
+    const vragenLijst = savedOrder.length > 0
+      ? savedOrder.map(o => questions.find(q => q.id === o.question_id)).filter(Boolean)
+      : questions;
+    const aantalBeantwoord = dichtGezet
+      ? vragenLijst.filter(q => validationLib.heeftAntwoordServer(q.question_type, savedAnswers.find(a => a.question_id === q.id) || {})).length
+      : 0;
+
     // Stuur quiz state naar leerling
     socket.emit('quiz_state', {
+      answeredCount: dichtGezet ? aantalBeantwoord : undefined,
+      totalQuestions: dichtGezet ? vragenLijst.length : undefined,
       studentId: student.id,
       studentName: student.name,
       sessionName: session.name,
@@ -9443,10 +9465,8 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       paused: session.quizPaused || false,
       hideQuestionOnScreen: meta.hide_question_on_screen,
       noBack: meta.no_back === true,             // Sprint 69: 1 kans per vraag
-      questions: savedOrder.length > 0
-        ? savedOrder.map(o => questions.find(q => q.id === o.question_id)).filter(Boolean)
-        : questions,
-      savedAnswers: savedAnswers.reduce((acc, a) => {
+      questions: dichtGezet ? [] : vragenLijst,
+      savedAnswers: dichtGezet ? {} : savedAnswers.reduce((acc, a) => {
         // Bugfix (MAJOR, sprint 70.1): dit gaf voorheen enkel code/runCount/
         // answerFlowchartJson terug — selected_choices (single/multiple-choice) en
         // part_answers (samengestelde vraag) werden wél correct opgeslagen in de

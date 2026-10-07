@@ -1,3 +1,19 @@
+## v2026.2.51.105 — Bugfix: ingediende toets/taak kon via de terug-knop opnieuw getoond worden
+
+Na indienen kon een leerling met de terug-knop van de browser de vragen opnieuw zien.
+
+- **Server:** na indienen stuurt de server geen vragen of antwoorden meer (enkel het aantal beantwoorde
+  vragen). "Ingediend" wordt ook uit de databank afgeleid, dus ook na een serverherstart. Heropenen door de
+  leerkracht (per leerling of de hele toets) geeft de vragen weer vrij; nazicht na vrijgave loopt via het
+  aparte nazicht-token en is ongewijzigd.
+- **Browser:** de leerlingpagina wordt niet meer in de cache bewaard (`no-store`), de terug-knop blijft op het
+  eindscherm, herladen en terugkeren naar een bevroren pagina tonen meteen het eindscherm, en bij indienen
+  worden vragen uit het scherm en uit het geheugen gewist. Naam en klas in localStorage blijven.
+- Niets aan het opslaan van antwoorden veranderd: alles wordt nog steeds vóór het eindscherm naar de server gestuurd.
+- Tests: `tests/ingediend-blokkade.test.js` (4); live met Playwright (terug, vooruit, herladen, nieuw tabblad, heropening).
+
+---
+
 ## v2026.2.51.104 — Overzicht: knop "Nieuwe toets/taak" rechtsboven in de titelrij
 
 De knop staat nu rechts naast de titel i.p.v. als losse regel eronder (geen extra hoogte).
