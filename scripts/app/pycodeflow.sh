@@ -866,6 +866,34 @@ oldies_stap() {
   echo ""
 }
 
+# ── Deploy-controle: draait de nieuwe versie ECHT? ────────────────────────────
+# Vergelijkt het VERSION-bestand met wat de draaiende server meldt en controleert of de
+# nieuwste pagina's/scripts geserveerd worden (een oude container toont dan nog de vorige versie).
+controleer_deploy() {
+  local gewenst gemeld fouten=0 i
+  gewenst=$(tr -d '[:space:]' < "$BASE/VERSION" 2>/dev/null)
+  echo ""
+  stap "Controle: draait de nieuwe versie?"
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    gemeld=$(curl -sf http://localhost:3000/api/version 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')
+    [[ -n "$gemeld" ]] && break
+    sleep 3
+  done
+  if [[ -z "$gemeld" ]]; then err "De server antwoordt niet op /api/version."; return 1; fi
+  if [[ "$gemeld" == "$gewenst" ]]; then ok "Server meldt versie $gemeld (= VERSION-bestand)"
+  else err "Server meldt $gemeld, maar het VERSION-bestand zegt $gewenst — de container draait nog de OUDE code."; fouten=$((fouten+1)); fi
+  local pagina
+  for pagina in "md-editor.js" "training.html" "teacher-login.html"; do
+    if curl -sf "http://localhost:3000/$pagina" 2>/dev/null | grep -q "$gewenst\|PCMd"; then ok "$pagina is bijgewerkt"
+    else err "$pagina is niet de nieuwste versie"; fouten=$((fouten+1)); fi
+  done
+  if [[ $fouten -gt 0 ]]; then
+    warn "Niet alles draait de nieuwe versie. Voer optie 5 (Rebuild) opnieuw uit en bevestig met 'j'. Controleer of ALLE bestanden uit de zip over de installatie zijn gekopieerd."
+    return 1
+  fi
+  ok "Alles draait versie $gewenst."
+}
+
 actie_rebuild() {
   header
   stap "Rebuild & Herstart PyCodeFlow"
@@ -913,6 +941,7 @@ actie_rebuild() {
   $COMPOSE --project-directory "$BASE" up --build -d
   echo ""
   ok "Rebuild voltooid."
+  controleer_deploy
   echo ""
   pauze
 }

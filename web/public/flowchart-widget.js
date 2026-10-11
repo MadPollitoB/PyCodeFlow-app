@@ -172,9 +172,9 @@
       return arrowObj;
     }
 
-    function selectArrowForLabel(ar) {
+    async function selectArrowForLabel(ar) {
       if (ar.label) { removeLabel(ar); return; }
-      var keuze = prompt('Label op deze pijl (bv. Ja, Nee) — leeg laten annuleert:', '');
+      var keuze = await window.pyPrompt({ title: 'Label op de pijl', body: 'Label op deze pijl (bv. Ja, Nee) — leeg laten annuleert:', defaultValue: '', confirmLabel: 'Toevoegen' });
       if (keuze) addLabelToArrow(ar, keuze);
     }
 

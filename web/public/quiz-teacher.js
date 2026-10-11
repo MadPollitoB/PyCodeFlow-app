@@ -60,7 +60,7 @@ if (QUIZ_TYPE) {
   // Sprint 83: anti-spiek (verplicht volledig scherm + optioneel auto-indienen bij
   // tabwissel) is enkel zinvol bij een toets — verborgen bij een taak.
   const antiSpiekSectie = document.getElementById('quiz-antispiek-sectie');
-  if (antiSpiekSectie) antiSpiekSectie.style.display = QUIZ_TYPE === 'toets' ? '' : 'none';
+  if (antiSpiekSectie) antiSpiekSectie.style.display = '';  // v114: toets én taak
   // v99: klasbord + hand opsteken is bij een toets altijd aan; bij een taak een keuze (vinkje)
   const klasbordSectie = document.getElementById('quiz-klasbord-sectie');
   if (klasbordSectie) klasbordSectie.style.display = QUIZ_TYPE === 'taak' ? '' : 'none';
@@ -422,12 +422,14 @@ async function createQuiz() {
   // 'false'/'' mee (de server negeert/dwingt dit sowieso af, maar zo is het ook meteen
   // correct zichtbaar mocht iemand ooit rechtstreeks de payload bekijken).
   const isToetsType           = QUIZ_TYPE === 'toets';
-  const tabSwitchEnabled      = isToetsType && document.getElementById('quiz-tabswitch-enabled')?.checked === true;
+  const tabSwitchEnabled      = document.getElementById('quiz-tabswitch-enabled')?.checked === true;  // v114: ook bij een taak
   const tabSwitchThreshold    = parseInt(document.getElementById('quiz-tabswitch-threshold')?.value) || 1;
   // Sprint 94: instelbaar respijt (0 is een geldige waarde — geen respijt — dus geen "|| 5").
   const parsedGrace           = parseInt(document.getElementById('quiz-tabswitch-grace')?.value);
   const tabSwitchGraceSeconds = isNaN(parsedGrace) ? 5 : parsedGrace;
-  const cursusUrl             = isToetsType ? (document.getElementById('quiz-cursus-url')?.value.trim() || '') : '';
+  const cursusUrl             = document.getElementById('quiz-cursus-url')?.value.trim() || '';  // v113: ook bij een taak
+  const copyPasteBlocked      = document.getElementById('quiz-copypaste-blocked')?.checked !== false;
+  const fullscreenRequired    = document.getElementById('quiz-fullscreen-required')?.checked !== false;
   // Sprint 90: zelfevaluatie-enquête — zelfde toets-only redenering als hierboven.
   const selfEvalEnabled       = isToetsType && document.getElementById('quiz-self-eval')?.checked === true;
   // v99: klasbord + hand opsteken — enkel een keuze bij een taak
@@ -476,6 +478,8 @@ async function createQuiz() {
                       selfEvalEnabled,
                       // v99: klasbord + hand opsteken bij een taak
                       klasbordEnabled,
+                      // v113: beveiliging (toets én taak)
+                      copyPasteBlocked, fullscreenRequired,
                       // Leerling-selectie: in bewerkmodus ALTIJD meesturen (ook leeg =
                       // beperking opheffen). Bij aanmaken enkel als er een selectie is.
                       studentIds: IS_EDIT
@@ -696,6 +700,8 @@ async function loadForEdit() {
     setChk('quiz-self-eval', m.selfEvalEnabled);
     // v99: klasbord + hand opsteken bij een taak
     setChk('quiz-klasbord', m.klasbordEnabled);
+    setChk('quiz-copypaste-blocked', m.copyPasteBlocked !== false);
+    setChk('quiz-fullscreen-required', m.fullscreenRequired !== false);
     // Sprint 51s: wacht tot de schooljaar-dropdown zijn opties heeft, en voeg het opgeslagen
     // jaar toe als het er nog niet bij staat (bv. een ouder/gearchiveerd jaar) — zo blijft
     // zichtbaar wat er nu echt geconfigureerd staat, ook al is dat een mismatch met de klas.

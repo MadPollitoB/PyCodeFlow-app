@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Waar wil je naartoe?</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.81"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.119"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .blok { border-radius:12px; padding:16px; margin-bottom:16px; }
@@ -95,6 +95,7 @@
   </div>
 </div>
 
+<script src="/popups.js?v=v2026.2.51.119"></script>
 <script src="/socket.io/socket.io.js"></script>
 <script>
 'use strict';
@@ -336,11 +337,11 @@ async function openToetsReadonly(code) {
   try {
     const r = await fetch('/api/student/my-results/' + encodeURIComponent(code) + '/review-token', { method: 'POST' });
     const d = await r.json();
-    if (!r.ok || !d.ok) { alert(d.error || 'Kon de toets niet openen.'); return; }
+    if (!r.ok || !d.ok) { pyAlert(d.error || 'Kon de toets niet openen.', 'error'); return; }
     sessionStorage.setItem('pycf_review_token', JSON.stringify({ code, token: d.token, naam: d.naam }));
     location.href = '/quiz-student.html?nakijken=1&code=' + encodeURIComponent(code);
   } catch (e) {
-    alert('Kon de toets niet openen: ' + e.message);
+    pyAlert('Kon de toets niet openen: ' + e.message, 'error');
   }
 }
 
@@ -427,4 +428,4 @@ async function toggleResultaat(code, kaart) {
 
 laad();
 </script>
-<script src="/privacy.js?v=v2026.2.51.81"></script></body></html>
+<script src="/privacy.js?v=v2026.2.51.119"></script></body></html>

@@ -325,9 +325,7 @@
   window.saveAsTemplate = async function (code) {
     var item = items.filter(function (a) { return a.code === code; })[0];
     var suggested = item ? (item.name || 'Sjabloon') : 'Sjabloon';
-    var name = window.pyPrompt
-      ? await window.pyPrompt({ title: 'Bewaar als sjabloon', body: 'Naam van het sjabloon:', defaultValue: suggested, confirmLabel: 'Bewaren' })
-      : prompt('Naam van het sjabloon:', suggested);
+    var name = await window.pyPrompt({ title: 'Bewaar als sjabloon', body: 'Naam van het sjabloon:', defaultValue: suggested, confirmLabel: 'Bewaren' });
     if (name === null) return;
     try {
       var r = await window.apiFetch('/api/library/templates/from-session/' + code, {

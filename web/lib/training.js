@@ -4,6 +4,8 @@
 // Alles wat beslist of berekent staat hier zodat het rechtstreeks testbaar is.
 // ═══════════════════════════════════════════════════════════════════════════════
 
+const H = require('./training-hulp');
+
 const MIN_VRAGEN = 10;
 const MAX_VRAGEN = 30;
 const MIN_ONDERWERPEN = 1;
@@ -229,6 +231,7 @@ function valideerVraag(v, bekendeTopics) {
     code: tekst(v.code, 4000),
     explanation: tekst(v.explanation, 1500),
     choices: [], correct: [], starter: '', tests: [],
+    chapter: '', keywords: [], hints: [], checks: [],
   };
   if (type === 'single' || type === 'multiple') {
     const keuzes = Array.isArray(v.choices) ? v.choices.map(c => tekst(c, 400)) : [];
@@ -247,6 +250,10 @@ function valideerVraag(v, bekendeTopics) {
       output: String(t && t.output != null ? t.output : '').slice(0, 2000),
     }));
   }
+  // v106: hulp per niveau (hoofdstuk, kernwoorden, hints, checks) — allemaal optioneel.
+  const h = H.valideerHulp({ ...v, type, tests: uit.tests });
+  h.fouten.forEach(x => f.push(x));
+  Object.assign(uit, h.hulp);
   return { fouten: f, vraag: f.length ? null : uit };
 }
 
@@ -280,7 +287,7 @@ function vraagHash(v) {
 }
 
 // Wat een leerling te zien krijgt: NOOIT de juiste antwoorden of de tests.
-function vraagVoorLeerling(q, nr, totaal, niveau) {
+function vraagVoorLeerling(q, nr, totaal, niveau, hulpCfg) {
   return {
     nr, totaal, niveau,
     id: q.id, topic: q.topic, level: q.level, type: q.type,
@@ -288,6 +295,7 @@ function vraagVoorLeerling(q, nr, totaal, niveau) {
     choices: q.type === 'code' ? [] : q.choices,
     starter: q.type === 'code' ? (q.starter || '') : '',
     meerdere: q.type === 'multiple',
+    hulp: H.hulpVoorLeerling(q, hulpCfg),   // v106: hoofdstuk/kernwoorden/checklist/aantal hints, per niveau van de vraag
   };
 }
 

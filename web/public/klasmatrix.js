@@ -88,8 +88,16 @@ function tekenMatrix() {
       // icoon, anders lijkt de cel leeg terwijl ze wél meetelt.
       const toon = (c.score !== null && (c.status === 'op_tijd' || c.status === 'te_laat' || c.status === 'tab_switch'))
         ? c.score : (info.icoon || '');
-      return `<td><span class="cel" style="background:#${esc(info.kleur || 'fff')};"
-        title="${esc(info.label || '')}${c.score !== null ? ' · ' + c.score + ' punten' : ''}">${esc(toon)}</span></td>`;
+      // v111: "niets ingeleverd" kan hier met één klik op gewettigd afwezig gezet worden
+      // (en terug); enkel bij wie niets indiende, een leerling met inhoud blijft ongemoeid.
+      const klikbaar = (c.status === 'niets' || c.status === 'gewettigd') && !r.isTestAccount;
+      const aan = c.status === 'niets';
+      const klikAttr = klikbaar
+        ? ` data-code="${esc(c.code)}" data-student="${esc(r.id)}" data-naam="${esc(r.naam)}" data-aan="${aan ? '1' : '0'}" role="button" tabindex="0" style="cursor:pointer;"`
+        : '';
+      const hint = klikbaar ? (aan ? ' · klik om gewettigd afwezig te zetten' : ' · klik om af te zetten') : '';
+      return `<td><span class="cel${klikbaar ? ' afw-klik' : ''}"${klikAttr} style="background:#${esc(info.kleur || 'fff')};${klikbaar ? 'cursor:pointer;' : ''}"
+        title="${esc(info.label || '')}${c.score !== null ? ' · ' + c.score + ' punten' : ''}${hint}">${esc(toon)}</span></td>`;
     }).join('');
     // Gemiddelde over de zichtbare kolommen (volgt dus het typefilter).
     const zichtbaar = kolommen.map(k => r.cellen.find(x => x.code === k.code))
@@ -113,5 +121,38 @@ function tekenMatrix() {
       <div class="matrix-wrap"><table class="matrix"><thead>${kop}</thead><tbody>${testRijenHtml}</tbody></table></div>
     </div>` : ''}`;
 }
+
+// v111: gewettigd afwezig aan/uit vanuit de scores (enkel voor wie niets inleverde).
+async function zetAfwezigVanuitMatrix(code, studentId, naam, aan) {
+  const ok = window.pyConfirm
+    ? await window.pyConfirm({
+        title: aan ? 'Gewettigd afwezig?' : 'Afwezigheid ongedaan maken?',
+        body: aan ? `"${naam}" als gewettigd afwezig zetten voor deze toets/taak? Dit telt dan niet mee voor het gemiddelde.`
+                  : `"${naam}" niet langer als gewettigd afwezig beschouwen? Dit telt dan weer mee als niets ingeleverd (0).`,
+        confirmLabel: aan ? 'Afwezig zetten' : 'Ongedaan maken',
+      })
+    : true;
+  if (!ok) return;
+  try {
+    const f = window.apiFetch || fetch;
+    const r = await f('/api/quiz-sessions/' + encodeURIComponent(code) + '/roster/' + encodeURIComponent(studentId) + '/status', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: aan ? 'gewettigd' : null }),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+    await laadMatrix();
+  } catch (e) {
+    await window.pyAlert('Kon de afwezigheid niet bewaren: ' + e.message, 'error');
+  }
+}
+document.addEventListener('click', ev => {
+  const el = ev.target.closest && ev.target.closest('.afw-klik');
+  if (el) zetAfwezigVanuitMatrix(el.dataset.code, el.dataset.student, el.dataset.naam, el.dataset.aan === '1');
+});
+document.addEventListener('keydown', ev => {
+  if (ev.key !== 'Enter' && ev.key !== ' ') return;
+  const el = ev.target.closest && ev.target.closest('.afw-klik');
+  if (el) { ev.preventDefault(); zetAfwezigVanuitMatrix(el.dataset.code, el.dataset.student, el.dataset.naam, el.dataset.aan === '1'); }
+});
 
 laadKlassen();

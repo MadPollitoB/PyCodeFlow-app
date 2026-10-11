@@ -2,14 +2,41 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Trainingscenter</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.97"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.119"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
-  .tc-wrap { max-width:980px; margin:0 auto; }
+  .tc-wrap { max-width:1120px; margin:0 auto; }
   .tc-start { border:2px solid var(--primary); border-radius:14px; padding:20px 22px; display:flex; gap:20px;
     align-items:center; justify-content:space-between; flex-wrap:wrap; }
   .tc-start h2 { margin:0 0 6px; font-size:1.2rem; }
   .tc-hist { margin-top:22px; }
+  .tc-dag { display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin-top:14px; padding:14px 18px; border:1.5px solid var(--border); border-radius:14px; background:var(--bg); }
+  .tc-streak { font-size:1.5rem; font-weight:800; line-height:1.1; } .tc-streak small { display:block; font-size:0.78rem; font-weight:600; color:var(--muted); }
+  .tc-dag .txt { flex:1; min-width:220px; font-size:0.92rem; }
+  .tc-groei { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:12px; margin-top:8px; }
+  .tc-gk { border:1.5px solid var(--border); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; gap:6px; background:#fff; }
+  .tc-gk h3 { margin:0; font-size:0.98rem; } .tc-gk .stap { font-size:0.84rem; } .tc-gk .stap.herhaal { color:#b45309; font-weight:700; } .tc-gk .stap.door { color:#166534; font-weight:700; }
+  .tc-gk .balk { display:flex; gap:3px; } .tc-gk .balk i { flex:1; height:7px; border-radius:3px; background:var(--border); } .tc-gk .balk i.aan { background:var(--primary); }
+  .tc-gk .meta { font-size:0.78rem; color:var(--muted); display:flex; gap:10px; flex-wrap:wrap; } .tc-gk button { margin-top:auto; }
+  .tc-vd { border:2px solid #0f766e; border-radius:14px; padding:16px 20px; margin:0 0 14px; background:linear-gradient(180deg,#f0fdfa,#fff); display:grid; grid-template-columns:auto 1fr auto; gap:6px 20px; align-items:center; }
+  .tc-vd .streak { font-size:1.9rem; font-weight:800; line-height:1.05; text-align:center; } .tc-vd .streak small { display:block; font-size:0.74rem; font-weight:600; color:var(--muted); }
+  .tc-vd h2 { margin:0; font-size:1.15rem; } .tc-vd .sub { color:var(--muted); font-size:0.9rem; }
+  .tc-vd .acties { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+  .tc-vd .week { grid-column:1 / -1; display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+  .tc-dagje { width:46px; text-align:center; border:1.5px solid var(--border); border-radius:10px; padding:4px 0; background:#fff; font-size:0.72rem; color:var(--muted); }
+  .tc-dagje b { display:block; font-size:1.05rem; line-height:1.3; }
+  .tc-dagje.opgelost { border-color:#16a34a; background:#f0fdf4; } .tc-dagje.opgelost b { color:#16a34a; }
+  .tc-dagje.mislukt { border-color:#dc2626; background:#fef2f2; } .tc-dagje.mislukt b { color:#dc2626; }
+  .tc-dagje.ingehaald { border-color:#0ea5e9; background:#f0f9ff; } .tc-dagje.ingehaald b { color:#0284c7; }
+  .tc-dagje.inhaalbaar { cursor:pointer; outline:2px dashed #0ea5e9; outline-offset:1px; } .tc-dagje.inhaalbaar:hover { background:#e0f2fe; }
+  .tc-dagje.joker { border-color:#7c3aed; background:#f5f3ff; } .tc-dagje.bezig b { color:#d97706; } .tc-dagje.weekend, .tc-dagje.voor { opacity:.5; }
+  .tc-status { font-weight:800; } .tc-status.opgelost { color:#16a34a; } .tc-status.mislukt { color:#dc2626; } .tc-status.bezig { color:#d97706; }
+  .dv-tabel { width:100%; border-collapse:collapse; font-size:0.9rem; } .dv-tabel th { text-align:left; font-size:0.76rem; color:var(--muted); padding:6px 8px; border-bottom:2px solid var(--border); }
+  .dv-tabel td { padding:8px; border-bottom:1px solid var(--border); } .dv-tabel tr.klik { cursor:pointer; } .dv-tabel tr.klik:hover { background:var(--bg); }
+  .dv-pager { display:flex; justify-content:space-between; margin-top:10px; gap:8px; }
+  .dv-box { border:1.5px solid var(--border); border-radius:10px; padding:10px 12px; margin:8px 0; background:var(--bg); } .dv-box pre { margin:4px 0 0; white-space:pre-wrap; font-size:0.86rem; }
+  @media (max-width:700px) { .tc-vd { grid-template-columns:1fr; } .tc-vd .acties { justify-content:flex-start; } }
+  .tc-herh { display:inline-block; margin-left:8px; padding:1px 9px; border-radius:99px; background:#fef3c7; color:#92400e; font-size:0.74rem; font-weight:700; letter-spacing:0; text-transform:none; }
   .tc-hist-rij { display:flex; gap:12px; align-items:center; padding:10px 0; border-bottom:1px solid var(--border); font-size:0.92rem; flex-wrap:wrap; }
   .tc-hist-rij:last-child { border-bottom:none; }
   .tc-score { font-weight:800; min-width:56px; }
@@ -41,7 +68,7 @@
   .tc-voortgang div { height:8px; background:var(--primary); border-radius:4px; transition:width .3s; }
   .tc-vraag { border:1.5px solid var(--border); border-radius:12px; padding:18px 20px; }
   .tc-type { font-size:0.76rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-bottom:8px; }
-  .tc-tekst { font-size:1.05rem; line-height:1.5; margin:0 0 12px; white-space:pre-wrap; }
+  .tc-tekst { font-size:1.05rem; line-height:1.5; margin:0 0 12px; }
   pre.tc-code { background:#0f172a; color:#e2e8f0; padding:12px 14px; border-radius:8px; overflow:auto; font-size:0.9rem; line-height:1.45; margin:0 0 12px; }
   .tc-keuze { display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1.5px solid var(--border); border-radius:10px; margin-bottom:8px; cursor:pointer; min-height:44px; box-sizing:border-box; }
   .tc-keuze input { width:20px; height:20px; margin-top:1px; flex:none; }
@@ -57,6 +84,47 @@
   .tc-feedback.fout { background:rgba(239,68,68,.10); border:1.5px solid #dc2626; }
   .tc-feedback strong.kop { display:block; margin-bottom:4px; }
   .tc-voet { display:flex; gap:10px; justify-content:space-between; align-items:center; margin-top:14px; flex-wrap:wrap; }
+
+
+  /* v106: hulp per niveau + echte editor */
+  .tc-rij { display:grid; grid-template-columns:minmax(0,1fr) 270px; gap:20px; align-items:start; }
+  @media (max-width:820px) { .tc-rij { grid-template-columns:1fr; } }
+  /* v110: dezelfde editor als Vrij oefenen (balk met Run, regelnummers, statusbalk, donkere uitvoer) */
+  .tc-schil { border-radius:12px; overflow:hidden; border:1.5px solid #243762; }
+  .tc-schil .editor-toolbar { min-height:46px; }
+  .tc-schil .editor-toolbar .btn-soft { background:var(--primary); color:#fff; }
+  .tc-schil .editor-toolbar .btn-soft:disabled { opacity:.6; }
+  .tc-schil .dot.red { background:#ff5f56; } .tc-schil .dot.yellow { background:#ffbd2e; } .tc-schil .dot.green { background:#27c93f; }
+  .tc-frame, .tc-frame .tc-goot, .tc-frame .tc-host { height:300px !important; }
+  .tc-statusbalk { display:flex; gap:10px; align-items:center; padding:4px 12px; font-size:12px; font-family:Consolas,monospace; background:#007acc; color:#fff; min-height:22px; width:100%; box-sizing:border-box; }
+  .tc-checkknop { background:var(--primary); color:#fff; width:100%; margin-top:6px; }
+  .tc-checkknop:disabled { opacity:.6; }
+  .tc-invoerrij { display:flex; gap:8px; margin-top:8px; }
+  .tc-invoerrij[hidden], .tc-wacht[hidden] { display:none; }
+  .tc-invoerrij input { flex:1; padding:8px 10px; border:1.5px solid var(--border); border-radius:8px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:0.95rem; background:#d9dce3; color:#1f2937; }
+  .tc-wacht { margin-top:8px; padding:8px 12px; background:#eff6ff; border:1.5px solid #93c5fd; color:#1e40af; font-weight:700; font-size:0.9rem; border-radius:8px; }
+  pre.tc-uitvoer { margin:10px 0 0; min-height:90px; max-height:240px; overflow:auto; background:#071737; color:#f3ffdd; border-radius:10px; padding:14px 16px; font-family:Consolas,monospace; font-size:1rem; white-space:pre-wrap; }
+  pre.tc-uitvoer:empty::before { content:'De uitvoer van je programma verschijnt hier.'; color:#94a3b8; }
+  .tc-runrij { display:flex; gap:8px; margin-top:10px; }
+  .tc-vooraf { margin-top:10px; font-size:0.9rem; }
+  .tc-vooraf summary { cursor:pointer; color:var(--muted); font-weight:600; }
+  .tc-hulp { border:1.5px solid var(--border); border-radius:12px; padding:12px 14px; background:var(--surface-soft, var(--bg)); position:sticky; top:12px; }
+  .tc-hulp-kop { font-size:0.76rem; font-weight:800; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:8px; }
+  .tc-hulp-sub { font-weight:700; font-size:0.88rem; margin:10px 0 4px; }
+  a.tc-hoofdstuk { display:block; text-decoration:none; color:var(--text); border:1.5px solid var(--border); border-radius:10px; padding:8px 10px; background:var(--surface); }
+  a.tc-hoofdstuk span { display:block; font-size:0.74rem; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
+  a.tc-hoofdstuk:hover { border-color:var(--primary); }
+  .tc-kern { margin-top:10px; font-size:0.84rem; }
+  .tc-chip { display:inline-block; margin:4px 4px 0 0; padding:2px 8px; border-radius:99px; background:var(--surface); border:1px solid var(--border); font-size:0.82rem; }
+  ul.tc-checks { list-style:none; margin:0 0 8px; padding:0; }
+  ul.tc-checks li { display:flex; gap:8px; align-items:flex-start; padding:4px 0; font-size:0.9rem; line-height:1.35; }
+  ul.tc-checks li .vak { font-size:1.15rem; line-height:1; color:var(--muted); }
+  ul.tc-checks li.ja .vak { color:#16a34a; }
+  ul.tc-checks li.nee { color:#92400e; }
+  ul.tc-checks li.tip { margin-top:6px; padding:8px; border-radius:8px; background:rgba(245,158,11,.12); font-size:0.84rem; }
+  .sr { position:absolute; left:-9999px; }
+  .tc-hint { border-left:4px solid #f59e0b; background:rgba(245,158,11,.10); padding:6px 10px; border-radius:6px; margin-bottom:8px; font-size:0.9rem; }
+  .tc-hint strong { display:block; font-size:0.78rem; text-transform:uppercase; letter-spacing:.05em; color:#92400e; }
 
   /* resultaat */
   .tc-res { text-align:center; padding:10px 0; }
@@ -83,6 +151,7 @@
   <!-- 1. startscherm -->
   <section id="scherm-start" aria-labelledby="t-start">
     <h1 class="titel-compact" id="t-start" style="margin:0 0 14px;">Trainingscenter</h1>
+    <div id="vraag-van-de-dag" hidden></div>
     <div class="tc-start">
       <div>
         <h2>Train in je eigen tempo</h2>
@@ -91,6 +160,12 @@
         <p class="muted" id="laatste" style="margin:0;font-size:0.88rem;"></p>
       </div>
       <button class="btn btn-primary" id="knop-start" type="button" style="min-height:48px;padding:0 24px;">Start training</button>
+    </div>
+    <div class="tc-dag" id="dagelijks" hidden></div>
+    <div style="margin-top:20px;">
+      <h2 style="font-size:1.05rem;margin:0 0 2px;">Jouw groeipad</h2>
+      <p class="muted" style="margin:0;font-size:0.86rem;">Per onderwerp zie je waar je staat en wat de beste volgende stap is.</p>
+      <div class="tc-groei" id="groeipad"></div>
     </div>
     <div class="tc-hist">
       <h2 style="font-size:1.05rem;margin:0 0 6px;">Mijn trainingen</h2>
@@ -114,6 +189,14 @@
 </div></div>
 
 <!-- popup: training instellen -->
+<div class="tc-modal-bg" id="dv-modal" role="dialog" aria-modal="true" aria-labelledby="dv-titel">
+  <div class="tc-modal" style="max-width:700px;">
+    <h2 id="dv-titel">Vraag van de dag</h2>
+    <div id="dv-inhoud"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px;"><button class="btn btn-muted" id="dv-sluit" type="button">Sluiten</button></div>
+  </div>
+</div>
+
 <div class="tc-modal-bg" id="modal" role="dialog" aria-modal="true" aria-labelledby="m-titel">
   <form class="tc-modal" id="setup-form" autocomplete="off">
     <h2 id="m-titel">Training instellen</h2>
@@ -151,7 +234,14 @@
   <button class="btn btn-primary" id="fs-terug" type="button" style="min-height:48px;padding:0 24px;">Terug naar volledig scherm</button>
 </div>
 
-<script src="/schud.js?v=v2026.2.51.105"></script>
+<script src="/popups.js?v=v2026.2.51.119"></script>
+<script src="/vendor/marked/marked.min.js"></script>
+<script src="/vendor/dompurify/purify.min.js"></script>
+<script src="/md-editor.js?v=2026.2.51.119"></script>
+<script src="/schud.js?v=v2026.2.51.119"></script>
+<script src="/monaco-env.js"></script>
+<script src="/monaco/min/vs/loader.js"></script>
+<script src="/training-code.js?v=v2026.2.51.119"></script>
 <script>
 'use strict';
 const $ = id => document.getElementById(id);
@@ -201,6 +291,7 @@ async function laadStart() {
   $('laatste').textContent = l && l.status === 'klaar'
     ? `Laatste training: ${l.topics.join(', ')} · ${Math.round(l.scorePct)}% · ${l.title}`
     : 'Je hebt nog geen training afgerond.';
+  tekenVraagVanDeDag(); tekenDagelijks(); tekenGroeipad();
   try {
     const h = await api('/api/training/geschiedenis');
     const doel = $('historiek'); doel.replaceChildren();
@@ -214,6 +305,205 @@ async function laadStart() {
         el('span', { class: 'muted', text: r.topics.join(', ') })));
     }
   } catch (e) { /* historiek is niet cruciaal */ }
+}
+
+function tekenDagelijks() {
+  const o = OVERZICHT; const d = $('dagelijks'); d.hidden = false; d.replaceChildren();
+  if (o.dagvraag && o.dagvraag.aan) { d.replaceChildren(el('div', { class: 'txt' }, el('strong', { text: 'Extra oefenen' }),
+    el('div', { class: 'muted', text: '5 willekeurige vragen op jouw niveau, over de onderwerpen die je al deed. Dit bepaalt je vinkje van de dag niet.' })),
+    el('button', { class: 'btn btn-muted', type: 'button', id: 'knop-dagelijks', text: 'Extra oefenen (5 vragen)', onclick: () => snelStart({ dagelijks: true }, 'knop-dagelijks') })); return; }
+  const s = o.streak || 0;
+  d.append(el('div', { class: 'tc-streak', 'aria-label': s + ' dagen op rij' }, (s > 0 ? '🔥 ' : '✨ ') + s,
+    el('small', { text: s === 1 ? 'dag op rij' : 'dagen op rij' })));
+  const onderwerpen = (o.dagelijks && o.dagelijks.onderwerpen) || [];
+  d.append(el('div', { class: 'txt' },
+    el('strong', { text: o.vandaagGedaan ? 'Goed bezig, je hebt vandaag al geoefend!' : 'Dagelijkse 5' }),
+    el('div', { class: 'muted', text: onderwerpen.length
+      ? `5 vragen over ${onderwerpen.join(', ')} — gekozen op wat je het meest kan gebruiken` + (o.teHerhalen ? `. Je hebt ${o.teHerhalen} vraag${o.teHerhalen === 1 ? '' : 'en'} om te herhalen.` : '.')
+      : 'Nog geen vragen beschikbaar.' }),
+    el('div', { class: 'muted', style: 'font-size:0.8rem;', text: 'Weekends breken je reeks niet.' })));
+  if (onderwerpen.length) d.append(el('button', { class: 'btn ' + (o.vandaagGedaan ? 'btn-muted' : 'btn-primary'), type: 'button', id: 'knop-dagelijks', text: o.vandaagGedaan ? 'Nog eens 5' : 'Start dagelijkse 5',
+    onclick: () => snelStart({ dagelijks: true }, 'knop-dagelijks') }));
+}
+// ── vraag van de dag ────────────────────────────────────────────────────────
+const DAG_ICOON = { opgelost: '✔', mislukt: '✘', bezig: '…', open: '○', joker: '🃏', ingehaald: '↺', weekend: '·', voor: '·' };
+const DAG_TEKST = { opgelost: 'Opgelost', mislukt: 'Niet gelukt', bezig: 'Bezig', open: 'Nog te doen', ingehaald: 'Ingehaald (telt niet mee voor je reeks)' };
+const datumKort = sl => new Date(sl + 'T12:00:00').toLocaleDateString('nl-BE', { weekday: 'short', day: 'numeric', month: 'numeric' });
+function tekenVraagVanDeDag() {
+  const v = OVERZICHT.dagvraag; const doel = $('vraag-van-de-dag');
+  if (!v || !v.aan) { doel.hidden = true; return; }
+  doel.hidden = false; doel.className = 'tc-vd'; doel.replaceChildren();
+  doel.append(el('div', { class: 'streak', 'aria-label': v.streak + ' dagen op rij' }, (v.streak > 0 ? '🔥 ' : '✨ ') + v.streak, el('small', { text: v.streak === 1 ? 'dag op rij' : 'dagen op rij' })));
+  const poging = v.pogingen ? ` · ${v.pogingen} poging${v.pogingen === 1 ? '' : 'en'}` + (v.maxPogingen ? ' van ' + v.maxPogingen : '') : '';
+  doel.append(el('div', {},
+    el('h2', { text: 'Vraag van de dag' }),
+    el('div', { class: 'sub' }, v.onderwerp ? `${v.onderwerp} · niveau ${v.niveau} · ` : 'Gekozen op jouw niveau en de onderwerpen die je al deed · ',
+      el('span', { class: 'tc-status ' + v.status, text: (DAG_ICOON[v.status] || '') + ' ' + (DAG_TEKST[v.status] || '') }), poging),
+    v.jokersPerWeek ? el('div', { class: 'sub', style: 'font-size:0.8rem;', text: `Joker deze week: ${v.jokersOver} van ${v.jokersPerWeek} over (een gemiste dag breekt je reeks dan niet). Weekends tellen niet mee.` }) : null));
+  doel.append(el('div', { class: 'acties' },
+    el('button', { class: 'btn btn-primary', type: 'button', id: 'knop-vd', text: v.status === 'opgelost' ? 'Bekijk mijn antwoord' : v.status === 'mislukt' ? 'Bekijk' : v.pogingen ? 'Verder proberen' : 'Maak de vraag van de dag', onclick: startDagvraag }),
+    el('button', { class: 'btn btn-muted', type: 'button', text: 'Pogingen', onclick: () => openPogingen(0) })));
+  doel.append(el('div', { class: 'week', 'aria-label': 'Laatste 7 dagen' }, (v.week || []).map(d =>
+    el('div', Object.assign({ class: 'tc-dagje ' + d.status + (d.inhaalbaar ? ' inhaalbaar' : ''),
+      title: datumKort(d.dag) + ': ' + (d.status === 'joker' ? 'joker gebruikt' : d.status === 'weekend' ? 'weekend' : d.status === 'voor' ? 'nog niet gestart' : (DAG_TEKST[d.status] || d.status)) + (d.inhaalbaar ? ' — klik om in te halen' : '') },
+      d.inhaalbaar ? { role: 'button', tabindex: '0', onclick: () => startDagvraag(d.dag), onkeydown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startDagvraag(d.dag); } } } : {}),
+      d.naam, el('b', { text: DAG_ICOON[d.status] || '' })))));
+  if (v.inhaalDagen > 0) doel.append(el('div', { class: 'sub', style: 'grid-column:1/-1;font-size:0.8rem;', text: `Gemist? Klik op een dag met een stippellijn om in te halen (tot ${v.inhaalDagen} dagen terug). Een ingehaalde dag telt niet mee voor je reeks; enkel je joker dekt zo'n dag.` }));
+}
+async function startDagvraag(dag) {
+  const knop = $('knop-vd'); if (knop) knop.disabled = true;
+  const doelDag = typeof dag === 'string' ? dag : null;
+  try {
+    const d = await api('/api/training/dagvraag/start', { method: 'POST', body: doelDag ? { dag: doelDag } : {} });
+    RUN = { id: 'dagvraag', dagvraag: true, dag: d.inhaal ? d.dag : null, inhaal: !!d.inhaal, aantal: 1, verplicht: false, vraag: d.vraag, beantwoord: false, hulpStand: d.hulpStand || null, pogingen: d.pogingen, maxPogingen: d.maxPogingen };
+    if (d.status === 'opgelost' || d.status === 'ingehaald') { toonVraag(); zetLaatsteAntwoord(d.laatsteAntwoord); toonDagKlaar(d); return; }
+    toonVraag(); zetLaatsteAntwoord(d.laatsteAntwoord);
+    if (d.status === 'mislukt') toonDagVergrendeld();
+  } catch (e) { pyAlert(e.message, 'error'); if (knop) knop.disabled = false; }
+}
+// Het laatste antwoord van de leerling terugzetten bij heropenen
+function zetLaatsteAntwoord(a) {
+  if (a == null || !RUN || !RUN.vraag) return;
+  if (RUN.vraag.type === 'code') { if (typeof a === 'string' && window.TCCode) window.TCCode.zetCode(a); return; }
+  const lijst = (Array.isArray(a) ? a : [a]).map(Number);
+  VRAAGSTAND.gekozen = new Set(lijst);
+  document.querySelectorAll('#v-kaart input[name="keuze"]').forEach(i => { i.checked = lijst.includes(Number(i.value)); });
+}
+function pogingenTekst(d) {
+  if (!d.maxPogingen) return d.pogingen ? `Je deed al ${d.pogingen} poging${d.pogingen === 1 ? '' : 'en'}. Je mag zo vaak proberen als je wil.` : '';
+  return `Poging ${d.pogingen} van ${d.maxPogingen}. Nog ${d.resterend} te gaan.`;
+}
+function toonDagKlaar(d) {
+  const k = $('v-kaart'); const oud = $('dag-fb'); if (oud) oud.remove();
+  if (window.TCCode && RUN.vraag.type === 'code') window.TCCode.vergrendel();
+  k.querySelectorAll('input').forEach(i => { i.disabled = true; });
+  const fb = el('div', { class: 'tc-feedback goed', id: 'dag-fb', role: 'status' },
+    el('strong', { class: 'kop', text: RUN.inhaal ? '✔ Juist! Deze dag is ingehaald.' : '✔ Juist! Dit staat voor vandaag op je lijstje.' }),
+    el('div', { text: `Opgelost na ${d.pogingen} poging${d.pogingen === 1 ? '' : 'en'}.` + (RUN.inhaal ? ' Een ingehaalde dag telt niet mee voor je reeks, tenzij je joker die dag dekt.' : d.streak ? ` 🔥 ${d.streak} dag${d.streak === 1 ? '' : 'en'} op rij.` : '') }));
+  const o = d.onthulling || {};
+  if (o.juist && RUN.vraag.choices) fb.append(el('div', { style: 'margin-top:6px;', text: 'Juiste antwoord: ' + o.juist.map(i => RUN.vraag.choices[i]).join(' · ') }));
+  if (o.uitleg) { const u = el('div', { style: 'margin-top:6px;' }); window.PCMd.zetHtml(u, o.uitleg); fb.append(u); }
+  const knop = $('knop-dien-in'); if (knop) knop.parentElement.remove();
+  k.append(fb, el('div', { class: 'tc-voet' }, el('span'),
+    el('button', { class: 'btn btn-primary', type: 'button', text: 'Terug naar start', onclick: terugNaarStart }),
+    el('button', { class: 'btn btn-muted', type: 'button', text: 'Extra oefenen (5 vragen)', onclick: () => { RUN = null; snelStart({ dagelijks: true }); } })));
+}
+function toonDagVergrendeld() {
+  const k = $('v-kaart'); const oud = $('dag-fb'); if (oud) oud.remove();
+  if (window.TCCode && RUN.vraag.type === 'code') window.TCCode.vergrendel();
+  k.querySelectorAll('input').forEach(i => { i.disabled = true; });
+  const knop = $('knop-dien-in'); if (knop) knop.parentElement.remove();
+  k.append(el('div', { class: 'tc-feedback fout', id: 'dag-fb', role: 'status' }, el('strong', { class: 'kop', text: RUN.inhaal ? '✘ Geen pogingen meer voor deze dag' : '✘ Geen pogingen meer vandaag' }),
+    el('div', { text: RUN.inhaal ? 'Het antwoord zie je via "Pogingen".' : 'Je kan deze dag morgen nog inhalen via het strookje; het antwoord zie je zodra de inhaaltermijn voorbij is.' })),
+    el('div', { class: 'tc-voet' }, el('span'), el('button', { class: 'btn btn-primary', type: 'button', text: 'Terug naar start', onclick: terugNaarStart })));
+}
+async function terugNaarStart() { RUN = null; toon('start'); try { await laadStart(); } catch (e) { /* blijft zoals het was */ } }
+
+async function dienDagvraagIn(antwoord) {
+  const v = RUN.vraag; const knop = $('knop-dien-in');
+  RUN.beantwoord = true; knop.disabled = true; knop.textContent = v.type === 'code' ? 'Bezig met nakijken…' : 'Bezig…';
+  try {
+    const d = await api('/api/training/dagvraag/answer', { method: 'POST', body: { questionId: v.id, answer: antwoord, dag: RUN.dag || undefined } });
+    RUN.pogingen = d.pogingen; RUN.maxPogingen = d.maxPogingen;
+    if (d.juist) { toonDagKlaar(d); return; }
+    if (d.status === 'mislukt') { toonDagVergrendeld(); return; }
+    // fout: laat de leerling opnieuw proberen (zonder het antwoord te verklappen)
+    const oud = $('dag-fb'); if (oud) oud.remove();
+    const fb = el('div', { class: 'tc-feedback fout', id: 'dag-fb', role: 'status' }, el('strong', { class: 'kop', text: 'Nog niet juist' }));
+    if (v.type === 'code' && d.details) {
+      fb.append(el('div', { text: `${d.details.geslaagd} van ${d.details.totaal} testen geslaagd.` }));
+      const f = d.details.eersteFout;
+      if (f) fb.append(el('div', { style: 'margin-top:6px;font-size:0.88rem;' },
+        f.invoer && f.invoer.length ? el('div', { text: 'Bij invoer: ' + f.invoer.join(' / ') }) : null,
+        el('div', { text: 'Jouw programma gaf: ' + (f.gekregen || '(niets)').replace(/\n/g, ' / ') })));
+    }
+    fb.append(el('div', { style: 'margin-top:6px;font-weight:700;', text: pogingenTekst({ pogingen: d.pogingen, maxPogingen: d.maxPogingen, resterend: d.resterend }) }));
+    knop.parentElement.before(fb);
+    RUN.beantwoord = false; knop.disabled = false; knop.textContent = 'Probeer opnieuw';
+  } catch (e) {
+    RUN.beantwoord = false; knop.disabled = false; knop.textContent = 'Antwoord indienen'; $('tc-melding').textContent = e.message;
+  }
+}
+
+// ── pogingen: lijst van 10 met vorige/volgende + popup per dag ──────────────────
+function openDvModal(titel) { $('dv-titel').textContent = titel; $('dv-modal').classList.add('open'); }
+$('dv-sluit').addEventListener('click', () => $('dv-modal').classList.remove('open'));
+$('dv-modal').addEventListener('click', e => { if (e.target === $('dv-modal')) $('dv-modal').classList.remove('open'); });
+async function openPogingen(offset) {
+  openDvModal('Mijn vragen van de dag'); const doel = $('dv-inhoud'); doel.replaceChildren(el('p', { class: 'muted', text: 'Laden…' }));
+  try {
+    const d = await api('/api/training/dagvraag/geschiedenis?offset=' + offset); const sm = d.samenvatting;
+    doel.replaceChildren(
+      el('p', { class: 'muted', style: 'margin:0 0 8px;font-size:0.88rem;', text: sm.dagenGedaan
+        ? `Opgelost: ${sm.opgelost} van ${sm.dagenGedaan} dagen${sm.ingehaald ? ' (+' + sm.ingehaald + ' ingehaald)' : ''} · gemiddeld ${sm.gemPogingen == null ? '—' : sm.gemPogingen} poging(en) tot juist · langste reeks ${sm.langsteStreak} · nu 🔥 ${sm.streak}`
+        : 'Je hebt nog geen vraag van de dag gedaan.' }));
+    if (!d.items.length) return;
+    doel.append(el('table', { class: 'dv-tabel' }, el('thead', {}, el('tr', {}, ['Dag', 'Onderwerp', 'Niv.', 'Pogingen', ''].map(t => el('th', { text: t })))),
+      el('tbody', {}, d.items.map(r => el('tr', { class: 'klik', tabindex: '0', onclick: () => openDag(r.dag, offset), onkeydown: e => { if (e.key === 'Enter') openDag(r.dag, offset); } },
+        el('td', { text: datumKort(r.dag) }), el('td', { text: r.onderwerp + (r.verwijderd ? ' (vraag verwijderd)' : '') }), el('td', { text: String(r.niveau) }),
+        el('td', { text: r.status === 'opgelost' || r.status === 'ingehaald' ? String(r.pogingen) + (r.pogingen === 1 ? ' (meteen juist)' : '') : r.pogingen ? r.pogingen + ' (niet juist)' : '—' }),
+        el('td', { class: 'tc-status ' + r.status, text: DAG_ICOON[r.status] || '' }))))));
+    doel.append(el('div', { class: 'dv-pager' },
+      el('button', { class: 'btn btn-muted small', type: 'button', disabled: offset <= 0 ? '' : null, text: '← Vorige 10', onclick: () => openPogingen(Math.max(0, offset - 10)) }),
+      el('span', { class: 'muted', style: 'align-self:center;font-size:0.82rem;', text: `${offset + 1}–${Math.min(offset + 10, d.totaal)} van ${d.totaal}` }),
+      el('button', { class: 'btn btn-muted small', type: 'button', disabled: offset + 10 >= d.totaal ? '' : null, text: 'Volgende 10 →', onclick: () => openPogingen(offset + 10) })));
+  } catch (e) { doel.replaceChildren(el('p', { class: 'muted', text: e.message })); }
+}
+async function openDag(dag, terugOffset) {
+  openDvModal(datumKort(dag)); const doel = $('dv-inhoud'); doel.replaceChildren(el('p', { class: 'muted', text: 'Laden…' }));
+  try {
+    const d = await api('/api/training/dagvraag/dag/' + encodeURIComponent(dag));
+    if (d.verwijderd) {
+      doel.replaceChildren(el('button', { class: 'btn btn-muted small', type: 'button', text: '← Terug naar de lijst', onclick: () => openPogingen(terugOffset || 0) }),
+        el('p', { style: 'margin:10px 0 2px;', class: 'muted', text: `${d.onderwerp} · niveau ${d.niveau}` }),
+        el('div', { class: 'tc-status ' + d.status, text: (DAG_ICOON[d.status] || '') + ' ' + (DAG_TEKST[d.status] || '') }),
+        el('div', { class: 'tc-feedback fout', style: 'margin-top:10px;' }, el('strong', { class: 'kop', text: d.melding || 'Deze vraag bestaat niet meer.' }), el('div', { text: 'Je reeks en je pogingen blijven wel behouden.' })));
+      return;
+    }
+    const o = d.onthulling;
+    const inhaalKnop = d.inhaalbaar ? el('button', { class: 'btn btn-primary small', type: 'button', style: 'margin-left:8px;', text: d.inhaal ? 'Verder inhalen' : 'Deze dag inhalen',
+      onclick: () => { $('dv-modal').classList.remove('open'); startDagvraag(dag); } }) : null;
+    doel.replaceChildren(
+      el('div', {}, el('button', { class: 'btn btn-muted small', type: 'button', text: '← Terug naar de lijst', onclick: () => openPogingen(terugOffset || 0) }), inhaalKnop),
+      el('p', { style: 'margin:10px 0 2px;', class: 'muted', text: `${d.onderwerp} · niveau ${d.niveau}` }),
+      el('div', { class: 'tc-status ' + d.status, text: (DAG_ICOON[d.status] || '') + ' ' + (DAG_TEKST[d.status] || '') }),
+      el('div', { class: 'dv-box' }, (() => { const t = el('div'); window.PCMd.zetHtml(t, d.tekst); return t; })(), d.code ? el('pre', { text: d.code }) : null,
+        d.keuzes && d.keuzes.length ? el('ul', { style: 'margin:6px 0 0;padding-left:18px;' }, d.keuzes.map((c, i) => el('li', { text: c + (o && o.juist && o.juist.includes(i) ? '  ✔' : '') + (d.laatsteAntwoord != null && (Array.isArray(d.laatsteAntwoord) ? d.laatsteAntwoord : [d.laatsteAntwoord]).map(Number).includes(i) ? '  ← jouw antwoord' : '') }))) : null));
+    doel.append(el('h3', { style: 'margin:12px 0 4px;font-size:0.95rem;', text: 'Pogingen' }),
+      d.pogingen.length ? el('ol', { style: 'margin:0;padding-left:20px;' }, d.pogingen.map(p => el('li', {},
+        new Date(p.om).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' }) + ' — ' + (p.juist ? '✔ juist' : '✘ niet juist') + (p.totaal ? ` (${p.geslaagd}/${p.totaal} testen)` : '')))) : el('p', { class: 'muted', text: 'Geen pogingen.' }));
+    if (o) {
+      doel.append(el('h3', { style: 'margin:12px 0 4px;font-size:0.95rem;', text: 'Antwoord en uitleg' }));
+      if (o.uitleg) { const u = el('div', { class: 'dv-box' }); window.PCMd.zetHtml(u, o.uitleg); doel.append(u); }
+      if (o.voorbeeld) doel.append(el('div', { class: 'dv-box' }, el('strong', { text: 'Voorbeeld' }), el('pre', { text: (o.voorbeeld.invoer && o.voorbeeld.invoer.length ? 'Invoer: ' + o.voorbeeld.invoer.join(' / ') + '\n' : '') + 'Uitvoer: ' + o.voorbeeld.uitvoer })));
+    }
+    if (d.type === 'code' && typeof d.laatsteAntwoord === 'string' && d.laatsteAntwoord) doel.append(el('h3', { style: 'margin:12px 0 4px;font-size:0.95rem;', text: 'Jouw laatste code' }), el('div', { class: 'dv-box' }, el('pre', { text: d.laatsteAntwoord })));
+    if (!o) doel.append(el('p', { class: 'muted', style: 'margin-top:10px;', text: 'Het antwoord zie je zodra je de vraag juist hebt, of nadat de inhaaltermijn voorbij is.' }));
+  } catch (e) { doel.replaceChildren(el('p', { class: 'muted', text: e.message })); }
+}
+
+function tekenGroeipad() {
+  const doel = $('groeipad'); doel.replaceChildren();
+  for (const t of OVERZICHT.topics) {
+    const max = t.maxLevel || 10; const niv = t.niveau || 0;
+    const balk = el('div', { class: 'balk', role: 'img', 'aria-label': 'Niveau ' + niv + ' van ' + max }, Array.from({ length: max }, (_, i) => el('i', { class: i < niv ? 'aan' : '' })));
+    doel.append(el('div', { class: 'tc-gk' },
+      el('h3', { text: t.name }), balk,
+      el('div', { class: 'meta' }, el('span', { text: niv ? 'Niveau ' + niv + ' / ' + max : 'Nog niet gestart' }),
+        t.gemScore != null ? el('span', { text: 'Gemiddeld ' + t.gemScore + '%' }) : null, el('span', { text: t.geoefend + ' vragen gedaan' })),
+      el('div', { class: 'stap ' + (t.volgendeStap ? t.volgendeStap.soort : '') , text: t.volgendeStap ? t.volgendeStap.tekst : '' }),
+      el('button', { class: 'btn btn-muted small', type: 'button', disabled: t.aantal < 1 ? '' : null, id: 'gk-' + t.id,
+        text: t.aantal < 1 ? 'Nog geen vragen' : (t.teHerhalen ? 'Herhaal en train (10 vragen)' : 'Train dit onderwerp (10 vragen)'),
+        onclick: () => snelStart({ aantal: 10, topics: [t.id] }, 'gk-' + t.id) })));
+  }
+}
+async function snelStart(body, knopId) {
+  const knop = $(knopId); if (knop) knop.disabled = true;
+  try {
+    const d = await api('/api/training/start', { method: 'POST', body: Object.assign({ fullscreenVerplicht: false }, body) });
+    RUN = { id: d.runId, aantal: d.aantal, verplicht: false, vraag: d.vraag, beantwoord: false };
+    toonVraag();
+  } catch (e) { pyAlert(e.message, 'error'); if (knop) knop.disabled = false; }
 }
 
 // ── popup ───────────────────────────────────────────────────────────────────
@@ -284,31 +574,24 @@ const TYPE_NAAM = { single: 'Meerkeuzevraag', multiple: 'Meerdere juiste antwoor
 function toonVraag() {
   const v = RUN.vraag; RUN.beantwoord = false;
   toon('vraag');
-  $('v-teller').textContent = `Vraag ${v.nr} van ${v.totaal} · ${OVERZICHT.topics.find(t => t.id === v.topic)?.name || v.topic}`;
+  $('v-teller').textContent = RUN.dagvraag ? `Vraag van de dag · ${OVERZICHT.topics.find(t => t.id === v.topic)?.name || v.topic}`
+    : `Vraag ${v.nr} van ${v.totaal} · ${OVERZICHT.topics.find(t => t.id === v.topic)?.name || v.topic}`;
+  $('knop-stop').textContent = RUN.dagvraag ? 'Terug' : 'Training stoppen';
   const niv = $('v-niveau'); niv.replaceChildren(el('span', { class: 'muted', style: 'margin-right:6px;', text: 'Niveau' }));
   for (let i = 1; i <= 10; i++) niv.append(el('i', { class: i <= v.niveau ? 'aan' : '' }));
   niv.append(el('strong', { style: 'margin-left:6px;', text: v.niveau + ' / 10' }));
   $('v-balk').style.width = Math.round(((v.nr - 1) / v.totaal) * 100) + '%';
 
-  const k = $('v-kaart'); k.replaceChildren();
-  k.append(el('div', { class: 'tc-type', text: TYPE_NAAM[v.type] || '' }));
-  k.append(el('p', { class: 'tc-tekst', text: v.text }));
+  const kaart = $('v-kaart'); kaart.replaceChildren();
+  if (window.TCCode) window.TCCode.ruimOp();
+  const k = el('div', { class: 'tc-hoofd' });                 // v106: hoofdkolom; hulp komt er rechts naast
+  k.append(el('div', { class: 'tc-type' }, TYPE_NAAM[v.type] || '', v.herhaling ? el('span', { class: 'tc-herh', title: 'Je had deze vraag eerder fout. Herhalen helpt het te onthouden.' }, '🔁 Herhaling') : null));
+  { const tt = el('div', { class: 'tc-tekst' }); window.PCMd.zetHtml(tt, v.text); k.append(tt); }
   if (v.code) k.append(el('pre', { class: 'tc-code', text: v.code }));
 
   VRAAGSTAND = { gekozen: new Set() };
   if (v.type === 'code') {
-    const ta = el('textarea', { class: 'tc-editor', id: 'editor', spellcheck: 'false', 'aria-label': 'Jouw code', autocapitalize: 'off' });
-    ta.value = v.starter || '';
-    ta.addEventListener('keydown', e => {
-      if (e.key === 'Tab') { e.preventDefault(); const s = ta.selectionStart; ta.setRangeText('    ', s, ta.selectionEnd, 'end'); }
-    });
-    k.append(el('label', { for: 'editor', style: 'font-weight:700;font-size:0.9rem;display:block;margin-bottom:4px;', text: 'Jouw code' }), ta);
-    k.append(el('label', { for: 'invoer', class: 'muted', style: 'display:block;font-size:0.82rem;margin:8px 0 3px;', text: 'Invoer voor "Code uitvoeren" (één regel per input())' }));
-    k.append(el('textarea', { class: 'tc-editor tc-invoer', id: 'invoer', spellcheck: 'false', 'aria-label': 'Invoer' }));
-    k.append(el('div', { class: 'tc-uitvoer', id: 'uitvoer', 'aria-live': 'polite', text: 'De uitvoer van je code verschijnt hier.' }));
-    k.append(el('div', { class: 'tc-voet' },
-      el('button', { class: 'btn btn-muted', id: 'knop-run', type: 'button', onclick: voerUit, text: 'Code uitvoeren' }),
-      el('button', { class: 'btn btn-primary', id: 'knop-dien-in', type: 'button', onclick: dienIn, text: 'Antwoord indienen' })));
+    window.TCCode.bouwCodeVraag(k, v, RUN.hulpStand);
   } else {
     const soort = v.type === 'multiple' ? 'checkbox' : 'radio';
     const groep = el('fieldset', { style: 'border:0;padding:0;margin:0;' },
@@ -326,26 +609,21 @@ function toonVraag() {
       el('button', { class: 'btn btn-primary', id: 'knop-dien-in', type: 'button', onclick: dienIn, text: 'Antwoord indienen' })));
   }
   k.append(el('div', { id: 'tc-melding', class: 'tc-fout', role: 'alert' }));
-}
-
-async function voerUit() {
-  const knop = $('knop-run'); knop.disabled = true; $('uitvoer').textContent = 'Bezig…';
-  try {
-    const d = await api('/api/training/run', { method: 'POST', body: { code: $('editor').value, invoer: $('invoer').value } });
-    $('uitvoer').textContent = (d.output || '(geen uitvoer)') + (d.melding ? '\n\n' + d.melding : '');
-  } catch (e) { $('uitvoer').textContent = e.message; }
-  finally { setTimeout(() => { knop.disabled = false; }, 800); }
+  const paneel = window.TCCode ? window.TCCode.hulpPaneel(v, RUN.hulpStand) : null;
+  if (paneel) kaart.append(el('div', { class: 'tc-rij' }, k, paneel)); else kaart.append(k);
+  RUN.hulpStand = null;
 }
 
 async function dienIn() {
   if (RUN.beantwoord) return;
   const v = RUN.vraag;
   let antwoord;
-  if (v.type === 'code') antwoord = $('editor').value;
+  if (v.type === 'code') antwoord = window.TCCode.krijgCode();
   else {
     antwoord = [...VRAAGSTAND.gekozen].sort((a, b) => a - b);
     if (!antwoord.length) { $('tc-melding').textContent = 'Kies eerst een antwoord.'; return; }
   }
+  if (RUN.dagvraag) { await dienDagvraagIn(antwoord); return; }
   RUN.beantwoord = true;
   const knop = $('knop-dien-in'); knop.disabled = true; knop.textContent = v.type === 'code' ? 'Bezig met nakijken…' : 'Bezig…';
   try {
@@ -367,7 +645,7 @@ function toonFeedback(d) {
       if (juist) { l.classList.add('juist'); l.append(el('span', { class: 'tag', style: 'color:#166534;', text: 'Juist' })); }
       else if (inp.checked) { l.classList.add('fout'); l.append(el('span', { class: 'tag', style: 'color:#991b1b;', text: 'Fout' })); }
     });
-  } else { $('editor').readOnly = true; $('invoer').readOnly = true; $('knop-run').disabled = true; }
+  } else { window.TCCode.vergrendel(); }
   const kop = d.uitslag === 'goed' ? 'Goed zo!' : d.uitslag === 'deels' ? 'Gedeeltelijk juist' : 'Niet juist';
   const fb = el('div', { class: 'tc-feedback ' + d.uitslag, role: 'status' }, el('strong', { class: 'kop', text: kop }));
   if (v.type === 'code') {
@@ -382,7 +660,8 @@ function toonFeedback(d) {
   } else if (d.uitslag === 'deels') {
     fb.append(el('div', { text: 'Je had een deel van de juiste antwoorden, maar niet alle (of er stond ook een fout antwoord bij).' }));
   }
-  if (d.uitleg) fb.append(el('div', { style: 'margin-top:6px;', text: d.uitleg }));
+  if (d.straf > 0) fb.append(el('div', { style: 'margin-top:6px;font-weight:700;color:#92400e;', text: 'Extra hulp gebruikt: \u2212' + Math.round(d.straf * 100) + '% van je score voor deze vraag.' }));
+  if (d.uitleg) { const u = el('div', { style: 'margin-top:6px;' }); window.PCMd.zetHtml(u, d.uitleg); fb.append(u); }
   if (d.niveauWijziging) {
     const w = d.niveauWijziging;
     fb.append(el('div', { style: 'margin-top:6px;font-weight:700;', text: (w.naar > w.van ? 'Niveau omhoog' : 'Iets makkelijker') + ' voor ' + w.topic + ': niveau ' + w.naar }));
@@ -432,7 +711,8 @@ function toonResultaat(r, gestopt) {
 }
 
 $('knop-stop').addEventListener('click', async () => {
-  if (!RUN || !confirm('Training stoppen? Je krijgt dan geen titel.')) return;
+  if (RUN && RUN.dagvraag) { await terugNaarStart(); return; }
+  if (!RUN || !(await pyConfirm({ title: 'Training stoppen', body: 'Training stoppen? Je krijgt dan geen titel.', confirmLabel: 'Stoppen', cancelLabel: 'Verdergaan', danger: true }))) return;
   await stopTraining('zelf_gestopt');
 });
 
@@ -467,7 +747,7 @@ $('fs-terug').addEventListener('click', () => { vraagVolledigScherm(); });
     if (OVERZICHT.actief) {
       const d = await api(`/api/training/${OVERZICHT.actief}/state`);
       if (d.status === 'bezig' && d.vraag) {
-        RUN = { id: OVERZICHT.actief, aantal: d.aantal, verplicht: !!d.fullscreenVerplicht, vraag: d.vraag, beantwoord: false, respijt: 15 };
+        RUN = { id: OVERZICHT.actief, aantal: d.aantal, verplicht: !!d.fullscreenVerplicht, vraag: d.vraag, beantwoord: false, respijt: 15, hulpStand: d.hulpStand || null };
         toonVraag();
         if (RUN.verplicht && !document.fullscreenElement) fsVerlaten();
       }

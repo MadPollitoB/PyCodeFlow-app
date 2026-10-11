@@ -809,7 +809,7 @@ async function setStudentStatus(id, status) {
 }
 
 async function editNote(id, currentNote) {
-  const note = prompt('Notitie (max 500 tekens):', currentNote);
+  const note = await pyPrompt({ title: 'Notitie', body: 'Notitie (max 500 tekens):', defaultValue: currentNote || '', confirmLabel: 'Bewaren' });
   if (note === null) return;
   await apiFetch(`/api/admin/students/${id}/notes`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ notes: note }) });
   loadStudents();

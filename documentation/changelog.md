@@ -1,3 +1,122 @@
+## v2026.2.51.119 — Bewerkpopup niet meer achter de titelbalk
+
+- De popups bij Bewerken/Bekijken (Trainingscenter) en de vergrote afbeelding bij Mijn klassen hingen onder de vaste titelbalk. Ze liggen nu boven de balk (maar onder de meldingspopups) en passen volledig in het scherm.
+
+## v2026.2.51.118 — Geen browserpopups meer
+
+- **Alle** `alert()`, `confirm()` en `prompt()` van de browser zijn vervangen door de eigen popups van PyCodeFlow (`pyAlert`, `pyConfirm`, `pyPrompt`): Trainingscenter (onderwerp uitschakelen/hernoemen/verwijderen, vraag verwijderen, fouten), leerlingtraining (training stoppen, check en hint met scorekost), toetsen (toetscode, invoer, commentaar-sjablonen), sjablonen, klasmatrix, monitoring, beheer, stroomdiagram-pijllabels, naam wijzigen, leerlingstart.
+- De popups staan nu in één bestand (`popups.js`) dat op elke pagina geladen wordt, ook op pagina's zonder `app.js` (training, leerlingstart).
+- Een test bewaakt voortaan dat er nergens nog een browserpopup bijkomt.
+
+## v2026.2.51.117 — Vragen aanpassen in het Trainingscenter
+
+- **Kleinere popups** (max. 760 px breed, nooit hoger dan het scherm) met een eigen scrollbalk.
+- **Checklist bewerken zonder JSON:** per check kies je de soort (code bevat / bevat niet / aantal input() / uitvoer van testgeval), de tekst die de leerling ziet en de waarde. Knop "Vervang door de automatische checklist" als startpunt. "Automatisch" blijft de standaard.
+- **Algemene vragen:** wie ze niet mag wijzigen ziet nu "🔒 Aanpassen" en krijgt een eigen aangepaste kopie. Wie ze wel mag wijzigen (platformbeheerder, of alle leerkrachten via Instellingen → "Wie mag de algemene pool beheren") ziet "Bewerken".
+
+## v2026.2.51.116 — Gebundelde release 110 t.e.m. 116 + opmaak in trainingsvragen
+
+Dit is een volledige installatie die ALLES van 110 tot en met 116 bevat (110 inhalen · 111 onderwerpen verwijderen + gewettigd afwezig · 112 reeks opdrachten · 113 beveiliging · 114 tabwissel bij taken · 115 trainingen beheren · 116 hieronder).
+
+- **Opmaak in trainingsvragen** zoals bij toetsen: vet, cursief, onderlijnd, code in de zin, codeblok, lijsten, kleur en de kaders Tip / Opgelet / Extra informatie, met live voorbeeld ("Zo ziet de leerling het"). Beschikbaar bij "Vraag / opdracht" en "Uitleg". Leerlingen zien de opmaak bij de vraag en bij de uitleg. Bestaande vragen blijven ongewijzigd (tekens als `<stad>`, `2 * 3` of `mijn_var` blijven gewone tekst).
+- **Vraagformulier:** nieuw paneel "Zo wordt deze vraag nagekeken" toont tijdens het bewerken de controle, de nakijkstappen en de volledige checklist, zonder eerst op te slaan.
+- **Versiecontrole:** de server toont voortaan de hoogste VERSION-kopie (een verouderde bind-mount kon 114 tonen terwijl 115 draaide). Na een Rebuild (optie 5) controleert het script automatisch of de draaiende server en de pagina's de nieuwe versie hebben, en meldt wat niet klopt.
+
+## v2026.2.51.115 — Trainingen beheren
+
+- **Onderwerpen beheren** (platformbeheerder): toevoegen, hernoemen, volgorde, in-/uitschakelen en verwijderen. Uitgeschakelde onderwerpen verdwijnen voor leerlingen; de vragen blijven bewaard.
+- **Vragen beheren:** filters op status en kwaliteit, in-/uitschakelen, bewerken, kopiëren, definitief verwijderen. Gewone leerkrachten beheren enkel eigen vragen; algemene vragen bekijken, uitproberen en kopiëren.
+- **Bekijken:** volledige keten per vraag: controle, wat de leerling ziet, hulp, hoe het nagekeken wordt (testgevallen en checklist met bron), gebruiksstatistiek en "Probeer als leerling" (echt nakijken zonder opslaan).
+- **Kwaliteitscontrole** (kolom Controle: fouten en tips) zoekt onvolkomenheden in vragen.
+
+## v2026.2.51.114 — Auto-indienen bij tabwissel ook bij taken
+
+- **Anti-spiek bij taken:** "Automatisch indienen bij tabwissel" (met drempel en respijt) kan nu ook bij een taak, naast de toets. Het blok staat in het aanmaakscherm voor beide types.
+- De waarschuwing met aftelling verschijnt enkel nog als auto-indienen aan staat (voorheen ook zonder, bij een toets).
+- Bestaande taken blijven op uit; nieuwe taken krijgen het vinkje standaard aan, zoals bij toetsen.
+
+## v2026.2.51.113 — Beveiliging bij toetsen én taken
+
+- **Kopiëren en plakken blokkeren** (kopiëren, knippen, plakken, slepen, rechtsklikmenu, sneltoetsen; ook in de code-editor). Per toets/taak instelbaar, **standaard aan**. De knop "Kopieer code" verdwijnt dan.
+- **Volledig scherm verplicht**, nu ook bij taken. Per toets/taak instelbaar, **standaard aan**. Verlaat de leerling het volledig scherm, dan is de toets/taak geblokkeerd tot hij terugkeert; het scherm sluit pas bij indienen. Op toestellen zonder volledig scherm (bv. iPhone) geldt dit niet.
+- De spelregels bij het starten vermelden beide.
+- **Cursus-zijpaneel** (cursus-link) kan nu ook bij een taak. De link staat in het blok "Beveiliging" in het aanmaakscherm.
+- Bestaande toetsen/taken krijgen beide opties aan. "Automatisch indienen bij tabwissel" blijft enkel voor toetsen.
+- Dupliceren neemt de beveiligingsopties en de cursus-link mee.
+
+## v2026.2.51.112 — Reeks opdrachten in klasmodus (individuele werkfase)
+
+- **Reeks sturen:** typ meerdere oefeningen in het schrijfblok ("+ Nieuwe oefening") en klik **Stuur reeks**. Leerlingen zien "Opdracht x van n".
+- **Individuele werkfase:** de leerling bladert met Vorige/Volgende; elke oefening heeft een eigen werkblad. Bij terugkeren staat zijn eigen code er weer. Een nog niet gemaakte oefening is leeg.
+- **Terug naar klasmodus:** het werkblad van de leerling toont de code van de oefening die jij aanduidt (Vorige/Volgende bij jou volgt mee).
+- **Reeks aanvullen/aanpassen:** "Reeks bijwerken" stuurt de nieuwe lijst; bestaande code blijft staan.
+- **Wissen:** bij een verstuurde reeks kies je "deze oefening" of "hele reeks"; de code en antwoorden van de leerlingen bij die oefening(en) verdwijnen ook. Een losse opdracht sturen beëindigt de reeks (code blijft).
+- Bewaard bij een herstart van de server.
+
+## v2026.2.51.111 — Onderwerpen verwijderen + gewettigd afwezig bij Verbeteren/Scores
+
+- **Onderwerp verwijderen** (Trainingscenter → vragenpool, 🗑 per onderwerp; enkel voor algemeen beheer): verwijdert het onderwerp met al zijn vragen, de bijhorende antwoorden en trainingsresultaten en de herhaalvragen. Eerst een overzicht van wat verdwijnt, daarna de naam van het onderwerp intypen ter bevestiging.
+- **Blijft staan:** de niveaus van leerlingen en de streak. Trainingen die enkel dit onderwerp bevatten verdwijnen; lopende trainingen met dit onderwerp worden gestopt.
+- **Vraag van de dag:** een dag in de streak waarvan de vraag verwijderd is blijft meetellen; wie ze opnieuw opent krijgt "Deze vraag bestaat niet meer." (in de pogingenlijst staat "vraag verwijderd"). Een open dag krijgt een nieuwe vraag.
+- Het verwijderde onderwerp komt na herstart niet terug (het blijft inactief); het verdwijnt uit de pool en bij het importeren.
+- **Gewettigd afwezig:** bij **Verbeteren** staat nu een vinkje "Gewettigd afwezig" bij elke leerling die niets indiende; bij **Scores** (klasoverzicht) klik je op ⬜ om iemand gewettigd afwezig te zetten en op 🅰 om het ongedaan te maken. Telt niet mee voor het gemiddelde. (Voortgang-paneel blijft zoals het was.)
+
+## v2026.2.51.110 — Vraag van de dag: gemiste dagen inhalen
+
+- **Inhalen:** een gemiste schooldag kan achteraf nog gemaakt worden via het 7-dagenstrookje (stippellijn, klik op de dag) of via "Pogingen" → dag → "Deze dag inhalen". Standaard tot **7 dagen terug**; weekends en dagen vóór de eerste vraag kunnen niet.
+- **Telt niet mee voor de streak:** een ingehaalde dag (↺) zit niet in de reeks. Enkel de joker van die week dekt zo'n dag, net als bij een gemiste dag zonder inhalen.
+- Tijdens het inhalen blijft het antwoord verborgen (ook in "Pogingen"); het is pas te zien na een juist antwoord of na het inhaalvenster. Pogingen tellen opnieuw vanaf het begin van het inhalen. Hints en checks werken zoals bij de vraag van vandaag.
+- **Per klas instelbaar:** "Gemiste dag inhalen tot zoveel dagen terug" (standaard 7, 0 = niet toegestaan, max. 30).
+- Leerkracht: in de kolom "Vraag van de dag" staat het aantal ingehaalde dagen apart.
+- **Niveau:** de vraag van de dag én "Extra oefenen" (Dagelijkse 5) veranderen je niveau nooit, ook niet binnen de reeks; enkel een echte training doet dat. (Extra oefenen deed dat tot nu wél.)
+- **Codevragen:** dezelfde editor als Vrij oefenen (donkere balk met Run, regelnummerkolom, statusbalk, donkere uitvoer). "Check mijn code" heeft de groene Run-kleur. Faalt "De uitvoer klopt", dan staat er een tip (extra tekst in input(), spaties, hoofdletters).
+- **input() met vraagtekst:** het nakijken negeert de tekst binnen `input("...")`; leerlingen mogen (en horen) er een duidelijke vraag in te zetten. De zin "Gebruik input() zonder tekst tussen de haakjes" is uit ~570 opdrachten geschrapt (automatische migratie bij opstarten, ook voor bestaande en eigen vragen) en de bijhorende checklistregel is verwijderd. Je eigen Run in de editor toont de vraagtekst gewoon.
+- **Nieuwe vragenreeks** (apart te importeren): 1058 nieuwe vragen niveau 1-10 voor alle 9 onderwerpen (400 code, 665 meerkeuze); elke codeoplossing en elke code-uitvoer in meerkeuze is automatisch uitgevoerd, de overige meerkeuze is blind door een tweede nakijker beantwoord (12 twijfelgevallen geschrapt); geen dubbels met de bestaande pool.
+- Heropenen toont je laatste antwoord (meerkeuze aangevinkt, code in de editor); ook in de pogingen-popup.
+- Databank: kolommen `inhaal` en `inhaal_basis` op `training_dagvraag` (automatisch).
+
+## v2026.2.51.109 — Trainingscenter: vraag van de dag
+
+- **Persoonlijke vraag per dag**, gekozen op het niveau van de leerling en de onderwerpen die al geoefend zijn (zwakste/herhaling eerst, geen vraag van de laatste 30 dagen). Dezelfde vraag bij verversen.
+- **Pogingen:** codevragen onbeperkt, meerkeuze standaard 2 pogingen. Het antwoord en de uitleg zie je **enkel als je juist hebt**, of nadat de dag voorbij is (bij "Pogingen"). Bij een foute poging op code zie je hoeveel testen slaagden en wat je programma gaf, nooit het verwachte antwoord.
+- **Groen vinkje** bij juist, **rood kruis** zodra de dag voorbij is of je geen pogingen meer hebt, oranje "bezig" tussendoor.
+- **Streak** = opeenvolgende dagen met een juiste vraag van de dag. Weekends tellen niet mee; per week is er standaard **1 joker** (een gemiste schooldag breekt de reeks dan niet). 7-dagenstrook met ✔ ✘ 🃏.
+- **Pogingen-overzicht:** lijst van 10 dagen met Vorige/Volgende 10, samenvatting (opgelost, gemiddeld aantal pogingen, langste reeks) en popup per dag met de pogingen en het antwoord.
+- **Extra oefenen** (5 vragen, eigen niveau) naast de vraag van de dag; bepaalt het vinkje niet.
+- **Per klas instelbaar** (standaard tussen haakjes): aan/uit (aan), pogingen meerkeuze (2), pogingen code (onbeperkt), kans op codevraag (67%), niveau t.o.v. de leerling (0), jokers per week (1).
+- Leerkracht: kolom "Vraag van de dag" (status vandaag, streak, aantal opgelost).
+
+## v2026.2.51.108 — Trainingscenter: vragen beheren in de UI, herhaling van fouten, Dagelijkse 5 en groeipad
+
+**Leerkracht**
+- **Vragen beheren** (Trainingen → Vragenpool): "+ Nieuwe vraag", **Bewerken**, **Kopie** (nieuwe vraag op basis van een bestaande) en **Verwijderen**; zoeken op tekst. Formulier voor meerkeuze, meerdere juiste antwoorden en programmeeropdrachten (startcode, testgevallen, uitleg, hoofdstuk, kernwoorden, hints, optionele eigen checklist).
+- **Test mijn oplossing**: typ je eigen oplossing, voer ze uit op de testgevallen en laat de verwachte uitvoer automatisch invullen.
+- Eigen vragen zijn aanpasbaar door de eigenaar; de algemene pool door de platformbeheerder. Een verwijderde vraag kan opnieuw toegevoegd of geïmporteerd worden.
+
+**Leerling**
+- **Herhaling van fouten**: een foute vraag komt de volgende dag terug, daarna na 3, 7, 14 en 30 dagen (bij elk juist antwoord). Elke 3e vraag in een training is een herhaalvraag (badge "Herhaling"); herhaalvragen sturen het niveau niet bij.
+- **Dagelijkse 5**: 5 vragen over de onderwerpen die het meest herhaling of oefening nodig hebben.
+- **Streak**: aantal oefendagen op rij; weekenddagen breken de reeks niet.
+- **Groeipad**: per onderwerp niveau, gemiddelde score, aantal vragen en de beste volgende stap, met een knop om dat onderwerp meteen te trainen.
+
+## v2026.2.51.107 — Trainingscenter: 384 nieuwe codevragen, hulpoverzicht en hulpregels per klas
+
+- **Vragenpool:** 384 nieuwe codevragen op niveau 1–4 voor print-input, variabelen, datatypes, expressies, beslissingen, herhaling, foutmeldingen en debuggen (48 per onderwerp). Elke oplossing is automatisch tegen de tests en de checklist gecontroleerd. In `trainingscenter-niveau-1-5.json` (nu 519 vragen) en in de ingebouwde startset.
+- **Leerkracht:** in het klasoverzicht staat de kolom "Hulp gebruikt" (checks, hints, aandeel vragen met hulp); in het detail van een training zie je per vraag welke hulp gebruikt werd en de aftrek.
+- **Hulpregels per klas** (Trainingen → Overzicht per klas → "Hulp in de training voor deze klas"): hulp aan/uit, gratis checks (0–6), gratis hints (0–2), aftrek per extra check/hint (0–50%), checklist tot niveau X, hints tot niveau Y. Een leerling in meerdere klassen krijgt de ruimste regeling. De regeling wordt bij de start van een training vastgelegd. Standaard blijft: 1 gratis check, 1 gratis hint, 10%, checklist t.e.m. niveau 3, hints t.e.m. niveau 5.
+- Knoppen en uitleg bij de leerling tonen de klasregels (bv. "Check opnieuw (−25% score)").
+
+## v2026.2.51.106 — Trainingsmodule: hulp per niveau, echte code-run, twee importbestanden
+
+- **Niveau 1–3:** hulppaneel naast de vraag met cursushoofdstuk (link), kernwoorden en een checklist. De knop
+  "Check mijn code" vult de checklist aan: de eerste check is gratis, elke volgende kost 10% van de score van die vraag.
+- **Niveau 4–5:** hoofdstuk en twee hints zonder de oplossing te verklappen (geen kernwoorden). Hint 1 is gratis, hint 2 kost 10%.
+- **Vanaf niveau 6:** geen hulpmiddelen. Checkregels en hinttekst gaan pas naar de leerling als die erom vraagt.
+- **Code uitvoeren** werkt zoals in de rest van de app: Monaco-editor, het programma wacht zelf op `input()`, invoerveld boven de uitvoer, Stop-knop. Het veld "Testwaarden vooraf invullen" is optioneel en uitgelegd.
+- **Import:** vragen met dezelfde tekst worden nu bijgewerkt (hoofdstuk, kernwoorden, hints, checks, uitleg) in plaats van overgeslagen.
+- **Data:** `trainingscenter-niveau-1-5.json` (135 vragen) en `trainingscenter-niveau-6-10.json` (474 vragen) voor de beheerder; de ingebouwde startset is verrijkt.
+- **Klas- en individuele modus:** het invoerveld staat nu boven het outputveld, zoals in toetsen en taken.
+
 ## v2026.2.51.105 — Bugfix: ingediende toets/taak kon via de terug-knop opnieuw getoond worden
 
 Na indienen kon een leerling met de terug-knop van de browser de vragen opnieuw zien.

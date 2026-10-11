@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Nieuwe toets/taak aanmaken</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.81"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.119"/>
   <style>
     .wizard-steps { display:flex; gap:0; margin-bottom:28px; }
     .wizard-step { flex:1; padding:12px; text-align:center; background:var(--surface-soft);
@@ -239,11 +239,10 @@
         border-radius:10px;border:1.5px solid var(--border);">
         <label style="font-size:0.85rem;font-weight:700;display:block;margin-bottom:10px;">
           🔒 Anti-spiek
-          <span style="font-size:0.78rem;font-weight:400;color:var(--muted);">— volledig scherm is bij een toets altijd verplicht</span>
         </label>
         <p style="font-size:0.78rem;color:var(--muted);margin:0 0 10px;">
-          De toets wordt altijd in volledig scherm getoond. Verlaat de leerling dat scherm of
-          wisselt hij van tabblad/venster, dan kan dat automatisch ingediend worden.
+          Wisselt de leerling van tabblad/venster, of verlaat hij het volledig scherm, dan kan de
+          toets of taak automatisch ingediend worden.
         </p>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.85rem;">
           <input type="checkbox" id="quiz-tabswitch-enabled" checked onchange="toggleTabSwitchThreshold(this.checked)"/>
@@ -261,12 +260,30 @@
           <input type="number" id="quiz-tabswitch-grace" value="5" min="0" max="30" class="opt-num" style="width:60px;"/>
           <label for="quiz-tabswitch-grace" style="font-size:0.82rem;color:var(--muted);">sec. om terug te keren (0 = geen respijt)</label>
         </div>
+      </div>
+
+      <!-- v113: beveiliging voor toetsen ÉN taken — standaard aan -->
+      <div id="quiz-beveiliging-sectie" style="margin-top:14px;padding:14px;background:var(--surface-soft);
+        border-radius:10px;border:1.5px solid var(--border);">
+        <label style="font-size:0.85rem;font-weight:700;display:block;margin-bottom:10px;">🛡️ Beveiliging</label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.85rem;margin-bottom:6px;">
+          <input type="checkbox" id="quiz-copypaste-blocked" checked/>
+          Kopiëren en plakken blokkeren
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.85rem;">
+          <input type="checkbox" id="quiz-fullscreen-required" checked/>
+          Volledig scherm verplicht (enkel te verlaten door in te dienen)
+        </label>
+        <p style="font-size:0.76rem;color:var(--muted);margin:6px 0 0;">
+          Zonder volledig scherm is de leerling geblokkeerd tot hij terugkeert. Op toestellen die geen
+          volledig scherm ondersteunen (bv. een iPhone) geldt dit niet.
+        </p>
         <div style="margin-top:12px;">
           <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Cursus-link (optioneel)</label>
           <input type="url" id="quiz-cursus-url" placeholder="https://... (bv. een gedeelde PDF)"
             style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);"/>
           <p style="font-size:0.76rem;color:var(--muted);margin:4px 0 0;">
-            Verschijnt als een zijpaneel binnen de toets zelf — de leerling hoeft dus niet naar
+            Verschijnt als een zijpaneel binnen de toets/taak zelf — de leerling hoeft dus niet naar
             een ander tabblad. Enkel https-links. Leeg laten = geen cursus beschikbaar.
           </p>
         </div>
@@ -375,9 +392,10 @@
 </div>
 </div><!-- /wizard-root -->
 
-<script src="/app.js?v=v2026.2.51.105"></script>
+<script src="/popups.js?v=v2026.2.51.119"></script>
+<script src="/app.js?v=v2026.2.51.119"></script>
 <script src="/vendor/marked/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.81"></script>
-<script src="/quiz-teacher.js?v=v2026.2.51.105"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.81"></script></body>
+<script src="/code-highlight.js?v=v2026.2.51.119"></script>
+<script src="/quiz-teacher.js?v=v2026.2.51.119"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.119"></script></body>
 </html>

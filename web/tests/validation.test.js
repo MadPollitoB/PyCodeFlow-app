@@ -434,9 +434,11 @@ test('83 tabwissel: toets + aangezet + drempel 3 → blijft zo staan', () => {
   const r = v.bepaalTabWisselInstellingen({ type: 'toets', enabled: true, threshold: 3 });
   assert.deepStrictEqual(r, { enabled: true, threshold: 3, graceSeconds: 5 });
 });
-test('83 tabwissel: taak + aangezet → ALTIJD uitgeschakeld, ongeacht wat meegestuurd wordt', () => {
-  const r = v.bepaalTabWisselInstellingen({ type: 'taak', enabled: true, threshold: 5 });
-  assert.deepStrictEqual(r, { enabled: false, threshold: 0, graceSeconds: 5 });
+test('v114 tabwissel: ook een taak mag auto-indienen bij tabwissel; een onbekend type niet', () => {
+  assert.deepStrictEqual(v.bepaalTabWisselInstellingen({ type: 'taak', enabled: true, threshold: 5 }),
+    { enabled: true, threshold: 5, graceSeconds: 5 });
+  assert.deepStrictEqual(v.bepaalTabWisselInstellingen({ type: 'iets', enabled: true, threshold: 5 }),
+    { enabled: false, threshold: 0, graceSeconds: 5 });
 });
 test('83 tabwissel: toets + uitgeschakeld → drempel altijd 0, ook al werd er iets anders meegestuurd', () => {
   const r = v.bepaalTabWisselInstellingen({ type: 'toets', enabled: false, threshold: 7 });

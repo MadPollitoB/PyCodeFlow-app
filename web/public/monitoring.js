@@ -997,11 +997,11 @@ async function laadConnectivityLog() {
 }
 
 async function ruimConnectivityLogOp() {
-  const ok = window.pyConfirm ? await pyConfirm({
+  const ok = await pyConfirm({
     title: 'Oud logboek opschonen?',
     body: 'Verwijdert logregels van vóór 30 dagen geleden. Dit kan niet ongedaan gemaakt worden.',
     confirmLabel: 'Opschonen', cancelLabel: 'Annuleren',
-  }) : confirm('Logregels ouder dan 30 dagen verwijderen?');
+  });
   if (!ok) return;
   try {
     const r = await apiFetch('/api/admin/connectivity-log/cleanup', {

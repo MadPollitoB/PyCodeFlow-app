@@ -13,6 +13,8 @@ let _visited = new Set(); // bezochte vraag IDs
 let _timerInterval = null;
 
 // ── Sprint 83: anti-spiek (enkel bij een toets) ──────────────────────────────
+let _fullscreenRequired = true;   // v113: per toets/taak instelbaar (standaard aan)
+let _copyPasteBlocked = true;     // v113
 let _isToets = false;           // state.type === 'toets' (ná join, zie quiz_state)
 let _tabSwitchEnabled = false;  // leerkracht zette "auto-indienen bij tabwissel" aan
 let _tabSwitchThreshold = 0;
@@ -442,8 +444,13 @@ async function startQuiz() {
   const regels = [];
   // Sprint 83: anti-spiek — enkel bij een toets, en vooraan in de lijst (belangrijk genoeg
   // om als eerste te zien, vóór terugbladeren/timer/aantal vragen).
-  if (soort === 'toets') {
-    regels.push('🖥️ Deze toets wordt in <strong>volledig scherm</strong> getoond en blijft dat verplicht tot je indient.');
+  if (_startInfo?.fullscreenRequired !== false && fullscreenMogelijk()) {
+    regels.push(`🖥️ Deze ${soort} wordt in <strong>volledig scherm</strong> getoond. Je kan dat scherm <strong>enkel verlaten door in te dienen</strong>; tot dan is de ${soort} geblokkeerd.`);
+  }
+  if (_startInfo?.copyPasteBlocked !== false) {
+    regels.push('🚫 <strong>Kopiëren en plakken is uitgeschakeld.</strong>');
+  }
+  {
     if (_startInfo?.tabSwitchEnabled) {
       const d = _startInfo.tabSwitchThreshold || 1;
       const wanneer = d > 1 ? `${d} keer` : 'de eerste keer';
@@ -452,7 +459,7 @@ async function startQuiz() {
       const respijtZin = respijtSec > 0
         ? ` Je krijgt daarbij telkens ${respijtSec} seconden om onmiddellijk terug te keren — lukt dat, dan telt het niet mee.`
         : '';
-      regels.push(`⚠️ <strong>Wissel je van tabblad, venster of verlaat je het volledig scherm, dan wordt je toets automatisch ingediend</strong> (na ${wanneer}).${respijtZin} Zorg dat je niets anders open hebt staan.`);
+      regels.push(`⚠️ <strong>Wissel je van tabblad, venster of verlaat je het volledig scherm, dan wordt je ${soort} automatisch ingediend</strong> (na ${wanneer}).${respijtZin} Zorg dat je niets anders open hebt staan.`);
     }
   }
   if (_startInfo?.noBack) {
@@ -491,11 +498,59 @@ function _doeStart() {
   }, 10000);
   // Sprint 83: fullscreen ALTIJD bij een toets — moet gebeuren binnen dezelfde
   // gebruikersactie (de klik die de bevestiging sloot), anders weigert de browser het.
-  if (_startInfo?.type === 'toets') vraagVolledigScherm();
+  if (_startInfo?.fullscreenRequired !== false) vraagVolledigScherm();
   socket.emit('quiz_start', { code: urlCode, name: urlName, className: urlClass });
 }
 
 // ── Sprint 83: anti-spiek — volledig scherm, tabwissel-detectie, cursus-paneel ──
+function fullscreenMogelijk() {
+  const el = document.documentElement;
+  return !!(el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen);
+}
+
+// v113: zolang volledig scherm verplicht is, blokkeert een scherm alles tot de leerling
+// terugkeert (de klik op de knop is de vereiste gebruikersactie). Indienen sluit het scherm
+// zelf (_afgesloten + exitFullscreen), dus dat is de enige uitweg. Een browser laat Esc altijd
+// toe; daarom blokkeren we hier de inhoud i.p.v. Esc zelf.
+let _fsVergrendelingAan = false;
+function updateFullscreenVergrendeling() {
+  const el = document.getElementById('fullscreen-overlay');
+  if (!el) return;
+  const blokkeer = _fullscreenRequired && fullscreenMogelijk() && !_afgesloten && !document.fullscreenElement && !document.webkitFullscreenElement;
+  el.classList.toggle('visible', blokkeer);
+}
+function zetFullscreenVergrendelingAan() {
+  if (_fsVergrendelingAan) return;
+  _fsVergrendelingAan = true;
+  document.addEventListener('fullscreenchange', updateFullscreenVergrendeling);
+  document.addEventListener('webkitfullscreenchange', updateFullscreenVergrendeling);
+}
+
+// v113: kopiëren/plakken/knippen/slepen en het rechtsklikmenu uit, ook in de code-editor
+// (capture-fase, vóór de editor het event te zien krijgt).
+let _kopieerBlokAan = false;
+function zetKopieerBlokAan() {
+  const kopieerKnop = document.getElementById('quiz-copy-code-btn');
+  if (kopieerKnop) kopieerKnop.style.display = _copyPasteBlocked ? 'none' : '';
+  if (_kopieerBlokAan) return;
+  _kopieerBlokAan = true;
+  const stop = (e) => {
+    if (!_copyPasteBlocked) return;
+    e.preventDefault(); e.stopPropagation();
+  };
+  for (const ev of ['copy', 'cut', 'paste', 'drop', 'dragstart', 'contextmenu']) {
+    document.addEventListener(ev, stop, true);
+  }
+  document.addEventListener('keydown', (e) => {
+    if (!_copyPasteBlocked) return;
+    const k = (e.key || '').toLowerCase();
+    const ctrl = e.ctrlKey || e.metaKey;
+    if ((ctrl && ['c', 'v', 'x', 'insert'].includes(k)) || (e.shiftKey && (k === 'insert' || k === 'delete'))) {
+      e.preventDefault(); e.stopPropagation();
+    }
+  }, true);
+}
+
 function vraagVolledigScherm() {
   const el = document.documentElement;
   const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
@@ -543,7 +598,7 @@ function annuleerTabwisselRespijt() {
 }
 
 function meldMogelijkeWissel() {
-  if (!_isToets || _afgesloten || !_state) return;
+  if (!_tabSwitchEnabled || _afgesloten || !_state) return;  // v114: toets én taak, enkel als auto-indienen aan staat
   // Een respijtperiode loopt al (meerdere gelijktijdige events — blur + visibilitychange +
   // fullscreenchange — voor dezelfde fysieke actie) → niet nogmaals starten.
   if (_tabWisselTimer) return;
@@ -709,10 +764,13 @@ socket.on('quiz_state', async (state) => {
   _tabSwitchThreshold = state.tabSwitchThreshold || 0;
   // Sprint 94: instelbaar respijt (in seconden vanaf de server) — in ms voor de timers hierboven.
   _tabWisselRespijtMs = (typeof state.tabSwitchGraceSeconds === 'number' ? state.tabSwitchGraceSeconds : 5) * 1000;
-  if (_isToets) {
-    vraagVolledigScherm();   // nogmaals proberen (bv. na een herlaad/reconnect)
-    zetTabWisselDetectieAan();
-  }
+  _fullscreenRequired = state.fullscreenRequired !== false;
+  _copyPasteBlocked = state.copyPasteBlocked !== false;
+  if (_fullscreenRequired) vraagVolledigScherm();   // nogmaals proberen (bv. na een herlaad/reconnect)
+  zetFullscreenVergrendelingAan();
+  updateFullscreenVergrendeling();
+  zetKopieerBlokAan();
+  if (_tabSwitchEnabled) zetTabWisselDetectieAan();
   setupCursusPaneel(state.cursusUrl || null);
   // v99: klasbord — hand opsteken (toets altijd, taak met vinkje) + tab-verlaten-signaal (toets)
   zetHandKnopOp(state.klasbordActief === true, state.handUp === true);
@@ -752,6 +810,7 @@ socket.on('quiz_force_submit', (data) => {
   const code = getCurrentCode();
   if (_currentQuestionId) saveCurrentAnswer(code);
   _afgesloten = true;                       // blokkeert verder bewerken en opslaan
+  if (typeof updateFullscreenVergrendeling === 'function') updateFullscreenVergrendeling();
   // Bugfix (sprint 72): zelfde telfout als hierboven — enkel effectief beantwoorde
   // vragen meetellen, niet elke bezochte vraag.
   const aantalBeantwoord = (_state?.questions || []).filter(q => heeftAntwoord(q, _answers[q.id])).length;
@@ -1811,6 +1870,7 @@ function closeZelfevaluatieScreen() {
 function submitAll() {
   saveCurrentAnswer(getCurrentCode());
   _afgesloten = true; // Sprint 83: voorkomt een zinloze tabwissel-melding door exitFullscreen()
+  updateFullscreenVergrendeling();
   // Sprint 90: de zelfevaluatie (indien van toepassing) gaat mee in DEZELFDE inzending
   // i.p.v. een apart round-trip — zo blijft het indienen atomair en is er geen aparte
   // auth-stap nodig. Een ontbrekende/ongeldige enquête mag de echte inzending nooit
@@ -1939,6 +1999,7 @@ function updateTimerDisplay(remaining, total) {
 
 // Sessie code opvragen als niet in URL
 if (!urlCode) {
-  const code = prompt('Voer de toetscode in:');
+  (async () => { const code = await window.pyPrompt({ title: 'Toetscode', body: 'Voer de toetscode in:', confirmLabel: 'Openen' });
   if (code) location.href = `/quiz-student.html?code=${code.trim().toUpperCase()}&name=${encodeURIComponent(urlName)}&class=${encodeURIComponent(urlClass)}`;
+  })();
 }

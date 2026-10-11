@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Sessie actief</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.81"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.119"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .runner-health-bar-track {
@@ -188,6 +188,7 @@
       </div>
       <div class="announcement-actions">
         <button class="btn btn-primary" id="teacher-announcement-send-btn" title="Stuur de zichtbare opdracht naar alle leerlingen">Sturen</button>
+        <button class="btn btn-primary hidden" id="teacher-announcement-series-btn" title="Stuur alle oefeningen als reeks: de leerlingen bladeren zelf, met een eigen werkblad per oefening">Stuur reeks</button>
         <button class="btn btn-muted" id="teacher-announcement-clear-btn" title="Wis de tekst van deze oefening (en bij alle leerlingen als ze zichtbaar was)">Wissen</button>
       </div>
     </div>
@@ -234,11 +235,11 @@
     </div>
       </div>
       
-      <pre id="teacher-output-panel" class="output-panel hidden output-dark"></pre>
       <div id="teacher-runtime-input-wrap" class="runtime-input-wrap hidden">
         <input id="teacher-runtime-input" placeholder="Invoer niet beschikbaar" disabled/>
         <button class="btn btn-soft" id="teacher-send-input-btn" disabled>Stuur input</button>
       </div>
+      <pre id="teacher-output-panel" class="output-panel hidden output-dark"></pre>
     </div>
 
     <!-- Sprint 62: was voorheen één .sidebar-kolom met alle 4 panelen gestapeld —
@@ -488,5 +489,6 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/app.js?v=v2026.2.51.105"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.81"></script></body></html>
+<script src="/popups.js?v=v2026.2.51.119"></script>
+<script src="/app.js?v=v2026.2.51.119"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.119"></script></body></html>

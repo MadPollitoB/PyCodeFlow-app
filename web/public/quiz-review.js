@@ -2,7 +2,11 @@
 // Inline scripts naar apart bestand voor onderhoudbaarheid + CSP (30b).
 
 const params = new URLSearchParams(location.search);
-const sessionCode = params.get('code') || prompt('Toetscode:');
+const sessionCode = params.get('code') || '';
+if (!sessionCode) {   // geen code in de URL: vraag ze via de eigen popup en herlaad met de code
+  (async () => { const c = await window.pyPrompt({ title: 'Toetscode', body: 'Toetscode:', confirmLabel: 'Openen' });
+    if (c && c.trim()) { params.set('code', c.trim().toUpperCase()); location.search = params.toString(); } })();
+}
 let _questions = [];
 let _students = [];      // unieke leerlingen
 let _testAccounts = [];  // Sprint 64: testaccounts, apart gehouden (geen verbeterverplichting)
@@ -176,6 +180,40 @@ function renderProgressChart(studentAnswers) {
   </div>`;
 }
 
+// v111: heeft deze leerling niets ingediend? (nooit gestart/aangevuld, of enkel lege antwoorden)
+function heeftNietsIngediend(antwoorden) {
+  if (!antwoorden.length) return true;
+  return antwoorden.every(a => a.submitted_by === 'geen_deelname' || a.submitted_by === 'niet_beantwoord' ||
+    (!String(a.code || '').trim() && (!a.selected_choices || a.selected_choices === '[]') && !Number(a.run_count || 0)));
+}
+
+// v111: "gewettigd afwezig" kan hier aan/uit gezet worden, maar enkel bij wie niets indiende.
+// Staat de leerling al op gewettigd, dan kan het altijd ongedaan gemaakt worden.
+function afwezigBlok(antwoorden) {
+  const gewettigd = antwoorden.some(a => a.student_status === 'gewettigd');
+  if (!gewettigd && !heeftNietsIngediend(antwoorden)) return '';
+  return `<label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:0.85rem;color:#1e40af;" title="Enkel mogelijk bij wie niets indiende">
+      <input type="checkbox" ${gewettigd ? 'checked' : ''} onchange="zetAfwezigReview(this.checked)"/> 🔵 Gewettigd afwezig</label>`;
+}
+
+async function zetAfwezigReview(aan) {
+  if (!_currentStudent) return;
+  try {
+    const f = window.apiFetch || fetch;
+    const r = await f(`/api/quiz-sessions/${encodeURIComponent(sessionCode)}/roster/${encodeURIComponent(_currentStudent.id)}/status`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: aan ? 'gewettigd' : null }),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+    _answers.forEach(a => { if (a.student_id === _currentStudent.id) a.student_status = aan ? 'gewettigd' : null; });
+    renderStudentList();
+    renderReviewPanel();
+  } catch (e) {
+    pyAlert('Kon de afwezigheid niet bewaren: ' + e.message, 'error');
+    renderReviewPanel();
+  }
+}
+
 function renderReviewPanel() {
   if (!_currentStudent) return;
   const studentAnswers = _answers.filter(a => a.student_id === _currentStudent.id);
@@ -187,6 +225,7 @@ function renderReviewPanel() {
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
       <h3 style="margin:0;">${esc(_currentStudent.name)}</h3>
       <span class="muted">${esc(_currentStudent.class || '')}</span>
+      ${afwezigBlok(studentAnswers)}
       <span style="margin-left:auto;font-weight:700;">Totaal: ${totalScore}/${maxScore} pt</span>
       <button class="btn btn-muted small" onclick="exportStudent('${_currentStudent.id}',false)">🖨️ PDF</button>
       <button class="btn btn-muted small" onclick="exportStudent('${_currentStudent.id}',true)">🖨️ PDF + scores</button>
@@ -583,8 +622,8 @@ _socket.on('free_run_output', ({ output }) => {
   if (p) { p.textContent += output; p.scrollTop = p.scrollHeight; }
 });
 _socket.on('free_run_end', () => {});
-_socket.on('free_input_request', () => {
-  const val = prompt('Invoer vereist:');
+_socket.on('free_input_request', async () => {
+  const val = await pyPrompt({ title: 'Invoer vereist', body: 'Invoer vereist:', confirmLabel: 'Verstuur' });
   if (val !== null) _socket.emit('free_runtime_input', { value: val });
 });
 
@@ -735,7 +774,7 @@ function useTemplate(text) {
 }
 
 async function addTemplate() {
-  const text = prompt('Nieuw commentaar template (max 500 tekens):');
+  const text = await pyPrompt({ title: 'Nieuw commentaar-sjabloon', body: 'Nieuw commentaar template (max 500 tekens):', confirmLabel: 'Bewaren' });
   if (!text?.trim()) return;
   await fetch('/api/quiz/comment-templates', {
     method:'POST', headers:{'Content-Type':'application/json'},

@@ -283,7 +283,7 @@ function isValidAssignmentType(type) {
 // testen. Een taak krijgt ALTIJD enabled=false/threshold=0, ongeacht wat een
 // aanroeper (opzettelijk of per vergissing) meestuurt.
 function bepaalTabWisselInstellingen({ type, enabled, threshold, graceSeconds } = {}) {
-  const magSpiekbeveiliging = type === 'toets';
+  const magSpiekbeveiliging = type === 'toets' || type === 'taak';  // v114: ook bij een taak
   const effectiveEnabled = magSpiekbeveiliging && enabled === true;
   const effectiveThreshold = effectiveEnabled ? clampInt(threshold, 1, 20, 1) : 0;
   // Sprint 94: het respijt (tot dan vast op 5 sec) is nu instelbaar per toets, tussen 0

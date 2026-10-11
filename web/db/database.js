@@ -858,6 +858,10 @@ async function initSchema() {
       BEGIN ALTER TABLE assignment_bank ADD COLUMN self_eval_enabled BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
       -- v99: klasbord + hand opsteken bij een taak (bij een toets is dit altijd aan). Standaard uit.
       BEGIN ALTER TABLE assignment_bank ADD COLUMN klasbord_enabled BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- v113: per toets/taak instelbaar (beide types), standaard AAN: kopiëren/plakken blokkeren en
+      -- volledig scherm verplicht (leerling kan het enkel verlaten door in te dienen).
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN fullscreen_required BOOLEAN NOT NULL DEFAULT true; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN copy_paste_blocked BOOLEAN NOT NULL DEFAULT true; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
 
     -- Sprint 43.3: bestaande rijen krijgen hun type afgeleid uit no_timer (timerloos = taak).
@@ -976,6 +980,11 @@ async function initSchema() {
     -- Eén algemene vragenpool (owner_teacher_id IS NULL, zichtbaar voor iedereen) plus
     -- eigen vragen van een leerkracht (enkel zichtbaar voor leerlingen in zijn klassen).
     -- Geen koppeling met toetsen/taken: een training telt nooit mee voor punten.
+    CREATE TABLE IF NOT EXISTS training_class_settings (
+      class_id      TEXT PRIMARY KEY,
+      settings_json TEXT NOT NULL DEFAULT '{}',
+      updated_at    BIGINT NOT NULL DEFAULT 0
+    );
     CREATE TABLE IF NOT EXISTS training_settings (
       key        TEXT PRIMARY KEY,
       value      TEXT NOT NULL,
@@ -988,6 +997,7 @@ async function initSchema() {
       sort_order INTEGER NOT NULL DEFAULT 0,
       active     BOOLEAN NOT NULL DEFAULT true
     );
+    ALTER TABLE training_topics ADD COLUMN IF NOT EXISTS verwijderd BOOLEAN NOT NULL DEFAULT false;
     CREATE TABLE IF NOT EXISTS training_questions (
       id               SERIAL PRIMARY KEY,
       topic_id         TEXT NOT NULL REFERENCES training_topics(id) ON DELETE CASCADE,
@@ -1005,6 +1015,11 @@ async function initSchema() {
       active           BOOLEAN NOT NULL DEFAULT true,
       created_at       BIGINT NOT NULL
     );
+    -- v106: hulp per niveau (hoofdstuk, kernwoorden, hints, checks)
+    ALTER TABLE training_questions ADD COLUMN IF NOT EXISTS chapter       TEXT NOT NULL DEFAULT '';
+    ALTER TABLE training_questions ADD COLUMN IF NOT EXISTS keywords_json TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE training_questions ADD COLUMN IF NOT EXISTS hints_json    TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE training_questions ADD COLUMN IF NOT EXISTS checks_json   TEXT NOT NULL DEFAULT '[]';
     CREATE UNIQUE INDEX IF NOT EXISTS idx_training_q_hash
       ON training_questions(text_hash, (COALESCE(owner_teacher_id, '')));
     CREATE INDEX IF NOT EXISTS idx_training_q_topic ON training_questions(topic_id, level);
@@ -1039,6 +1054,43 @@ async function initSchema() {
       answered_at BIGINT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_training_answers_run ON training_run_answers(run_id, seq);
+    -- v108: herhaling van fouten (Leitner-doosjes): per leerling en vraag wanneer die opnieuw aan bod komt
+    CREATE TABLE IF NOT EXISTS training_review (
+      student_id  TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      question_id INTEGER NOT NULL REFERENCES training_questions(id) ON DELETE CASCADE,
+      box         INTEGER NOT NULL DEFAULT 0,
+      due_at      BIGINT NOT NULL,
+      updated_at  BIGINT NOT NULL,
+      PRIMARY KEY (student_id, question_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_training_review_due ON training_review(student_id, due_at);
+    -- v109: vraag van de dag (één per leerling per dag) + alle pogingen
+    CREATE TABLE IF NOT EXISTS training_dagvraag (
+      student_id  TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      day         TEXT NOT NULL,                 -- YYYY-MM-DD (Europe/Brussels)
+      question_id INTEGER NOT NULL,
+      topic_id    TEXT NOT NULL,
+      level       INTEGER NOT NULL,
+      created_at  BIGINT NOT NULL,
+      solved_at   BIGINT,
+      attempts    INTEGER NOT NULL DEFAULT 0,
+      hulp_json   TEXT NOT NULL DEFAULT '{}',
+      PRIMARY KEY (student_id, day)
+    );
+    -- v110: inhalen van gemiste dagen (telt niet mee voor de streak)
+    ALTER TABLE training_dagvraag ADD COLUMN IF NOT EXISTS inhaal BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE training_dagvraag ADD COLUMN IF NOT EXISTS inhaal_basis INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE IF NOT EXISTS training_dagvraag_pogingen (
+      id           SERIAL PRIMARY KEY,
+      student_id   TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      day          TEXT NOT NULL,
+      nr           INTEGER NOT NULL,
+      at           BIGINT NOT NULL,
+      correct      BOOLEAN NOT NULL DEFAULT false,
+      answer_json  TEXT NOT NULL DEFAULT 'null',
+      details_json TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_dagvraag_pogingen ON training_dagvraag_pogingen(student_id, day, nr);
     CREATE TABLE IF NOT EXISTS training_student_levels (
       student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
       topic_id   TEXT NOT NULL,
@@ -1432,6 +1484,7 @@ module.exports = {
       students[sid] = {
         id: s.id, name: s.name,
         code: s.code, personalCode: s.personalCode || '',
+        werkbladen: s.werkbladen || {}, opdrachtIdx: Number.isInteger(s.opdrachtIdx) ? s.opdrachtIdx : 0,
         personalOutput: '', output: '',
         socketId: null, runId: null,
         canRun: s.canRun, canEdit: s.canEdit,
@@ -1470,7 +1523,7 @@ module.exports = {
       session.announcement  || '',
       session.classWorkspaceMode || 'shared',
       JSON.stringify(students),
-      JSON.stringify(session.config || {}),
+      JSON.stringify({ ...(session.config || {}), _opdrachten: Array.isArray(session.opdrachten) ? session.opdrachten : [], _opdrachtIdx: session.opdrachtIdx || 0 }),
       session.teacherId || null,
       // Sprint 48c2: school_id wordt (net als teacher_id) bij aanmaak gezet en NIET in de
       // ON CONFLICT UPDATE herzien — de tenant van een sessie ligt vast.
@@ -2224,6 +2277,39 @@ module.exports = {
                WHERE m.student_id = $${p} AND m.status = 'active'))`;
   },
 
+  // v107: hulpregels per klas
+  async getTrainingClassSettings(classIds) {
+    if (!classIds || !classIds.length) return [];
+    const r = await query(`SELECT class_id, settings_json FROM training_class_settings WHERE class_id = ANY($1) ORDER BY class_id`, [classIds]);
+    return r.rows.map(x => { let o = {}; try { o = JSON.parse(x.settings_json); } catch { /* leeg */ } return { classId: x.class_id, settings: o }; });
+  },
+  async setTrainingClassSettings(classId, obj) {
+    await query(
+      `INSERT INTO training_class_settings (class_id, settings_json, updated_at) VALUES ($1,$2,$3)
+       ON CONFLICT (class_id) DO UPDATE SET settings_json = EXCLUDED.settings_json, updated_at = EXCLUDED.updated_at`,
+      [classId, JSON.stringify(obj), Date.now()]);
+  },
+  async deleteTrainingClassSettings(classId) {
+    await query(`DELETE FROM training_class_settings WHERE class_id = $1`, [classId]);
+  },
+  // Hulpgebruik per leerling van een klas (checks + hints + aftrek) in de gekozen periode.
+  async getTrainingHulpForClass(classId, sinceMs = 0) {
+    const r = await query(
+      `SELECT r.student_id, a.details_json
+         FROM training_run_answers a
+         JOIN training_runs r ON r.id = a.run_id
+         JOIN class_memberships m ON m.student_id = r.student_id AND m.class_id = $1 AND m.status = 'active'
+        WHERE r.started_at >= $2`, [classId, sinceMs]);
+    const per = {};
+    for (const x of r.rows) {
+      let d = {}; try { d = JSON.parse(x.details_json); } catch { /* leeg */ }
+      const h = d && d.hulp; const o = per[x.student_id] || (per[x.student_id] = { antwoorden: 0, checks: 0, hints: 0, metHulp: 0, straf: 0 });
+      o.antwoorden++;
+      if (h) { o.checks += h.checks || 0; o.hints += h.hints || 0; if ((h.checks || 0) + (h.hints || 0) > 0) o.metHulp++; o.straf += h.straf || 0; }
+    }
+    return per;
+  },
+
   async getTrainingConfig() {
     const r = await query(`SELECT value FROM training_settings WHERE key = 'config'`);
     if (!r.rows[0]) return null;
@@ -2236,6 +2322,21 @@ module.exports = {
       [JSON.stringify(obj), Date.now()]);
   },
 
+  async getTrainingSetting(key) {
+    const r = await query(`SELECT value FROM training_settings WHERE key = $1`, [key]);
+    return r.rows[0] ? r.rows[0].value : null;
+  },
+  async setTrainingSetting(key, value) {
+    await query(
+      `INSERT INTO training_settings (key, value, updated_at) VALUES ($1, $2, $3)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
+      [key, String(value), Date.now()]);
+  },
+  async countActiveSchools() {
+    const r = await query(`SELECT COUNT(*)::int AS n FROM schools WHERE active`);
+    return r.rows[0].n;
+  },
+
   async seedTrainingTopics(topics) {
     for (const t of topics) {
       await query(
@@ -2246,30 +2347,90 @@ module.exports = {
   },
   async listTrainingTopics() {
     const r = await query(
-      `SELECT id, name, max_level, sort_order FROM training_topics WHERE active ORDER BY sort_order, name`);
+      `SELECT id, name, max_level, sort_order FROM training_topics WHERE active AND NOT verwijderd ORDER BY sort_order, name`);
     return r.rows;
+  },
+  // v115: alle niet-verwijderde onderwerpen (ook uitgeschakelde) met aantallen vragen.
+  async listAllTrainingTopics() {
+    const r = await query(
+      `SELECT t.id, t.name, t.max_level, t.sort_order, t.active,
+              COUNT(q.id) FILTER (WHERE q.active)::int AS vragen_actief,
+              COUNT(q.id) FILTER (WHERE NOT q.active)::int AS vragen_uit
+         FROM training_topics t LEFT JOIN training_questions q ON q.topic_id = t.id
+        WHERE NOT t.verwijderd
+        GROUP BY t.id ORDER BY t.sort_order, t.name`);
+    return r.rows;
+  },
+  async createTrainingTopic({ id, name, maxLevel, sort }) {
+    const r = await query(
+      `INSERT INTO training_topics (id, name, max_level, sort_order, active, verwijderd)
+       VALUES ($1,$2,$3,$4,true,false)
+       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, max_level = EXCLUDED.max_level,
+         sort_order = EXCLUDED.sort_order, active = true, verwijderd = false
+         WHERE training_topics.verwijderd
+       RETURNING id`, [id, name, maxLevel || 10, sort || 0]);
+    return r.rows.length > 0;     // false = bestaat al (niet verwijderd)
+  },
+  async updateTrainingTopic(id, { name, sort, active }) {
+    const r = await query(
+      `UPDATE training_topics SET name = COALESCE($2, name), sort_order = COALESCE($3, sort_order),
+              active = COALESCE($4, active)
+        WHERE id = $1 AND NOT verwijderd RETURNING id`,
+      [id, name == null ? null : name, sort == null ? null : sort, active == null ? null : !!active]);
+    return r.rows.length > 0;
+  },
+  // v111: onderwerp verwijderen. Verwijdert alle vragen van het onderwerp met bijhorende antwoorden/herhaling en
+  // ruimt trainingen op; leerlingniveaus, vraag-van-de-dag-rijen (streaks) en poging-logs blijven bestaan.
+  async trainingTopicImpact(topicId) {
+    const n = async (sql, p) => (await query(sql, p)).rows[0].n;
+    const like = '%"' + String(topicId).replace(/[%_\\]/g, '\\$&') + '"%';
+    return {
+      vragen: await n(`SELECT COUNT(*)::int AS n FROM training_questions WHERE topic_id = $1`, [topicId]),
+      antwoorden: await n(`SELECT COUNT(*)::int AS n FROM training_run_answers WHERE topic_id = $1`, [topicId]),
+      trainingen: await n(`SELECT COUNT(*)::int AS n FROM training_runs WHERE topics_json LIKE $1`, [like]),
+      dagvragen: await n(`SELECT COUNT(*)::int AS n FROM training_dagvraag WHERE topic_id = $1`, [topicId]),
+    };
+  },
+  async verwijderTrainingTopic(topicId) {
+    const impact = await this.trainingTopicImpact(topicId);
+    const like = '%"' + String(topicId).replace(/[%_\\]/g, '\\$&') + '"%';
+    await query(`DELETE FROM training_run_answers WHERE topic_id = $1`, [topicId]);
+    await query(`DELETE FROM training_questions WHERE topic_id = $1`, [topicId]);     // herhaling (training_review) gaat mee via cascade
+    await query(`UPDATE training_runs SET status = 'gestopt', finished_at = $2, stop_reason = 'onderwerp_verwijderd'
+                  WHERE status = 'bezig' AND topics_json LIKE $1`, [like, Date.now()]);
+    await query(`DELETE FROM training_runs r WHERE r.topics_json LIKE $1 AND r.status <> 'bezig'
+                    AND NOT EXISTS (SELECT 1 FROM training_run_answers a WHERE a.run_id = r.id)`, [like]);
+    await query(`UPDATE training_topics SET active = false, verwijderd = true WHERE id = $1`, [topicId]);   // blijft als 'verwijderd' staan: de zaaier zet het niet terug
+    return impact;
   },
   async countTrainingQuestions() {
     const r = await query(`SELECT COUNT(*)::int AS n FROM training_questions`);
     return r.rows[0].n;
   },
 
-  // Voegt vragen toe; dubbels (zelfde hash, zelfde eigenaar) worden overgeslagen.
+  // Voegt vragen toe. Een bestaande vraag (zelfde hash, zelfde eigenaar) wordt niet dubbel
+  // toegevoegd maar krijgt wel de nieuwe hulpvelden (hoofdstuk, kernwoorden, hints, checks) en
+  // uitleg bijgewerkt (v106) — zo kan een verrijkt bestand over een bestaande pool heen.
   async insertTrainingQuestions(vragen, ownerTeacherId, hashFn) {
-    let toegevoegd = 0; let dubbel = 0;
+    let toegevoegd = 0; let bijgewerkt = 0;
     for (const v of vragen) {
       const r = await query(
         `INSERT INTO training_questions
            (topic_id, level, type, text, code, choices_json, correct_json, starter, tests_json,
-            explanation, owner_teacher_id, text_hash, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-         ON CONFLICT DO NOTHING RETURNING id`,
+            explanation, owner_teacher_id, text_hash, created_at, chapter, keywords_json, hints_json, checks_json)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+         ON CONFLICT (text_hash, (COALESCE(owner_teacher_id, ''))) DO UPDATE SET
+           chapter = EXCLUDED.chapter, keywords_json = EXCLUDED.keywords_json,
+           hints_json = EXCLUDED.hints_json, checks_json = EXCLUDED.checks_json,
+           explanation = EXCLUDED.explanation, active = true
+         RETURNING (xmax = 0) AS nieuw`,
         [v.topic, v.level, v.type, v.text, v.code || '', JSON.stringify(v.choices || []),
          JSON.stringify(v.correct || []), v.starter || '', JSON.stringify(v.tests || []),
-         v.explanation || '', ownerTeacherId || null, hashFn(v), Date.now()]);
-      if (r.rows.length) toegevoegd++; else dubbel++;
+         v.explanation || '', ownerTeacherId || null, hashFn(v), Date.now(),
+         v.chapter || '', JSON.stringify(v.keywords || []), JSON.stringify(v.hints || []), JSON.stringify(v.checks || [])]);
+      if (r.rows[0] && r.rows[0].nieuw) toegevoegd++; else bijgewerkt++;
     }
-    return { toegevoegd, dubbel };
+    return { toegevoegd, bijgewerkt, dubbel: bijgewerkt };
   },
 
   // Onderwerpen met het aantal voor deze leerling zichtbare vragen + opgeslagen niveau.
@@ -2289,8 +2450,9 @@ module.exports = {
   },
   async getTrainingCandidates(studentId, topics) {
     const r = await query(
-      `SELECT q.id, q.topic_id AS topic, q.level FROM training_questions q
-        WHERE q.active AND q.topic_id = ANY($2) AND ${this._trainingZichtbaarSql(1)}`,
+      `SELECT q.id, q.topic_id AS topic, q.level, q.type FROM training_questions q
+        WHERE q.active AND q.topic_id = ANY($2) AND ${this._trainingZichtbaarSql(1)}
+          AND EXISTS (SELECT 1 FROM training_topics tt WHERE tt.id = q.topic_id AND tt.active)`,
       [studentId, topics]);
     return r.rows;
   },
@@ -2303,6 +2465,8 @@ module.exports = {
       id: q.id, topic: q.topic_id, level: q.level, type: q.type, text: q.text, code: q.code,
       choices: j(q.choices_json, []), correct: j(q.correct_json, []), starter: q.starter,
       tests: j(q.tests_json, []), explanation: q.explanation, owner: q.owner_teacher_id,
+      chapter: q.chapter || '', keywords: j(q.keywords_json, []), hints: j(q.hints_json, []), checks: j(q.checks_json, []),
+      active: q.active !== false,
     };
   },
   // question_id → tijdstip waarop deze leerling de vraag het laatst kreeg
@@ -2452,17 +2616,231 @@ module.exports = {
       [teacherId || '']);
     return r.rows;
   },
-  async listTrainingQuestions({ teacherId, topic, level, limit = 200 }) {
+  async listTrainingQuestions({ teacherId, topic, level, zoek, status = 'actief', limit = 500 }) {
     const r = await query(
-      `SELECT q.id, q.topic_id, q.level, q.type, q.text, q.owner_teacher_id
+      `SELECT q.*, (SELECT COUNT(*)::int FROM training_run_answers a WHERE a.question_id = q.id) AS n_antw,
+              (SELECT COUNT(*)::int FROM training_run_answers a WHERE a.question_id = q.id AND a.score >= 1) AS n_juist
          FROM training_questions q
-        WHERE q.active AND ($2::text IS NULL OR q.topic_id = $2) AND ($3::int IS NULL OR q.level = $3)
+        WHERE ($6 = 'alle' OR ($6 = 'uit' AND NOT q.active) OR ($6 NOT IN ('alle','uit') AND q.active))
+          AND ($2::text IS NULL OR q.topic_id = $2) AND ($3::int IS NULL OR q.level = $3)
           AND (q.owner_teacher_id IS NULL OR q.owner_teacher_id = $1)
+          AND ($5::text IS NULL OR q.text ILIKE '%' || $5 || '%')
         ORDER BY q.topic_id, q.level, q.id LIMIT $4`,
-      [teacherId || '', topic || null, level || null, limit]);
+      [teacherId || '', topic || null, level || null, limit, zoek ? String(zoek).replace(/[%_\\]/g, m => '\\' + m).slice(0, 80) : null, status || 'actief']);
+    const j = (s, dflt) => { try { return JSON.parse(s); } catch { return dflt; } };
     return r.rows.map(x => ({ id: x.id, topic: x.topic_id, level: x.level, type: x.type,
-      text: x.text, algemeen: x.owner_teacher_id == null, eigen: x.owner_teacher_id === teacherId }));
+      text: x.text, code: x.code || '', choices: j(x.choices_json, []), correct: j(x.correct_json, []), starter: x.starter || '',
+      tests: j(x.tests_json, []), explanation: x.explanation || '', keywords: j(x.keywords_json, []), hints: j(x.hints_json, []), checks: j(x.checks_json, []),
+      active: x.active !== false, nAntwoorden: x.n_antw, nJuist: x.n_juist,
+      algemeen: x.owner_teacher_id == null, eigen: x.owner_teacher_id === teacherId }));
   },
+  async getTrainingQuestionStats(id) {
+    const r = await query(
+      `SELECT COUNT(*)::int AS n, COUNT(*) FILTER (WHERE score >= 1)::int AS juist, COALESCE(AVG(score),0)::float AS gem
+         FROM training_run_answers WHERE question_id = $1`, [id]);
+    const dv = await query(`SELECT COUNT(*)::int AS n FROM training_dagvraag WHERE question_id = $1`, [id]);
+    const x = r.rows[0];
+    return { antwoorden: x.n, juist: x.juist, pctJuist: x.n ? Math.round(x.juist / x.n * 100) : null, gemScorePct: x.n ? Math.round(x.gem * 100) : null, alsVraagVanDeDag: dv.rows[0].n };
+  },
+  async setTrainingQuestionActive(id, active, teacherId, magAlgemeen) {
+    const r = await query(
+      `UPDATE training_questions SET active = $2
+        WHERE id = $1 AND (owner_teacher_id = $3 OR ($4 AND owner_teacher_id IS NULL)) RETURNING id`,
+      [id, !!active, teacherId || '', !!magAlgemeen]);
+    return r.rows.length > 0;
+  },
+  async deleteTrainingQuestionHard(id, teacherId, magAlgemeen) {
+    const q = await query(
+      `SELECT id FROM training_questions WHERE id = $1 AND (owner_teacher_id = $2 OR ($3 AND owner_teacher_id IS NULL))`,
+      [id, teacherId || '', !!magAlgemeen]);
+    if (!q.rows.length) return false;
+    await query(`DELETE FROM training_run_answers WHERE question_id = $1`, [id]);
+    await query(`DELETE FROM training_questions WHERE id = $1`, [id]);    // herhaling gaat mee via cascade
+    return true;
+  },
+  // v108: één vraag toevoegen via het formulier. Geeft { id } of { dubbel: true } als ze al bestaat.
+  // Vervangt een zin in de opdrachttekst van bestaande vragen en berekent de hash opnieuw.
+  // Bestaat de nieuwe versie al (zelfde eigenaar), dan wordt de oude gedeactiveerd.
+  async herschrijfTrainingTekst(oud, nieuw, hashFn) {
+    const r = await query(`SELECT * FROM training_questions WHERE text LIKE $1`, ['%' + oud.replace(/[%_\\]/g, '\\$&') + '%']);
+    let n = 0;
+    for (const x of r.rows) {
+      const tekst = x.text.split(oud).join(nieuw);
+      let hash;
+      try { hash = hashFn({ topic: x.topic_id, level: x.level, type: x.type, text: tekst, code: x.code || '' }); } catch { continue; }
+      let checks = x.checks_json; try { checks = JSON.stringify(JSON.parse(x.checks_json || '[]').filter(c => !/zonder tekst tussen de haakjes/.test(c.label || ''))); } catch { /* laat staan */ }
+      try { await query(`UPDATE training_questions SET text = $2, text_hash = $3, checks_json = $4 WHERE id = $1`, [x.id, tekst, hash, checks]); n++; }
+      catch (e) { if (e.code === '23505') { await query(`UPDATE training_questions SET active = false WHERE id = $1`, [x.id]); n++; } else throw e; }
+    }
+    return n;
+  },
+
+  async createTrainingQuestion(v, ownerTeacherId, hashFn) {
+    const hash = hashFn(v); const owner = ownerTeacherId || null;
+    const bestaand = await query(
+      `SELECT id, active FROM training_questions WHERE text_hash = $1 AND COALESCE(owner_teacher_id,'') = COALESCE($2,'')`, [hash, owner]);
+    if (bestaand.rows[0] && bestaand.rows[0].active) return { dubbel: true, id: bestaand.rows[0].id };
+    const velden = [v.topic, v.level, v.type, v.text, v.code || '', JSON.stringify(v.choices || []), JSON.stringify(v.correct || []),
+      v.starter || '', JSON.stringify(v.tests || []), v.explanation || '', v.chapter || '', JSON.stringify(v.keywords || []),
+      JSON.stringify(v.hints || []), JSON.stringify(v.checks || [])];
+    if (bestaand.rows[0]) {            // eerder verwijderd: opnieuw activeren met de nieuwe inhoud
+      await query(
+        `UPDATE training_questions SET topic_id=$1, level=$2, type=$3, text=$4, code=$5, choices_json=$6, correct_json=$7,
+                starter=$8, tests_json=$9, explanation=$10, chapter=$11, keywords_json=$12, hints_json=$13, checks_json=$14, active=true
+          WHERE id = $15`, [...velden, bestaand.rows[0].id]);
+      return { id: bestaand.rows[0].id };
+    }
+    const r = await query(
+      `INSERT INTO training_questions (topic_id, level, type, text, code, choices_json, correct_json, starter, tests_json,
+          explanation, chapter, keywords_json, hints_json, checks_json, owner_teacher_id, text_hash, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`,
+      [...velden, owner, hash, Date.now()]);
+    return { id: r.rows[0].id };
+  },
+  // Een bestaande vraag aanpassen (eigen vraag, of algemene pool voor de platformbeheerder).
+  async updateTrainingQuestion(id, v, teacherId, magAlgemeen, hashFn) {
+    try {
+      const r = await query(
+        `UPDATE training_questions SET topic_id=$1, level=$2, type=$3, text=$4, code=$5, choices_json=$6, correct_json=$7,
+                starter=$8, tests_json=$9, explanation=$10, chapter=$11, keywords_json=$12, hints_json=$13, checks_json=$14, text_hash=$15
+          WHERE id = $16 AND active AND (owner_teacher_id = $17 OR ($18 AND owner_teacher_id IS NULL)) RETURNING id`,
+        [v.topic, v.level, v.type, v.text, v.code || '', JSON.stringify(v.choices || []), JSON.stringify(v.correct || []),
+         v.starter || '', JSON.stringify(v.tests || []), v.explanation || '', v.chapter || '', JSON.stringify(v.keywords || []),
+         JSON.stringify(v.hints || []), JSON.stringify(v.checks || []), hashFn(v), id, teacherId || '', !!magAlgemeen]);
+      return r.rows.length ? { ok: true } : { ok: false };
+    } catch (e) {
+      if (e && e.code === '23505') return { ok: false, dubbel: true };
+      throw e;
+    }
+  },
+
+  // ── v108: herhaling van fouten, streak en groeipad ──────────────────────────────────────
+  async getTrainingReview(studentId, questionId) {
+    const r = await query(`SELECT box, due_at FROM training_review WHERE student_id = $1 AND question_id = $2`, [studentId, questionId]);
+    return r.rows[0] ? { box: r.rows[0].box, dueAt: Number(r.rows[0].due_at) } : null;
+  },
+  async saveTrainingReview(studentId, questionId, box, dueAt) {
+    await query(
+      `INSERT INTO training_review (student_id, question_id, box, due_at, updated_at) VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (student_id, question_id) DO UPDATE SET box = EXCLUDED.box, due_at = EXCLUDED.due_at, updated_at = EXCLUDED.updated_at`,
+      [studentId, questionId, box, dueAt, Date.now()]);
+  },
+  async deleteTrainingReview(studentId, questionId) {
+    await query(`DELETE FROM training_review WHERE student_id = $1 AND question_id = $2`, [studentId, questionId]);
+  },
+  // Vragen die nu herhaald mogen worden (actief, zichtbaar voor de leerling, in de gekozen onderwerpen).
+  async getTrainingDue(studentId, topics, nowMs) {
+    const r = await query(
+      `SELECT q.id, q.topic_id AS topic, q.level, v.due_at
+         FROM training_review v JOIN training_questions q ON q.id = v.question_id
+        WHERE v.student_id = $1 AND v.due_at <= $3 AND q.active AND q.topic_id = ANY($2) AND ${this._trainingZichtbaarSql(1)}
+        ORDER BY v.due_at`, [studentId, topics, nowMs]);
+    return r.rows.map(x => ({ id: x.id, topic: x.topic, level: x.level, dueAt: Number(x.due_at) }));
+  },
+  async countTrainingDuePerTopic(studentId, nowMs) {
+    const r = await query(
+      `SELECT q.topic_id AS topic, COUNT(*)::int AS n
+         FROM training_review v JOIN training_questions q ON q.id = v.question_id
+        WHERE v.student_id = $1 AND v.due_at <= $2 AND q.active AND ${this._trainingZichtbaarSql(1)}
+        GROUP BY q.topic_id`, [studentId, nowMs]);
+    const m = {}; r.rows.forEach(x => { m[x.topic] = x.n; }); return m;
+  },
+  async getTrainingAnswerTimes(studentId, sinceMs) {
+    const r = await query(
+      `SELECT a.answered_at FROM training_run_answers a JOIN training_runs r ON r.id = a.run_id
+        WHERE r.student_id = $1 AND a.answered_at >= $2`, [studentId, sinceMs]);
+    return r.rows.map(x => Number(x.answered_at));
+  },
+  // Per onderwerp: aantal beantwoorde vragen en gemiddelde score van de laatste 20.
+  async getTrainingTopicStats(studentId) {
+    const r = await query(
+      `SELECT topic_id, COUNT(*)::int AS n, AVG(score) FILTER (WHERE rk <= 20) AS gem20 FROM (
+         SELECT a.topic_id, a.score, ROW_NUMBER() OVER (PARTITION BY a.topic_id ORDER BY a.answered_at DESC) AS rk
+           FROM training_run_answers a JOIN training_runs r ON r.id = a.run_id WHERE r.student_id = $1) x
+        GROUP BY topic_id`, [studentId]);
+    const m = {}; r.rows.forEach(x => { m[x.topic_id] = { n: x.n, gem: x.gem20 == null ? null : Math.round(Number(x.gem20) * 100) }; }); return m;
+  },
+
+  // ── v109: vraag van de dag ────────────────────────────────────────────────────────────
+  _dagRij(x) {
+    if (!x) return null;
+    let hulp = {}; try { hulp = JSON.parse(x.hulp_json); } catch { /* leeg */ }
+    return { studentId: x.student_id, day: x.day, questionId: x.question_id, topic: x.topic_id, level: x.level,
+      createdAt: Number(x.created_at), solvedAt: x.solved_at == null ? null : Number(x.solved_at), solved: x.solved_at != null,
+      attempts: x.attempts, hulp, type: x.qtype || 'single', vraagBestaat: x.vraag_bestaat !== false, inhaal: !!x.inhaal, inhaalBasis: x.inhaal_basis || 0 };
+  },
+  async getDagvraag(studentId, day) {
+    const r = await query(`SELECT d.*, q.type AS qtype FROM training_dagvraag d LEFT JOIN training_questions q ON q.id = d.question_id WHERE d.student_id = $1 AND d.day = $2`, [studentId, day]);
+    return this._dagRij(r.rows[0]);
+  },
+  async createDagvraag(studentId, day, q, inhaal = false) {
+    await query(
+      `INSERT INTO training_dagvraag (student_id, day, question_id, topic_id, level, created_at, inhaal) VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (student_id, day) DO NOTHING`, [studentId, day, q.id, q.topic, q.level, Date.now(), !!inhaal]);
+    return this.getDagvraag(studentId, day);
+  },
+  // Zet een voorbije, niet-opgeloste dag in 'inhaalmodus' (pogingen tellen opnieuw vanaf nu).
+  // Vervangt de (verwijderde) vraag van een nog openstaande dag door een nieuwe; pogingen blijven geteld.
+  async vervangDagvraag(studentId, day, q) {
+    await query(`UPDATE training_dagvraag SET question_id = $3, topic_id = $4, level = $5, hulp_json = '{}'
+                  WHERE student_id = $1 AND day = $2 AND solved_at IS NULL`, [studentId, day, q.id, q.topic, q.level]);
+    return this.getDagvraag(studentId, day);
+  },
+  async startInhaal(studentId, day) {
+    await query(`UPDATE training_dagvraag SET inhaal = true, inhaal_basis = CASE WHEN inhaal THEN inhaal_basis ELSE attempts END
+                  WHERE student_id = $1 AND day = $2 AND solved_at IS NULL`, [studentId, day]);
+    return this.getDagvraag(studentId, day);
+  },
+  async addDagvraagPoging(studentId, day, { correct, answer, details }) {
+    const r = await query(
+      `UPDATE training_dagvraag SET attempts = attempts + 1,
+              solved_at = CASE WHEN $3 AND solved_at IS NULL THEN $4 ELSE solved_at END
+        WHERE student_id = $1 AND day = $2 RETURNING attempts`, [studentId, day, !!correct, Date.now()]);
+    if (!r.rows[0]) return null;
+    await query(
+      `INSERT INTO training_dagvraag_pogingen (student_id, day, nr, at, correct, answer_json, details_json) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [studentId, day, r.rows[0].attempts, Date.now(), !!correct, JSON.stringify(answer == null ? null : answer).slice(0, 6000), JSON.stringify(details || {}).slice(0, 4000)]);
+    return this.getDagvraag(studentId, day);
+  },
+  async saveDagvraagHulp(studentId, day, hulp) {
+    await query(`UPDATE training_dagvraag SET hulp_json = $3 WHERE student_id = $1 AND day = $2`, [studentId, day, JSON.stringify(hulp || {})]);
+  },
+  async getDagvraagPogingen(studentId, day) {
+    const r = await query(`SELECT nr, at, correct, details_json, answer_json FROM training_dagvraag_pogingen WHERE student_id = $1 AND day = $2 ORDER BY nr`, [studentId, day]);
+    return r.rows.map(x => { let d = {}; let a = null; try { d = JSON.parse(x.details_json); } catch { /* leeg */ } try { a = JSON.parse(x.answer_json); } catch { /* afgekapt */ } return { nr: x.nr, at: Number(x.at), correct: x.correct, details: d, answer: a }; });
+  },
+  async listDagvraagDagen(studentId, offset, limit) {
+    const t = await query(`SELECT COUNT(*)::int AS n FROM training_dagvraag WHERE student_id = $1`, [studentId]);
+    const r = await query(
+      `SELECT d.*, q.type AS qtype, (q.id IS NOT NULL) AS vraag_bestaat FROM training_dagvraag d LEFT JOIN training_questions q ON q.id = d.question_id WHERE d.student_id = $1 ORDER BY d.day DESC OFFSET $2 LIMIT $3`, [studentId, offset, limit]);
+    return { totaal: t.rows[0].n, rijen: r.rows.map(x => this._dagRij(x)) };
+  },
+  async getDagvraagOpgelost(studentId) {
+    const r = await query(`SELECT day FROM training_dagvraag WHERE student_id = $1 AND solved_at IS NOT NULL AND NOT inhaal`, [studentId]);
+    return r.rows.map(x => x.day);
+  },
+  async getDagvraagEerste(studentId) {
+    const r = await query(`SELECT MIN(day) AS d FROM training_dagvraag WHERE student_id = $1`, [studentId]);
+    return r.rows[0] ? r.rows[0].d : null;
+  },
+  async getDagvraagRecent(studentId, sindsDag) {
+    const r = await query(`SELECT day, question_id FROM training_dagvraag WHERE student_id = $1 AND day >= $2`, [studentId, sindsDag]);
+    return r.rows;
+  },
+  async getDagvraagRijen(studentId, sindsDag) {
+    const r = await query(`SELECT d.*, q.type AS qtype FROM training_dagvraag d LEFT JOIN training_questions q ON q.id = d.question_id WHERE d.student_id = $1 AND d.day >= $2`, [studentId, sindsDag]);
+    return r.rows.map(x => this._dagRij(x));
+  },
+  async getDagvraagVoorKlas(classId, sindsDag) {
+    const r = await query(
+      `SELECT d.student_id, d.day, d.solved_at, d.attempts, d.question_id, d.inhaal, d.inhaal_basis, q.type
+         FROM training_dagvraag d
+         JOIN class_memberships m ON m.student_id = d.student_id AND m.class_id = $1 AND m.status = 'active'
+         LEFT JOIN training_questions q ON q.id = d.question_id
+        WHERE d.day >= $2`, [classId, sindsDag]);
+    return r.rows.map(x => ({ studentId: x.student_id, day: x.day, solved: x.solved_at != null, attempts: x.attempts, type: x.type || 'single', inhaal: !!x.inhaal, inhaalBasis: x.inhaal_basis || 0 }));
+  },
+
   async deactivateTrainingQuestion(id, teacherId, magAlgemeen) {
     const r = await query(
       `UPDATE training_questions SET active = false
@@ -3295,7 +3673,7 @@ module.exports = {
                              noTimer, minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
                              schoolYear, targetClass, accessFrom, accessUntil, autoSubmitLate,
                              type, noBack, tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds,
-                             cursusUrl, selfEvalEnabled, klasbordEnabled }) {
+                             cursusUrl, selfEvalEnabled, klasbordEnabled, fullscreenRequired, copyPasteBlocked }) {
     const now = Date.now();
     // noTimer = true → geen tijdslimiet (taak)
     // timerSeconds = null + noTimer = false → gebruik standaard 2700s
@@ -3310,7 +3688,7 @@ module.exports = {
     // Sprint 83: anti-spiek is enkel geldig bij een toets — server.js heeft dit al gevalideerd
     // via validationLib.bepaalTabWisselInstellingen(), maar we herhalen de type-grendel hier
     // nogmaals als laatste veiligheidsgordel (net als bij no_back/andere velden).
-    const effectiveTabSwitchEnabled = effectiveType === 'toets' && tabSwitchEnabled === true;
+    const effectiveTabSwitchEnabled = tabSwitchEnabled === true;  // v114: ook bij een taak
     const effectiveTabSwitchThreshold = effectiveTabSwitchEnabled
       ? Math.max(1, Math.min(20, parseInt(tabSwitchThreshold) || 1)) : 0;
     // Sprint 94: het respijt vóór een tabwissel/fullscreen-exit écht meetelt (sprint 92,
@@ -3320,7 +3698,7 @@ module.exports = {
     const parsedGraceSeconds = parseInt(tabSwitchGraceSeconds);
     const effectiveTabSwitchGraceSeconds = effectiveTabSwitchEnabled
       ? Math.max(0, Math.min(30, isNaN(parsedGraceSeconds) ? 5 : parsedGraceSeconds)) : 5;
-    const effectiveCursusUrl = effectiveType === 'toets' ? (cursusUrl || null) : null;
+    const effectiveCursusUrl = cursusUrl || null;  // v113: ook bij een taak
     // Sprint 90: zelfevaluatie-enquête — zelfde type-grendel als anti-spiek hierboven,
     // enkel geldig bij een toets, hier herhaald als laatste veiligheidsgordel.
     const effectiveSelfEvalEnabled = effectiveType === 'toets' && selfEvalEnabled === true;
@@ -3332,8 +3710,8 @@ module.exports = {
           min_runs_per_q, hide_question_on_screen, results_released, is_teacher_preview,
           school_year, target_class, access_from, access_until, auto_submit_late, type, no_back,
           tab_switch_enabled, tab_switch_threshold, tab_switch_grace_seconds, cursus_url,
-          self_eval_enabled, klasbord_enabled, created_at)
-         VALUES ($1,$2,$3,$4,true,$5,$6,false,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+          self_eval_enabled, klasbord_enabled, fullscreen_required, copy_paste_blocked, created_at)
+         VALUES ($1,$2,$3,$4,true,$5,$6,false,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
         [sessionCode, randomize, effectiveTimer, noTimer || false,
          minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
          schoolYear || currentYear, targetClass || '',
@@ -3348,6 +3726,7 @@ module.exports = {
          effectiveSelfEvalEnabled,
          // v99: klasbord bij taak (bij een toets altijd aan, dus de vlag zelf is daar irrelevant)
          effectiveType === 'taak' && klasbordEnabled === true,
+         fullscreenRequired !== false, copyPasteBlocked !== false,
          now]
       );
       for (const q of questions) {
@@ -3500,7 +3879,7 @@ module.exports = {
                                 minRunsPerQ, hideQuestionOnScreen, schoolYear, targetClass,
                                 accessFrom, accessUntil, autoSubmitLate, noBack,
                                 tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds,
-                                cursusUrl, selfEvalEnabled, klasbordEnabled }) {
+                                cursusUrl, selfEvalEnabled, klasbordEnabled, fullscreenRequired, copyPasteBlocked }) {
     const effectiveTimer = noTimer ? null : (timerSeconds || 2700);
     // Sprint 83/90: server.js heeft deze velden al door validationLib.bepaalTabWisselInstellingen()
     // / bepaalZelfevaluatieInstelling() gehaald (type staat hier vast en verandert niet bij een
@@ -3517,14 +3896,16 @@ module.exports = {
            hide_question_on_screen = $6, school_year = $7, target_class = $8,
            access_from = $9, access_until = $10, auto_submit_late = $11, no_back = $12,
            tab_switch_enabled = $13, tab_switch_threshold = $14, tab_switch_grace_seconds = $15,
-           cursus_url = $16, self_eval_enabled = $17, klasbord_enabled = $18
+           cursus_url = $16, self_eval_enabled = $17, klasbord_enabled = $18,
+           fullscreen_required = $19, copy_paste_blocked = $20
          WHERE session_code = $1`,
         [sessionCode, randomize, effectiveTimer, noTimer || false, minRunsPerQ,
          hideQuestionOnScreen, schoolYear || '', targetClass || '',
          accessFrom || null, accessUntil || null, autoSubmitLate !== false, noBack === true,
          tabSwitchEnabled === true, Math.max(0, parseInt(tabSwitchThreshold) || 0),
          effectiveTabSwitchGraceSeconds, cursusUrl || null,
-         selfEvalEnabled === true, klasbordEnabled === true]
+         selfEvalEnabled === true, klasbordEnabled === true,
+         fullscreenRequired !== false, copyPasteBlocked !== false]
       );
       // Vraag-snapshots volledig vervangen (volgorde + punten kunnen gewijzigd zijn).
       await client.query(`DELETE FROM quiz_question_snapshots WHERE session_code = $1`, [sessionCode]);

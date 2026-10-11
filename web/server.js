@@ -165,30 +165,35 @@ const AUTH_RATE_LIMIT_BASE_DELAY_MS = Math.max(250, Number(process.env.POC_BASIC
 // Zo hoeft bij een deploy enkel het VERSION-bestand aangepast te worden;
 // pycodeflow.sh hoeft de versie niet meer handmatig te zetten.
 function loadVersionFromFile() {
-  // Zoek VERSION op meerdere plausibele locaties (container-mount + lokale layout)
+  // Zoek VERSION op meerdere plausibele locaties (container-mount + lokale layout + in de image ingebakken kopie).
+  // Is er meer dan één, dan wint de HOOGSTE: een verouderde bind-mount (/VERSION) mag een nieuwere image
+  // niet langer als "oude versie" laten tonen.
   const candidates = [
     path.join(__dirname, '..', 'VERSION'),  // lokaal: web/../VERSION
     '/VERSION',                              // container-mount (docker-compose)
-    path.join(__dirname, 'VERSION'),         // fallback
+    path.join(__dirname, 'VERSION'),         // in de image ingebakken kopie
   ];
+  const gevonden = [];
   for (const versionPath of candidates) {
     try {
       if (fs.existsSync(versionPath)) {
         const raw = fs.readFileSync(versionPath, 'utf8').trim();
         const m = raw.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
-        if (m) {
-          // NB: dit draait vóór de logger (createLogger) geïnitialiseerd is,
-          // dus bewust console.* i.p.v. log.* — anders TDZ ReferenceError.
-          console.log(`[versie] Geladen uit ${versionPath}: ${raw}`);
-          return { year: m[1], major: m[2], minor: m[3], build: m[4] };
-        }
-        console.warn(`[versie] Ongeldig formaat in ${versionPath}: "${raw}"`);
+        if (m) gevonden.push({ versionPath, raw, delen: m.slice(1).map(Number), v: { year: m[1], major: m[2], minor: m[3], build: m[4] } });
+        else console.warn(`[versie] Ongeldig formaat in ${versionPath}: "${raw}"`);
       }
     } catch (e) {
       console.warn(`[versie] Lezen van ${versionPath} mislukt:`, e.message);
     }
   }
-  return null;
+  if (!gevonden.length) return null;
+  const cmp = (a, b) => { for (let i = 0; i < 4; i++) { if (a.delen[i] !== b.delen[i]) return b.delen[i] - a.delen[i]; } return 0; };
+  gevonden.sort(cmp);
+  // NB: dit draait vóór de logger (createLogger) geïnitialiseerd is, dus bewust console.* i.p.v. log.*.
+  console.log(`[versie] Geladen uit ${gevonden[0].versionPath}: ${gevonden[0].raw}`);
+  const afwijkend = gevonden.filter(g => g.raw !== gevonden[0].raw);
+  if (afwijkend.length) console.warn('[versie] WAARSCHUWING: VERSION-bestanden verschillen: ' + gevonden.map(g => `${g.versionPath}=${g.raw}`).join(' · ') + ' — de hoogste wordt getoond.');
+  return gevonden[0].v;
 }
 
 const _fileVersion = loadVersionFromFile();
@@ -2905,6 +2910,8 @@ app.get('/api/quiz/:code/startinfo', async (req, res) => {
       // Sprint 94: instelbaar respijt — de leerling moet dit ook vooraf weten (de
       // spelregel-tekst in startQuiz() vermeldt het exacte aantal seconden).
       tabSwitchGraceSeconds: meta.tab_switch_grace_seconds ?? 5,
+      fullscreenRequired: meta.fullscreen_required !== false,
+      copyPasteBlocked: meta.copy_paste_blocked !== false,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3293,7 +3300,7 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
           hideQuestionOnScreen, isTeacherPreview, templateCode,
           noTimer, accessFrom, accessUntil, autoSubmitLate,
           schoolYear, targetClass, type, studentIds,
-          tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusUrl, selfEvalEnabled, klasbordEnabled } = req.body || {};
+          tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusUrl, selfEvalEnabled, klasbordEnabled, fullscreenRequired, copyPasteBlocked } = req.body || {};
   if (!name?.trim()) return res.status(400).json({ error: 'Naam is verplicht.' });
   // Sprint 43.14: type is voortaan EXPLICIET (komt uit de link waarmee het
   // aanmaakscherm geopend werd) — niet langer afgeleid uit noTimer. De server
@@ -3313,7 +3320,7 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
   const effectiveSelfEval = validationLib.bepaalZelfevaluatieInstelling({
     type, enabled: selfEvalEnabled === true,
   });
-  if (type === 'toets' && cursusUrl && !validationLib.isValidCursusUrl(cursusUrl)) {
+  if (cursusUrl && !validationLib.isValidCursusUrl(cursusUrl)) {
     return res.status(400).json({ error: 'De cursus-link moet een geldige https://-link zijn (max. 2000 tekens).' });
   }
   if (!questions?.length) return res.status(400).json({ error: 'Selecteer minstens 1 vraag.' });
@@ -3402,11 +3409,14 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
       tabSwitchThreshold: tabWissel.threshold,
       // Sprint 94: het respijt vóór een tabwissel écht meetelt — instelbaar per toets.
       tabSwitchGraceSeconds: tabWissel.graceSeconds,
-      cursusUrl: type === 'toets' ? (cursusUrl?.trim() || null) : null,
+      cursusUrl: cursusUrl?.trim() || null,
       // Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij een toets).
       selfEvalEnabled: effectiveSelfEval,
       // v99: klasbord + hand opsteken (enkel een keuze bij een taak; een toets heeft het altijd)
       klasbordEnabled: klasbordEnabled === true,
+      // v113: anti-kopiëren en volledig scherm — per toets/taak instelbaar, standaard aan
+      fullscreenRequired: fullscreenRequired !== false,
+      copyPasteBlocked: copyPasteBlocked !== false,
     });
     // Sprint 43.4: expliciete leerling-selectie (leeg/afwezig = hele klas mag meedoen)
     if (Array.isArray(studentIds) && studentIds.length) {
@@ -3526,6 +3536,8 @@ app.get('/api/quiz/:code/edit', requireTeacherAuth, requireSessionAccess, async 
         selfEvalEnabled: meta.self_eval_enabled === true,
         // v99: klasbord + hand opsteken bij een taak
         klasbordEnabled: meta.klasbord_enabled === true,
+        fullscreenRequired: meta.fullscreen_required !== false,
+        copyPasteBlocked: meta.copy_paste_blocked !== false,
       },
       // Vragen zoals ze nu in de toets zitten (met bank-id zodat het aanmaakscherm ze
       // terugvindt en er nieuwe bij kan selecteren of ze kan verwijderen).
@@ -3573,7 +3585,7 @@ app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf
     const { name, questions, randomize, timerSeconds, noTimer, minRunsPerQ,
             hideQuestionOnScreen, noBack, accessFrom, accessUntil, autoSubmitLate,
             schoolYear, targetClass, studentIds,
-            tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusUrl, selfEvalEnabled, klasbordEnabled } = req.body || {};
+            tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusUrl, selfEvalEnabled, klasbordEnabled, fullscreenRequired, copyPasteBlocked } = req.body || {};
 
     if (!name?.trim()) return res.status(400).json({ error: 'Naam is verplicht.' });
     // Sprint 83: type staat vast (kan niet gewijzigd worden bij een update — zie meta
@@ -3586,7 +3598,7 @@ app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf
     const effectiveSelfEval = validationLib.bepaalZelfevaluatieInstelling({
       type: meta.type, enabled: selfEvalEnabled === true,
     });
-    if (meta.type === 'toets' && cursusUrl && !validationLib.isValidCursusUrl(cursusUrl)) {
+    if (cursusUrl && !validationLib.isValidCursusUrl(cursusUrl)) {
       return res.status(400).json({ error: 'De cursus-link moet een geldige https://-link zijn (max. 2000 tekens).' });
     }
     if (!questions?.length) return res.status(400).json({ error: 'Selecteer minstens 1 vraag.' });
@@ -3638,11 +3650,14 @@ app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf
       tabSwitchThreshold: tabWissel.threshold,
       // Sprint 94: het respijt vóór een tabwissel écht meetelt — instelbaar per toets.
       tabSwitchGraceSeconds: tabWissel.graceSeconds,
-      cursusUrl: meta.type === 'toets' ? (cursusUrl?.trim() || null) : null,
+      cursusUrl: cursusUrl?.trim() || null,
       // Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij een toets).
       selfEvalEnabled: effectiveSelfEval,
       // v99: klasbord + hand opsteken (enkel een keuze bij een taak; een toets heeft het altijd)
       klasbordEnabled: klasbordEnabled === true,
+      // v113: anti-kopiëren en volledig scherm — per toets/taak instelbaar, standaard aan
+      fullscreenRequired: fullscreenRequired !== false,
+      copyPasteBlocked: copyPasteBlocked !== false,
     });
 
     // Naam bijwerken (sessies-tabel + in-memory sessie).
@@ -3718,8 +3733,10 @@ app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireSessionAccess, 
   // (tijdsvenster + individuele timer). Deadline hoort bij de toets, dus die kopieert mee.
   try {
     await dbModule.query(
-      `UPDATE assignment_bank SET access_from = $1, access_until = $2, individual_timer = $3 WHERE session_code = $4`,
-      [meta.access_from ?? null, meta.access_until ?? null, meta.individual_timer ?? true, newCode]
+      `UPDATE assignment_bank SET access_from = $1, access_until = $2, individual_timer = $3,
+         fullscreen_required = $5, copy_paste_blocked = $6, cursus_url = $7 WHERE session_code = $4`,
+      [meta.access_from ?? null, meta.access_until ?? null, meta.individual_timer ?? true, newCode,
+       meta.fullscreen_required !== false, meta.copy_paste_blocked !== false, meta.cursus_url || null]
     );
   } catch (e) { log.warn('[duplicate] tijdsvenster kopiëren mislukt:', e.message); }
   res.json({ ok: true, code: newCode });
@@ -7085,6 +7102,8 @@ function buildTeacherData(session) {
     students,
     view,
     announcement: session.announcement || "",
+    opdrachten: opdrachtenVan(session),
+    opdrachtIdx: session.opdrachtIdx || 0,
     announcementHistory: session.announcementHistory || [],
     snippet: session.snippet || "",
     snippetVersion: session.snippetVersion || 0,
@@ -7109,6 +7128,62 @@ function setStatus(session, text, type="info") {
   session.statusText = text;
   session.statusType = type;
   emitTeacherSession(session);
+}
+
+// ── v112: reeks opdrachten met een eigen werkblad per oefening ───────────────
+// session.opdrachten = [tekst, …]; session.opdrachtIdx = door de leerkracht aangeduide oefening.
+// Elke leerling heeft student.opdrachtIdx (waar hij nu staat) en student.werkbladen[i] =
+// { code, output }. student.personalCode/personalOutput blijft het werkblad van de huidige
+// oefening, zodat alle bestaande code (editor, run, snapshots) ongewijzigd werkt.
+const MAX_OPDRACHTEN = 20;
+function opdrachtenVan(session) {
+  if (!Array.isArray(session.opdrachten)) {
+    session.opdrachten = Array.isArray(session.config?._opdrachten) ? session.config._opdrachten.map(String) : [];
+    session.opdrachtIdx = Number.isInteger(session.config?._opdrachtIdx) ? session.config._opdrachtIdx : 0;
+  }
+  if (!Number.isInteger(session.opdrachtIdx) || session.opdrachtIdx < 0 || session.opdrachtIdx >= session.opdrachten.length) session.opdrachtIdx = 0;
+  return session.opdrachten;
+}
+function studentIdx(session, student) {
+  const n = opdrachtenVan(session).length;
+  const i = Number.isInteger(student.opdrachtIdx) ? student.opdrachtIdx : 0;
+  return n ? Math.min(Math.max(i, 0), n - 1) : 0;
+}
+function bewaarWerkblad(session, student) {
+  if (!opdrachtenVan(session).length) return;
+  if (!student.werkbladen) student.werkbladen = {};
+  student.werkbladen[studentIdx(session, student)] = { code: student.personalCode || '', output: student.personalOutput || '' };
+}
+function laadWerkblad(session, student, nieuw) {
+  const w = (student.werkbladen || {})[nieuw] || { code: '', output: '' };
+  student.opdrachtIdx = nieuw;
+  student.personalCode = w.code || '';
+  student.personalOutput = w.output || '';
+  student.output = '';
+  student.personalCodeRevision = nextRevision(student.personalCodeRevision);
+  student.personalCodeSourceSocketId = null;
+}
+function wisselWerkblad(session, student, nieuw) {
+  if (studentIdx(session, student) === nieuw && Number.isInteger(student.opdrachtIdx)) return;
+  bewaarWerkblad(session, student);
+  if (student.runId) {
+    fetch(`${RUNNER_URL}/runs/${student.runId}/cancel`, { method: "POST" }).catch(() => {});
+    student.runId = null;
+  }
+  laadWerkblad(session, student, nieuw);
+}
+// Klascode actief → elke leerling kijkt naar het werkblad van de oefening die de leerkracht aanduidt.
+function synchroniseerWerkbladen(session) {
+  if (!opdrachtenVan(session).length) return;
+  if (session.mode !== 'class' || (session.classWorkspaceMode || 'shared') !== 'shared') return;
+  for (const s of Object.values(session.students || {})) {
+    if (s && !s.removed) wisselWerkblad(session, s, session.opdrachtIdx);
+  }
+}
+function opdrachtTekstVoor(session, student, activeWorkspace) {
+  const items = opdrachtenVan(session);
+  if (!items.length) return session.announcement || '';
+  return items[activeWorkspace === 'personal' ? studentIdx(session, student) : session.opdrachtIdx] || '';
 }
 
 function emitStudentState(session, student) {
@@ -7145,7 +7220,9 @@ function emitStudentState(session, student) {
     },
     mode: session.mode,
     editorAssist: session.editorAssist !== false,
-    announcement: session.announcement || "",
+    announcement: opdrachtTekstVoor(session, student, activeWorkspace),
+    opdrachten: opdrachtenVan(session),
+    opdrachtIdx: activeWorkspace === "personal" ? studentIdx(session, student) : session.opdrachtIdx,
     activeWorkspace,
     sharedCode: session.sharedCode,
     sharedCodeRevision: session.sharedCodeRevision || 0,
@@ -8779,6 +8856,12 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     // tegelijk uitgezonden — een kleine DoS-vector zonder limiet. 1000 tekens is ruim
     // voldoende voor een opdracht/mededeling.
     session.announcement = String(text || "").trim().slice(0, 1000);
+    // v112: een losse opdracht beëindigt een eventuele reeks (de code blijft bewaard).
+    if (opdrachtenVan(session).length) {
+      for (const st of Object.values(session.students)) if (st && !st.removed) { bewaarWerkblad(session, st); st.opdrachtIdx = 0; st.werkbladen = {}; }
+      session.opdrachten = []; session.opdrachtIdx = 0;
+      for (const st of getActiveStudents(session)) emitStudentState(session, st);
+    }
     // Bewaar geschiedenis (max 5 aankondigingen)
     if (session.announcement) {
       if (!session.announcementHistory) session.announcementHistory = [];
@@ -8810,6 +8893,109 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     setStatus(session, `Live control op ${session.students[studentId].name}`, "info");
   });
 
+  // v112: een reeks opdrachten sturen. Bestaande werkbladen blijven behouden per index, zodat
+  // de reeks later aangevuld of aangepast kan worden zonder dat leerlingen hun code verliezen.
+  socket.on("teacher_send_assignments", ({ items, index }) => {
+    if (!socketIsTeacherAuthorized(socket)) return socket.emit("error_message", "Leerkracht-authenticatie vereist");
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "teacher") return;
+    const session = sessions.get(ctx.code);
+    if (!session || session.mode !== "class") return;
+    const lijst = (Array.isArray(items) ? items : []).map(t => String(t || "").trim().slice(0, 1000))
+      .filter(Boolean).slice(0, MAX_OPDRACHTEN);
+    if (!lijst.length) return socket.emit("error_message", "Er is geen opdracht om te sturen.");
+    opdrachtenVan(session);
+    for (const st of Object.values(session.students)) if (st && !st.removed) bewaarWerkblad(session, st);
+    session.opdrachten = lijst;
+    session.opdrachtIdx = Math.min(Math.max(Number.isInteger(index) ? index : 0, 0), lijst.length - 1);
+    session.announcement = lijst[session.opdrachtIdx];
+    for (const st of Object.values(session.students)) {
+      if (!st || st.removed) continue;
+      for (const k of Object.keys(st.werkbladen || {})) if (Number(k) >= lijst.length) delete st.werkbladen[k];
+      if (!Number.isInteger(st.opdrachtIdx) || st.opdrachtIdx >= lijst.length) laadWerkblad(session, st, Math.min(session.opdrachtIdx, lijst.length - 1));
+    }
+    synchroniseerWerkbladen(session);
+    setStatus(session, `Reeks van ${lijst.length} opdrachten gestuurd`, "success");
+    for (const st of getActiveStudents(session)) emitStudentState(session, st);
+    schedulePersist(session);
+    emitTeacherSession(session);
+  });
+
+  // De leerkracht duidt een oefening aan (in klasmodus volgen de werkbladen van de leerlingen mee).
+  socket.on("teacher_set_assignment", ({ index }) => {
+    if (!socketIsTeacherAuthorized(socket)) return socket.emit("error_message", "Leerkracht-authenticatie vereist");
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "teacher") return;
+    const session = sessions.get(ctx.code);
+    if (!session || session.mode !== "class") return;
+    const n = opdrachtenVan(session).length;
+    if (!n || !Number.isInteger(index) || index < 0 || index >= n) return;
+    session.opdrachtIdx = index;
+    session.announcement = session.opdrachten[index];
+    synchroniseerWerkbladen(session);
+    for (const st of getActiveStudents(session)) emitStudentState(session, st);
+    schedulePersist(session);
+    emitTeacherSession(session);
+  });
+
+  // Wissen van één oefening (scope "one") of de hele reeks (scope "all"): ook de code en
+  // antwoorden van de leerlingen bij die oefening(en) verdwijnen.
+  socket.on("teacher_clear_assignments", ({ scope, index }) => {
+    if (!socketIsTeacherAuthorized(socket)) return socket.emit("error_message", "Leerkracht-authenticatie vereist");
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "teacher") return;
+    const session = sessions.get(ctx.code);
+    if (!session || session.mode !== "class") return;
+    const n = opdrachtenVan(session).length;
+    if (!n) return;
+    const studenten = Object.values(session.students).filter(st => st && !st.removed);
+    if (scope === "one" && n > 1 && Number.isInteger(index) && index >= 0 && index < n) {
+      for (const st of studenten) {
+        bewaarWerkblad(session, st);
+        const oud = studentIdx(session, st);
+        const nieuwe = {};
+        for (const [k, v] of Object.entries(st.werkbladen || {})) {
+          const ki = Number(k);
+          if (ki < index) nieuwe[ki] = v; else if (ki > index) nieuwe[ki - 1] = v;
+        }
+        st.werkbladen = nieuwe;
+        let doel = oud > index ? oud - 1 : oud;
+        doel = Math.min(doel, n - 2);
+        laadWerkblad(session, st, doel);
+      }
+      session.opdrachten.splice(index, 1);
+      session.opdrachtIdx = Math.min(session.opdrachtIdx > index ? session.opdrachtIdx - 1 : session.opdrachtIdx, session.opdrachten.length - 1);
+      session.announcement = session.opdrachten[session.opdrachtIdx];
+      synchroniseerWerkbladen(session);
+      setStatus(session, `Oefening ${index + 1} gewist (ook bij de leerlingen)`, "info");
+    } else {
+      for (const st of studenten) {
+        st.werkbladen = {};
+        laadWerkblad(session, st, 0);
+      }
+      session.opdrachten = []; session.opdrachtIdx = 0; session.announcement = "";
+      setStatus(session, "Reeks gewist (ook bij de leerlingen)", "info");
+    }
+    for (const st of getActiveStudents(session)) emitStudentState(session, st);
+    schedulePersist(session);
+    emitTeacherSession(session);
+  });
+
+  // Leerling bladert (in de individuele werkfase) naar een andere oefening.
+  socket.on("student_select_assignment", ({ index }) => {
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "student") return;
+    const session = sessions.get(ctx.code);
+    if (!session || session.mode !== "class" || (session.classWorkspaceMode || "shared") !== "personal") return;
+    const st = session.students[ctx.studentId];
+    if (!st || st.removed) return;
+    const n = opdrachtenVan(session).length;
+    if (!n || !Number.isInteger(index) || index < 0 || index >= n) return;
+    wisselWerkblad(session, st, index);
+    emitStudentState(session, st);
+    schedulePersist(session);
+  });
+
   socket.on("teacher_toggle_class_workspace", () => {
     if (!socketIsTeacherAuthorized(socket)) return socket.emit("error_message", "Leerkracht-authenticatie vereist");
     const ctx = socketToUser.get(socket.id);
@@ -8820,6 +9006,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     if (session.classWorkspaceMode === "personal") {
       // 27k: reset personalCanRun voor alle leerlingen bij wissel naar individuele modus
       Object.values(session.students).forEach(s => { if (s) s.personalCanRun = true; });
+      for (const s of Object.values(session.students)) if (s && !s.removed && opdrachtenVan(session).length) wisselWerkblad(session, s, session.opdrachtIdx);
       for (const s of getActiveStudents(session)) {
         s.personalCanRun = true;
         s.personalCanEdit = true;
@@ -8829,6 +9016,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       socket.to(session.code).emit("force_workspace", { workspace: "personal", panel: "code" });
       setStatus(session, "Individuele werkfase gestart", "warning");
     } else {
+      synchroniseerWerkbladen(session);
       socket.to(session.code).emit("force_workspace", { workspace: "shared", panel: "code" });
       setStatus(session, "Terug naar klascode", "success");
     }
@@ -9500,6 +9688,8 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       // tot /startinfo hierboven, dat enkel voor de spelregel-tekst vóór het starten dient).
       tabSwitchGraceSeconds: meta.tab_switch_grace_seconds ?? 5,
       cursusUrl: meta.cursus_url || null,
+      fullscreenRequired: meta.fullscreen_required !== false,
+      copyPasteBlocked: meta.copy_paste_blocked !== false,
       // Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij een toets).
       selfEvalEnabled: meta.self_eval_enabled === true,
       // Sprint 91: bij elke (her)verbinding vroeg quiz-student.js voorheen altijd vraag 1 op
@@ -9547,7 +9737,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       const student = session.students[ctx.studentId];
       if (!student || student.quizSubmitted || student.removed) return;
       const meta = await dbModule.getQuizMeta(normalizedCode);
-      if (!meta || meta.type !== 'toets' || meta.tab_switch_enabled !== true) return;
+      if (!meta || meta.tab_switch_enabled !== true) return;  // v114: toets én taak
 
       student.tabSwitchCount = (student.tabSwitchCount || 0) + 1;
       const drempel = Math.max(1, meta.tab_switch_threshold || 1);

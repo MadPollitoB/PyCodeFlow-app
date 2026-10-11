@@ -4,8 +4,8 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.81"/>
-  <link rel="stylesheet" href="/flowchart-widget.css?v=v2026.2.51.81"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.119"/>
+  <link rel="stylesheet" href="/flowchart-widget.css?v=v2026.2.51.119"/>
   <style>
     .quiz-topbar { background:var(--primary); color:#fff; padding:10px 20px;
       display:flex; align-items:center; justify-content:space-between; }
@@ -46,6 +46,13 @@
     .tabwissel-overlay .aftellen { font-size:3rem; font-weight:800; }
     .tabwissel-overlay h2 { margin:0; font-size:1.4rem; }
     .tabwissel-overlay p { margin:0; font-size:1rem; max-width:480px; opacity:0.95; }
+    /* v113: vergrendeling zolang volledig scherm verplicht is maar niet actief */
+    .fullscreen-overlay { position:fixed; inset:0; background:rgba(15,23,42,0.97);
+      display:none; align-items:center; justify-content:center; z-index:10001;
+      color:#fff; text-align:center; flex-direction:column; gap:16px; padding:20px; }
+    .fullscreen-overlay.visible { display:flex; }
+    .fullscreen-overlay h2 { margin:0; font-size:1.5rem; }
+    .fullscreen-overlay p { margin:0; max-width:480px; opacity:0.95; }
     /* Startscherm */
     .start-screen { display:flex; align-items:center; justify-content:center;
       min-height:80vh; padding:20px; }
@@ -145,6 +152,15 @@
   <div class="aftellen" id="tabwissel-aftellen">5</div>
   <p>Keer <strong>onmiddellijk</strong> terug naar volledig scherm, anders wordt dit
      automatisch geteld als een tabwissel.</p>
+  <button class="btn btn-primary" onclick="vraagVolledigScherm()" style="font-size:1.1rem;padding:12px 28px;">
+    ↩️ Terug naar volledig scherm
+  </button>
+</div>
+
+<!-- v113: volledig scherm verplicht — blokkeert tot de leerling terugkeert of indient -->
+<div class="fullscreen-overlay" id="fullscreen-overlay" role="alertdialog" aria-labelledby="fs-titel">
+  <h2 id="fs-titel">🖥️ Volledig scherm vereist</h2>
+  <p>Je kan hier enkel verder in volledig scherm. Dit scherm verlaat je door in te dienen.</p>
   <button class="btn btn-primary" onclick="vraagVolledigScherm()" style="font-size:1.1rem;padding:12px 28px;">
     ↩️ Terug naar volledig scherm
   </button>
@@ -335,13 +351,14 @@
      ("Can only have one anonymous define call" + "io is not defined"). -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="/vendor/marked/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.81"></script>
+<script src="/code-highlight.js?v=v2026.2.51.119"></script>
 <script src="/vendor/dompurify/purify.min.js"></script>
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/flowchart-widget.js?v=v2026.2.51.81"></script>
-<script src="/app.js?v=v2026.2.51.105"></script>
-<script src="/schud.js?v=v2026.2.51.105"></script>
-<script src="/quiz-student.js?v=v2026.2.51.105"></script>
-<script src="/privacy.js?v=v2026.2.51.81"></script></body>
+<script src="/flowchart-widget.js?v=v2026.2.51.119"></script>
+<script src="/popups.js?v=v2026.2.51.119"></script>
+<script src="/app.js?v=v2026.2.51.119"></script>
+<script src="/schud.js?v=v2026.2.51.119"></script>
+<script src="/quiz-student.js?v=v2026.2.51.119"></script>
+<script src="/privacy.js?v=v2026.2.51.119"></script></body>
 </html>

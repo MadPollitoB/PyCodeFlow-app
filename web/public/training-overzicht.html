@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Trainingen</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.97"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.119"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .tabs2 { display:flex; gap:6px; border-bottom:2px solid var(--border); margin:14px 0; }
@@ -30,6 +30,32 @@
   .grid2 label { display:block; font-size:0.82rem; font-weight:600; margin-bottom:3px; }
   .grid2 input { width:100%; box-sizing:border-box; padding:9px 12px; border:1.5px solid var(--border); border-radius:9px; background:var(--surface); color:var(--text); }
   .pill { display:inline-block; font-size:0.76rem; padding:2px 8px; border-radius:99px; background:var(--bg); border:1px solid var(--border); }
+  .pill.fout { background:#fee2e2; border-color:#fca5a5; color:#991b1b; } .pill.tip { background:#fef3c7; border-color:#fcd34d; color:#92400e; } .pill.uit { background:#e5e7eb; color:#374151; } .pill.goed { background:#dcfce7; border-color:#86efac; color:#166534; }
+  tr.uit td { opacity:.55; }
+  .dt { background:var(--surface, #fff); border-radius:14px; width:min(760px,100%); max-height:calc(100vh - 48px); overflow-y:auto; padding:18px 20px; box-shadow:0 20px 60px rgba(0,0,0,.3); }
+  .dt h2 { margin:0 0 4px; font-size:1.2rem; } .dt h3 { margin:18px 0 6px; font-size:1rem; }
+  .dt pre { background:#0f172a; color:#e2e8f0; padding:10px 12px; border-radius:8px; overflow:auto; font-size:0.85rem; white-space:pre-wrap; margin:6px 0; }
+  .dt .stap, #vf-analyse .stap { display:flex; gap:10px; margin:6px 0; font-size:0.9rem; } .dt .stap b, #vf-analyse .stap b { flex:none; width:24px; height:24px; border-radius:50%; background:var(--primary,#2563eb); color:#fff; display:flex; align-items:center; justify-content:center; font-size:0.8rem; }
+  .dt table.tbl td, .dt table.tbl th { padding:6px 8px; } .dt .mono { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:0.85rem; white-space:pre-wrap; }
+  .dt textarea { width:100%; box-sizing:border-box; padding:8px 10px; border:1.5px solid var(--border); border-radius:8px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:0.88rem; background:#fff; }
+  .dt .goed { color:#166534; } .dt .nee { color:#b91c1c; }
+  .vf-bg { position:fixed; inset:0; background:rgba(15,23,42,.5); display:none; align-items:center; justify-content:center; padding:24px 12px; overflow:hidden; z-index:9000; }
+  .vf-bg.open { display:flex; }
+  .vf { background:var(--surface, #fff); border-radius:14px; width:min(760px,100%); max-height:calc(100vh - 48px); overflow-y:auto; padding:18px 20px; box-shadow:0 20px 60px rgba(0,0,0,.3); }
+  .vf .ckrij { display:grid; grid-template-columns:190px 1fr 1fr auto; gap:8px; align-items:center; margin:6px 0; } @media (max-width:640px){ .vf .ckrij{grid-template-columns:1fr;} .vf .rij3{grid-template-columns:1fr;} }
+  .vf h2 { margin:0 0 12px; font-size:1.2rem; }
+  .vf label { display:block; font-weight:700; font-size:0.84rem; margin:10px 0 3px; }
+  .vf textarea, .vf input[type=text], .vf select { width:100%; box-sizing:border-box; padding:8px 10px; border:1.5px solid var(--border); border-radius:8px; font:inherit; background:#fff; }
+  .vf textarea.mono, .vf .mono { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:0.88rem; }
+  .vf .rij3 { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .vf .keuze { display:flex; gap:8px; align-items:center; margin:4px 0; }
+  .vf .keuze input[type=text] { flex:1; }
+  .vf .testgeval { border:1.5px solid var(--border); border-radius:10px; padding:8px 10px; margin:8px 0; display:grid; grid-template-columns:1fr 1fr auto; gap:10px; align-items:start; }
+  .vf .testgeval label { margin-top:0; }
+  .vf .hulpje { color:var(--muted); font-size:0.82rem; margin:2px 0 0; }
+  .vf .vf-res { font-size:0.85rem; margin-top:6px; } .vf .vf-res .ok { color:#166534; } .vf .vf-res .nee { color:#b91c1c; }
+  .vf .vf-voet { display:flex; gap:10px; margin-top:16px; flex-wrap:wrap; }
+  @media (max-width:700px) { .vf .rij3, .vf .testgeval { grid-template-columns:1fr; } }
 </style>
 </head><body>
 <div class="topbar"><div class="topbar-inner">
@@ -69,9 +95,19 @@
         <option value="30">Laatste 30 dagen</option><option value="90">Laatste 3 maanden</option><option value="0">Alles</option></select></div>
       <button class="btn btn-muted small" id="vernieuw" type="button">↻ Vernieuwen</button>
     </div>
+    <details class="rand" id="hulp-klas" style="padding:10px 14px;margin:0 0 12px;">
+      <summary style="cursor:pointer;font-weight:700;">Hulp en vraag van de dag voor deze klas <span class="muted" id="hk-status" style="font-weight:400;"></span></summary>
+      <p class="muted" style="font-size:0.86rem;margin:8px 0;">Bepaal hoeveel hulp deze klas krijgt. Een sterke klas mag uitgedaagd worden (minder gratis hulp, hogere aftrek), een zwakke klas kan extra steun krijgen. Geldt voor trainingen die vanaf nu starten. Zit een leerling in meerdere klassen, dan krijgt hij de ruimste regeling.</p>
+      <div class="grid2" id="hk-velden"></div>
+      <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;">
+        <button class="btn btn-primary small" id="hk-bewaar" type="button">Opslaan voor deze klas</button>
+        <button class="btn btn-muted small" id="hk-herstel" type="button">Terug naar standaard</button>
+      </div>
+      <div class="melding" id="hk-melding" role="status"></div>
+    </details>
     <div class="kaarten" id="kaarten"></div>
     <div class="rand"><table class="tbl" id="tabel"><thead><tr>
-      <th>Leerling</th><th>Trainingen</th><th>Gestopt</th><th>Laatste</th><th>Gem. score</th><th>Hoogste niveau</th><th>Beste titel</th></tr></thead><tbody></tbody></table></div>
+      <th>Leerling</th><th>Trainingen</th><th>Gestopt</th><th>Laatste</th><th>Gem. score</th><th>Hoogste niveau</th><th>Beste titel</th><th title="Gebruikte checks en hints, en het aandeel antwoorden waarbij hulp werd gebruikt">Hulp gebruikt</th><th title="Status van vandaag, streak (dagen op rij) en totaal aantal opgeloste dagen">Vraag van de dag</th></tr></thead><tbody></tbody></table></div>
     <h2 style="font-size:1.05rem;margin:18px 0 6px;">Verdeling van titels</h2>
     <p class="muted" style="margin:0 0 6px;font-size:0.85rem;">Staan bijna alle leerlingen bovenaan? Dan zijn de grenzen te mild: pas ze aan onder Instellingen.</p>
     <div id="verdeling" class="muted"></div>
@@ -82,6 +118,13 @@
   <section id="p-pool" role="tabpanel" aria-labelledby="tab-pool" hidden>
     <p class="muted" style="font-size:0.88rem;">Aantal vragen per onderwerp en niveau. Groen: minstens 10. Een leerkracht ziet de algemene pool plus zijn eigen vragen; eigen vragen zijn enkel zichtbaar voor leerlingen in zijn klassen.</p>
     <div class="rand" style="padding:10px;"><div id="raster"></div></div>
+
+    <h2 style="font-size:1.05rem;margin:20px 0 6px;">Onderwerpen beheren</h2>
+    <p class="muted" style="font-size:0.84rem;margin:0 0 6px;">Een uitgeschakeld onderwerp verdwijnt voor leerlingen (training, extra oefenen, vraag van de dag), maar de vragen blijven bewaard. Verwijderen wist het onderwerp met al zijn vragen en resultaten.</p>
+    <div class="rand"><table class="tbl" id="ttabel"><thead><tr><th>Volgorde</th><th>Onderwerp</th><th>Vragen</th><th>Status</th><th></th></tr></thead><tbody></tbody></table></div>
+    <div class="filter" id="nieuw-onderwerp-rij"><div><label for="nt-naam">Nieuw onderwerp</label><input type="text" id="nt-naam" maxlength="60" placeholder="bv. Lijsten" style="min-width:220px;"/></div>
+      <button class="btn btn-primary small" id="nt-voeg" type="button">+ Onderwerp toevoegen</button></div>
+    <div class="melding" id="nt-melding" role="status"></div>
 
     <h2 style="font-size:1.05rem;margin:20px 0 6px;">Vragen toevoegen via JSON</h2>
     <div class="filter">
@@ -97,13 +140,25 @@
     </div>
     <div class="melding" id="imp-melding" role="status"></div>
 
-    <h2 style="font-size:1.05rem;margin:20px 0 6px;">Vragen bekijken</h2>
+    <h2 style="font-size:1.05rem;margin:20px 0 6px;">Vragen beheren</h2>
+    <div class="melding" id="q-rechten" style="font-size:0.84rem;"></div>
     <div class="filter">
       <div><label for="q-topic">Onderwerp</label><select id="q-topic"></select></div>
       <div><label for="q-level">Niveau</label><select id="q-level"></select></div>
+      <div><label for="q-status">Status</label><select id="q-status"><option value="actief">Actief</option><option value="uit">Uitgeschakeld</option><option value="alle">Alle</option></select></div>
+      <div><label for="q-probleem">Kwaliteit</label><select id="q-probleem"><option value="">Alle vragen</option><option value="fout">Met fouten</option><option value="alle">Met fouten of tips</option></select></div>
+      <div><label for="q-zoek">Zoeken in de vraagtekst</label><input type="text" id="q-zoek" placeholder="bv. while" style="min-width:180px;"/></div>
+      <button class="btn btn-primary small" id="nieuwe-vraag" type="button">+ Nieuwe vraag</button>
     </div>
-    <div class="rand"><table class="tbl" id="qtabel"><thead><tr><th>Niv.</th><th>Type</th><th>Vraag</th><th>Van</th><th></th></tr></thead><tbody></tbody></table></div>
+    <p class="muted" id="q-info" style="font-size:0.82rem;margin:0 0 6px;"></p>
+    <div class="rand"><table class="tbl" id="qtabel"><thead><tr><th>Niv.</th><th>Type</th><th>Vraag</th><th>Gebruik</th><th>Controle</th><th>Van</th><th></th></tr></thead><tbody></tbody></table></div>
   </section>
+
+  <!-- detail van een vraag: hoe wordt ze nagekeken -->
+  <div class="vf-bg" id="dt-bg"><div class="dt" id="dt" role="dialog" aria-modal="true" aria-labelledby="dt-titel"></div></div>
+
+  <!-- vraagformulier -->
+  <div class="vf-bg" id="vf-bg"><form class="vf" id="vf" autocomplete="off"></form></div>
 
   <!-- instellingen -->
   <section id="p-inst" role="tabpanel" aria-labelledby="tab-inst" hidden>
@@ -119,7 +174,11 @@
   </section>
 </div>
 
-<script src="/app.js?v=v2026.2.51.105"></script>
+<script src="/vendor/marked/marked.min.js"></script>
+<script src="/vendor/dompurify/purify.min.js"></script>
+<script src="/md-editor.js?v=2026.2.51.119"></script>
+<script src="/popups.js?v=v2026.2.51.119"></script>
+<script src="/app.js?v=v2026.2.51.119"></script>
 <script src="/nav-rechten.js"></script>
 <script>
 'use strict';
@@ -180,10 +239,21 @@ async function laadOverzicht() {
       tb.append(el('tr', { class: 'klik', tabindex: '0', onclick: () => laadLeerling(l), onkeydown: e => { if (e.key === 'Enter') laadLeerling(l); } },
         el('td', { text: l.name }), el('td', { text: String(l.klaar) }), el('td', { text: String(l.gestopt) }),
         el('td', { text: datum(l.laatste) }), el('td', { text: l.gemScore == null ? '—' : l.gemScore + '%' }),
-        el('td', { text: l.hoogsteNiveau == null ? '—' : String(l.hoogsteNiveau) }), el('td', { text: l.besteTitel || '—' })));
+        el('td', { text: l.hoogsteNiveau == null ? '—' : String(l.hoogsteNiveau) }), el('td', { text: l.besteTitel || '—' }),
+        el('td', { text: hulpTekst(l.hulp) }), el('td', { text: dagTekst(l.dagvraag) })));
     });
     $('verdeling').replaceChildren(...d.verdeling.map(v => el('span', { class: 'pill', style: 'margin:0 6px 6px 0;', text: `${v.titel}: ${v.aantal}` })));
   } catch (e) { $('kaarten').replaceChildren(el('div', { class: 'melding fout', text: e.message })); }
+}
+function dagTekst(d) {
+  if (!d) return '—';
+  const st = { opgelost: '✔ opgelost', mislukt: '✘ niet gelukt', bezig: '… bezig (' + d.pogingenVandaag + ' poging' + (d.pogingenVandaag === 1 ? '' : 'en') + ')', open: 'nog niet gestart' }[d.vandaag] || d.vandaag;
+  return `${st} · 🔥 ${d.streak} · ${d.opgelost} opgelost` + (d.ingehaald ? ` (+${d.ingehaald} ingehaald)` : '');
+}
+function hulpTekst(h) {
+  if (!h || !h.antwoorden) return '—';
+  if (!h.checks && !h.hints) return 'geen';
+  return `${h.checks} check${h.checks === 1 ? '' : 's'} · ${h.hints} hint${h.hints === 1 ? '' : 's'} (${h.pctMetHulp}% van de vragen)`;
 }
 function kaart(l, w) { return el('div', { class: 'kaart' }, el('div', { class: 'l', text: l }), el('div', { class: 'w', text: w })); }
 
@@ -203,8 +273,9 @@ async function laadLeerling(l) {
         if (uit.nextSibling && uit.nextSibling.dataset && uit.nextSibling.dataset.det) { uit.nextSibling.remove(); return; }
         const a = await api('/api/teacher/training/run/' + r.id);
         const rij = el('tr', { 'data-det': '1' }, el('td', { colspan: '5' },
-          el('table', { class: 'tbl' }, el('thead', {}, el('tr', {}, el('th', { text: '#' }), el('th', { text: 'Onderwerp' }), el('th', { text: 'Niv.' }), el('th', { text: 'Vraag' }), el('th', { text: 'Score' }))),
-            el('tbody', {}, a.antwoorden.map(x => el('tr', {}, el('td', { text: String(x.seq) }), el('td', { text: x.topic }), el('td', { text: String(x.level) }), el('td', { text: x.text }), el('td', { text: x.score + '%' })))))));
+          el('table', { class: 'tbl' }, el('thead', {}, el('tr', {}, el('th', { text: '#' }), el('th', { text: 'Onderwerp' }), el('th', { text: 'Niv.' }), el('th', { text: 'Vraag' }), el('th', { text: 'Score' }), el('th', { text: 'Hulp' }))),
+            el('tbody', {}, a.antwoorden.map(x => el('tr', {}, el('td', { text: String(x.seq) }), el('td', { text: x.topic }), el('td', { text: String(x.level) }), el('td', { text: x.text }), el('td', { text: x.score + '%' }),
+              el('td', { text: !x.hulp || (!x.hulp.checks && !x.hulp.hints) ? '—' : `${x.hulp.checks} check(s), ${x.hulp.hints} hint(s)` + (x.hulp.straf ? ` (−${x.hulp.straf}%)` : '') })))))));
         uit.after(rij);
       };
       uit.addEventListener('click', open); uit.addEventListener('keydown', e => { if (e.key === 'Enter') open(); });
@@ -214,8 +285,59 @@ async function laadLeerling(l) {
       el('thead', {}, el('tr', {}, el('th', { text: 'Datum' }), el('th', { text: 'Status' }), el('th', { text: 'Score' }), el('th', { text: 'Titel' }), el('th', { text: 'Inhoud' }))), tb)));
   } catch (e) { doel.append(el('div', { class: 'melding fout', text: e.message })); }
 }
-$('klas').addEventListener('change', laadOverzicht); $('dagen').addEventListener('change', laadOverzicht);
+$('klas').addEventListener('change', () => { laadOverzicht(); laadHulpKlas(); }); $('dagen').addEventListener('change', laadOverzicht);
 $('vernieuw').addEventListener('click', laadOverzicht);
+
+// ── hulpregels per klas ─────────────────────────────────────────────────────
+const HK = [
+  ['gratisChecks', 'Gratis checks per vraag', 0, 6], ['gratisHints', 'Gratis hints per vraag', 0, 2],
+  ['strafPct', 'Aftrek per extra check/hint (%)', 0, 50], ['checklistTot', 'Checklist + kernwoorden tot niveau (0 = nooit)', 0, 10],
+  ['hintsTot', 'Hints tot niveau', 0, 10],
+];
+let HKSTAND = null;
+function tekenHulpKlas(i, dv) {
+  dv = dv || (HKSTAND && HKSTAND.dagvraag) || {};
+  $('hk-velden').replaceChildren(
+    el('div', {}, el('label', { for: 'hk-aan' }, el('input', { id: 'hk-aan', type: 'checkbox', checked: i.aan }), ' Hulp aan voor deze klas')),
+    ...HK.map(([k, naam, min, max]) => el('div', {}, el('label', { for: 'hk-' + k, text: naam }),
+      el('input', { id: 'hk-' + k, type: 'number', min: String(min), max: String(max), value: String(i[k]) }))),
+    el('h3', { style: 'grid-column:1/-1;margin:10px 0 0;font-size:0.98rem;', text: 'Vraag van de dag' }),
+    el('div', {}, el('label', { for: 'dv-aan' }, el('input', { id: 'dv-aan', type: 'checkbox', checked: dv.aan }), ' Vraag van de dag aan voor deze klas')),
+    ...DV.map(([k, naam, min, max]) => el('div', {}, el('label', { for: 'dv-' + k, text: naam }),
+      el('input', { id: 'dv-' + k, type: 'number', min: String(min), max: String(max), value: String(dv[k]) }))));
+  $('hk-aan').checked = !!i.aan; $('dv-aan').checked = !!dv.aan;
+}
+const DV = [
+  ['maxPogingenMeerkeuze', 'Pogingen bij meerkeuze', 1, 10], ['maxPogingenCode', 'Pogingen bij code (0 = onbeperkt)', 0, 50],
+  ['codeAandeelPct', 'Kans op een codevraag (%)', 0, 100], ['niveauVerschil', 'Niveau t.o.v. de leerling (−3 tot +3)', -3, 3],
+  ['jokersPerWeek', 'Jokers per week (gemiste dag die de streak niet breekt)', 0, 3],
+  ['inhaalDagen', 'Gemiste dag inhalen tot zoveel dagen terug (0 = niet toegestaan; telt niet mee voor de streak)', 0, 30],
+];
+async function laadHulpKlas() {
+  const klas = $('klas').value; if (!klas) return;
+  try {
+    const d = await api('/api/teacher/training/class-settings?classId=' + encodeURIComponent(klas));
+    HKSTAND = d; tekenHulpKlas(d.instellingen, d.dagvraag);
+    $('hk-status').textContent = d.eigen ? '— eigen regels' : '— standaardregels';
+    $('hk-melding').className = 'melding'; $('hk-melding').textContent = '';
+  } catch (e) { $('hk-melding').className = 'melding fout'; $('hk-melding').textContent = e.message; }
+}
+$('hk-bewaar').addEventListener('click', async () => {
+  const instellingen = { aan: $('hk-aan').checked }; HK.forEach(([k]) => { instellingen[k] = Number($('hk-' + k).value); });
+  const dagvraag = { aan: $('dv-aan').checked }; DV.forEach(([k]) => { dagvraag[k] = Number($('dv-' + k).value); });
+  const m = $('hk-melding');
+  try {
+    const d = await api('/api/teacher/training/class-settings', { method: 'PUT', body: { classId: $('klas').value, instellingen, dagvraag } });
+    HKSTAND = d; tekenHulpKlas(d.instellingen, d.dagvraag); $('hk-status').textContent = '— eigen regels'; m.className = 'melding goed'; m.textContent = 'Opgeslagen voor deze klas.';
+  } catch (e) { m.className = 'melding fout'; m.textContent = e.message; }
+});
+$('hk-herstel').addEventListener('click', async () => {
+  const m = $('hk-melding');
+  try {
+    const d = await api('/api/teacher/training/class-settings?classId=' + encodeURIComponent($('klas').value), { method: 'DELETE' });
+    HKSTAND = d; tekenHulpKlas(d.instellingen, d.dagvraag); $('hk-status').textContent = '— standaardregels'; m.className = 'melding goed'; m.textContent = 'Terug naar de standaardregels.';
+  } catch (e) { m.className = 'melding fout'; m.textContent = e.message; }
+});
 
 // ── pool ────────────────────────────────────────────────────────────────────
 let _poolGeladen = false; let POOL = null;
@@ -226,7 +348,7 @@ async function laadPool() {
   POOL.counts.forEach(c => { const k = c.topic + '|' + c.level; som[k] = (som[k] || 0) + c.n; });
   const r = el('div', { class: 'raster' }, el('div', {}), ...Array.from({ length: 10 }, (_, i) => el('div', { class: 'k', text: String(i + 1) })));
   POOL.topics.forEach(t => {
-    r.append(el('div', { text: t.name }));
+    r.append(el('div', { text: t.name + (t.actief ? '' : ' (uit)'), style: t.actief ? '' : 'opacity:.5;' }));
     for (let n = 1; n <= 10; n++) {
       const a = som[t.id + '|' + n] || 0;
       r.append(el('div', { class: 'k ' + (a >= 10 ? 'ok' : a >= 5 ? 'mid' : a > 0 ? 'laag' : 'nul'), text: String(a), title: `${t.name}, niveau ${n}: ${a} vragen` }));
@@ -235,20 +357,377 @@ async function laadPool() {
   $('raster').replaceChildren(r);
   if (!POOL.kanAlgemeenBeheren) $('scope').querySelector('option[value=general]')?.remove();
   if (!POOL.heeftAccount) $('scope').querySelector('option[value=own]')?.remove();
-  const ts = $('q-topic'); ts.replaceChildren(el('option', { value: '', text: 'Alle onderwerpen' }), ...POOL.topics.map(t => el('option', { value: t.id, text: t.name })));
-  const ls = $('q-level'); ls.replaceChildren(el('option', { value: '', text: 'Alle niveaus' }), ...Array.from({ length: 10 }, (_, i) => el('option', { value: String(i + 1), text: 'Niveau ' + (i + 1) })));
+  const ts = $('q-topic'); const huidigT = ts.value; ts.replaceChildren(el('option', { value: '', text: 'Alle onderwerpen' }), ...POOL.topics.map(t => el('option', { value: t.id, text: t.name + (t.actief ? '' : ' (uit)') }))); ts.value = huidigT;
+  const ls = $('q-level'); if (!ls.children.length) ls.replaceChildren(el('option', { value: '', text: 'Alle niveaus' }), ...Array.from({ length: 10 }, (_, i) => el('option', { value: String(i + 1), text: 'Niveau ' + (i + 1) })));
+  $('q-rechten').className = 'melding';
+  $('q-rechten').textContent = POOL.kanAlgemeenBeheren ? '' : 'Je hebt geen recht om de algemene vragen te wijzigen: je kunt ze bekijken, uitproberen en kopiëren. De platformbeheerder kan dit toestaan via Instellingen → "Wie mag de algemene vragen bewerken". Je eigen vragen beheer je volledig.';
+  $('nieuw-onderwerp-rij').style.display = POOL.kanAlgemeenBeheren ? '' : 'none';
+  await laadOnderwerpen();
   laadVragen();
 }
+
+// ── onderwerpen beheren ───────────────────────────────────────────────────────
+async function laadOnderwerpen() {
+  const d = await api('/api/teacher/training/topics');
+  const tb = $('ttabel').querySelector('tbody'); tb.replaceChildren();
+  const mag = d.kanBeheren;
+  d.topics.forEach(t => {
+    const bew = async (body, ok) => { try { await api('/api/teacher/training/topics/' + t.id, { method: 'PUT', body }); await laadPool(); } catch (e) { toonNt(e.message, 'fout'); } };
+    tb.append(el('tr', { class: t.actief ? '' : 'uit' },
+      el('td', {}, mag ? el('input', { type: 'number', value: String(t.sort), min: '0', max: '999', style: 'width:64px;', 'aria-label': 'Volgorde van ' + t.name,
+        onchange: ev => bew({ sort: Number(ev.target.value) }) }) : String(t.sort)),
+      el('td', {}, el('strong', { text: t.name }), ' ', el('span', { class: 'muted', text: '(' + t.id + ')' })),
+      el('td', { text: t.vragenActief + ' actief' + (t.vragenUit ? ', ' + t.vragenUit + ' uit' : '') }),
+      el('td', {}, el('span', { class: 'pill ' + (t.actief ? 'goed' : 'uit'), text: t.actief ? 'Actief' : 'Uitgeschakeld' })),
+      el('td', { style: 'white-space:nowrap;' }, mag ? [
+        el('button', { class: 'btn btn-muted small', type: 'button', text: 'Hernoemen', onclick: async () => { const n = await pyPrompt({ title: 'Onderwerp hernoemen', body: 'Nieuwe naam voor dit onderwerp:', defaultValue: t.name, confirmLabel: 'Hernoemen' }); if (n && n.trim() && n.trim() !== t.name) bew({ name: n.trim() }); } }), ' ',
+        el('button', { class: 'btn btn-muted small', type: 'button', text: t.actief ? 'Uitschakelen' : 'Inschakelen',
+          onclick: async () => { if (t.actief && !(await pyConfirm({ title: 'Onderwerp uitschakelen', body: 'Onderwerp "' + t.name + '" uitschakelen? Leerlingen krijgen er geen vragen meer van; de vragen blijven bewaard.', confirmLabel: 'Uitschakelen' }))) return; bew({ actief: !t.actief }); } }), ' ',
+        el('button', { class: 'btn btn-muted small', type: 'button', text: '🗑 Verwijderen', onclick: () => verwijderOnderwerp({ id: t.id, name: t.name }) })] : null)));
+  });
+  if (!d.topics.length) tb.append(el('tr', {}, el('td', { colspan: '5', class: 'muted', text: 'Nog geen onderwerpen.' })));
+}
+function toonNt(tekst, soort) { const m = $('nt-melding'); m.className = 'melding ' + (soort || ''); m.textContent = tekst; }
+$('nt-voeg').addEventListener('click', async () => {
+  const n = $('nt-naam').value.trim(); if (!n) { toonNt('Geef een naam in.', 'fout'); return; }
+  try { await api('/api/teacher/training/topics', { method: 'POST', body: { name: n } }); $('nt-naam').value = ''; toonNt('Onderwerp toegevoegd. Voeg er nu vragen aan toe.', 'goed'); await laadPool(); }
+  catch (e) { toonNt(e.message, 'fout'); }
+});
+
+async function verwijderOnderwerp(t) {
+  try {
+    const i = await api('/api/teacher/training/topics/' + t.id + '/impact');
+    const tekst = `Onderwerp "${t.name}" verwijderen?\n\nDit wist definitief:\n• ${i.vragen} vragen\n• ${i.antwoorden} gegeven antwoorden\n• ${i.trainingen} trainingen met dit onderwerp (lopende trainingen worden gestopt)\n\nBlijft bestaan: de niveaus van leerlingen en hun streak (${i.dagvragen} dagvragen; een verwijderde vraag toont "bestaat niet meer").\n\nWil je het onderwerp enkel verbergen? Kies dan Uitschakelen.`;
+    if (!(await pyConfirm({ title: 'Onderwerp verwijderen', body: tekst, confirmLabel: 'Verder', danger: true }))) return;
+    const naam = await pyPrompt({ title: 'Verwijderen bevestigen', body: 'Typ de naam van het onderwerp om te bevestigen:\n' + t.name, confirmLabel: 'Definitief verwijderen' });
+    if (naam == null) return;
+    await api('/api/teacher/training/topics/' + t.id, { method: 'DELETE', body: { bevestig: naam } });
+    await pyAlert('Onderwerp verwijderd.', 'success');
+    laadPool();
+  } catch (e) { pyAlert(e.message, 'error'); }
+}
+
+// ── vragen beheren ────────────────────────────────────────────────────────────
 async function laadVragen() {
   const q = new URLSearchParams(); if ($('q-topic').value) q.set('topic', $('q-topic').value); if ($('q-level').value) q.set('level', $('q-level').value);
+  if ($('q-zoek').value.trim()) q.set('zoek', $('q-zoek').value.trim());
+  q.set('status', $('q-status').value); if ($('q-probleem').value) q.set('probleem', $('q-probleem').value);
   const d = await api('/api/teacher/training/questions?' + q);
   const tb = $('qtabel').querySelector('tbody'); tb.replaceChildren();
-  d.questions.forEach(x => tb.append(el('tr', {}, el('td', { text: String(x.level) }), el('td', { text: x.type }), el('td', { text: x.text }),
-    el('td', { text: x.algemeen ? 'Algemeen' : (x.eigen ? 'Mijzelf' : 'Collega') }),
-    el('td', {}, (x.eigen || POOL.kanAlgemeenBeheren) ? el('button', { class: 'btn btn-muted small', type: 'button', text: 'Verwijderen',
-      onclick: async () => { if (!confirm('Deze vraag verwijderen uit de pool?')) return; await api('/api/teacher/training/questions/' + x.id, { method: 'DELETE' }); laadPool(); } }) : null))));
-  if (!d.questions.length) tb.append(el('tr', {}, el('td', { colspan: '5', class: 'muted', text: 'Geen vragen voor deze keuze.' })));
+  d.questions.forEach(x => {
+    const mag = x.eigen || POOL.kanAlgemeenBeheren;
+    const wijzig = async (url, opt, bericht) => { if (bericht && !(await pyConfirm({ title: 'Bevestigen', body: bericht, confirmLabel: 'Ja, doorgaan', danger: true }))) return; try { await api(url, opt); await laadPool(); } catch (e) { pyAlert(e.message, 'error'); } };
+    tb.append(el('tr', { class: x.active ? '' : 'uit' }, el('td', { text: String(x.level) }), el('td', { text: TYPE_LABEL[x.type] || x.type }),
+      el('td', { text: x.text }),
+      el('td', { class: 'muted', text: x.nAntwoorden ? x.nAntwoorden + '× · ' + x.pctJuist + '% juist' : 'nog niet gebruikt' }),
+      el('td', {}, x.fouten ? el('span', { class: 'pill fout', text: '⛔ ' + x.fouten }) : null, x.fouten && x.tips ? ' ' : null, x.tips ? el('span', { class: 'pill tip', text: '💡 ' + x.tips }) : null, !x.fouten && !x.tips ? el('span', { class: 'pill goed', text: '✔' }) : null),
+      el('td', { text: (x.algemeen ? 'Algemeen' : (x.eigen ? 'Mijzelf' : 'Collega')) + (x.active ? '' : ' · uit') }),
+      el('td', { style: 'white-space:nowrap;' },
+        el('button', { class: 'btn btn-primary small', type: 'button', text: 'Bekijken', title: 'Hoe ziet de vraag eruit en hoe wordt ze nagekeken?', onclick: () => openDetail(x.id) }), ' ',
+        mag ? el('button', { class: 'btn btn-muted small', type: 'button', text: 'Bewerken', onclick: () => openVraagForm(x.id, false) })
+          : el('button', { class: 'btn btn-muted small', type: 'button', text: '🔒 Aanpassen', title: 'Algemene vraag: je maakt een eigen aangepaste kopie. Het origineel kan enkel de platformbeheerder wijzigen.', onclick: () => openVraagForm(x.id, true) }), ' ',
+        mag ? el('button', { class: 'btn btn-muted small', type: 'button', text: 'Kopie', title: 'Maak een nieuwe vraag op basis van deze', onclick: () => openVraagForm(x.id, true) }) : null, ' ',
+        mag ? el('button', { class: 'btn btn-muted small', type: 'button', text: x.active ? 'Uitschakelen' : 'Inschakelen',
+          onclick: () => wijzig('/api/teacher/training/questions/' + x.id + '/active', { method: 'PUT', body: { actief: !x.active } }, x.active ? 'Deze vraag uitschakelen? Ze blijft bewaard maar leerlingen krijgen ze niet meer.' : null) }) : null, ' ',
+        mag ? el('button', { class: 'btn btn-muted small', type: 'button', text: '🗑', title: 'Definitief verwijderen', 'aria-label': 'Vraag definitief verwijderen',
+          onclick: () => wijzig('/api/teacher/training/questions/' + x.id + '?definitief=1', { method: 'DELETE' }, 'Deze vraag DEFINITIEF verwijderen, inclusief alle antwoorden en herhalingen die eraan hangen? Dit kan niet ongedaan gemaakt worden. (Uitschakelen kan wel terug.)') }) : null)));
+  });
+  if (!d.questions.length) tb.append(el('tr', {}, el('td', { colspan: '7', class: 'muted', text: 'Geen vragen voor deze keuze.' })));
+  $('q-info').textContent = d.gevonden + ' vragen' + (d.gevonden > d.questions.length ? ' (eerste ' + d.questions.length + ' getoond; verfijn met een filter)' : '')
+    + (d.samenvatting && d.samenvatting.metFout ? ' · ' + d.samenvatting.metFout + ' met fouten' : '');
 }
+$('q-status').addEventListener('change', laadVragen); $('q-probleem').addEventListener('change', laadVragen);
+
+// ── detail: hoe ziet de vraag eruit en hoe wordt ze nagekeken ─────────────────
+function sluitDetail() { $('dt-bg').classList.remove('open'); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('dt-bg').classList.contains('open')) sluitDetail(); });
+async function openDetail(id) {
+  let d; try { d = await api('/api/teacher/training/questions/' + id + '/detail'); } catch (e) { pyAlert(e.message, 'error'); return; }
+  const v = d.vraag; const dt = $('dt'); dt.replaceChildren();
+  const KIND = { bevat: 'code bevat patroon', niet_bevat: 'code bevat patroon NIET', aantal_input: 'aantal input()-oproepen', test: 'uitvoer van testgeval' };
+  dt.append(el('div', { style: 'display:flex;gap:10px;align-items:flex-start;justify-content:space-between;' },
+    el('div', {}, el('h2', { id: 'dt-titel', text: v.onderwerpNaam + ' · niveau ' + v.level + ' · ' + (TYPE_LABEL[v.type] || v.type) }),
+      el('span', { class: 'pill ' + (v.active ? 'goed' : 'uit'), text: v.active ? 'Actief' : 'Uitgeschakeld' }), ' ', el('span', { class: 'pill', text: v.algemeen ? 'Algemene pool' : 'Eigen vraag' }), ' ',
+      el('span', { class: 'pill', text: 'ID ' + v.id })),
+    el('div', { style: 'display:flex;gap:8px;' },
+      d.kanBewerken ? el('button', { class: 'btn btn-muted small', type: 'button', text: 'Bewerken', onclick: () => { sluitDetail(); openVraagForm(v.id, false); } })
+        : el('button', { class: 'btn btn-muted small', type: 'button', text: '🔒 Aanpassen als eigen kopie', onclick: () => { sluitDetail(); openVraagForm(v.id, true); } }),
+      el('button', { class: 'btn btn-muted small', type: 'button', text: 'Sluiten', onclick: sluitDetail }))));
+  // 1. kwaliteit
+  dt.append(el('h3', { text: '1 · Controle van deze vraag' }));
+  if (!d.problemen.length) dt.append(el('p', { class: 'goed', text: '✔ Geen opmerkingen: de vraag is volledig en intern consistent.' }));
+  else dt.append(el('ul', { style: 'margin:4px 0;padding-left:18px;' }, d.problemen.map(p => el('li', {}, el('span', { class: 'pill ' + p.ernst, text: p.ernst === 'fout' ? '⛔ fout' : '💡 tip' }), ' ' + p.tekst))));
+  // 2. wat de leerling ziet
+  dt.append(el('h3', { text: '2 · Wat de leerling ziet' }), (() => { const t = el('div'); window.PCMd.zetHtml(t, v.text); return t; })());
+  if (v.code) dt.append(el('pre', { text: v.code }));
+  if (v.type === 'code') { if (v.starter) dt.append(el('p', { class: 'muted', text: 'Startcode in de editor:' }), el('pre', { text: v.starter })); }
+  else dt.append(el('ul', { style: 'margin:6px 0;padding-left:18px;' }, v.choices.map((c, i) => el('li', {}, (v.correct.includes(i) ? '✅ ' : '▫️ ') + c))));
+  if (v.explanation) { const u = el('div'); window.PCMd.zetHtml(u, v.explanation); dt.append(el('p', {}, el('strong', { text: 'Uitleg na het antwoord:' })), u); }
+  // 3. hulp
+  dt.append(el('h3', { text: '3 · Hulp voor de leerling (niveau ' + v.level + ': ' + ({ checklist: 'checklist + kernwoorden', hints: 'hints', geen: 'geen hulp' }[d.hulpSoort]) + ')' }));
+  if (d.hoofdstuk) dt.append(el('p', {}, 'Cursushoofdstuk: ', el('a', { href: d.hoofdstuk.url, target: '_blank', rel: 'noopener', text: 'H' + d.hoofdstuk.nr + ' ' + d.hoofdstuk.titel })));
+  dt.append(el('p', { text: 'Kernwoorden: ' + (v.keywords.length ? v.keywords.join(', ') : '—') + (d.hulpSoort === 'checklist' ? '' : ' (enkel zichtbaar op niveau 1-3)') }));
+  dt.append(el('p', { text: 'Hint 1: ' + (v.hints[0] || '—') }), el('p', { text: 'Hint 2: ' + (v.hints[1] || '—') + (d.hulpSoort === 'hints' ? '' : ' (enkel zichtbaar op niveau 4-5)') }));
+  // 4. nakijken
+  dt.append(el('h3', { text: '4 · Zo wordt het nagekeken' }), ...d.stappen.map((s, i) => el('div', { class: 'stap' }, el('b', { text: String(i + 1) }), el('div', { text: s }))));
+  if (v.type === 'code') {
+    dt.append(el('p', { style: 'margin-top:10px;' }, el('strong', { text: 'Testgevallen ' }), '(bepalen de score)'),
+      el('div', { class: 'rand' }, el('table', { class: 'tbl' }, el('thead', {}, el('tr', {}, el('th', { text: '#' }), el('th', { text: 'Invoer (input())' }), el('th', { text: 'Verwachte uitvoer' }))),
+        el('tbody', {}, v.tests.map((t, i) => el('tr', {}, el('td', { text: String(i + 1) }), el('td', { class: 'mono', text: (t.input || []).join('\n') || '(geen)' }), el('td', { class: 'mono', text: t.output })))))));
+    dt.append(el('p', { style: 'margin-top:10px;' }, el('strong', { text: 'Checklist ' }), '(' + (d.checksBron === 'eigen' ? 'eigen checklist van de vraag' : 'automatisch opgebouwd uit de testgevallen') + (d.hulpSoort === 'checklist' ? '' : '; wordt op dit niveau niet getoond') + ')'),
+      el('div', { class: 'rand' }, el('table', { class: 'tbl' }, el('thead', {}, el('tr', {}, el('th', { text: '#' }), el('th', { text: 'Zichtbaar voor de leerling' }), el('th', { text: 'Hoe gecontroleerd' }))),
+        el('tbody', {}, d.checks.map((c, i) => el('tr', {}, el('td', { text: String(i + 1) }), el('td', { text: c.label }),
+          el('td', { class: 'muted', text: (KIND[c.kind] || c.kind) + (c.pattern ? ': ' + c.pattern : '') + (c.n != null ? ': ' + c.n : '') + (c.index != null ? ' ' + (c.index + 1) : '') })))))));
+  }
+  // 5. gebruik
+  const st = d.statistiek;
+  dt.append(el('h3', { text: '5 · Gebruik' }), el('p', { text: st.antwoorden ? st.antwoorden + ' keer beantwoord in trainingen · ' + st.pctJuist + '% volledig juist · gemiddelde score ' + st.gemScorePct + '%' : 'Nog niet beantwoord in een training.' }),
+    el('p', { class: 'muted', text: st.alsVraagVanDeDag ? 'Was ' + st.alsVraagVanDeDag + '× de vraag van de dag.' : '' }));
+  // 6. proberen
+  dt.append(el('h3', { text: '6 · Probeer het als leerling' }), el('p', { class: 'muted', text: 'Hier loopt het echte nakijken: wat je invult wordt niet bewaard en telt voor niemand mee.' }));
+  const res = el('div', { 'aria-live': 'polite', style: 'margin-top:8px;' });
+  if (v.type === 'code') {
+    const ta = el('textarea', { rows: '6', spellcheck: 'false', placeholder: 'naam = input("Naam? ")\nprint(f"Hallo, {naam}!")' });
+    if (v.starter) ta.value = v.starter;
+    dt.append(ta, el('div', { style: 'margin-top:6px;' }, el('button', { class: 'btn btn-primary small', type: 'button', text: 'Kijk na', onclick: async (ev) => {
+      ev.target.disabled = true; res.textContent = 'Bezig met nakijken…';
+      try { tekenProefCode(res, await api('/api/teacher/training/questions/' + v.id + '/probeer', { method: 'POST', body: { answer: ta.value } })); }
+      catch (e) { res.textContent = e.message; } finally { ev.target.disabled = false; } } })));
+  } else {
+    const keuzes = v.choices.map((c, i) => el('label', { style: 'display:flex;gap:8px;align-items:center;margin:3px 0;' }, el('input', { type: v.type === 'single' ? 'radio' : 'checkbox', name: 'dt-keuze', value: String(i) }), c));
+    dt.append(...keuzes, el('div', { style: 'margin-top:6px;' }, el('button', { class: 'btn btn-primary small', type: 'button', text: 'Kijk na', onclick: async (ev) => {
+      const gekozen = [...dt.querySelectorAll('input[name=dt-keuze]:checked')].map(i => Number(i.value));
+      ev.target.disabled = true; res.textContent = 'Bezig…';
+      try { const r = await api('/api/teacher/training/questions/' + v.id + '/probeer', { method: 'POST', body: { answer: v.type === 'single' ? gekozen[0] : gekozen } });
+        res.replaceChildren(el('div', { class: r.juist ? 'goed' : 'nee', text: (r.juist ? '✔ Juist' : '✘ Niet (volledig) juist') + ' — score ' + Math.round(r.score * 100) + '%' }),
+          r.uitleg ? el('div', { class: 'muted', text: 'Uitleg die de leerling dan ziet: ' + r.uitleg }) : null); }
+      catch (e) { res.textContent = e.message; } finally { ev.target.disabled = false; } } })));
+  }
+  dt.append(res);
+  $('dt-bg').classList.add('open');
+}
+function tekenProefCode(res, r) {
+  res.replaceChildren(el('div', { class: r.juist ? 'goed' : 'nee', style: 'font-weight:700;', text: (r.juist ? '✔ Juist' : '✘ Niet volledig juist') + ' — score ' + Math.round(r.score * 100) + '% (' + r.tests.filter(t => t.ok).length + ' van ' + r.tests.length + ' testgevallen geslaagd)' }),
+    el('div', { style: 'margin-top:6px;font-weight:700;', text: 'Checklist zoals de leerling ze zou zien' }),
+    el('ul', { style: 'margin:2px 0;padding-left:18px;' }, r.checks.map(c => el('li', { class: c.ok ? 'goed' : 'nee', text: (c.ok ? '✔ ' : '✘ ') + c.label }))),
+    el('div', { style: 'margin-top:6px;font-weight:700;', text: 'Testgevallen' }),
+    el('div', { class: 'rand' }, el('table', { class: 'tbl' }, el('thead', {}, el('tr', {}, el('th', { text: '#' }), el('th', { text: 'Invoer' }), el('th', { text: 'Verwacht' }), el('th', { text: 'Jouw uitvoer' }), el('th', { text: '' }))),
+      el('tbody', {}, r.tests.map((t, i) => el('tr', {}, el('td', { text: String(i + 1) }), el('td', { class: 'mono', text: (t.invoer || []).join('\n') || '—' }), el('td', { class: 'mono', text: t.verwacht }),
+        el('td', { class: 'mono', text: t.gekregen + (t.reden && t.reden !== 'klaar' ? '\n[' + t.reden + ']' : '') }), el('td', { class: t.ok ? 'goed' : 'nee', text: t.ok ? '✔' : '✘' })))))));
+}
+const TYPE_LABEL = { single: 'Meerkeuze', multiple: 'Meerdere juist', code: 'Code' };
+let _zoekT = null; $('q-zoek').addEventListener('input', () => { clearTimeout(_zoekT); _zoekT = setTimeout(laadVragen, 300); });
+
+// ── vraagformulier (nieuw / bewerken / kopie) ─────────────────────────────────
+const CURSUS_HFD = ['Stroomdiagrammen','print & input','Variabelen','Datatypes','Wiskundige expressies','Beslissingen','Herhaling','Foutmeldingen','Debuggen','Lijsten','Dictionaries','De module math','Willekeur met random','Bestanden lezen & schrijven','Werken met CSV','Klassen & objecten','Methodes','Functies definiëren','Parameters & scope','Eigen bibliotheken maken','Databases & SQL','SQLite vanuit Python','Van idee naar plan','Bouwen in stappen','Afwerken & verdedigen'];
+let VF = null;   // { id|null, scope }
+function vfLeeg() { return { topic: '', level: 1, type: 'single', text: '', code: '', choices: ['', ''], correct: [0], starter: '', tests: [{ input: [], output: '' }], explanation: '', chapter: '', keywords: [], hints: ['', ''], checks: [] }; }
+async function openVraagForm(id, kopie) {
+  let v = vfLeeg(); let titel = 'Nieuwe vraag'; let bewerken = false;
+  if (id) {
+    try {
+      const d = await api('/api/teacher/training/questions/' + id);
+      v = Object.assign(vfLeeg(), d.vraag); v.hints = [...(d.vraag.hints || []), '', ''].slice(0, 2);
+      if (!v.choices.length) v.choices = ['', '']; if (!v.tests.length) v.tests = [{ input: [], output: '' }];
+      bewerken = !kopie && d.kanBewerken; titel = bewerken ? 'Vraag bewerken' : (d.kanBewerken ? 'Nieuwe vraag (kopie)' : 'Eigen aangepaste kopie van een algemene vraag');
+    } catch (e) { pyAlert(e.message, 'error'); return; }
+  } else if ($('q-topic').value) { v.topic = $('q-topic').value; if ($('q-level').value) v.level = Number($('q-level').value); }
+  VF = { id: bewerken ? id : null };
+  tekenForm(v, titel);
+  $('vf-bg').classList.add('open'); $('vf-tekst').focus();
+}
+function tekenForm(v, titel) {
+  const f = $('vf'); f.replaceChildren();
+  const topics = (POOL && POOL.topics) || [];
+  f.append(el('h2', { text: titel }),
+    el('div', { class: 'rij3' },
+      el('div', {}, el('label', { for: 'vf-topic', text: 'Onderwerp' }), el('select', { id: 'vf-topic' }, topics.map(t => el('option', { value: t.id, text: t.name })))),
+      el('div', {}, el('label', { for: 'vf-level', text: 'Niveau (1 = makkelijk, 10 = moeilijk)' }), el('select', { id: 'vf-level' }, Array.from({ length: 10 }, (_, i) => el('option', { value: String(i + 1), text: 'Niveau ' + (i + 1) })))),
+      el('div', {}, el('label', { for: 'vf-type', text: 'Soort vraag' }), el('select', { id: 'vf-type', onchange: () => tekenSoort() },
+        el('option', { value: 'single', text: 'Meerkeuze (één juist antwoord)' }), el('option', { value: 'multiple', text: 'Meerdere juiste antwoorden' }), el('option', { value: 'code', text: 'Programmeeropdracht (code)' })))),
+    el('label', { for: 'vf-tekst', text: 'Vraag / opdracht' }), el('textarea', { id: 'vf-tekst', rows: '5' }),
+    el('p', { class: 'hulpje', text: 'Bij een programmeeropdracht: geef altijd een voorbeeld ("Bij Ada is de uitvoer: Hallo, Ada!") en laat de leerling in input() gerust een vraag zetten (die telt niet mee voor de uitvoer).' }),
+    el('label', { for: 'vf-code', text: 'Voorbeeldcode bij de vraag (optioneel, wordt getoond)' }), el('textarea', { id: 'vf-code', rows: '3', class: 'mono', spellcheck: 'false' }),
+    el('div', { id: 'vf-soort' }),
+    el('label', { for: 'vf-uitleg', text: 'Uitleg na het antwoord (optioneel maar aangeraden)' }), el('textarea', { id: 'vf-uitleg', rows: '2' }),
+    el('details', { style: 'margin-top:12px;', open: (v.chapter || v.keywords.length || v.hints.some(Boolean)) ? '' : null },
+      el('summary', { style: 'cursor:pointer;font-weight:700;', text: 'Hulp voor de leerling (hoofdstuk, kernwoorden, hints)' }),
+      el('div', { class: 'rij3' },
+        el('div', {}, el('label', { for: 'vf-hfd', text: 'Cursushoofdstuk' }), el('select', { id: 'vf-hfd' }, el('option', { value: '', text: '(automatisch volgens onderwerp)' }), CURSUS_HFD.map((t, i) => el('option', { value: 'h' + (i + 1), text: 'H' + (i + 1) + ' ' + t })))),
+        el('div', { style: 'grid-column:span 2;' }, el('label', { for: 'vf-kern', text: 'Kernwoorden (gescheiden door komma, max 4 — getoond op niveau 1–3)' }), el('input', { type: 'text', id: 'vf-kern' }))),
+      el('label', { for: 'vf-h1', text: 'Hint 1 (gratis; op niveau 4–5 — geef een richting, geen oplossing)' }), el('input', { type: 'text', id: 'vf-h1' }),
+      el('label', { for: 'vf-h2', text: 'Hint 2 (kost score; concreter, maar nog steeds niet de oplossing)' }), el('input', { type: 'text', id: 'vf-h2' }),
+      el('div', { id: 'vf-checkswrap' })),
+    el('details', { style: 'margin-top:12px;' },
+      el('summary', { style: 'cursor:pointer;font-weight:700;', text: 'Zo wordt deze vraag nagekeken (checks, stappen, controle)' }),
+      el('button', { class: 'btn btn-muted small', type: 'button', style: 'margin:6px 0;', text: '🔍 Analyseer deze vraag', onclick: analyseerForm }),
+      el('div', { id: 'vf-analyse' })),
+    el('div', { class: 'melding', id: 'vf-melding', role: 'alert' }),
+    el('div', { class: 'vf-voet' },
+      el('button', { class: 'btn btn-primary', type: 'submit', id: 'vf-opslaan', text: 'Opslaan' }),
+      el('button', { class: 'btn btn-muted', type: 'button', text: 'Annuleren', onclick: sluitForm }),
+      !VF.id && POOL && POOL.kanAlgemeenBeheren ? el('select', { id: 'vf-scope', 'aria-label': 'Zichtbaar voor' }, el('option', { value: 'own', text: 'Zichtbaar voor: mijn klassen' }), el('option', { value: 'general', text: 'Zichtbaar voor: iedereen (algemene pool)' })) : null));
+  $('vf-topic').value = v.topic || (topics[0] && topics[0].id) || ''; $('vf-level').value = String(v.level); $('vf-type').value = v.type;
+  window.PCMd.toolbar($('vf-tekst')); window.PCMd.toolbar($('vf-uitleg'));
+  $('vf-tekst').value = v.text; $('vf-code').value = v.code || ''; $('vf-uitleg').value = v.explanation || '';
+  $('vf-hfd').value = v.chapter || ''; $('vf-kern').value = (v.keywords || []).join(', ');
+  $('vf-h1').value = v.hints[0] || ''; $('vf-h2').value = v.hints[1] || '';
+  tekenChecks(v.checks || []);
+  VF.data = v; tekenSoort();
+}
+function tekenSoort() {
+  const type = $('vf-type').value; const v = VF.data; const d = $('vf-soort'); d.replaceChildren();
+  if (type === 'code') {
+    d.append(el('label', { for: 'vf-starter', text: 'Startcode voor de leerling (optioneel — bv. een kapotte code die hersteld moet worden)' }),
+      el('textarea', { id: 'vf-starter', rows: '3', class: 'mono', spellcheck: 'false' }),
+      el('label', { text: 'Testgevallen (de leerlingcode wordt hiermee nagekeken)' }),
+      el('p', { class: 'hulpje', text: 'Invoer = wat de leerling intikt bij input(), één regel per input(). Verwachte uitvoer = wat het programma moet afdrukken (spaties aan het einde van een regel tellen niet mee).' }),
+      el('div', { id: 'vf-tests' }),
+      el('button', { class: 'btn btn-muted small', type: 'button', text: '+ Testgeval', onclick: () => voegTestToe({ input: [], output: '' }) }),
+      el('label', { for: 'vf-oploss', text: 'Mijn oplossing (wordt niet bewaard) — om de testgevallen te controleren' }),
+      el('textarea', { id: 'vf-oploss', rows: '5', class: 'mono', spellcheck: 'false', placeholder: 'naam = input()\nprint(f"Hallo, {naam}!")' }),
+      el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;' },
+        el('button', { class: 'btn btn-muted small', type: 'button', id: 'vf-run', text: 'Voer mijn oplossing uit op de testgevallen', onclick: () => voerOplossing(false) }),
+        el('button', { class: 'btn btn-muted small', type: 'button', text: 'Vul verwachte uitvoer in met wat mijn oplossing geeft', onclick: () => voerOplossing(true) })),
+      el('div', { class: 'vf-res', id: 'vf-res', 'aria-live': 'polite' }));
+    $('vf-starter').value = v.starter || '';
+    (v.tests && v.tests.length ? v.tests : [{ input: [], output: '' }]).forEach(voegTestToe);
+  } else {
+    d.append(el('label', { text: type === 'single' ? 'Antwoordkeuzes — vink het ene juiste antwoord aan' : 'Antwoordkeuzes — vink alle juiste antwoorden aan (minstens 2)' }), el('div', { id: 'vf-keuzes' }),
+      el('button', { class: 'btn btn-muted small', type: 'button', text: '+ Keuze', onclick: () => voegKeuzeToe('', false) }));
+    const ks = v.choices && v.choices.length ? v.choices : ['', ''];
+    ks.forEach((c, i) => voegKeuzeToe(c, (v.correct || []).includes(i)));
+  }
+}
+function voegKeuzeToe(tekst, juist) {
+  const type = $('vf-type').value; const lijst = $('vf-keuzes');
+  const r = el('div', { class: 'keuze' }, el('input', { type: type === 'single' ? 'radio' : 'checkbox', name: 'vf-juist', 'aria-label': 'Juist antwoord', checked: juist ? '' : null }),
+    el('input', { type: 'text', 'aria-label': 'Keuze', maxlength: '400' }),
+    el('button', { class: 'btn btn-muted small', type: 'button', text: '✕', 'aria-label': 'Keuze verwijderen', onclick: () => { if (lijst.children.length > 2) r.remove(); } }));
+  r.children[1].value = tekst; lijst.append(r);
+}
+function voegTestToe(t) {
+  const lijst = $('vf-tests');
+  const r = el('div', { class: 'testgeval' },
+    el('div', {}, el('label', { text: 'Invoer (één regel per input())' }), el('textarea', { rows: '2', class: 'mono t-in', spellcheck: 'false' })),
+    el('div', {}, el('label', { text: 'Verwachte uitvoer' }), el('textarea', { rows: '2', class: 'mono t-uit', spellcheck: 'false' })),
+    el('button', { class: 'btn btn-muted small', type: 'button', text: '✕', 'aria-label': 'Testgeval verwijderen', onclick: () => { if (lijst.children.length > 1) r.remove(); } }));
+  r.querySelector('.t-in').value = (t.input || []).join('\n'); r.querySelector('.t-uit').value = t.output || '';
+  lijst.append(r);
+}
+function leesTests() {
+  return [...document.querySelectorAll('#vf-tests .testgeval')].map(r => {
+    const inv = r.querySelector('.t-in').value; return { input: inv === '' ? [] : inv.split('\n'), output: r.querySelector('.t-uit').value };
+  });
+}
+async function voerOplossing(vul) {
+  const res = $('vf-res'); res.textContent = 'Bezig met uitvoeren…';
+  try {
+    const d = await api('/api/teacher/training/questions/verify', { method: 'POST', body: { code: $('vf-oploss').value, tests: leesTests() } });
+    const rijen = [...document.querySelectorAll('#vf-tests .testgeval')];
+    if (vul) { d.resultaten.forEach((r, i) => { if (rijen[i]) rijen[i].querySelector('.t-uit').value = r.output; }); }
+    res.replaceChildren(...d.resultaten.map((r, i) => el('div', { class: r.ok || vul ? 'ok' : 'nee' },
+      (r.ok || vul ? '✔ ' : '✘ ') + 'Testgeval ' + (i + 1) + (r.reden && r.reden !== 'klaar' ? ' (' + r.reden + ')' : '') + (r.ok || vul ? '' : ' — je oplossing gaf: ' + JSON.stringify(r.output.slice(0, 200))))));
+    if (vul) res.append(el('div', { class: 'muted', text: 'Verwachte uitvoer ingevuld vanuit je oplossing. Controleer of dit echt het gewenste resultaat is.' }));
+  } catch (e) { res.textContent = e.message; }
+}
+const CK_SOORTEN = [['bevat', 'Code bevat (patroon)'], ['niet_bevat', 'Code bevat NIET (patroon)'], ['aantal_input', 'Aantal input()-oproepen'], ['test', 'Uitvoer van testgeval klopt']];
+function tekenChecks(lijst) {
+  const w = $('vf-checkswrap'); w.replaceChildren();
+  const eigen = lijst && lijst.length > 0;
+  w.append(el('label', { text: 'Manier van nakijken: checklist (alleen bij programmeeropdrachten, getoond op niveau 1–3)' }),
+    el('p', { class: 'hulpje', text: 'De score komt altijd uit de testgevallen. De checklist is de lijst met vinkjes die de leerling met de knop "Check" ziet. Automatisch = een regel per testgeval plus "gebruikt input()/print()". Of stel zelf regels samen.' }),
+    el('div', { style: 'display:flex;gap:14px;flex-wrap:wrap;margin:4px 0;' },
+      el('label', { style: 'font-weight:400;margin:0;' }, el('input', { type: 'radio', name: 'ck-modus', value: 'auto', checked: eigen ? null : '', onchange: () => { $('ck-eigen').style.display = 'none'; } }), ' Automatisch uit de testgevallen'),
+      el('label', { style: 'font-weight:400;margin:0;' }, el('input', { type: 'radio', name: 'ck-modus', value: 'eigen', checked: eigen ? '' : null, onchange: () => { $('ck-eigen').style.display = ''; if (!document.querySelector('#ck-rijen .ckrij')) vulChecksAutomatisch(); } }), ' Eigen checklist')),
+    el('div', { id: 'ck-eigen', style: eigen ? '' : 'display:none;' },
+      el('div', { id: 'ck-rijen' }),
+      el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;' },
+        el('button', { class: 'btn btn-muted small', type: 'button', text: '+ Check', onclick: () => voegCheckToe({ kind: 'bevat', label: '', pattern: '' }) }),
+        el('button', { class: 'btn btn-muted small', type: 'button', text: 'Vervang door de automatische checklist', onclick: vulChecksAutomatisch }))));
+  (lijst || []).forEach(voegCheckToe);
+}
+function voegCheckToe(c) {
+  const r = el('div', { class: 'ckrij' },
+    el('select', { 'aria-label': 'Soort check', onchange: () => ckParam(r) }, CK_SOORTEN.map(([k, t]) => el('option', { value: k, text: t }))),
+    el('input', { type: 'text', class: 'ck-label', maxlength: '120', placeholder: 'Wat de leerling ziet, bv. Je gebruikt een if', 'aria-label': 'Tekst voor de leerling' }),
+    el('input', { type: 'text', class: 'ck-param', 'aria-label': 'Waarde' }),
+    el('button', { class: 'btn btn-muted small', type: 'button', text: '✕', 'aria-label': 'Check verwijderen', onclick: () => r.remove() }));
+  r.querySelector('select').value = c.kind || 'bevat'; r.querySelector('.ck-label').value = c.label || '';
+  r.querySelector('.ck-param').value = c.kind === 'aantal_input' ? String(c.n == null ? '' : c.n) : c.kind === 'test' ? String((c.index == null ? 0 : c.index) + 1) : (c.pattern || '');
+  $('ck-rijen').append(r); ckParam(r, true);
+}
+function ckParam(r, behoud) {
+  const k = r.querySelector('select').value; const p = r.querySelector('.ck-param');
+  p.placeholder = k === 'aantal_input' ? 'aantal, bv. 2' : k === 'test' ? 'nr. van het testgeval, bv. 1' : 'patroon (regex), bv. \\bif\\b';
+  p.title = k === 'bevat' ? 'Regex die in de code van de leerling moet voorkomen' : k === 'niet_bevat' ? 'Regex die NIET in de code mag voorkomen' : '';
+  if (!behoud) p.value = '';
+}
+async function vulChecksAutomatisch() {
+  const gv = verzamelVraag(true); if (gv.fout) { pyAlert(gv.fout, 'warn'); return; }
+  const v = Object.assign({}, gv.vraag); delete v.checks;
+  try {
+    const d = await api('/api/teacher/training/questions/analyse', { method: 'POST', body: { vraag: v } });
+    $('ck-rijen').replaceChildren(); (d.checks || []).forEach(voegCheckToe);
+  } catch (e) { pyAlert('Vul eerst de testgevallen in: ' + e.message, 'warn'); }
+}
+function leesChecks() {
+  const m = document.querySelector('input[name=ck-modus]:checked');
+  if (!m || m.value !== 'eigen') return [];
+  return [...document.querySelectorAll('#ck-rijen .ckrij')].map(r => {
+    const kind = r.querySelector('select').value; const label = r.querySelector('.ck-label').value.trim(); const par = r.querySelector('.ck-param').value.trim();
+    const c = { kind, label };
+    if (kind === 'aantal_input') c.n = Number(par); else if (kind === 'test') c.index = Number(par) - 1; else c.pattern = par;
+    return c;
+  });
+}
+function verzamelVraag(zonderChecks) {
+  const type = $('vf-type').value;
+  const vraag = { topic: $('vf-topic').value, level: Number($('vf-level').value), type, text: $('vf-tekst').value, code: $('vf-code').value, explanation: $('vf-uitleg').value,
+    chapter: $('vf-hfd').value, keywords: $('vf-kern').value.split(',').map(x => x.trim()).filter(Boolean),
+    hints: [$('vf-h1').value.trim(), $('vf-h2').value.trim()].filter(Boolean) };
+  if (!zonderChecks && type === 'code') { const ck = leesChecks(); if (ck.length) vraag.checks = ck; }
+  if (type === 'code') { vraag.starter = $('vf-starter').value; vraag.tests = leesTests(); }
+  else {
+    const rijen = [...document.querySelectorAll('#vf-keuzes .keuze')];
+    vraag.choices = rijen.map(r => r.children[1].value.trim()); vraag.correct = rijen.map((r, i) => r.children[0].checked ? i : -1).filter(i => i >= 0);
+  }
+  return { vraag };
+}
+const CHECK_SOORT = { bevat: 'code bevat patroon', niet_bevat: 'code bevat patroon NIET', aantal_input: 'aantal input()-oproepen', test: 'uitvoer van testgeval' };
+async function analyseerForm() {
+  const doel = $('vf-analyse'); doel.replaceChildren(el('p', { class: 'muted', text: 'Bezig…' }));
+  const gv = verzamelVraag(); if (gv.fout) { doel.replaceChildren(el('p', { class: 'nee', text: gv.fout })); return; }
+  let d; try { d = await api('/api/teacher/training/questions/analyse', { method: 'POST', body: { vraag: gv.vraag } }); } catch (e) { doel.replaceChildren(el('p', { class: 'nee', text: 'Nog niet volledig ingevuld: ' + e.message })); return; }
+  const v = gv.vraag; const out = [];
+  out.push(el('h4', { style: 'margin:6px 0 2px;', text: 'Controle' }));
+  out.push(!d.problemen.length ? el('p', { class: 'goed', text: '✔ Geen opmerkingen.' })
+    : el('ul', { style: 'margin:4px 0;padding-left:18px;' }, d.problemen.map(p => el('li', {}, el('span', { class: 'pill ' + p.ernst, text: p.ernst === 'fout' ? '⛔ fout' : '💡 tip' }), ' ' + p.tekst))));
+  out.push(el('h4', { style: 'margin:10px 0 2px;', text: 'Zo wordt het nagekeken' }), ...d.stappen.map((x, i) => el('div', { class: 'stap' }, el('b', { text: String(i + 1) }), el('div', { text: x }))));
+  if (v.type === 'code') {
+    out.push(el('p', { style: 'margin:10px 0 2px;' }, el('strong', { text: 'Checklist ' }), '(' + (d.checksBron === 'eigen' ? 'eigen checklist' : 'automatisch uit de testgevallen') + (d.hulpSoort === 'checklist' ? '' : '; niet zichtbaar op dit niveau') + ')'),
+      el('div', { class: 'rand' }, el('table', { class: 'tbl' }, el('thead', {}, el('tr', {}, el('th', { text: '#' }), el('th', { text: 'Zichtbaar voor de leerling' }), el('th', { text: 'Hoe gecontroleerd' }))),
+        el('tbody', {}, d.checks.map((c, i) => el('tr', {}, el('td', { text: String(i + 1) }), el('td', { text: c.label }),
+          el('td', { class: 'muted', text: (CHECK_SOORT[c.kind] || c.kind) + (c.pattern ? ': ' + c.pattern : '') + (c.n != null ? ': ' + c.n : '') + (c.index != null ? ' ' + (c.index + 1) : '') })))))));
+  }
+  doel.replaceChildren(...out);
+}
+function sluitForm() { $('vf-bg').classList.remove('open'); }
+$('nieuwe-vraag').addEventListener('click', () => openVraagForm(null, false));
+$('vf').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const m = $('vf-melding'); m.className = 'melding'; m.textContent = '';
+  const gv = verzamelVraag(); if (gv.fout) { m.className = 'melding fout'; m.textContent = gv.fout; return; }
+  const vraag = gv.vraag;
+  $('vf-opslaan').disabled = true;
+  try {
+    if (VF.id) await api('/api/teacher/training/questions/' + VF.id, { method: 'PUT', body: { vraag } });
+    else await api('/api/teacher/training/questions', { method: 'POST', body: { scope: $('vf-scope') ? $('vf-scope').value : 'own', vraag } });
+    sluitForm(); laadPool();
+  } catch (e) { m.className = 'melding fout'; m.textContent = e.message; }
+  finally { $('vf-opslaan').disabled = false; }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('vf-bg').classList.contains('open')) sluitForm(); });
 $('q-topic').addEventListener('change', laadVragen); $('q-level').addEventListener('change', laadVragen);
 
 function leesJson() {
@@ -269,7 +748,7 @@ $('controleer').addEventListener('click', async () => {
 $('importeer').addEventListener('click', async () => {
   try {
     const d = await api('/api/teacher/training/import', { method: 'POST', body: { scope: $('scope').value, questions: leesJson() } });
-    toonImp(`${d.toegevoegd} vragen toegevoegd${d.dubbel ? `, ${d.dubbel} bestonden al` : ''}.`, 'goed');
+    toonImp(`${d.toegevoegd} vragen toegevoegd${d.bijgewerkt ? `, ${d.bijgewerkt} bestonden al en kregen hun hulp/uitleg bijgewerkt` : ''}.`, 'goed');
     $('importeer').disabled = true; laadPool();
   } catch (e) { toonImp(e.data && e.data.fouten ? [e.message, ...e.data.fouten.map(f => `Vraag ${f.nr}: ${f.fouten.join(' ')}`)] : e.message, 'fout'); }
 });
@@ -277,7 +756,7 @@ $('voorbeeld').addEventListener('click', () => {
   $('json').value = JSON.stringify([
     { topic: 'herhaling', level: 3, type: 'single', text: 'Hoe vaak wordt print uitgevoerd?', code: 'for i in range(3):\n    print(i)', choices: ['2 keer', '3 keer', '4 keer'], correct: [1], explanation: 'range(3) geeft 0, 1 en 2.' },
     { topic: 'herhaling', level: 4, type: 'multiple', text: 'Kies alle juiste antwoorden: welke lussen tellen tot 3?', choices: ['for i in range(1, 4)', 'for i in range(3)', 'while i < 3 (met i = 1 en i += 1)', 'for i in 3'], correct: [0, 2], explanation: 'range(1, 4) en een while-lus met i < 3 starten bij 1.' },
-    { topic: 'herhaling', level: 6, type: 'code', text: 'Lees een getal n in en toon de tafel van 7 tot n keer 7, onder elkaar. Gebruik input() zonder tekst tussen de haakjes.', starter: '', tests: [{ input: ['3'], output: '7\n14\n21' }, { input: ['1'], output: '7' }] },
+    { topic: 'herhaling', level: 6, type: 'code', text: 'Lees een getal n in en toon de tafel van 7 tot n keer 7, onder elkaar. Zet in input() gerust een vraag voor de gebruiker; die tekst telt niet mee voor de uitvoer.', starter: '', tests: [{ input: ['3'], output: '7\n14\n21' }, { input: ['1'], output: '7' }] },
   ], null, 2);
   $('importeer').disabled = true;
 });
@@ -302,6 +781,14 @@ function tekenInst(i, mag) {
     el('td', {}, el('input', { type: 'number', min: '0', max: '100', value: String(t.vanaf), 'data-v': String(t.niveau), 'aria-label': 'Score vanaf niveau ' + t.niveau, disabled: !mag || t.niveau === 1, style: 'width:90px;padding:6px 8px;' })),
     el('td', {}, el('input', { type: 'text', maxlength: '40', value: t.titel, 'data-t': String(t.niveau), 'aria-label': 'Titel niveau ' + t.niveau, disabled: !mag, style: 'width:100%;padding:6px 8px;box-sizing:border-box;' })))));
   $('bewaar').disabled = !mag; $('herstel').disabled = !mag;
+  if (!$('pool-recht')) $('inst-velden').parentNode.insertBefore(el('div', { style: 'margin:14px 0;' },
+    el('label', { for: 'pool-recht', text: 'Wie mag de algemene vragen en onderwerpen bewerken?' }),
+    el('select', { id: 'pool-recht', disabled: !mag, onchange: async (ev) => {
+      const m = $('inst-melding');
+      try { await api('/api/teacher/training/pool-recht', { method: 'PUT', body: { recht: ev.target.value } }); m.className = 'melding goed'; m.textContent = 'Opgeslagen.'; }
+      catch (e) { m.className = 'melding fout'; m.textContent = e.message; } } },
+      el('option', { value: 'superadmin', text: 'Alleen de platformbeheerder' }), el('option', { value: 'beheerder', text: 'Platformbeheerder en schoolbeheerders' }), el('option', { value: 'leerkracht', text: 'Alle leerkrachten' }))), $('inst-velden'));
+  $('pool-recht').value = (INST && INST.poolRecht) || 'superadmin'; $('pool-recht').disabled = !mag;
   if (!mag) { const m = $('inst-melding'); m.className = 'melding'; m.textContent = 'Enkel de platformbeheerder kan deze instellingen wijzigen.'; }
 }
 $('herstel').addEventListener('click', () => tekenInst(INST.standaard, true));
@@ -316,6 +803,6 @@ $('bewaar').addEventListener('click', async () => {
   catch (e) { m.className = 'melding fout'; m.textContent = e.message; }
 });
 
-(async function () { await laadKlassen(); laadOverzicht(); })();
+(async function () { await laadKlassen(); laadOverzicht(); laadHulpKlas(); })();
 </script>
 </body></html>
