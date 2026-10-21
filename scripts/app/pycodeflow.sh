@@ -1662,6 +1662,24 @@ actie_testdb() {
   done
 }
 
+# ── v124: noodingang — alle inlogblokkades opheffen zonder herstart ─────────────
+actie_netwerk_ontgrendelen() {
+  local WEB_CONT="pycodeflow-web-1"
+  echo ""
+  echo -e "${BOLD}🔓 Netwerk ontgrendelen${RESET}"
+  echo -e "  ${DIM}Heft ALLE inlogblokkades op (netwerken én leerlingaccounts), zonder de server te herstarten.${RESET}"
+  echo -e "  ${DIM}Leerkrachten kunnen dit normaal zelf via de pagina 'Toegang'; dit is de noodingang.${RESET}"
+  echo ""
+  read -rp "  Doorgaan? (j/N): " ok
+  if [[ "$ok" =~ ^[jJyY]$ ]]; then
+    docker exec "$WEB_CONT" node /app/scripts/ontgrendel-netwerk.js \
+      || err "Ontgrendelen mislukt — draait de web-container? (optie 2: Start)"
+  else
+    warn "Geannuleerd."
+  fi
+  pauze
+}
+
 # ── Sprint 51-ai (v5): AI-training — periodiek, handmatig fine-tune-traject ─────
 # Twee stappen, telkens via dit menu: (1) trainingsgegevens downloaden (leerkracht-feedback
 # + stille correcties, verzameld terwijl je normaal verbetert/nakijkt) als JSONL-bestand
@@ -2260,6 +2278,7 @@ while true; do
   echo -e "  ${BOLD}20)${RESET} 🧪  Tests draaien (syntax + unit + sandbox)"
   echo -e "  ${BOLD}21)${RESET} 🧬  Testdatabase (seed / wis) — enkel test!"
   echo -e "  ${BOLD}22)${RESET} 🎓  AI-training (trainingsgegevens down-/opladen)"
+  echo -e "  ${BOLD}23)${RESET} 🔓  Netwerk ontgrendelen (inlogblokkades opheffen)"
   echo -e "  ${BOLD} q)${RESET} ✖   Afsluiten"
   echo ""
   echo -e "${BOLD}──────────────────────────────────────────────${RESET}"
@@ -2289,6 +2308,7 @@ while true; do
     20) actie_tests ;;
     21) actie_testdb ;;
     22) actie_ai_training ;;
+    23) actie_netwerk_ontgrendelen ;;
     q|Q) echo -e "${GROEN}Tot later!${RESET}"; echo ""; exit 0 ;;
     *) err "Ongeldige keuze."; sleep 1 ;;
   esac

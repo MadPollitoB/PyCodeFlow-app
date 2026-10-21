@@ -42,6 +42,16 @@ pool.on('error', (err) => {
   console.error('[db] Onverwachte pool fout:', err.message);
 });
 
+// v121: vingerafdruk van wat een leerling invulde (leeg = niets ingevuld).
+function antwoordVingerafdruk(x) {
+  const c = String(x.code || '').trim();
+  const ch = String(x.selected_choices || '').trim(); const chN = (ch === '[]') ? '' : ch;
+  const pa = String(x.part_answers || '').trim(); const paN = (pa === '{}') ? '' : pa;
+  const fl = String(x.answer_flowchart_json || '').trim();
+  if (!c && !chN && !paN && !fl) return '';
+  return [c, chN, paN, fl].join('\u0001');
+}
+
 // Helper: query uitvoeren
 async function query(text, params = []) {
   const client = await pool.connect();
@@ -976,6 +986,35 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_quiz_individual_access_session
       ON quiz_individual_access(session_code);
 
+    -- v121: momentopname bij heropenen. Per (sessie, leerling) bewaren we de volledige
+    -- antwoordrijen (incl. scores en opmerkingen) zoals ze waren, zodat een heropening
+    -- nooit tot dataverlies leidt: de leerkracht kan terugdraaien, en bij opnieuw indienen
+    -- zonder wijziging blijft de score gewoon staan. changed = leerling wijzigde iets en
+    -- diende in; de oude versie blijft dan bewaard tot de leerling opnieuw is nagekeken.
+    -- v122: logboek van verdachte acties tijdens een toets/taak (plakken, tweede scherm, ...).
+    CREATE TABLE IF NOT EXISTS quiz_incidents (
+      id            SERIAL PRIMARY KEY,
+      session_code  TEXT NOT NULL,
+      student_id    TEXT,
+      student_name  TEXT NOT NULL DEFAULT '',
+      type          TEXT NOT NULL,
+      detail        TEXT NOT NULL DEFAULT '',
+      created_at    BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_quiz_incidents_session ON quiz_incidents(session_code);
+
+    CREATE TABLE IF NOT EXISTS quiz_reopen_snapshots (
+      id            SERIAL PRIMARY KEY,
+      session_code  TEXT NOT NULL,
+      student_id    TEXT,
+      student_name  TEXT,
+      rows_json     TEXT NOT NULL,
+      created_at    BIGINT NOT NULL,
+      changed       BOOLEAN NOT NULL DEFAULT false
+    );
+    CREATE INDEX IF NOT EXISTS idx_quiz_reopen_snapshots_session
+      ON quiz_reopen_snapshots(session_code);
+
     -- ── Sprint 97: Trainingscenter ───────────────────────────────────────────
     -- Eén algemene vragenpool (owner_teacher_id IS NULL, zichtbaar voor iedereen) plus
     -- eigen vragen van een leerkracht (enkel zichtbaar voor leerlingen in zijn klassen).
@@ -1523,7 +1562,7 @@ module.exports = {
       session.announcement  || '',
       session.classWorkspaceMode || 'shared',
       JSON.stringify(students),
-      JSON.stringify({ ...(session.config || {}), _opdrachten: Array.isArray(session.opdrachten) ? session.opdrachten : [], _opdrachtIdx: session.opdrachtIdx || 0 }),
+      JSON.stringify({ ...(session.config || {}), _opdrachten: Array.isArray(session.opdrachten) ? session.opdrachten : [], _opdrachtIdx: session.opdrachtIdx || 0, ...(session.drafts ? { _drafts: session.drafts } : (session.config && session.config._drafts ? { _drafts: session.config._drafts } : {})) }),
       session.teacherId || null,
       // Sprint 48c2: school_id wordt (net als teacher_id) bij aanmaak gezet en NIET in de
       // ON CONFLICT UPDATE herzien — de tenant van een sessie ligt vast.
@@ -3010,6 +3049,27 @@ module.exports = {
     return r.rows[0] || null;
   },
 
+  // v124: leerlingen die een leerkracht mag zien (eigen klassen), of die van de eigen scholen (beheerder).
+  async getStudentClassNames(studentId) {
+    const r = await query(
+      `SELECT DISTINCT c.name FROM class_memberships m JOIN classes c ON c.id = m.class_id
+        WHERE m.student_id = $1 ORDER BY c.name`, [studentId]);
+    return r.rows.map(x => x.name);
+  },
+
+  async listStudentsForTeacher({ teacherId = null, schoolIds = null } = {}) {
+    const r = await query(
+      `SELECT DISTINCT s.id, s.name, s.email, s.status, c.name AS class_name
+         FROM students s
+         JOIN class_memberships m ON m.student_id = s.id
+         JOIN classes c ON c.id = m.class_id
+        WHERE ($1::text IS NULL OR c.id IN (SELECT class_id FROM teacher_classes WHERE teacher_id = $1))
+          AND ($2::text[] IS NULL OR c.school_id = ANY($2))
+        ORDER BY c.name, s.name`,
+      [teacherId, schoolIds]);
+    return r.rows;
+  },
+
   async getStudentById(id) {
     const r = await query(`SELECT * FROM students WHERE id = $1`, [id]);
     return r.rows[0] || null;
@@ -4409,6 +4469,9 @@ module.exports = {
        WHERE session_code = $3 AND student_id = $4 AND submitted_at IS NULL`,
       [now, autoSubmitted, sessionCode, studentId, wie]
     );
+    // v121: heropende leerling — vergelijken met de momentopname en de individuele toegang sluiten.
+    await this.verwerkHeropendeInzending(sessionCode, studentId, studentName).catch(() => {});
+    await this.verwijderIndividueleToegang(sessionCode, studentId, studentName).catch(() => {});
     if (r.rowCount === 0) {
       const snap = await query(
         `SELECT id FROM quiz_question_snapshots WHERE session_code = $1 ORDER BY order_index LIMIT 1`,
@@ -4652,12 +4715,165 @@ module.exports = {
     // id dat NIET overeenkomt met students.id — zijn/haar antwoordrijen staan dus onder
     // dat andere id in quiz_answers. Daarom ook op naam matchen, net als de rest van dit
     // endpoint (roster/live-status) al doet voor gast-leerlingen.
+    // v121: eerst een momentopname (enkel als er nog geen open bestaat), dan pas openzetten.
+    // Scores en opmerkingen blijven staan; ze vervallen pas als de leerling effectief wijzigt.
+    await this.maakHeropenSnapshot(sessionCode, studentId, studentName);
     await query(
       `UPDATE quiz_answers SET submitted_at = NULL, submitted_by = NULL
         WHERE session_code = $1
           AND (student_id = $2 OR ($3::text IS NOT NULL AND LOWER(TRIM(student_name)) = LOWER(TRIM($3))))`,
       [sessionCode, studentId, studentName || null]
     );
+  },
+
+  // ── v122: incidenten-logboek ────────────────────────────────────────────────
+  async logIncident(sessionCode, studentId, studentName, type, detail = '') {
+    await query(
+      `INSERT INTO quiz_incidents (session_code, student_id, student_name, type, detail, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [sessionCode, studentId || null, String(studentName || '').slice(0, 80), String(type).slice(0, 40),
+       String(detail || '').slice(0, 200), Date.now()]);
+  },
+  async getIncidenten(sessionCode) {
+    const r = await query(
+      `SELECT student_id, student_name, type, detail, created_at FROM quiz_incidents
+        WHERE session_code = $1 ORDER BY created_at`, [sessionCode]);
+    return r.rows.map(x => ({ studentId: x.student_id, name: x.student_name, type: x.type, detail: x.detail, at: Number(x.created_at) }));
+  },
+
+  // ── v121: heropen-momentopnames ────────────────────────────────────────────
+  async maakHeropenSnapshot(sessionCode, studentId, studentName) {
+    const bestaand = await this.getHeropenSnapshot(sessionCode, studentId, studentName);
+    if (bestaand) return bestaand.id;
+    const rijen = await query(
+      `SELECT COALESCE(jsonb_agg(to_jsonb(a)), '[]'::jsonb)::text AS j FROM quiz_answers a
+        WHERE a.session_code = $1
+          AND (a.student_id = $2 OR ($3::text IS NOT NULL AND LOWER(TRIM(a.student_name)) = LOWER(TRIM($3))))`,
+      [sessionCode, studentId || null, studentName || null]);
+    const ins = await query(
+      `INSERT INTO quiz_reopen_snapshots (session_code, student_id, student_name, rows_json, created_at)
+       VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+      [sessionCode, studentId || null, studentName || null, rijen.rows[0].j, Date.now()]);
+    return ins.rows[0].id;
+  },
+
+  async getHeropenSnapshot(sessionCode, studentId, studentName) {
+    const r = await query(
+      `SELECT * FROM quiz_reopen_snapshots
+        WHERE session_code = $1
+          AND (student_id = $2 OR ($3::text IS NOT NULL AND LOWER(TRIM(student_name)) = LOWER(TRIM($3))))
+        ORDER BY created_at DESC LIMIT 1`,
+      [sessionCode, studentId || null, studentName || null]);
+    return r.rows[0] || null;
+  },
+
+  // Vergelijkt de huidige antwoorden met de momentopname. Geeft de ids van gewijzigde rijen.
+  async vergelijkMetSnapshot(sessionCode, studentId, studentName, snap) {
+    snap = snap || await this.getHeropenSnapshot(sessionCode, studentId, studentName);
+    if (!snap) return { heeftSnapshot: false, gewijzigd: false, gewijzigdeRijen: [] };
+    const oud = new Map();
+    try { for (const x of JSON.parse(snap.rows_json)) oud.set(x.question_id, antwoordVingerafdruk(x)); } catch { /* leeg */ }
+    const nu = await query(
+      `SELECT id, question_id, code, selected_choices, part_answers, answer_flowchart_json
+         FROM quiz_answers
+        WHERE session_code = $1
+          AND (student_id = $2 OR ($3::text IS NOT NULL AND LOWER(TRIM(student_name)) = LOWER(TRIM($3))))`,
+      [sessionCode, studentId || null, studentName || null]);
+    const gewijzigdeRijen = [];
+    for (const x of nu.rows) {
+      const vroeger = oud.has(x.question_id) ? oud.get(x.question_id) : '';
+      if (antwoordVingerafdruk(x) !== vroeger) gewijzigdeRijen.push(x.id);
+    }
+    return { heeftSnapshot: true, gewijzigd: gewijzigdeRijen.length > 0, gewijzigdeRijen, snapshotId: snap.id };
+  },
+
+  // Zet de antwoorden van één leerling terug naar de momentopname en ruimt die op.
+  async herstelHeropenSnapshot(sessionCode, studentId, studentName) {
+    const snap = await this.getHeropenSnapshot(sessionCode, studentId, studentName);
+    if (!snap) return false;
+    await withTransaction(async (client) => {
+      await client.query(
+        `DELETE FROM quiz_answers
+          WHERE session_code = $1
+            AND (student_id = $2 OR ($3::text IS NOT NULL AND LOWER(TRIM(student_name)) = LOWER(TRIM($3))))`,
+        [sessionCode, studentId || null, studentName || null]);
+      await client.query(
+        `INSERT INTO quiz_answers SELECT * FROM jsonb_populate_recordset(NULL::quiz_answers, $1::jsonb)`,
+        [snap.rows_json]);
+      await client.query(`DELETE FROM quiz_reopen_snapshots WHERE id = $1`, [snap.id]);
+    });
+    return true;
+  },
+
+  // Na het indienen van een heropende leerling: niets gewijzigd → momentopname weg, score
+  // blijft; gewijzigd → score (en deelscores) van de gewijzigde vragen vervalt, de
+  // momentopname blijft bewaard tot de leerling opnieuw is nagekeken.
+  async verwerkHeropendeInzending(sessionCode, studentId, studentName) {
+    const snap = await this.getHeropenSnapshot(sessionCode, studentId, studentName);
+    if (!snap) return { heeftSnapshot: false, gewijzigd: false };
+    const cmp = await this.vergelijkMetSnapshot(sessionCode, studentId, studentName, snap);
+    if (!cmp.gewijzigd) {
+      await query(`DELETE FROM quiz_reopen_snapshots WHERE id = $1`, [snap.id]);
+    } else {
+      await query(
+        `UPDATE quiz_answers SET score = NULL, part_scores = '{}', ai_graded = false
+          WHERE id = ANY($1::text[])`, [cmp.gewijzigdeRijen]);
+      await query(`UPDATE quiz_reopen_snapshots SET changed = true WHERE id = $1`, [snap.id]);
+    }
+    return { heeftSnapshot: true, gewijzigd: cmp.gewijzigd };
+  },
+
+  async verwijderIndividueleToegang(sessionCode, studentId, studentName) {
+    await query(
+      `DELETE FROM quiz_individual_access
+        WHERE session_code = $1
+          AND (student_id = $2 OR ($3::text IS NOT NULL AND LOWER(TRIM(student_name)) = LOWER(TRIM($3))))`,
+      [sessionCode, studentId || null, studentName || null]);
+  },
+
+  // Open heropeningen van een toets met per leerling of er al iets gewijzigd werd.
+  async getOpenHeropeningen(sessionCode) {
+    const toegang = await query(
+      `SELECT student_id, student_name, access_until FROM quiz_individual_access
+        WHERE session_code = $1 AND access_until > $2`, [sessionCode, Date.now()]);
+    const out = [];
+    for (const t of toegang.rows) {
+      const naamR = await query(
+        `SELECT MAX(student_name) AS n, BOOL_OR(submitted_at IS NOT NULL) AS ingediend FROM quiz_answers
+          WHERE session_code = $1
+            AND (student_id = $2 OR ($3::text IS NOT NULL AND LOWER(TRIM(student_name)) = LOWER(TRIM($3))))`,
+        [sessionCode, t.student_id, t.student_name]);
+      if (naamR.rows[0]?.ingediend) continue; // al opnieuw ingediend → geen open heropening meer
+      const cmp = await this.vergelijkMetSnapshot(sessionCode, t.student_id, t.student_name);
+      out.push({
+        id: t.student_id, name: t.student_name || naamR.rows[0]?.n || t.student_id || '?',
+        tot: Number(t.access_until), heeftSnapshot: cmp.heeftSnapshot, gewijzigd: cmp.gewijzigd,
+      });
+    }
+    return out;
+  },
+
+  // Verlopen heropeningen waarvan de leerling nooit opnieuw indiende.
+  async getVerlopenHeropeningen() {
+    const r = await query(
+      `SELECT i.session_code, i.student_id, i.student_name FROM quiz_individual_access i
+        WHERE i.access_until <= $1`, [Date.now()]);
+    return r.rows;
+  },
+
+  // Gewijzigde momentopnames zijn overbodig zodra de leerling volledig is nagekeken;
+  // al het andere ouder dan 90 dagen is een vergeten vangnet.
+  async ruimSnapshotsOp() {
+    await query(
+      `DELETE FROM quiz_reopen_snapshots s
+        WHERE s.created_at < $1
+           OR (s.changed AND NOT EXISTS (
+                SELECT 1 FROM quiz_answers a
+                 WHERE a.session_code = s.session_code
+                   AND (a.student_id = s.student_id
+                        OR (s.student_name IS NOT NULL AND LOWER(TRIM(a.student_name)) = LOWER(TRIM(s.student_name))))
+                   AND a.score IS NULL))`,
+      [Date.now() - 90 * 24 * 60 * 60 * 1000]);
   },
 
   // Sprint 95: geef één leerling een eigen, nieuwe "open tot" — ongeacht of de toets/taak

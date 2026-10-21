@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="nl"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PyCodeFlow — Toegang</title>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.125"/>
+<link rel="icon" href="assets/favicon.png" type="image/png">
+<style>
+  .tg-kaart { background:var(--surface); border:1.5px solid var(--border); border-radius:14px; padding:18px 20px; margin-bottom:18px; }
+  .tg-kaart h2 { margin:0 0 6px; font-size:1.1rem; }
+  .tg-status { display:inline-block; padding:3px 10px; border-radius:999px; font-weight:700; font-size:.82rem; }
+  .tg-ok { background:#dcfce7; color:#166534; } .tg-blok { background:#fee2e2; color:#991b1b; } .tg-let { background:#fef3c7; color:#92400e; }
+  .tg-rij { display:flex; align-items:center; gap:10px; padding:6px 8px; border-radius:8px; flex-wrap:wrap; }
+  .tg-rij:nth-child(even) { background:var(--bg); }
+  .tg-naam { font-weight:600; min-width:200px; } .tg-mail { color:var(--muted); font-size:.8rem; min-width:210px; }
+  .tg-acties { margin-left:auto; display:flex; gap:6px; align-items:center; }
+  #tg-zoek { padding:8px 12px; border:1.5px solid var(--border); border-radius:9px; width:100%; max-width:340px; margin:6px 0 10px; }
+</style>
+</head><body>
+<div class="topbar"><div class="topbar-inner">
+  <div class="logo-group"><img src="/assets/pycodeflow-logo.png" class="logo-small" alt=""/><span>PyCodeFlow</span></div>
+  <div class="top-actions"><a href="/api/teacher-logout" class="btn btn-muted small">Afmelden</a></div>
+</div></div>
+<div class="subnav"><div class="subnav-inner">
+  <a href="/quiz-bank.html">📋 Vragenbank</a>
+  <a href="/toets-overzicht.html">🧪 Toets overzicht</a>
+  <a href="/taak-overzicht.html">📝 Taak overzicht</a>
+  <a href="/mijn-klassen.html">👥 Mijn klassen</a>
+  <a href="/klasmatrix.html">📊 Klasoverzicht</a>
+  <a href="/training-overzicht.html">🎯 Trainingen</a>
+  <a href="/sjablonen.html">📚 Bibliotheek</a>
+  <a href="/quiz-archive.html">📦 Archief</a>
+  <a href="/teacher-toegang.html" class="active">🔓 Toegang</a>
+  <div class="subnav-sep"></div>
+  <a href="/admin.html">👤 Beheer</a>
+  <a href="/monitoring.html">⚙️ Systeem</a>
+</div></div>
+
+<div class="page">
+<h1>🔓 Toegang</h1>
+<p class="muted">Staat je klas of het schoolnetwerk vast door te veel mislukte inlogpogingen? Hier maak je dat zelf weer vrij,
+zonder de systeembeheerder. Alles wat je hier doet komt in het auditlogboek.</p>
+
+<div class="tg-kaart" id="tg-netwerk">
+  <h2>Mijn netwerk</h2>
+  <p id="tg-netwerk-tekst" class="muted">Laden…</p>
+  <button class="btn btn-primary" id="tg-netwerk-knop">Netwerk ontgrendelen</button>
+  <p class="muted" style="font-size:.78rem;margin:8px 0 0;">Wist alle blokkades en tellers van het netwerk waarmee je nu verbonden bent (<span id="tg-ip">…</span>).
+  Leerkrachten en beheerders worden zelf nooit geblokkeerd.</p>
+</div>
+
+<div class="tg-kaart">
+  <h2>Leerlingen uit mijn klassen</h2>
+  <p class="muted" style="margin:0;">Een leerling die zijn wachtwoord te vaak verkeerd intypte, kan hier meteen weer proberen.</p>
+  <input id="tg-zoek" type="search" placeholder="Zoek op naam, klas of e-mail…"/>
+  <label style="display:block;font-size:.85rem;margin-bottom:8px;"><input type="checkbox" id="tg-enkel-blok"/> Toon enkel leerlingen met mislukte pogingen</label>
+  <div id="tg-lijst"></div>
+</div>
+</div>
+<script src="/popups.js?v=v2026.2.51.125"></script>
+<script src="/app.js?v=v2026.2.51.125"></script>
+<script src="/teacher-toegang.js?v=v2026.2.51.125"></script>
+<script src="/nav-rechten.js"></script>
+<script src="/privacy.js?v=v2026.2.51.125"></script></body></html>

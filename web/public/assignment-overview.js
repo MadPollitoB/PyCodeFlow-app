@@ -115,6 +115,7 @@
       case 'verbeteren': return '<a class="' + cls + '" href="/quiz-review.html?code=' + c + '">Verbeteren</a>';
       case 'scores':     return '<a class="' + cls + '" href="/quiz-review.html?code=' + c + '">Scores</a>';
       case 'heropenen':  return '<button class="btn btn-muted small" ' + js('heropenToetsVoorLeerlingen(' + q + ',' + qn + ')') + '>' + (TYPE === 'taak' ? 'Taak' : 'Toets') + ' heropenen</button>';
+      case 'heropening_terug': return '<button class="btn btn-muted small" ' + js('heropeningTerugdraaien(' + q + ',' + qn + ')') + ' title="Zet een heropening voor bepaalde leerlingen terug dicht">Heropening terugdraaien</button>';
       case 'dupliceren': return '<button class="btn btn-muted small" ' + js('duplicateQuiz(' + q + ')') + '>Dupliceren</button>';
       case 'sjabloon':   return '<button class="btn btn-muted small" ' + js('saveAsTemplate(' + q + ')') + '>Bewaar als sjabloon</button>';
       case 'archiveren': return '<button class="btn btn-muted small" ' + js('archiveerToets(' + q + ',true)') + '>Archiveren</button>';
@@ -265,6 +266,34 @@
       if (window.reloadAssignments) window.reloadAssignments();
     } catch (e) {
       if (window.pyAlert) pyAlert('Heropenen mislukt: ' + e.message, 'error');
+    }
+  };
+
+  // v121: heropening per leerling terugdraaien. Zonder wijzigingen sluit de leerling gewoon
+  // weer; mét wijzigingen kiest de leerkracht per leerling (slider) of die wijziging
+  // aanvaard wordt (score vervalt) of niet (oude versie komt terug).
+  window.heropeningTerugdraaien = async function (code, naam) {
+    try {
+      var r = await fetch('/api/quiz-sessions/' + code + '/reopen-open');
+      var d = await r.json();
+      if (!r.ok) { if (window.pyAlert) pyAlert('Kon de open heropeningen niet laden.', 'error'); return; }
+      var lijst = d.students || [];
+      if (!lijst.length) { if (window.pyAlert) pyAlert('Er staat geen heropening meer open.', 'info'); return; }
+      var keuze = window.pyTerugdraaiPicker ? await window.pyTerugdraaiPicker({ naam: naam, studenten: lijst }) : null;
+      if (!keuze) return;
+      var fetcher = window.apiFetch || fetch;
+      var resp = await fetcher('/api/quiz-sessions/' + code + '/reopen-undo', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ students: keuze }),
+      });
+      var data = await resp.json().catch(function () { return {}; });
+      if (!resp.ok) throw new Error(data.error || resp.status);
+      var aanv = (data.resultaat || []).filter(function (x) { return x.uitkomst === 'aanvaard'; }).length;
+      if (window.pyToast) pyToast((data.resultaat || []).length + ' heropening(en) teruggedraaid' +
+        (aanv ? ' — ' + aanv + ' wijziging(en) aanvaard, die moeten opnieuw nagekeken worden' : '') + '.', 'success');
+      if (window.reloadAssignments) window.reloadAssignments();
+    } catch (e) {
+      if (window.pyAlert) pyAlert('Terugdraaien mislukt: ' + e.message, 'error');
     }
   };
 

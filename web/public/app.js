@@ -438,9 +438,12 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
     const card = qs(`${prefix}-announcement-card`);
     const body = qs(`${prefix}-announcement-text`);
     if (!card || !body) return;
-    const value = (text || '').trim();
-    body.textContent = value;
-    card.classList.toggle('hidden', !value);
+    // v125: opgemaakte opdrachten (vet/kleur/code); sanitizeRt is de strikte whitelist.
+    const html = window.sanitizeRt ? window.sanitizeRt(text || '') : String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const leeg = window.rtLeeg ? window.rtLeeg(html) : !html.trim();
+    body.innerHTML = leeg ? '' : html;
+    if (!leeg && window.rtVerrijk) window.rtVerrijk(body);
+    card.classList.toggle('hidden', leeg);
   }
 
   function layoutEditor(owner, resetView = false) {
@@ -1042,7 +1045,10 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       return;
     }
 
-    host.innerHTML = students.map(s => {
+    const OFFLINE_ROOD_NA_MS = 60 * 1000;   // v124: eerst even de automatische herverbinding afwachten
+    const kaartHtml = s => {
+      const offlineMs = !s.online && s.offlineSince ? Date.now() - s.offlineSince : 0;
+      const offlineRood = !s.online && (!s.offlineSince || offlineMs >= OFFLINE_ROOD_NA_MS);
       // Klaar-badge
       const doneBadge = s.isDone
         ? `<span class="tab-badge tab-badge-done" title="Leerling heeft oefening afgerond">✓ Klaar</span>`
@@ -1087,13 +1093,13 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       }[s.joinBadge] || '';
 
       return `
-      <div class="student-item${isExamMode && s.tabHidden ? ' student-item-alert' : ''}${s.handRaised ? ' student-item-hand' : ''}">
+      <div class="student-item${isExamMode && s.tabHidden ? ' student-item-alert' : ''}${s.handRaised ? ' student-item-hand' : ''}${offlineRood ? ' student-item-offline' : ''}">
         <div class="student-head">
           <div>
             <strong>${escapeHtml(s.name)}</strong> ${runStatusIcon}
             ${doneBadge}${handBadge}${tabBadge}
             ${badgeHtml}
-            <br/><span class="muted">${s.online ? 'online' : 'offline'}</span>
+            <br/><span class="muted">${s.online ? 'online' : (offlineRood ? '○ offline' + (s.offlineSince ? ' sinds ' + Math.max(1, Math.round(offlineMs / 60000)) + ' min' : '') : '○ verbinding herstellen…')}</span>
           </div>
         </div>
         <div class="row" style="flex-wrap:wrap; gap:4px; margin-top:6px;">
@@ -1109,7 +1115,37 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
           }
         </div>
       </div>`;
-    }).join('');
+    };
+    // v124: online (en nog even herverbindende) leerlingen bovenaan; wie echt offline is,
+    // zit in een inklapbare groep onderaan met een Opruimen-knop. Nooit automatisch verwijderd.
+    const isEchtOffline = x => !x.online && (!x.offlineSince || Date.now() - x.offlineSince >= OFFLINE_ROOD_NA_MS);
+    const aanwezig = students.filter(x => !isEchtOffline(x));
+    const weg = students.filter(isEchtOffline);
+    let html = aanwezig.map(kaartHtml).join('');
+    if (weg.length) {
+      const open = window._offlineGroepOpen === true ? ' open' : '';
+      html += `<details class="offline-groep" data-offline-groep${open}>
+        <summary>Offline (${weg.length}) <button type="button" class="btn btn-danger small" data-cleanup-offline style="margin-left:10px;">🧹 Opruimen</button></summary>
+        ${weg.map(kaartHtml).join('')}
+      </details>`;
+    }
+    host.innerHTML = html;
+    const offlineGroep = host.querySelector('[data-offline-groep]');
+    if (offlineGroep) offlineGroep.addEventListener('toggle', () => { window._offlineGroepOpen = offlineGroep.open; });
+    host.querySelector('[data-cleanup-offline]')?.addEventListener('click', async ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      const ok = window.pyConfirm
+        ? await pyConfirm({ title: 'Offline opruimen', body: `${weg.length} offline leerling(en) uit dit sessieblad verwijderen? Wie opnieuw inlogt, komt gewoon terug.`, confirmLabel: 'Opruimen', danger: true })
+        : true;
+      if (ok) socket.emit('teacher_cleanup_offline');
+    });
+    // Herteken zodra de eerste 'herverbinden'-leerling over de grens gaat (rood na 60 s).
+    clearTimeout(window._offlineHertekenTimer);
+    const wachtend = students.filter(x => !x.online && x.offlineSince && Date.now() - x.offlineSince < OFFLINE_ROOD_NA_MS);
+    if (wachtend.length) {
+      const volgende = Math.min(...wachtend.map(x => OFFLINE_ROOD_NA_MS - (Date.now() - x.offlineSince)));
+      window._offlineHertekenTimer = setTimeout(() => renderStudentList(data), Math.max(500, volgende + 200));
+    }
 
     // Event listeners na render
     host.querySelectorAll('[data-toggle-student]').forEach(btn => btn.addEventListener('click', () =>
@@ -1602,6 +1638,7 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
           <td style="padding:4px 8px;">${escapeHtml(st.name)}${st.online ? ' <span title="Nu live verbonden" style="color:#16a34a;">🟢</span>' : ''}</td>
           <td style="padding:4px 8px;color:${info.kleur};white-space:nowrap;">${info.icoon} ${info.label}${individueelChip}</td>
           <td style="padding:4px 8px;text-align:center;">${voortgangChip}</td>
+          <td style="padding:4px 8px;">${incidentChips(st.incidenten)}</td>
           <td style="padding:4px 8px;text-align:center;">${
             aanvinkbaar
               ? `<label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:0.8rem;white-space:nowrap;"><input type="checkbox" ${st.status === 'gewettigd' ? 'checked' : ''}
@@ -1617,6 +1654,7 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
                <th style="text-align:left;padding:4px 8px;">Leerling</th>
                <th style="text-align:left;padding:4px 8px;">Status</th>
                <th style="padding:4px 8px;white-space:nowrap;">Voortgang</th>
+               <th style="padding:4px 8px;white-space:nowrap;" title="Verdachte acties tijdens de toets/taak">Incidenten</th>
                <th style="padding:4px 8px;white-space:nowrap;">Afwezigheid</th>
                <th style="padding:4px 8px;white-space:nowrap;">Indiening</th>
              </tr></thead><tbody>${d.students.map(rij).join('')}</tbody></table></div>
@@ -1812,7 +1850,24 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
   };
 
   // Sprint 79: een per ongeluk ingediende toets/taak terug openzetten voor één leerling.
-  window.heropenLeerling = async function(code, studentId, studentName) {
+  // v122: kleine badges met het aantal verdachte acties per type (plakken, tweede scherm, ...).
+const INCIDENT_LABELS = {
+  plakken: ['📋 plakken', 'Plakpogingen (geblokkeerd)'], kopieren: ['📄 kopiëren', 'Kopieerpogingen (geblokkeerd)'],
+  knippen: ['✂️ knippen', 'Knippogingen (geblokkeerd)'], slepen: ['🖱️ slepen', 'Sleeppogingen (geblokkeerd)'],
+  tweede_scherm: ['🖥️ 2e scherm', 'Tweede scherm aangesloten tijdens de toets'],
+  tweede_scherm_start: ['🖥️ 2e scherm bij start', 'Probeerde te starten met een tweede scherm (toets opende niet)'],
+  fullscreen_uit: ['⛶ volledig scherm uit', 'Verliet het volledige scherm'], tabwissel: ['🔀 tabwissel', 'Wisselde van tabblad of venster'],
+};
+function incidentChips(inc) {
+  const keys = Object.keys(inc || {});
+  if (!keys.length) return '<span class="muted" style="font-size:0.78rem;">—</span>';
+  return keys.map(function (k) {
+    const l = INCIDENT_LABELS[k] || [k, k];
+    return '<span class="badge" style="background:#fee2e2;color:#991b1b;margin:1px 2px;white-space:nowrap;" title="' + l[1] + '">' + l[0] + ' ' + inc[k] + '</span>';
+  }).join('');
+}
+
+window.heropenLeerling = async function(code, studentId, studentName) {
     const ok = await pyConfirm({
       title: 'Heropenen?',
       body: `De toets/taak van "${studentName}" terug openzetten? De leerling kan dan verder ` +
@@ -2009,7 +2064,10 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
         return;
       }
       if (errorEl) errorEl.textContent = '';
-      socket.emit('student_join', { name, code, className });
+      // v124: gast die opnieuw inlogt in dezelfde sessie → zelfde blok terugkrijgen (geen dubbel).
+      let resumeId = null;
+      try { if (getLS('studentSessionCode') === code.toUpperCase() && getLS('studentId')) resumeId = getLS('studentId'); } catch (e) { /* geen resume */ }
+      socket.emit('student_join', { name, code, className, resumeId });
     };
 
     qs('student-join-btn')?.addEventListener('click', submitStudentJoin);
@@ -2311,6 +2369,58 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
     if (!code) go('/teacher-sessions.html');
     socket.emit('teacher_join_session', { code });
 
+    // v125: verbinding van de leerkracht bewaken. Na een wifi-hapering krijgt de browser een nieuwe
+    // socket die de server niet meer aan deze sessie koppelt; dan leek alles open maar werkte niets.
+    // 1) bij elke herverbinding meteen opnieuw koppelen (zonder de leerlingrechten te resetten);
+    // 2) elke 20 s en bij terugkeer van netwerk/tabblad controleren of de server ons nog kent.
+    (function bewaakLeerkrachtVerbinding() {
+      let eersteVerbinding = true;
+      let banner = null;
+      const toonBanner = (tekst, rood) => {
+        if (!banner) {
+          banner = document.createElement('div');
+          banner.id = 'teacher-conn-banner';
+          banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:20000;padding:8px 14px;text-align:center;font-weight:700;font-size:.9rem;color:#fff;';
+          document.body.appendChild(banner);
+        }
+        banner.style.background = rood ? '#b91c1c' : '#15803d';
+        banner.textContent = tekst;
+        banner.style.display = 'block';
+      };
+      const verberg = () => { if (banner) banner.style.display = 'none'; };
+      const rebind = () => socket.emit('teacher_rebind', { code: getLS('teacherSessionCode') });
+      socket.on('connect', () => {
+        if (eersteVerbinding) { eersteVerbinding = false; return; }
+        rebind();
+        toonBanner('✓ Verbinding hersteld', false);
+        setTimeout(verberg, 2500);
+      });
+      socket.on('disconnect', () => toonBanner('⚠ Verbinding verbroken — bezig met herstellen…', true));
+      let controleBezig = false;
+      const controleer = () => {
+        if (controleBezig) return;
+        if (!socket.connected) { toonBanner('⚠ Verbinding verbroken — bezig met herstellen…', true); socket.connect(); return; }
+        controleBezig = true;
+        let antwoord = false;
+        const stop = setTimeout(() => {
+          controleBezig = false;
+          if (antwoord) return;
+          // Geen antwoord: de verbinding is stil weggevallen. Forceer een verse verbinding.
+          toonBanner('⚠ Verbinding reageert niet — opnieuw verbinden…', true);
+          try { socket.disconnect(); } catch (e) { /* niets */ }
+          socket.connect();
+        }, 6000);
+        socket.emit('teacher_ping', (r) => {
+          antwoord = true; clearTimeout(stop); controleBezig = false;
+          if (!r || !r.ok) rebind();   // verbonden, maar de server kent deze sessie niet meer bij ons
+        });
+      };
+      setInterval(controleer, 20000);
+      window.addEventListener('online', controleer);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) controleer(); });
+      window._teacherControleerVerbinding = controleer;
+    })();
+
     // Tab-klik: wissel paneel en stuur in klasmodus een force_panel naar alle leerlingen
     document.querySelectorAll('[data-owner="teacher"][data-tab]').forEach(btn => btn.addEventListener('click', () => {
       const tab = btn.dataset.tab;
@@ -2377,15 +2487,15 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       const gesorteerd = [...students].sort((a, b) => a.name.localeCompare(b.name, 'nl'));
       const runHost = qs('tfs-pills-row-run');
       if (runHost) {
-        runHost.innerHTML = gesorteerd.map(s => `<button type="button" class="tfs-pill tfs-pill-run ${s.canRun ? 'tfs-pill-active' : ''}"
+        runHost.innerHTML = gesorteerd.map(s => `<button type="button" class="tfs-pill tfs-pill-run ${s.canRun ? 'tfs-pill-active' : ''}${s.online ? '' : ' tfs-pill-offline'}"
           title="${s.canRun ? 'Heeft momenteel run-recht' : 'Klik om enkel run-recht te geven'}"
-          onclick="window._tfsToggleField('${s.id}','run')">${escapeHtml(s.name)}</button>`).join('');
+          onclick="window._tfsToggleField('${s.id}','run')"><span class="tfs-bullet"></span>${escapeHtml(s.name)}</button>`).join('');
       }
       const codeHost = qs('tfs-pills-row-code');
       if (codeHost) {
-        codeHost.innerHTML = gesorteerd.map(s => `<button type="button" class="tfs-pill tfs-pill-code ${s.canEdit ? 'tfs-pill-active' : ''}"
+        codeHost.innerHTML = gesorteerd.map(s => `<button type="button" class="tfs-pill tfs-pill-code ${s.canEdit ? 'tfs-pill-active' : ''}${s.online ? '' : ' tfs-pill-offline'}"
           title="${s.canEdit ? 'Heeft momenteel bewerkrecht' : 'Klik om enkel bewerkrecht te geven'}"
-          onclick="window._tfsToggleField('${s.id}','code')">${escapeHtml(s.name)}</button>`).join('');
+          onclick="window._tfsToggleField('${s.id}','code')"><span class="tfs-bullet"></span>${escapeHtml(s.name)}</button>`).join('');
       }
 
       // Groene "Klaar"-balk.
@@ -2423,44 +2533,11 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       if (_tfsActive) return;
       _tfsActive = true;
       // De echte, levende elementen verhuizen (niet dupliceren) — zo blijft alle
-      // bestaande logica (Monaco-editor, opdracht versturen, ...) gewoon intact.
+      // bestaande logica (Monaco-editor, opdracht versturen, bewaren, ...) gewoon intact.
+      // v125: opdracht, voorbeelden en timer staan bovenaan; codeveld links, lijsten rechts.
       qs('tfs-editor-slot')?.appendChild(document.querySelector('.workspace .editor-shell'));
-      qs('tfs-announcement-slot')?.appendChild(document.querySelector('.announcement-compose'));
-      // Bugfix (sprint 66.5): de CSS-override (.tfs-sidebar .announcement-compose-grid)
-      // bleek — om een reden die ik via codereview alleen niet kon vaststellen (mogelijk
-      // cascade/caching) — niet altijd door te komen: de Sturen/Wissen-knoppen bleven
-      // naast het tekstvak staan i.p.v. eronder. Nu rechtstreeks als inline stijl
-      // opgelegd op het moment van verplaatsen — dat wint altijd, ongeacht CSS-cascade
-      // of caching, en wordt bij het verlaten weer netjes verwijderd (zie exitFullscreen).
-      const announcementGrid = document.querySelector('.announcement-compose-grid');
-      if (announcementGrid) {
-        announcementGrid.style.display = 'flex';
-        announcementGrid.style.flexDirection = 'column';
-        announcementGrid.style.gap = '10px';
-        // Bugfix (sprint 67.1): enkel de GRID zelf op flex-column zetten volstond niet
-        // — er bleef een brede, lege ruimte staan vóór het opdrachtveld. De eerste
-        // rechtstreekse child (het blokje met label + tekstvak + navigatie) kreeg tot nu
-        // toe géén expliciete breedte, en bleef blijkbaar smaller dan de beschikbare
-        // ruimte in bepaalde gevallen. Nu elk onderdeel afzonderlijk, expliciet op volle
-        // breedte gezet — geen enkele CSS-regel kan dit nog tegenhouden.
-        Array.from(announcementGrid.children).forEach(child => {
-          child.style.width = '100%';
-          child.style.boxSizing = 'border-box';
-          child.style.display = 'block';
-        });
-      }
-      const announcementLabel = document.querySelector('.announcement-label');
-      if (announcementLabel) { announcementLabel.style.width = '100%'; announcementLabel.style.display = 'block'; }
-      const announcementTextarea = document.getElementById('teacher-announcement-input');
-      if (announcementTextarea) { announcementTextarea.style.width = '100%'; announcementTextarea.style.boxSizing = 'border-box'; }
-      const announcementNav = document.querySelector('.announcement-nav');
-      if (announcementNav) { announcementNav.style.width = '100%'; announcementNav.style.display = 'flex'; }
-      const announcementActions = document.querySelector('.announcement-actions');
-      if (announcementActions) {
-        announcementActions.style.width = '100%';
-        announcementActions.style.display = 'flex';
-        announcementActions.querySelectorAll('.btn').forEach(btn => { btn.style.flex = '1'; });
-      }
+      qs('tfs-slot-opdracht')?.appendChild(qs('opdracht-compose'));
+      qs('tfs-slot-voorbeeld')?.appendChild(qs('code-compose'));
       qs('teacher-fullscreen-overlay')?.classList.remove('hidden');
       // Monaco moet expliciet weten dat zijn container van grootte veranderde.
       setTimeout(() => editorStore.teacher?.layout(), 30);
@@ -2474,32 +2551,10 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       _tfsActive = false;
       const editorShell = qs('tfs-editor-slot')?.querySelector('.editor-shell');
       if (editorShell) qs('tfs-anchor-editor')?.insertAdjacentElement('afterend', editorShell);
-      const announcement = qs('tfs-announcement-slot')?.querySelector('.announcement-compose');
-      if (announcement) qs('tfs-anchor-announcement')?.insertAdjacentElement('afterend', announcement);
-      // Sprint 66.5/67.1: de bij het binnengaan opgelegde inline stijlen weer
-      // opruimen, zodat de normale (niet-fullscreen) weergave er weer precies als
-      // voorheen uitziet.
-      const announcementGrid2 = document.querySelector('.announcement-compose-grid');
-      if (announcementGrid2) {
-        announcementGrid2.style.display = '';
-        announcementGrid2.style.flexDirection = '';
-        announcementGrid2.style.gap = '';
-        Array.from(announcementGrid2.children).forEach(child => {
-          child.style.width = ''; child.style.boxSizing = ''; child.style.display = '';
-        });
-      }
-      const announcementLabel2 = document.querySelector('.announcement-label');
-      if (announcementLabel2) { announcementLabel2.style.width = ''; announcementLabel2.style.display = ''; }
-      const announcementTextarea2 = document.getElementById('teacher-announcement-input');
-      if (announcementTextarea2) { announcementTextarea2.style.width = ''; announcementTextarea2.style.boxSizing = ''; }
-      const announcementNav2 = document.querySelector('.announcement-nav');
-      if (announcementNav2) { announcementNav2.style.width = ''; announcementNav2.style.display = ''; }
-      const announcementActions2 = document.querySelector('.announcement-actions');
-      if (announcementActions2) {
-        announcementActions2.style.width = '';
-        announcementActions2.style.display = '';
-        announcementActions2.querySelectorAll('.btn').forEach(btn => { btn.style.flex = ''; });
-      }
+      const opdracht = qs('opdracht-compose');
+      if (opdracht) qs('tfs-anchor-announcement')?.insertAdjacentElement('afterend', opdracht);
+      const voorbeeld = qs('code-compose');
+      if (voorbeeld) qs('tfs-anchor-code')?.insertAdjacentElement('afterend', voorbeeld);
       qs('teacher-fullscreen-overlay')?.classList.add('hidden');
       setTimeout(() => editorStore.teacher?.layout(), 30);
       if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
@@ -2549,7 +2604,7 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       document.addEventListener('mousemove', (e) => {
         if (!slepen) return;
         // Breedte van de zijkolom = afstand van de muis tot de rechterrand van het venster.
-        const nieuweBreedte = Math.min(560, Math.max(220, window.innerWidth - e.clientX - 18));
+        const nieuweBreedte = Math.min(Math.round(window.innerWidth * 0.75), Math.max(320, window.innerWidth - e.clientX - 18));
         overlay.style.setProperty('--tfs-sidebar-w', nieuweBreedte + 'px');
       });
       document.addEventListener('mouseup', () => {
@@ -2799,13 +2854,99 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
         items[_focusedStudentIdx].querySelector('[data-live-control]')?.click();
       }
     });
-    // Sprint 67: meerdere voorbereide oefeningen — puur client-side bijgehouden
-    // schrijfblok, "Sturen" verstuurt telkens gewoon de op dat moment zichtbare tekst.
+    // ── Voorbereide opdrachten en codevoorbeelden ────────────────────────────────────────────
+    // Sprint 67 / v123 / v125. Je typt vrij; lokaal wordt (vertraagd) in deze browser onthouden, en
+    // met de knop "💾 Bewaar" gaat alles naar de sessie op de server (dan staan ze er ook op een
+    // andere laptop). Er wordt NOOIT automatisch naar de server geschreven tijdens het typen.
+    const opdrEl = () => qs('teacher-announcement-input');
+    const rtSan = (t) => (window.sanitizeRt ? window.sanitizeRt(t) : String(t || ''));
+    const rtIsLeeg = (t) => (window.rtLeeg ? window.rtLeeg(t) : !String(t || '').trim());
+    function opdrKrijg() { const el = opdrEl(); return el ? rtSan(el.innerHTML) : ''; }
+    function rtPlaceholder() { const el = opdrEl(); if (el) el.classList.toggle('rt-leeg', rtIsLeeg(el.innerHTML)); }
+    function opdrZet(html) { const el = opdrEl(); if (!el) return; el.innerHTML = rtSan(html || ''); rtPlaceholder(); }
+
     let _announcementDrafts = [''];
     let _announcementDraftIdx = 0;
+    let _codeDrafts = [''];
+    let _codeDraftIdx = 0;
     // v112: serverstand van een verstuurde reeks (leeg = geen reeks actief).
     let _reeksServer = { items: [], idx: 0 };
-    function aantalDrafts() { return _announcementDrafts.filter(t => (t || '').trim()).length; }
+    let _serverDrafts = null;     // wat bij de sessie bewaard staat (of null)
+    let _draftsInit = false;
+    const draftSleutel = () => 'pcf-drafts-' + (getLS('teacherSessionCode') || '');
+    let _lokaalTimer = null;
+    function lokaalBewaren() {
+      clearTimeout(_lokaalTimer);
+      _lokaalTimer = setTimeout(() => {
+        try { localStorage.setItem(draftSleutel(), JSON.stringify({ o: _announcementDrafts, v: _codeDrafts })); } catch { /* stil */ }
+      }, 400);
+    }
+    try {
+      const b = JSON.parse(localStorage.getItem(draftSleutel()) || 'null');
+      if (b && Array.isArray(b.o) && b.o.length) _announcementDrafts = b.o.map(t => rtSan(t));
+      if (b && Array.isArray(b.v) && b.v.length) _codeDrafts = b.v.map(t => String(t || ''));
+      else {
+        // oude, gedeelde opslag van v123 eenmalig overnemen
+        const oud = JSON.parse(localStorage.getItem('pcf-code-drafts') || 'null');
+        if (Array.isArray(oud) && oud.length) _codeDrafts = oud.map(t => String(t || ''));
+      }
+    } catch { /* geen opslag beschikbaar: gewoon leeg starten */ }
+
+    const lokaleStand = () => JSON.stringify({ o: _announcementDrafts.map(rtSan), v: _codeDrafts });
+    const heeftInhoud = () => _announcementDrafts.some(t => !rtIsLeeg(t)) || _codeDrafts.some(t => String(t || '').trim());
+    const serverStand = () => _serverDrafts ? JSON.stringify({ o: (_serverDrafts.opdrachten || []).map(rtSan), v: _serverDrafts.voorbeelden || [] }) : null;
+    function draftsStatusRender() {
+      const srv = serverStand();
+      let tekst = '', klasse = '', laadZichtbaar = false;
+      if (srv === null) {
+        if (heeftInhoud()) { tekst = '● Nog niet bewaard bij de sessie'; klasse = 'drafts-open'; }
+      } else if (srv === lokaleStand()) {
+        const t = _serverDrafts.savedAt ? new Date(_serverDrafts.savedAt).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' }) : '';
+        tekst = '✓ Bewaard' + (t ? ' om ' + t : ''); klasse = 'drafts-ok';
+      } else {
+        tekst = '● Wijzigingen nog niet bewaard'; klasse = 'drafts-open'; laadZichtbaar = true;
+      }
+      document.querySelectorAll('[data-drafts-status]').forEach(el => { el.textContent = tekst; el.className = 'drafts-status ' + klasse; });
+      document.querySelectorAll('[data-drafts-load]').forEach(el => el.classList.toggle('hidden', !laadZichtbaar));
+    }
+    function draftsToepassen(drafts) {
+      _announcementDrafts = (drafts.opdrachten && drafts.opdrachten.length ? drafts.opdrachten : ['']).map(rtSan);
+      _codeDrafts = (drafts.voorbeelden && drafts.voorbeelden.length ? drafts.voorbeelden : ['']).map(t => String(t || ''));
+      _announcementDraftIdx = 0; _codeDraftIdx = 0;
+      opdrZet(_announcementDrafts[0]);
+      announcementNavRender(); codeNavRender(); lokaalBewaren();
+    }
+    // Wordt bij elke sessiedata aangeroepen: de EERSTE keer vult dit een leeg schrijfblok met wat
+    // bij de sessie bewaard staat; nadien overschrijft het nooit iets zonder dat jij het vraagt.
+    window.draftsSync = function (drafts) {
+      _serverDrafts = drafts && Array.isArray(drafts.opdrachten) ? drafts : null;
+      if (!_draftsInit) {
+        _draftsInit = true;
+        if (_serverDrafts && !heeftInhoud()) draftsToepassen(_serverDrafts);
+      }
+      draftsStatusRender();
+    };
+    document.querySelectorAll('[data-drafts-save]').forEach(btn => btn.addEventListener('click', () => {
+      _announcementDrafts[_announcementDraftIdx] = opdrKrijg();
+      const payload = { opdrachten: _announcementDrafts.map(rtSan), voorbeelden: _codeDrafts };
+      let klaar = false;
+      const stop = setTimeout(() => { if (!klaar && window.pyAlert) pyAlert('Bewaren duurde te lang — controleer de verbinding en probeer opnieuw.', 'warn'); }, 8000);
+      socket.emit('teacher_save_drafts', payload, (r) => {
+        klaar = true; clearTimeout(stop);
+        if (r && r.ok) {
+          _serverDrafts = { ...payload, savedAt: r.savedAt };
+          draftsStatusRender();
+          if (window.pyToast) pyToast('Opdrachten en voorbeelden bewaard bij de sessie.', 'success');
+        } else if (window.pyAlert) pyAlert('Bewaren mislukt: ' + ((r && r.error) || 'onbekende fout'), 'error');
+      });
+    }));
+    document.querySelectorAll('[data-drafts-load]').forEach(btn => btn.addEventListener('click', async () => {
+      if (!_serverDrafts) return;
+      const ok = window.pyConfirm ? await pyConfirm({ title: 'Bewaarde versie laden', body: 'Alles wat je nu hebt in de opdrachten en voorbeelden wordt vervangen door de versie die bij de sessie bewaard staat.', confirmLabel: 'Laden' }) : true;
+      if (ok) draftsToepassen(_serverDrafts);
+    }));
+
+    function aantalDrafts() { return _announcementDrafts.filter(t => !rtIsLeeg(t)).length; }
     function announcementNavRender() {
       const posEl = qs('announcement-nav-pos');
       if (posEl) posEl.textContent = `${_announcementDraftIdx + 1} / ${_announcementDrafts.length}`;
@@ -2831,58 +2972,114 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       const items = Array.isArray(data?.opdrachten) ? data.opdrachten : [];
       _reeksServer = { items, idx: data?.opdrachtIdx || 0 };
       if (items.length && aantalDrafts() === 0) {
-        _announcementDrafts = items.slice();
+        _announcementDrafts = items.map(rtSan);
         _announcementDraftIdx = Math.min(_reeksServer.idx, items.length - 1);
-        qs('teacher-announcement-input').value = _announcementDrafts[_announcementDraftIdx];
+        opdrZet(_announcementDrafts[_announcementDraftIdx]);
       }
       announcementNavRender();
     };
+
+    // ── Opmaakbalk ──
+    (function setupRt() {
+      const el = opdrEl(); const tb = qs('rt-toolbar');
+      if (!el || !tb) return;
+      const selectie = () => {
+        const sel = window.getSelection();
+        if (!sel || !sel.rangeCount) return null;
+        const r = sel.getRangeAt(0);
+        return el.contains(r.commonAncestorContainer) ? { sel, r } : null;
+      };
+      const meld = (t) => { if (window.pyToast) pyToast(t, 'info'); };
+      const ontkleur = (node) => node.querySelectorAll && node.querySelectorAll('span[class^="rt-c"]').forEach(sp => { sp.replaceWith(...sp.childNodes); });
+      const gewijzigd = () => { el.dispatchEvent(new Event('input', { bubbles: true })); };
+      tb.addEventListener('mousedown', e => { if (e.target.closest('.rt-btn')) e.preventDefault(); });
+      tb.addEventListener('click', e => {
+        const knop = e.target.closest('.rt-btn'); if (!knop) return;
+        el.focus();
+        if (knop.dataset.rt === 'bold' || knop.dataset.rt === 'italic' || knop.dataset.rt === 'underline') {
+          document.execCommand(knop.dataset.rt); gewijzigd(); return;
+        }
+        const s = selectie();
+        if (!s || s.r.collapsed) { meld('Selecteer eerst een stuk tekst in het opdrachtveld.'); return; }
+        const { sel, r } = s;
+        if (knop.dataset.rtKleur !== undefined) {
+          const n = Number(knop.dataset.rtKleur);
+          const frag = r.extractContents(); ontkleur(frag);
+          let doel;
+          if (n === 0) { doel = frag; r.insertNode(frag); }
+          else { doel = document.createElement('span'); doel.className = 'rt-c' + n; doel.appendChild(frag); r.insertNode(doel); sel.removeAllRanges(); const nr = document.createRange(); nr.selectNodeContents(doel); sel.addRange(nr); }
+          gewijzigd(); return;
+        }
+        if (knop.dataset.rt === 'code') {
+          const tekst = sel.toString();
+          if (!tekst.trim()) return;
+          const blok = /\n/.test(tekst.replace(/\n+$/, ''));
+          const c = document.createElement(blok ? 'pre' : 'code');
+          c.textContent = blok ? tekst.replace(/\n+$/, '') : tekst;
+          r.deleteContents(); r.insertNode(c);
+          const na = document.createTextNode(' '); c.after(na);
+          sel.removeAllRanges(); const nr = document.createRange(); nr.setStartAfter(na); nr.collapse(true); sel.addRange(nr);
+          gewijzigd(); return;
+        }
+        if (knop.dataset.rt === 'wis') {
+          document.execCommand('insertText', false, sel.toString()); gewijzigd();
+        }
+      });
+      // Plakken en slepen: enkel gewone tekst, nooit vreemde opmaak.
+      el.addEventListener('paste', e => {
+        e.preventDefault();
+        const t = (e.clipboardData || window.clipboardData).getData('text/plain');
+        document.execCommand('insertText', false, t);
+      });
+      el.addEventListener('drop', e => e.preventDefault());
+    })();
     qs('teacher-announcement-input')?.addEventListener('input', () => {
-      _announcementDrafts[_announcementDraftIdx] = qs('teacher-announcement-input').value;
-      announcementNavRender();
+      _announcementDrafts[_announcementDraftIdx] = opdrKrijg();
+      rtPlaceholder(); lokaalBewaren(); announcementNavRender(); draftsStatusRender();
     });
     qs('announcement-nav-prev-btn')?.addEventListener('click', () => {
       if (_announcementDraftIdx === 0) return;
       _announcementDraftIdx--;
-      qs('teacher-announcement-input').value = _announcementDrafts[_announcementDraftIdx];
+      opdrZet(_announcementDrafts[_announcementDraftIdx]);
       announcementNavRender();
       meldAangeduideOefening();
     });
     qs('announcement-nav-next-btn')?.addEventListener('click', () => {
       if (_announcementDraftIdx >= _announcementDrafts.length - 1) return;
       _announcementDraftIdx++;
-      qs('teacher-announcement-input').value = _announcementDrafts[_announcementDraftIdx];
+      opdrZet(_announcementDrafts[_announcementDraftIdx]);
       announcementNavRender();
       meldAangeduideOefening();
     });
     qs('announcement-nav-add-btn')?.addEventListener('click', () => {
       _announcementDrafts.push('');
       _announcementDraftIdx = _announcementDrafts.length - 1;
-      qs('teacher-announcement-input').value = '';
-      qs('teacher-announcement-input').focus();
-      announcementNavRender();
+      opdrZet('');
+      opdrEl().focus();
+      announcementNavRender(); lokaalBewaren(); draftsStatusRender();
     });
+    opdrZet(_announcementDrafts[0]);
     announcementNavRender();
 
     qs('teacher-announcement-send-btn')?.addEventListener('click', () => {
-      socket.emit('teacher_send_announcement', { text: qs('teacher-announcement-input').value });
+      socket.emit('teacher_send_announcement', { text: opdrKrijg() });
       _reeksServer = { items: [], idx: 0 };
       announcementNavRender();
     });
     qs('teacher-announcement-series-btn')?.addEventListener('click', () => {
       // Lege oefeningen tellen niet mee; de aangeduide oefening blijft dezelfde.
       const huidige = _announcementDrafts[_announcementDraftIdx];
-      const items = _announcementDrafts.filter(t => (t || '').trim());
+      const items = _announcementDrafts.filter(t => !rtIsLeeg(t));
       const idx = Math.max(0, items.indexOf(huidige));
       socket.emit('teacher_send_assignments', { items, index: idx });
     });
     qs('teacher-announcement-clear-btn')?.addEventListener('click', async () => {
       const n = _reeksServer.items.length;
       if (!n) {
-        qs('teacher-announcement-input').value = '';
+        opdrZet('');
         _announcementDrafts[_announcementDraftIdx] = '';
         socket.emit('teacher_send_announcement', { text: '' });
-        announcementNavRender();
+        announcementNavRender(); lokaalBewaren(); draftsStatusRender();
         return;
       }
       const vraag = window.pyConfirm;
@@ -2894,8 +3091,8 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
           _announcementDrafts.splice(_announcementDraftIdx, 1);
           if (!_announcementDrafts.length) _announcementDrafts = [''];
           _announcementDraftIdx = Math.min(_announcementDraftIdx, _announcementDrafts.length - 1);
-          qs('teacher-announcement-input').value = _announcementDrafts[_announcementDraftIdx];
-          announcementNavRender();
+          opdrZet(_announcementDrafts[_announcementDraftIdx]);
+          announcementNavRender(); lokaalBewaren(); draftsStatusRender();
           return;
         }
       }
@@ -2904,10 +3101,83 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       socket.emit('teacher_clear_assignments', { scope: 'all' });
       _announcementDrafts = [''];
       _announcementDraftIdx = 0;
-      qs('teacher-announcement-input').value = '';
+      opdrZet('');
       _reeksServer = { items: [], idx: 0 };
-      announcementNavRender();
+      announcementNavRender(); lokaalBewaren(); draftsStatusRender();
     });
+
+    // v123: voorbereide codevoorbeelden — zelfde werkwijze als de opdrachten hierboven.
+    // v125: met kleur terwijl je typt (gekleurde laag achter de textarea).
+    function codeHlRender() {
+      const ta = qs('code-draft-input'); const pre = qs('code-draft-hl');
+      if (!ta || !pre) return;
+      pre.innerHTML = (window.pcfHighlightPython ? window.pcfHighlightPython(ta.value) : ta.value.replace(/&/g, '&amp;').replace(/</g, '&lt;')) + '\n';
+      pre.scrollTop = ta.scrollTop; pre.scrollLeft = ta.scrollLeft;
+    }
+    function codeNavRender() {
+      const posEl = qs('code-nav-pos');
+      if (posEl) posEl.textContent = `${_codeDraftIdx + 1} / ${_codeDrafts.length}`;
+      const prevBtn = qs('code-nav-prev-btn');
+      const nextBtn = qs('code-nav-next-btn');
+      if (prevBtn) prevBtn.disabled = _codeDraftIdx === 0;
+      if (nextBtn) nextBtn.disabled = _codeDraftIdx === _codeDrafts.length - 1;
+      const veld = qs('code-draft-input');
+      if (veld && veld.value !== _codeDrafts[_codeDraftIdx]) veld.value = _codeDrafts[_codeDraftIdx];
+      codeHlRender();
+    }
+    qs('code-draft-input')?.addEventListener('input', () => {
+      _codeDrafts[_codeDraftIdx] = qs('code-draft-input').value;
+      lokaalBewaren(); codeHlRender(); draftsStatusRender();
+    });
+    qs('code-draft-input')?.addEventListener('scroll', () => {
+      const ta = qs('code-draft-input'), pre = qs('code-draft-hl');
+      if (pre) { pre.scrollTop = ta.scrollTop; pre.scrollLeft = ta.scrollLeft; }
+    });
+    // Tab in het veld = inspringen (4 spaties), niet naar de volgende knop springen.
+    qs('code-draft-input')?.addEventListener('keydown', e => {
+      if (e.key !== 'Tab' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+      e.preventDefault();
+      const el = e.target, a = el.selectionStart, b = el.selectionEnd;
+      el.value = el.value.slice(0, a) + '    ' + el.value.slice(b);
+      el.selectionStart = el.selectionEnd = a + 4;
+      el.dispatchEvent(new Event('input'));
+    });
+    qs('code-nav-prev-btn')?.addEventListener('click', () => {
+      if (_codeDraftIdx === 0) return;
+      _codeDraftIdx--; codeNavRender();
+    });
+    qs('code-nav-next-btn')?.addEventListener('click', () => {
+      if (_codeDraftIdx >= _codeDrafts.length - 1) return;
+      _codeDraftIdx++; codeNavRender();
+    });
+    qs('code-nav-add-btn')?.addEventListener('click', () => {
+      _codeDrafts.push('');
+      _codeDraftIdx = _codeDrafts.length - 1;
+      lokaalBewaren(); codeNavRender(); draftsStatusRender();
+      qs('code-draft-input')?.focus();
+    });
+    qs('code-clear-btn')?.addEventListener('click', () => {
+      _codeDrafts[_codeDraftIdx] = '';
+      lokaalBewaren(); codeNavRender(); draftsStatusRender();
+      qs('code-draft-input')?.focus();
+    });
+    // "Naar codeveld": vervangt de inhoud van het codeveld (Ctrl+Z maakt het ongedaan). Dit gaat via
+    // een gewone editor-wijziging, dus de bestaande synchronisatie stuurt het meteen naar de leerlingen.
+    qs('code-send-btn')?.addEventListener('click', () => {
+      const tekst = _codeDrafts[_codeDraftIdx] || '';
+      const editor = editorStore.teacher;
+      if (!editor) { if (window.pyAlert) pyAlert('Het codeveld is nog niet geladen.', 'warn'); return; }
+      document.querySelector('.tab-btn[data-tab="code"][data-owner="teacher"]')?.click();
+      const model = editor.getModel();
+      editor.pushUndoStop();
+      editor.executeEdits('codevoorbeeld', [{ range: model.getFullModelRange(), text: tekst, forceMoveMarkers: true }]);
+      editor.pushUndoStop();
+      editor.focus();
+      if (window.pyToast) pyToast('Voorbeeld staat in het codeveld.', 'success');
+    });
+    codeNavRender();
+    draftsStatusRender();
+
     qs('teacher-send-input-btn')?.addEventListener('click', () => {
       socket.emit('runtime_input', { value: qs('teacher-runtime-input').value });
       disableInput('teacher');
@@ -2965,6 +3235,7 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       // oefeningen (zie announcementDrafts hierboven), losstaand van wat op dit
       // moment effectief bij de leerlingen zichtbaar staat.
       updateAnnouncement('teacher', data.announcement || '');
+      if (window.draftsSync) window.draftsSync(data.drafts);
       if (window.announcementReeksSync) window.announcementReeksSync(data);
 
       setStatusBox(qs('teacher-status-box'), data.statusText, data.statusType);
@@ -3773,6 +4044,12 @@ function updateTeacherOnlineOverlay(teacherOnline) {
       }
     });
 
+    socket.on('sessie_overgenomen', async d => {
+      delLS('studentState'); delLS('studentSessionCode'); delLS('studentId'); delLS('studentName');
+      try { if (window.pyAlert) await pyAlert((d && d.message) || 'Je bent elders ingelogd.', 'warn'); } catch (e) { /* doorgaan */ }
+      go('/index.html');
+    });
+
     socket.on('force_landing', () => {
       delLS('studentState');
       delLS('studentSessionCode');
@@ -4003,6 +4280,85 @@ window.pyHeropenPicker = function (opties) {
         return;
       }
       close({ until: totMs, studenten: gekozen });
+    });
+  });
+};
+
+// v121: heropening terugdraaien — per leerling een slider "wijziging aanvaarden" (standaard uit),
+// bovenaan een hoofdslider "alles aanvaarden". Leerlingen zonder wijziging sluiten gewoon weer.
+// Geeft [{id,name,accept}] terug (de aangevinkte leerlingen), of null bij annuleren.
+window.pyTerugdraaiPicker = function (opties) {
+  opties = opties || {};
+  var naam = opties.naam || '';
+  var studenten = opties.studenten || [];
+  var esc = function (t) { return window.escapeHtml ? escapeHtml(t) : String(t); };
+  return new Promise(function (resolve) {
+    var existing = document.getElementById('py-modal-overlay');
+    if (existing) existing.parentNode.removeChild(existing);
+    var overlay = document.createElement('div');
+    overlay.id = 'py-modal-overlay';
+    if (!document.getElementById('py-switch-css')) {
+      var st = document.createElement('style'); st.id = 'py-switch-css';
+      st.textContent = '.py-switch{position:relative;display:inline-block;width:42px;height:24px;flex:none}' +
+        '.py-switch input{opacity:0;width:0;height:0}' +
+        '.py-switch span{position:absolute;inset:0;background:#cbd5e1;border-radius:24px;cursor:pointer;transition:background .15s}' +
+        '.py-switch span:before{content:"";position:absolute;height:18px;width:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:transform .15s}' +
+        '.py-switch input:checked+span{background:#16a34a}.py-switch input:checked+span:before{transform:translateX(18px)}' +
+        '.py-switch input:focus-visible+span{outline:2px solid #2563eb;outline-offset:2px}';
+      document.head.appendChild(st);
+    }
+    var heeftWijz = studenten.some(function (s) { return s.gewijzigd; });
+    var rijen = studenten.map(function (s, i) {
+      var rechts = s.gewijzigd
+        ? '<span style="display:flex;align-items:center;gap:8px;"><span class="muted" style="font-size:0.78rem;">wijziging aanvaarden</span>' +
+          '<label class="py-switch"><input type="checkbox" class="py-terug-acc" data-idx="' + i + '"/><span></span></label></span>'
+        : '<span class="muted" style="font-size:0.78rem;">geen wijzigingen</span>';
+      return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">' +
+        '<label style="display:flex;align-items:center;gap:8px;flex:1;cursor:pointer;">' +
+        '<input type="checkbox" class="py-terug-vink" data-idx="' + i + '" checked/><span>' + esc(s.name) + '</span></label>' + rechts + '</div>';
+    }).join('');
+    overlay.innerHTML =
+      '<div id="py-modal-box">' +
+        '<div id="py-modal-title">' + esc(naam) + ': heropening terugdraaien</div>' +
+        '<div id="py-modal-body">' +
+          '<p class="muted" style="font-size:0.82rem;margin:0 0 8px;">Vink de leerlingen aan die je weer wil sluiten. Zonder wijzigingen blijft alles ' +
+            'zoals het was. Bij wijzigingen: <b>uit</b> = de oude versie en score komen terug, <b>aan</b> = de wijziging blijft en de leerling moet opnieuw nagekeken worden.</p>' +
+          (heeftWijz
+            ? '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0 8px;border-bottom:2px solid var(--border);font-weight:700;">' +
+              '<span>Alles aanvaarden</span><label class="py-switch"><input type="checkbox" id="py-terug-alle"/><span></span></label></div>'
+            : '') +
+          '<div style="max-height:300px;overflow-y:auto;">' + rijen + '</div>' +
+        '</div>' +
+        '<div id="py-modal-actions">' +
+          '<button id="py-modal-cancel" class="btn btn-muted small">Annuleren</button>' +
+          '<button id="py-modal-confirm" class="btn btn-primary small">Terugdraaien</button>' +
+        '</div>' +
+      '</div>';
+    function close(result) {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    }
+    function onKey(e) { if (e.key === 'Escape') close(null); }
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(null); });
+    document.body.appendChild(overlay);
+    document.addEventListener('keydown', onKey);
+    var acc = Array.prototype.slice.call(overlay.querySelectorAll('.py-terug-acc'));
+    var alle = document.getElementById('py-terug-alle');
+    function syncAlle() { if (alle) alle.checked = acc.length > 0 && acc.every(function (a) { return a.checked; }); }
+    if (alle) alle.addEventListener('change', function () { acc.forEach(function (a) { a.checked = alle.checked; }); });
+    acc.forEach(function (a) { a.addEventListener('change', syncAlle); });
+    document.getElementById('py-modal-cancel').addEventListener('click', function () { close(null); });
+    document.getElementById('py-modal-confirm').addEventListener('click', function () {
+      var gekozen = [];
+      Array.prototype.slice.call(overlay.querySelectorAll('.py-terug-vink')).forEach(function (v) {
+        if (!v.checked) return;
+        var i = Number(v.dataset.idx), s = studenten[i];
+        var sl = overlay.querySelector('.py-terug-acc[data-idx="' + i + '"]');
+        gekozen.push({ id: s.id || null, name: s.name, accept: !!(sl && sl.checked) });
+      });
+      if (!gekozen.length) { if (window.pyAlert) pyAlert('Selecteer minstens één leerling.', 'warn'); return; }
+      close(gekozen);
     });
   });
 };

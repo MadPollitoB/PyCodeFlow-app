@@ -401,47 +401,23 @@ function getSocketIp(socket) {
   return socket.handshake.address || 'unknown';
 }
 
-const authFailures = new Map();
-
-function getAuthState(ip) {
-  const now = Date.now();
-  let state = authFailures.get(ip);
-  if (!state) {
-    state = { failures: [], blockedUntil: 0 };
-    authFailures.set(ip, state);
-  }
-  state.failures = state.failures.filter(ts => now - ts <= AUTH_RATE_LIMIT_WINDOW_MS);
-  if (!state.failures.length && state.blockedUntil <= now) {
-    authFailures.delete(ip);
-    return { failures: [], blockedUntil: 0 };
-  }
-  return state;
-}
-
-function registerAuthFailure(ip) {
-  const now = Date.now();
-  const state = getAuthState(ip);
-  state.failures.push(now);
-  if (state.failures.length >= AUTH_RATE_LIMIT_MAX_FAILURES) {
-    state.blockedUntil = Math.max(state.blockedUntil || 0, now + AUTH_RATE_LIMIT_BLOCK_MS);
-  }
-  authFailures.set(ip, state);
-  return state;
-}
-
-function clearAuthFailures(ip) {
-  authFailures.delete(ip);
-}
-
-function getFailureDelayMs(failureCount) {
-  const exponent = Math.max(0, Math.min(6, failureCount - 1));
-  return AUTH_RATE_LIMIT_BASE_DELAY_MS * (2 ** exponent);
-}
-
-function getAuthBlockRemainingMs(ip) {
-  const state = getAuthState(ip);
-  const now = Date.now();
-  return state.blockedUntil > now ? state.blockedUntil - now : 0;
+// v124: inlogbeveiliging per (IP + account) met hoge IP-plafond; leerkrachten/beheerders worden
+// nooit geblokkeerd (enkel vertraging). Zie lib/auth-limiet.js. De oude, per-IP gedeelde teller
+// legde een hele school plat zodra enkele leerlingen hun wachtwoord verkeerd typten.
+const authLimiet = require('./lib/auth-limiet').maakLimiet({
+  venster: AUTH_RATE_LIMIT_WINDOW_MS,
+  maxPaar: AUTH_RATE_LIMIT_MAX_FAILURES,
+  blokPaar: Math.min(AUTH_RATE_LIMIT_BLOCK_MS, 10 * 60 * 1000),
+  basisVertraging: AUTH_RATE_LIMIT_BASE_DELAY_MS,
+});
+const { blokkadeTekst } = require('./lib/auth-limiet');
+function authBlokRest(ip, account) { return authLimiet.controleer(ip, account).geblokkeerdMs; }
+function authMislukt(ip, account, opties) { return authLimiet.mislukt(ip, account, opties); }
+function authGelukt(ip, account) { authLimiet.gelukt(ip, account); }
+function stuurBlokkade429(res, ms, json) {
+  res.setHeader('Retry-After', String(Math.ceil(ms / 1000)));
+  const tekst = blokkadeTekst(ms);
+  return json ? res.status(429).json({ error: tekst }) : res.status(429).send(tekst);
 }
 
 // parseBasicAuthHeader nu in lib/auth.js (sprint 34a)
@@ -485,23 +461,17 @@ async function credentialsAreValid(authHeader) {
 async function requireBasicAuth(req, res, next) {
   if (!BASIC_AUTH_ENABLED) return next();
   const ip = getClientIp(req);
-  const blockedRemainingMs = getAuthBlockRemainingMs(ip);
-  if (blockedRemainingMs > 0) {
-    res.setHeader("Retry-After", String(Math.ceil(blockedRemainingMs / 1000)));
-    return res.status(429).send("Te veel mislukte loginpogingen. Probeer later opnieuw.");
-  }
+  const blockedRemainingMs = authBlokRest(ip, 'basic');
+  if (blockedRemainingMs > 0) return stuurBlokkade429(res, blockedRemainingMs, false);
 
   if (await credentialsAreValid(req.headers.authorization)) {
-    clearAuthFailures(ip);
+    authGelukt(ip, 'basic');
     return next();
   }
 
-  const state = registerAuthFailure(ip);
-  await sleep(getFailureDelayMs(state.failures.length));
-  if (state.blockedUntil > Date.now()) {
-    res.setHeader("Retry-After", String(Math.ceil((state.blockedUntil - Date.now()) / 1000)));
-    return res.status(429).send("Te veel mislukte loginpogingen. Probeer later opnieuw.");
-  }
+  const state = authMislukt(ip, 'basic');
+  await sleep(state.vertragingMs);
+  if (state.geblokkeerdMs > 0) return stuurBlokkade429(res, state.geblokkeerdMs, false);
 
   res.setHeader("WWW-Authenticate", `Basic realm="${BASIC_AUTH_REALM}", charset="UTF-8"`);
   return res.status(401).send("Authenticatie vereist.");
@@ -946,6 +916,9 @@ app.get('/klasmatrix.html', requireTeacherAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'klasmatrix.html'));
 });
 
+app.get('/teacher-toegang.html', requireTeacherAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'teacher-toegang.html'));
+});
 app.get('/mijn-klassen.html', requireTeacherAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'mijn-klassen.html'));
 });
@@ -1040,16 +1013,13 @@ app.post('/api/teacher-login', async (req, res) => {
   if (!BASIC_AUTH_ENABLED) return res.json({ ok: true });
 
   const ip = getClientIp(req);
-  const blockedRemainingMs = getAuthBlockRemainingMs(ip);
-  if (blockedRemainingMs > 0) {
-    res.setHeader('Retry-After', String(Math.ceil(blockedRemainingMs / 1000)));
-    return res.status(429).json({ error: 'Geblokkeerd' });
-  }
-
+  // v124: leerkrachten en beheerders worden nooit geblokkeerd — enkel een oplopende vertraging
+  // (eigen teller, los van de leerlingen). Elke mislukte poging komt in het auditlogboek.
   const { username, password } = req.body || {};
   if (!username || !password) {
     return res.status(400).json({ error: 'Veld ontbreekt' });
   }
+  const lkAccount = 'lk:' + String(username).trim().toLowerCase();
 
   // Bouw een nep Authorization-header zodat we authenticateTeacher kunnen hergebruiken
   const fakeAuthHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
@@ -1063,7 +1033,7 @@ app.post('/api/teacher-login', async (req, res) => {
     if (!(await dbModule.magLeerkrachtInloggen(teacher))) {
       return res.status(403).json({ error: 'De licentie van je school is niet (meer) geldig. Neem contact op met de schoolbeheerder.' });
     }
-    clearAuthFailures(ip);
+    authGelukt(ip, lkAccount);
     // Sprint 50a/50f: de sessie ís nu de login. Er is geen gedeeld cookie meer dat
     // je alsnog binnenlaat, dus mislukt dit, dan is er ook geen toegang — vandaar dat
     // maakLeerkrachtSessie hieronder eerlijk faalt i.p.v. stil door te gaan.
@@ -1084,12 +1054,9 @@ app.post('/api/teacher-login', async (req, res) => {
     });
   }
 
-  const state = registerAuthFailure(ip);
-  await sleep(getFailureDelayMs(state.failures.length));
-  if (state.blockedUntil > Date.now()) {
-    res.setHeader('Retry-After', String(Math.ceil((state.blockedUntil - Date.now()) / 1000)));
-    return res.status(429).json({ error: 'Geblokkeerd' });
-  }
+  const state = authMislukt(ip, lkAccount, { zacht: true });
+  dbModule.auditLog({ id: null, username: String(username).slice(0, 80) }, 'leerkracht_login_mislukt', String(username).slice(0, 80), { poging: state.fouten }, ip).catch(() => {});
+  await sleep(state.vertragingMs);
   return res.status(401).json({ error: 'Ongeldige credentials' });
 });
 
@@ -1155,10 +1122,8 @@ const trainingRoutes = require('./lib/training-routes').registerTrainingRoutes(a
 // (domeincheck) + wachtwoord (2×) → account met status 'pending', gekoppeld aan de klas.
 app.post('/api/student/register', requireCsrf, async (req, res) => {
   const ip = getClientIp(req);
-  if (getAuthBlockRemainingMs(ip) > 0) {
-    res.setHeader('Retry-After', String(Math.ceil(getAuthBlockRemainingMs(ip) / 1000)));
-    return res.status(429).json({ error: 'Te veel pogingen. Probeer straks opnieuw.' });
-  }
+  const regEmail = String(req.body?.email || '').trim().toLowerCase();
+  if (authBlokRest(ip, regEmail) > 0) return stuurBlokkade429(res, authBlokRest(ip, regEmail), true);
   try {
     const b = req.body || {};
     const firstName = String(b.firstName || '').trim();
@@ -1176,7 +1141,7 @@ app.post('/api/student/register', requireCsrf, async (req, res) => {
     // Klascode → actieve klas
     const klas = await dbModule.getClassByActiveStartCode(code);
     if (!klas) {
-      registerAuthFailure(ip);
+      authMislukt(ip, email);
       return res.status(400).json({ error: 'Onbekende of gesloten klascode. Vraag de juiste code aan je leerkracht.' });
     }
 
@@ -1199,7 +1164,7 @@ app.post('/api/student/register', requireCsrf, async (req, res) => {
       firstName, lastName, email, passHash,
       classId: klas.id, schoolYear: klas.school_year, status: 'pending', source: 'self',
     });
-    clearAuthFailures(ip);
+    authGelukt(ip, email);
     log.info(`[student] zelfregistratie: ${email} → klas ${klas.name} (pending)`);
     res.json({ ok: true, id, status: 'pending' });
   } catch (e) {
@@ -1211,24 +1176,18 @@ app.post('/api/student/register', requireCsrf, async (req, res) => {
 // 52d — Login: e-mail + wachtwoord → leerling-sessie. Rate-limited per IP.
 app.post('/api/student/login', requireCsrf, async (req, res) => {
   const ip = getClientIp(req);
-  if (getAuthBlockRemainingMs(ip) > 0) {
-    res.setHeader('Retry-After', String(Math.ceil(getAuthBlockRemainingMs(ip) / 1000)));
-    return res.status(429).json({ error: 'Te veel pogingen. Probeer straks opnieuw.' });
-  }
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (authBlokRest(ip, email) > 0) return stuurBlokkade429(res, authBlokRest(ip, email), true);
   try {
-    const email = String(req.body?.email || '').trim().toLowerCase();
     const pw    = String(req.body?.password || '');
     if (!email || !pw) return res.status(400).json({ error: 'Vul e-mail en wachtwoord in.' });
 
     const student = await dbModule.getStudentByEmail(email);
     const ok = student && student.pass_hash && verifyPasswordWithHash(pw, student.pass_hash);
     if (!ok) {
-      const state = registerAuthFailure(ip);
-      await sleep(getFailureDelayMs(state.failures.length));
-      if (state.blockedUntil > Date.now()) {
-        res.setHeader('Retry-After', String(Math.ceil((state.blockedUntil - Date.now()) / 1000)));
-        return res.status(429).json({ error: 'Te veel pogingen. Probeer straks opnieuw.' });
-      }
+      const state = authMislukt(ip, email);
+      await sleep(state.vertragingMs);
+      if (state.geblokkeerdMs > 0) return stuurBlokkade429(res, state.geblokkeerdMs, true);
       return res.status(401).json({ error: 'E-mail of wachtwoord klopt niet.' });
     }
     if (student.status === 'blocked') {
@@ -1239,7 +1198,7 @@ app.post('/api/student/login', requireCsrf, async (req, res) => {
     if (!(await dbModule.magLeerlingInloggen(student.id))) {
       return res.status(403).json({ error: 'De licentie van je school is niet (meer) geldig. Neem contact op met je leerkracht.' });
     }
-    clearAuthFailures(ip);
+    authGelukt(ip, email);
     await maakLeerlingSessie(req, res, student);
     setCsrfCookie(res);
     res.json({
@@ -1505,29 +1464,95 @@ app.delete('/api/admin/free-practice/block/:ip', requireTeacherAuth, requireBehe
   res.json({ ok: true });
 });
 
-// Bugfix: "te veel mislukte inlogpogingen" is in werkelijkheid een IP-gebaseerde, in-memory
-// blokkade (authFailures — geldt voor leerkracht- én leerlingaanmelding/-registratie op
-// hetzelfde IP), GEEN aparte teller per leerling-account. Voor testdoeleinden moet een
-// beheerder zo'n blokkade kunnen zien en vrijgeven — meestal is dat gewoon het eigen
-// (test)toestel dat na een paar mislukte pogingen geblokkeerd raakte.
+// v124: inlogblokkades. De teller hangt nu aan (IP + account), met een hoog plafond per IP;
+// leerkrachten en beheerders worden nooit geblokkeerd. Beheerders (systeem) zien alle tellers
+// en kunnen een IP of een account vrijgeven; leerkrachten gebruiken hun eigen pagina "Toegang".
 app.get('/api/admin/auth-blocks', requireTeacherAuth, requireBeheer, requireSysteem, async (req, res) => {
-  const now = Date.now();
-  const lijst = [];
-  for (const [ip, state] of authFailures.entries()) {
-    const remainingMs = state.blockedUntil > now ? state.blockedUntil - now : 0;
-    if (!state.failures.length && !remainingMs) continue;
-    lijst.push({ ip, failures: state.failures.length, blockedUntil: state.blockedUntil || 0, remainingMs });
-  }
-  lijst.sort((a, b) => b.remainingMs - a.remainingMs);
+  const lijst = authLimiet.lijst().map(e => ({
+    soort: e.soort, ip: e.ip || '', account: e.account || '', sleutel: e.ip || e.account,
+    failures: e.fouten, blockedUntil: e.blokTot, remainingMs: e.resterendMs,
+  }));
   res.json({ blocks: lijst });
 });
 
 app.delete('/api/admin/auth-blocks/:ip', requireTeacherAuth, requireBeheer, requireSysteem, requireCsrf, async (req, res) => {
-  const ip = String(req.params.ip || '').trim();
-  if (!ip) return res.status(400).json({ error: 'IP is verplicht.' });
-  clearAuthFailures(ip);
-  dbModule.auditLog(getActorFromReq(req), 'login_blokkade_vrijgegeven', ip, {}, req.ip).catch(() => {});
-  res.json({ ok: true });
+  const sleutel = String(req.params.ip || '').trim();
+  if (!sleutel) return res.status(400).json({ error: 'IP of account is verplicht.' });
+  const n = authLimiet.ontgrendelIp(sleutel) + authLimiet.ontgrendelAccount(sleutel);
+  dbModule.auditLog(getActorFromReq(req), 'login_blokkade_vrijgegeven', sleutel, { gewist: n }, req.ip).catch(() => {});
+  res.json({ ok: true, gewist: n });
+});
+
+// ── v124: pagina "Toegang" voor leerkrachten ────────────────────────────────
+// Eigen netwerk ontgrendelen en leerlingaccounts van de eigen klassen ontgrendelen,
+// zonder tussenkomst van de systeembeheerder.
+async function leerlingenVanLeerkracht(req) {
+  if (!req.teacher?.id) return dbModule.listStudentsForTeacher({ teacherId: null, schoolIds: null });
+  if (authLib.isSuperAdmin(req.teacher)) return dbModule.listStudentsForTeacher({ teacherId: null, schoolIds: null });
+  if (authLib.isBeheerder(req.teacher)) {
+    return dbModule.listStudentsForTeacher({ teacherId: null, schoolIds: await schoolIdsVanTeacher(req.teacher) });
+  }
+  return dbModule.listStudentsForTeacher({ teacherId: req.teacher.id, schoolIds: null });
+}
+
+app.get('/api/teacher/toegang', requireTeacherAuth, async (req, res) => {
+  try {
+    const ip = getClientIp(req);
+    const tellers = authLimiet.lijst();
+    const mijnNetwerk = tellers.filter(e => e.ip === ip);
+    const netwerkBlok = mijnNetwerk.filter(e => e.soort === 'ip' && e.resterendMs > 0).reduce((m, e) => Math.max(m, e.resterendMs), 0);
+    const perAccount = new Map();   // email -> { resterendMs, fouten }
+    for (const e of tellers) {
+      if (!e.account || e.account.startsWith('lk:')) continue;
+      const cur = perAccount.get(e.account) || { resterendMs: 0, fouten: 0 };
+      cur.resterendMs = Math.max(cur.resterendMs, e.resterendMs);
+      cur.fouten = Math.max(cur.fouten, e.fouten);
+      perAccount.set(e.account, cur);
+    }
+    const leerlingen = (await leerlingenVanLeerkracht(req)).map(l => {
+      const t = perAccount.get(String(l.email || '').toLowerCase()) || { resterendMs: 0, fouten: 0 };
+      return { id: l.id, name: l.name, email: l.email || '', klas: l.class_name || '', status: l.status || '',
+               geblokkeerdMs: t.resterendMs, fouten: t.fouten };
+    });
+    res.json({
+      ip,
+      netwerk: { geblokkeerdMs: netwerkBlok, geblokkeerdeAccounts: mijnNetwerk.filter(e => e.account && e.resterendMs > 0).length,
+                 fouten: mijnNetwerk.reduce((n, e) => n + e.fouten, 0) },
+      leerlingen,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/teacher/toegang/netwerk', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const ip = getClientIp(req);
+  const n = authLimiet.ontgrendelIp(ip);
+  dbModule.auditLog(getActorFromReq(req), 'netwerk_ontgrendeld', ip, { gewist: n }, req.ip).catch(() => {});
+  res.json({ ok: true, gewist: n });
+});
+
+app.post('/api/teacher/toegang/leerling', requireTeacherAuth, requireCsrf, async (req, res) => {
+  try {
+    const id = String(req.body?.studentId || '');
+    const mijn = await leerlingenVanLeerkracht(req);
+    const l = mijn.find(x => x.id === id);
+    if (!l) return res.status(403).json({ error: 'Deze leerling zit niet in een van je klassen.' });
+    const n = authLimiet.ontgrendelAccount(l.email || '');
+    dbModule.auditLog(getActorFromReq(req), 'leerling_ontgrendeld', id, { email: l.email, gewist: n }, req.ip).catch(() => {});
+    res.json({ ok: true, gewist: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Noodingang voor pycodeflow.sh ("Netwerk ontgrendelen"): enkel vanaf 127.0.0.1 binnen de
+// container én met het interne token — zonder die twee blijft dit dicht.
+app.post('/api/intern/netwerk-ontgrendelen', (req, res) => {
+  const { internToken, isLoopback } = require('./lib/intern-token');
+  const token = internToken();
+  if (!token || !isLoopback(req.socket.remoteAddress) || req.headers['x-intern-token'] !== token) {
+    return res.status(404).send('Niet gevonden');
+  }
+  const n = authLimiet.ontgrendelAlles();
+  dbModule.auditLog({ id: null, username: 'pycodeflow.sh' }, 'netwerk_ontgrendeld_cli', 'alles', { gewist: n }, '127.0.0.1').catch(() => {});
+  res.json({ ok: true, verwijderd: n });
 });
 
 // 52f — Wachtwoordherstel via klas-startcode. Kan ENKEL nadat de leerkracht een reset
@@ -1535,12 +1560,9 @@ app.delete('/api/admin/auth-blocks/:ip', requireTeacherAuth, requireBeheer, requ
 // van een klasgenoot overnemen. Rate-limited per IP.
 app.post('/api/student/recover', requireCsrf, async (req, res) => {
   const ip = getClientIp(req);
-  if (getAuthBlockRemainingMs(ip) > 0) {
-    res.setHeader('Retry-After', String(Math.ceil(getAuthBlockRemainingMs(ip) / 1000)));
-    return res.status(429).json({ error: 'Te veel pogingen. Probeer straks opnieuw.' });
-  }
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (authBlokRest(ip, email) > 0) return stuurBlokkade429(res, authBlokRest(ip, email), true);
   try {
-    const email = String(req.body?.email || '').trim().toLowerCase();
     const code  = String(req.body?.classCode || '').trim().toUpperCase();
     const pw    = String(req.body?.password || '');
     const pw2   = String(req.body?.password2 || '');
@@ -1551,15 +1573,15 @@ app.post('/api/student/recover', requireCsrf, async (req, res) => {
     const student = await dbModule.getStudentByEmail(email);
     // Bewust vage foutmelding: verklap niet of het adres of de code fout was.
     const genericFail = 'Herstellen lukt niet. Controleer je e-mailadres en de klascode, of vraag je leerkracht om (opnieuw) een reset klaar te zetten.';
-    if (!klas || !student) { registerAuthFailure(ip); return res.status(400).json({ error: genericFail }); }
+    if (!klas || !student) { authMislukt(ip, email); return res.status(400).json({ error: genericFail }); }
 
     const isLid = await dbModule.isStudentInClass(student.id, klas.id);
     if (!magWachtwoordHerstel(student, isLid)) {
-      registerAuthFailure(ip);
+      authMislukt(ip, email);
       return res.status(400).json({ error: genericFail });
     }
     await dbModule.setStudentPassword(student.id, createPasswordHash(pw), false);
-    clearAuthFailures(ip);
+    authGelukt(ip, email);
     log.info(`[student] wachtwoordherstel voltooid voor ${email}`);
     res.json({ ok: true });
   } catch (e) {
@@ -2842,6 +2864,23 @@ app.post('/api/admin/students/import-csv', requireTeacherAuth, requireBeheer, re
     res.json({ ok: true, ...result });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// v121: een heropening die verlopen is zonder dat de leerling opnieuw indiende, wordt als
+// automatische indiening afgehandeld: niets gewijzigd → alles blijft zoals voorheen.
+setInterval(async () => {
+  try {
+    for (const h of await dbModule.getVerlopenHeropeningen()) {
+      const session = sessions.get(h.session_code);
+      const naamLower = (h.student_name || '').toLowerCase();
+      const live = session?.students?.[h.student_id]
+        || (naamLower ? Object.values(session?.students || {}).find(s => !s.removed && s.name.toLowerCase() === naamLower) : null);
+      if (live) { live.quizSubmitted = true; if (live.socketId) io.to(live.socketId).emit('quiz_force_submit', { reason: 'deadline' }); }
+      await dbModule.submitQuizAnswers(h.session_code, h.student_id || live?.id, true, 'deadline', h.student_name || live?.name || null).catch(() => {});
+      await dbModule.verwijderIndividueleToegang(h.session_code, h.student_id, h.student_name).catch(() => {});
+    }
+    await dbModule.ruimSnapshotsOp();
+  } catch (e) { log.warn('[heropening] verwerking verlopen heropeningen mislukt:', e.message); }
+}, 60 * 1000).unref?.();
 
 // ══ Sprint 19j: Deadline check interval ════════════════════════════════════
 setInterval(async () => {
@@ -6402,6 +6441,18 @@ app.get("/api/quiz-sessions/:code/roster", requireTeacherAuth, requireSessionAcc
     return { answered: perVraag.filter(p => p.answered).length, total: perVraag.length, perQuestion: perVraag };
   }
 
+  // v122: incidenten per leerling (id met naam als terugval), samengevat per type.
+  const incAlle = await dbModule.getIncidenten(code).catch(() => []);
+  const incPerId = new Map(), incPerNaam = new Map();
+  for (const x of incAlle) {
+    for (const [map, key] of [[incPerId, x.studentId], [incPerNaam, norm(x.name)]]) {
+      if (!key) continue;
+      if (!map.has(key)) map.set(key, {});
+      map.get(key)[x.type] = (map.get(key)[x.type] || 0) + 1;
+    }
+  }
+  const incVoor = (id, naam) => incPerId.get(id) || incPerNaam.get(norm(naam)) || {};
+
   function bouw(leerling) {
     const d = perId.get(leerling.id) || perNaam.get(norm(leerling.name));
     const hand = statusPerId.get(leerling.id);
@@ -6434,6 +6485,7 @@ app.get("/api/quiz-sessions/:code/roster", requireTeacherAuth, requireSessionAcc
       // Sprint 95: zodat de Voortgang kan tonen dat deze leerling een eigen, nieuwe
       // toegang heeft gekregen (en tot wanneer).
       individueleToegangTot,
+      incidenten: incVoor(leerling.id, leerling.name),
     };
   }
 
@@ -6462,6 +6514,7 @@ app.get("/api/quiz-sessions/:code/roster", requireTeacherAuth, requireSessionAcc
       // Sprint 89: ook voor gasten (niet (meer) in de klas) tonen we de voortgang.
       progress: berekenVoortgang(d.student_id),
       individueleToegangTot: individueleTotPerId.get(d.student_id) ?? individueleTotPerNaam.get(norm(d.student_name)) ?? null,
+      incidenten: incVoor(d.student_id, d.student_name),
     }))
     .sort((a, b) => a.name.localeCompare(b.name, 'nl'));
 
@@ -6856,7 +6909,65 @@ app.post('/api/quiz-sessions/:code/reopen-bulk', requireTeacherAuth, requireSess
       await dbModule.reopenAssignmentForStudent(code, s.id, s.name || null);
       heropenLeerlingInLiveSessie(session, s.id, s.name);
     }
+    // v120: nazicht sluit bij heropenen; na het opnieuw nakijken staat de toets weer onder
+    // "Afgerond" zonder "nazicht open"-badge (de nieuwe inzendingen tellen als te verbeteren).
+    await dbModule.setReviewMode(code, false).catch(() => {});
     res.json({ ok: true, count: studenten.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// v122: volledig logboek (verdachte acties) van één toets/taak.
+app.get('/api/quiz-sessions/:code/incidenten', requireTeacherAuth, requireSessionAccess, async (req, res) => {
+  try {
+    res.json({ incidenten: await dbModule.getIncidenten((req.params.code || '').toUpperCase()) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// v121: open heropeningen van een toets/taak, met per leerling of er al iets gewijzigd is.
+app.get('/api/quiz-sessions/:code/reopen-open', requireTeacherAuth, requireSessionAccess, async (req, res) => {
+  try {
+    const code = (req.params.code || '').toUpperCase();
+    res.json({ students: await dbModule.getOpenHeropeningen(code) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// v121: heropening terugdraaien, per leerling. Zonder wijziging (of zonder "aanvaarden")
+// komt de momentopname terug — antwoorden, scores en opmerkingen zoals voor het heropenen.
+// Met wijziging én aanvaarden wordt de leerling gewoon ingediend: de score van de gewijzigde
+// vragen vervalt en de leerling komt onder "Te verbeteren". Niet-genoemde leerlingen blijven open.
+app.post('/api/quiz-sessions/:code/reopen-undo', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
+  try {
+    const code = (req.params.code || '').toUpperCase();
+    const meta = await dbModule.getQuizMeta(code);
+    if (!meta) return res.status(404).json({ error: 'Toets/taak niet gevonden.' });
+    const lijst = (Array.isArray(req.body?.students) ? req.body.students : [])
+      .map(x => ({ id: x?.id ? String(x.id) : null, name: String(x?.name || '').trim(), accept: x?.accept === true }))
+      .filter(x => x.id || x.name);
+    if (!lijst.length) return res.status(400).json({ error: 'Selecteer minstens één leerling.' });
+    const session = sessions.get(code);
+    const resultaat = [];
+    for (const x of lijst) {
+      const cmp = await dbModule.vergelijkMetSnapshot(code, x.id, x.name || null);
+      const naamLower = x.name.toLowerCase();
+      const live = session?.students?.[x.id]
+        || (naamLower ? Object.values(session?.students || {}).find(s => !s.removed && s.name.toLowerCase() === naamLower) : null);
+      let uitkomst;
+      if (!cmp.heeftSnapshot || (cmp.gewijzigd && x.accept)) {
+        // Geen momentopname (oude heropening) of wijziging aanvaard → indienen zoals ingevuld.
+        await dbModule.submitQuizAnswers(code, x.id || live?.id, true, 'teacher', x.name || live?.name || null).catch(() => {});
+        if (x.id && live?.id && live.id !== x.id) await dbModule.submitQuizAnswers(code, live.id, true, 'teacher', live.name).catch(() => {});
+        if (live) { live.quizSubmitted = true; if (live.socketId) io.to(live.socketId).emit('quiz_force_submit', { reason: 'gestopt' }); }
+        uitkomst = cmp.heeftSnapshot ? 'aanvaard' : 'ingediend';
+      } else {
+        await dbModule.herstelHeropenSnapshot(code, x.id, x.name || null);
+        await dbModule.verwijderIndividueleToegang(code, x.id, x.name || null);
+        if (live) { live.quizSubmitted = true; if (live.socketId) io.to(live.socketId).emit('quiz_heropening_teruggedraaid'); }
+        uitkomst = cmp.gewijzigd ? 'teruggezet' : 'gesloten';
+      }
+      dbModule.auditLog(getActorFromReq(req), 'heropening_teruggedraaid', code, { student: x.name || x.id, uitkomst }, req.ip).catch(() => {});
+      resultaat.push({ id: x.id, name: x.name, uitkomst });
+    }
+    res.json({ ok: true, resultaat });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -7044,6 +7155,56 @@ function findReusableStudent(session, name, resumeId = null) {
   return null;
 }
 
+// v124: werk-maat om bij dubbele blokken te kiezen welke we houden: de meeste eigen code, bij
+// gelijke stand de meest recente.
+function werkScore(session, s) {
+  const eigen = String(s.personalCode || '');
+  const code = String(s.code || '');
+  const verschilt = code && code !== String(session.sharedCode || '') ? code.length : 0;
+  return eigen.length + verschilt;
+}
+function kiesBeste(session, lijst) {
+  return [...lijst].sort((a, b) => (werkScore(session, b) - werkScore(session, a)) || ((b.joinedAt || 0) - (a.joinedAt || 0)))[0];
+}
+// v124: de actieve verbinding overneemt een bestaand blok; de oude (nog levende) verbinding
+// krijgt een melding en wordt losgekoppeld.
+function neemVerbindingOver(session, student, nieuweSocket) {
+  const oudId = student.socketId;
+  if (oudId && oudId !== nieuweSocket.id) {
+    const oud = io.sockets.sockets.get(oudId);
+    if (oud && oud.connected) {
+      oud.emit('sessie_overgenomen', { message: 'Je bent elders ingelogd. Deze verbinding is gestopt.' });
+      socketToUser.delete(oudId);
+      try { oud.leave(session.code); } catch (e) { /* niets */ }
+    }
+  }
+  student.socketId = nieuweSocket.id;
+  student.online = true;
+  student.offlineSince = null;
+}
+// v124: voeg dubbele blokken van dezelfde leerling samen; het beste blijft, de rest verdwijnt.
+function voegDubbelenSamen(session, behoud, kandidaten) {
+  let samengevoegd = 0;
+  for (const d of kandidaten) {
+    if (d === behoud || d.removed) continue;
+    if (!behoud.personalCode && d.personalCode) behoud.personalCode = d.personalCode;
+    if (!behoud.output && d.output) behoud.output = d.output;
+    d.removed = true;
+    if (d.socketId && d.socketId !== behoud.socketId) {
+      const oud = io.sockets.sockets.get(d.socketId);
+      if (oud && oud.connected) {
+        oud.emit('sessie_overgenomen', { message: 'Je bent elders ingelogd. Deze verbinding is gestopt.' });
+        socketToUser.delete(d.socketId);
+        try { oud.leave(session.code); } catch (e) { /* niets */ }
+      }
+      d.socketId = null;
+    }
+    if (session.selectedStudentId === d.id) session.selectedStudentId = behoud.id;
+    samengevoegd++;
+  }
+  return samengevoegd;
+}
+
 function buildTeacherData(session) {
   const isClassPersonal = session.mode === "class" && (session.classWorkspaceMode || "shared") === "personal";
   const students = getActiveStudents(session).map(s => ({
@@ -7052,6 +7213,7 @@ function buildTeacherData(session) {
     canRun: s.classCanRun !== false,
     canEdit: s.classCanEdit !== false,
     online: Boolean(s.socketId),
+    offlineSince: s.socketId ? null : (s.offlineSince || null),
     // Tab-detectie (enkel in examenmodus relevant)
     tabHidden:      Boolean(s.tabHidden),
     tabHiddenCount: s.tabHiddenCount || 0,
@@ -7104,6 +7266,7 @@ function buildTeacherData(session) {
     announcement: session.announcement || "",
     opdrachten: opdrachtenVan(session),
     opdrachtIdx: session.opdrachtIdx || 0,
+    drafts: draftsVan(session),
     announcementHistory: session.announcementHistory || [],
     snippet: session.snippet || "",
     snippetVersion: session.snippetVersion || 0,
@@ -7135,7 +7298,20 @@ function setStatus(session, text, type="info") {
 // Elke leerling heeft student.opdrachtIdx (waar hij nu staat) en student.werkbladen[i] =
 // { code, output }. student.personalCode/personalOutput blijft het werkblad van de huidige
 // oefening, zodat alle bestaande code (editor, run, snapshots) ongewijzigd werkt.
+const rijkeTekst = require('./public/rijke-tekst.js');   // v125: opmaak in opdrachten
+// Opgemaakte opdracht → veilige HTML; leeg (enkel lege regels/tags) wordt ''.
+function schoneOpdracht(t) {
+  const h = rijkeTekst.sanitizeRt(t);
+  return rijkeTekst.rtLeeg(h) ? '' : h;
+}
 const MAX_OPDRACHTEN = 20;
+function draftsVan(session) {
+  if (!session.drafts) {
+    const d = session.config && session.config._drafts;
+    session.drafts = d && Array.isArray(d.opdrachten) ? d : null;
+  }
+  return session.drafts || null;
+}
 function opdrachtenVan(session) {
   if (!Array.isArray(session.opdrachten)) {
     session.opdrachten = Array.isArray(session.config?._opdrachten) ? session.config._opdrachten.map(String) : [];
@@ -7619,11 +7795,16 @@ function persistNow(session) {
 // hebben geen leerkracht-sessie; die krijgen simpelweg geen socket.data.teacher.
 io.use(async (socket, next) => {
   try {
+    const cookies = parseCookieHeader(socket.request.headers.cookie || '');
     if (!BASIC_AUTH_ENABLED) {
       socket.data.teacher = { id: null, username: 'anoniem', displayName: '', role: 'admin', source: 'open' };
+      // v124: ook zonder leerkrachtauthenticatie moet een ingelogde leerling herkend worden.
+      if (cookies.student_sid) {
+        const ls0 = await dbModule.getStudentSession(hashSessionToken(cookies.student_sid));
+        if (ls0) socket.data.student = { id: ls0.student_id, name: ls0.name, email: ls0.email, status: ls0.status };
+      }
       return next();
     }
-    const cookies = parseCookieHeader(socket.request.headers.cookie || '');
     if (cookies.teacher_sid) {
       const sessie = await dbModule.getTeacherSession(hashSessionToken(cookies.teacher_sid));
       if (sessie) socket.data.teacher = bepaalTeacherIdentiteit({ sessie });
@@ -7839,6 +8020,47 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     if (ctx && ctx.role === "teacher") socketToUser.delete(socket.id);
   });
 
+  // v125: na een verbindingsonderbreking (wifi weg en terug) krijgt de browser een NIEUWE socket.
+  // Deze lichte variant koppelt die opnieuw aan de sessie, ZONDER de run-/code-rechten van de
+  // leerlingen te resetten (dat doet teacher_join_session bewust wel bij een verse start).
+  socket.on("teacher_rebind", ({ code }) => {
+    if (!socketIsTeacherAuthorized(socket)) return socket.emit("error_message", "Leerkracht-authenticatie vereist");
+    const session = sessions.get((code || "").toUpperCase());
+    if (!session || session.closed || session.deleted) return socket.emit("error_message", "Sessie niet gevonden");
+    if (!socketMagSessie(socket, session)) return socket.emit("error_message", "Deze sessie is van een andere leerkracht.");
+    session.teacherSocketId = socket.id;
+    socket.join(session.code);
+    socketToUser.set(socket.id, { role: "teacher", code: session.code });
+    resumeRunIfNeeded(session.teacherRunId);
+    emitTeacherSession(session);
+    for (const s of getActiveStudents(session)) emitStudentState(session, s);
+  });
+
+  // v125: hartslag — de leerkrachtpagina vraagt af en toe of de server haar nog als de leerkracht
+  // van deze sessie kent. Zo niet, dan koppelt de pagina zichzelf opnieuw.
+  socket.on("teacher_ping", (cb) => {
+    if (typeof cb !== "function") return;
+    const ctx = socketToUser.get(socket.id);
+    const session = ctx && ctx.role === "teacher" ? sessions.get(ctx.code) : null;
+    cb({ ok: Boolean(session && session.teacherSocketId === socket.id), t: Date.now() });
+  });
+
+  // v125: voorbereide opdrachten en codevoorbeelden bewaren bij de sessie (op knopdruk, zodat
+  // typen en opslaan elkaar nooit in de weg zitten) — ook beschikbaar op een andere laptop.
+  socket.on("teacher_save_drafts", ({ opdrachten, voorbeelden }, cb) => {
+    const antwoord = (o) => { if (typeof cb === "function") cb(o); };
+    if (!socketIsTeacherAuthorized(socket)) return antwoord({ ok: false, error: "Leerkracht-authenticatie vereist" });
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "teacher") return antwoord({ ok: false, error: "Geen sessie geopend" });
+    const session = sessions.get(ctx.code);
+    if (!session) return antwoord({ ok: false, error: "Sessie niet gevonden" });
+    const opd = (Array.isArray(opdrachten) ? opdrachten : []).slice(0, 50).map(t => rijkeTekst.sanitizeRt(t));
+    const voor = (Array.isArray(voorbeelden) ? voorbeelden : []).slice(0, 50).map(t => String(t || "").slice(0, 20000));
+    session.drafts = { opdrachten: opd.length ? opd : [""], voorbeelden: voor.length ? voor : [""], savedAt: Date.now() };
+    schedulePersist(session);
+    antwoord({ ok: true, savedAt: session.drafts.savedAt });
+  });
+
   socket.on("teacher_join_session", ({ code }) => {
     if (!socketIsTeacherAuthorized(socket)) return socket.emit("error_message", "Leerkracht-authenticatie vereist");
     const session = sessions.get((code || "").toUpperCase());
@@ -7957,7 +8179,8 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     const actievenNogLevend = Object.values(session.students)
       .filter(s => s.online && !s.removed && io.sockets.sockets.get(s.socketId)?.connected === true)
       .map(s => (s.name || '').toLowerCase());
-    if (!resumeId && actievenNogLevend.includes(normalizedNameLower)) {
+    const accountJoin = socket.data.student || null;   // v124: ingelogd account is de identiteit
+    if (!accountJoin && !resumeId && actievenNogLevend.includes(normalizedNameLower)) {
       return socket.emit('error_message',
         `Er is al iemand met de naam "${normalizedName}" in deze sessie. Voeg je initialen of achternaam toe.`);
     }
@@ -7965,8 +8188,18 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     // Sprint 13B: leerling opzoeken in students tabel (async)
     let studentRecord = null;
     let joinBadge = null; // null | 'new' | 'pending' | 'guest'
+    let accountKlas = '';
     try {
-      if (normalizedClass) {
+      if (accountJoin) {
+        // v124: ingelogd → naam en klas komen van het account, niet van wat er getypt is.
+        if (accountJoin.status === 'blocked') {
+          return socket.emit('error_message', 'Je hebt geen toegang tot deze sessie.');
+        }
+        studentRecord = { id: accountJoin.id, name: accountJoin.name, status: accountJoin.status };
+        joinBadge = accountJoin.status === 'pending' ? 'pending' : null;
+        try { accountKlas = (await dbModule.getStudentClassNames(accountJoin.id)).join(', '); } catch (e) { /* klas is optioneel */ }
+        dbModule.updateStudentLastSeen(accountJoin.id).catch(()=>{});
+      } else if (normalizedClass) {
         // Zoek klas op naam
         const classes = await dbModule.listClasses(false);
         const cls = classes.find(c => c.name.toLowerCase() === normalizedClass.toLowerCase());
@@ -7996,11 +8229,28 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       // Niet blokkeren bij DB fout — leerling mag toch joinen
     }
 
-    let student = findReusableStudent(session, normalizedName, resumeId);
+    const naamVoorBlok = accountJoin ? (accountJoin.name || normalizedName) : normalizedName;
+    let student = null;
+    if (accountJoin) {
+      // v124: elke leerling maar één keer — zoek op account (of op naam voor oude blokken zonder account).
+      const lc = String(naamVoorBlok).trim().toLowerCase();
+      const dezelfde = Object.values(session.students).filter(x => !x.removed && (
+        x.dbStudentId === accountJoin.id ||
+        (!x.dbStudentId && String(x.name || '').trim().toLowerCase() === lc)));
+      if (dezelfde.length) {
+        student = kiesBeste(session, dezelfde);
+        const n = voegDubbelenSamen(session, student, dezelfde);
+        if (n) log.info(`[join] ${n} dubbel(e) blok(ken) van ${naamVoorBlok} samengevoegd in ${session.code}`);
+        student.dbStudentId = accountJoin.id;
+      }
+    } else {
+      student = findReusableStudent(session, normalizedName, resumeId);
+    }
 
     if (student) {
-      student.name = normalizedName || student.name || "Leerling";
-      student.socketId = socket.id;
+      student.name = naamVoorBlok || student.name || "Leerling";
+      if (accountJoin) { student.joinBadge = joinBadge; student.className = accountKlas || student.className || ''; }
+      neemVerbindingOver(session, student, socket);
       student.removed = false;
       socket.join(session.code);
       socketToUser.set(socket.id, { role: "student", code: session.code, studentId: student.id });
@@ -8013,8 +8263,8 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
 
     const id = crypto.randomUUID();
     student = {
-      id, name: normalizedName || "Leerling", socketId: socket.id,
-      className: normalizedClass || '',       // Sprint 13B: klas opgeslagen
+      id, name: naamVoorBlok || "Leerling", socketId: socket.id, online: true, joinedAt: Date.now(),
+      className: accountJoin ? accountKlas : (normalizedClass || ''),       // Sprint 13B: klas opgeslagen
       joinBadge: joinBadge,                   // Sprint 13B: null|'new'|'pending'|'guest'
       dbStudentId: studentRecord?.id || null, // Sprint 13B: link naar students tabel
       classCanRun: session.defaultClassCanRun === true, classCanEdit: session.defaultClassCanEdit === true,
@@ -8855,7 +9105,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     // Sprint 51l (hardening): een onbegrensd lang bericht wordt naar élke actieve leerling
     // tegelijk uitgezonden — een kleine DoS-vector zonder limiet. 1000 tekens is ruim
     // voldoende voor een opdracht/mededeling.
-    session.announcement = String(text || "").trim().slice(0, 1000);
+    session.announcement = schoneOpdracht(text);
     // v112: een losse opdracht beëindigt een eventuele reeks (de code blijft bewaard).
     if (opdrachtenVan(session).length) {
       for (const st of Object.values(session.students)) if (st && !st.removed) { bewaarWerkblad(session, st); st.opdrachtIdx = 0; st.werkbladen = {}; }
@@ -8901,7 +9151,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     if (!ctx || ctx.role !== "teacher") return;
     const session = sessions.get(ctx.code);
     if (!session || session.mode !== "class") return;
-    const lijst = (Array.isArray(items) ? items : []).map(t => String(t || "").trim().slice(0, 1000))
+    const lijst = (Array.isArray(items) ? items : []).map(t => schoneOpdracht(t))
       .filter(Boolean).slice(0, MAX_OPDRACHTEN);
     if (!lijst.length) return socket.emit("error_message", "Er is geen opdracht om te sturen.");
     opdrachtenVan(session);
@@ -9099,6 +9349,25 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       emitStudentState(session, s);
     }
     setStatus(session, `${field === "run" ? "Run" : "Code"} voor iedereen ${newValue ? "aan" : "uit"}`, "info");
+  });
+
+  // v124: de leerkracht ruimt zelf alle offline blokken op (nooit automatisch).
+  socket.on("teacher_cleanup_offline", () => {
+    if (!socketIsTeacherAuthorized(socket)) return socket.emit("error_message", "Leerkracht-authenticatie vereist");
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "teacher") return;
+    const session = sessions.get(ctx.code);
+    if (!session) return;
+    let n = 0;
+    for (const s of getActiveStudents(session)) {
+      if (s.socketId) continue;
+      s.removed = true;
+      if (session.selectedStudentId === s.id) session.selectedStudentId = null;
+      n++;
+    }
+    schedulePersist(session);
+    setStatus(session, n ? `${n} offline leerling(en) opgeruimd` : 'Geen offline leerlingen om op te ruimen', n ? "info" : "warning");
+    emitTeacherSession(session);
   });
 
   socket.on("teacher_remove_student", ({ studentId }) => {
@@ -9727,6 +9996,37 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
   // leerkracht dit expliciet aanzette — bij een taak of een uitgeschakelde toets
   // wordt dit genegeerd (fullscreen blijft wel altijd afgedwongen aan de kant van de
   // client, maar zonder gevolg als deze schakelaar uit staat).
+  // v122: logboek van verdachte acties (plakken, tweede scherm, ...). Werkt ook vóór de start
+  // (dan nog zonder student-context): enkel voor een live toets/taak en met een eenvoudige
+  // limiet per verbinding, zodat het logboek niet kan volstromen.
+  const INCIDENT_TYPES = new Set(['plakken', 'kopieren', 'knippen', 'slepen', 'tweede_scherm', 'tweede_scherm_start', 'fullscreen_uit']);
+  socket.on('quiz_incident', async ({ code, name, type, detail } = {}) => {
+    try {
+      if (!INCIDENT_TYPES.has(type)) return;
+      const nu = Date.now();
+      socket._incidentLog = (socket._incidentLog || []).filter(t => nu - t < 60000);
+      if (socket._incidentLog.length >= 30) return;
+      socket._incidentLog.push(nu);
+      const ctx = socketToUser.get(socket.id);
+      let sessionCode, studentId = null, studentName;
+      if (ctx && ctx.role === 'quiz_student') {
+        sessionCode = ctx.code;
+        const st = sessions.get(sessionCode)?.students?.[ctx.studentId];
+        if (!st || st.quizSubmitted || st.removed) return;
+        studentId = st.id; studentName = st.name;
+      } else {
+        sessionCode = String(code || '').trim().toUpperCase();
+        const sess = sessions.get(sessionCode);
+        if (!sess || sess.mode !== 'quiz') return;
+        studentName = String(name || '').trim().slice(0, 64);
+        if (!studentName) return;
+        const bestaand = Object.values(sess.students || {}).find(x => !x.removed && x.name.toLowerCase() === studentName.toLowerCase());
+        studentId = bestaand ? bestaand.id : null;
+      }
+      await dbModule.logIncident(sessionCode, studentId, studentName, type, detail);
+    } catch (e) { log.warn('[quiz_incident] mislukt:', e.message); }
+  });
+
   socket.on('quiz_tab_switch', async ({ code } = {}) => {
     try {
       const ctx = socketToUser.get(socket.id);
@@ -9736,6 +10036,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       if (!session || session.mode !== 'quiz') return;
       const student = session.students[ctx.studentId];
       if (!student || student.quizSubmitted || student.removed) return;
+      dbModule.logIncident(normalizedCode, student.id, student.name, 'tabwissel').catch(() => {});  // v122
       const meta = await dbModule.getQuizMeta(normalizedCode);
       if (!meta || meta.tab_switch_enabled !== true) return;  // v114: toets én taak
 
@@ -10233,6 +10534,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
         // (student_join); (3) het "X online"-telertje in het toetsoverzicht van de
         // leerkracht bleef te hoog staan. Nu consistent teruggezet.
         s.online = false;
+        s.offlineSince = Date.now();
         scheduleRunDisconnect(s.runId);
         // Sprint 89: log een écht weggevallen verbinding (zie ONVERWACHTE_DISCONNECT_REDENEN
         // hierboven) zodat de leerkracht via Systeembeheer kan zien hoe vaak dit per leerling
@@ -10299,6 +10601,7 @@ cleanOldLogs();
   // eeuwig aan met dode rijen. Fail-safe: een fout hier mag de log-cleanup niet stoppen.
   const opruimen = async () => {
     cleanOldLogs();
+    dbModule.ruimSnapshotsOp().catch(() => {});
     try {
       const weg = await dbModule.deleteExpiredTeacherSessions();
       if (weg > 0) log.info(`[auth] ${weg} verlopen leerkracht-sessie(s) opgeruimd`);

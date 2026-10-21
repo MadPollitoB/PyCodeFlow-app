@@ -295,7 +295,7 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 164 | **113** | **Gebundelde release 116 + opmaak in trainingsvragen.** Toetsen-achtige opmaak (vet/onderlijnd/code/tip/opgelet) bij vraag en uitleg met leerlingweergave, live analyse van de checks in het vraagformulier, hoogste-versie-logica en automatische deploy-controle na rebuild. v2026.2.51.116 |
 | 165 | **114** | **Vragen aanpassen in het Trainingscenter.** Kleinere scrollbare popups, visuele checklist-editor (geen JSON meer), "🔒 Aanpassen" als eigen kopie bij algemene vragen. v2026.2.51.117 |
 | 166 | **115** | **Geen browserpopups meer.** Alle alert/confirm/prompt vervangen door de eigen popups (popups.js), met een bewakingstest. v2026.2.51.118 |
-| 167 | **116** | **Bewerkpopup boven de titelbalk.** z-index van de popups in Trainingscenter en Mijn klassen. v2026.2.51.119 |
+| 167 | **116** | **Bewerkpopup boven de titelbalk.** z-index van de popups in Trainingscenter en Mijn klassen. v2026.2.51.123 |
 
 > **Nummering:** Sprint 50 is qua nummer ouder dan 51-58 maar werd later uitgevoerd
 > (bugfix-sprint). Het staat daarom onderaan de uitvoeringsvolgorde.

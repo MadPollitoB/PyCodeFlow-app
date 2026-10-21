@@ -42,7 +42,9 @@ function knoppenVoorStatus(status, r) {
         const kb = !!r.klasbordActief;
         const more = [];
         if (kb) more.push('live'); // live blijft bereikbaar als klasbord hoofdknop is
-        more.push('voortgang', 'stoppen', 'dupliceren', 'verwijderen');
+        more.push('voortgang');
+        if (r.individualOpen) more.push('heropening_terug'); // v121: heropening per leerling terugdraaien
+        more.push('stoppen', 'dupliceren', 'verwijderen');
         return { primary: kb ? 'klasbord' : 'live', more };
       }
       if (r.editable) return { primary: 'bewerken', more: ['dupliceren', 'verwijderen'] };

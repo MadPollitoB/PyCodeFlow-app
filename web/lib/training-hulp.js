@@ -1,6 +1,6 @@
 'use strict';
 // ═══════════════════════════════════════════════════════════════════════════════
-// v2026.2.51.119 — Trainingscenter: hulp per niveau (pure logica, geen databank/Express).
+// v2026.2.51.125 — Trainingscenter: hulp per niveau (pure logica, geen databank/Express).
 //   niveau 1-3 : hoofdstuk + kernwoorden + checklist (knop "Check", 1× gratis)
 //   niveau 4-5 : hoofdstuk (zonder kernwoorden) + hints (1e gratis, 2e kost score)
 //   niveau 6+  : geen hulp

@@ -927,14 +927,15 @@ async function laadLoginBlokkades() {
     const d = await r.json();
     const blocks = d.blocks || [];
     doel.innerHTML = blocks.length
-      ? `<table class="admin-table"><thead><tr><th>IP</th><th>Mislukte pogingen</th><th>Geblokkeerd tot</th><th></th></tr></thead>
+      ? `<table class="admin-table"><thead><tr><th>IP / account</th><th>Soort</th><th>Mislukte pogingen</th><th>Geblokkeerd tot</th><th></th></tr></thead>
          <tbody>${blocks.map(b => `<tr>
-           <td><code>${_esc(b.ip)}</code></td>
+           <td><code>${_esc(b.ip || b.account)}</code>${b.ip && b.account ? ' · ' + _esc(b.account) : ''}</td>
+           <td>${b.soort === 'ip' ? 'netwerk' : b.soort === 'account' ? 'account (alle netwerken)' : 'account op netwerk'}</td>
            <td>${b.failures}</td>
            <td>${b.remainingMs > 0 ? _dt(b.blockedUntil) : '<span class="muted">niet (meer) geblokkeerd)</span>'}</td>
-           <td><button class="btn btn-muted small" onclick="deblokkeerAuth('${_esc(b.ip)}')">Vrijgeven</button></td>
+           <td><button class="btn btn-muted small" onclick="deblokkeerAuth('${_esc(b.ip || b.account)}')">Vrijgeven</button></td>
          </tr>`).join('')}</tbody></table>`
-      : '<p class="muted">Op dit moment is geen enkel IP-adres geblokkeerd.</p>';
+      : '<p class="muted">Op dit moment is er geen blokkade of mislukte teller.</p>';
   } catch (e) {
     doel.innerHTML = '<p class="muted">Kon de gegevens niet laden.</p>';
   }

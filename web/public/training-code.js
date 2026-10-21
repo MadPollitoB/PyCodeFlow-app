@@ -1,4 +1,4 @@
-/* v2026.2.51.119 — Trainingscenter: echte code-editor, interactief uitvoeren en hulp per niveau.
+/* v2026.2.51.125 — Trainingscenter: echte code-editor, interactief uitvoeren en hulp per niveau.
    Gebruikt de helpers $, el en api uit training.html (globaal). */
 (function () {
   'use strict';

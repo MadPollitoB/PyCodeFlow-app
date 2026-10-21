@@ -1,6 +1,6 @@
 'use strict';
 // ═══════════════════════════════════════════════════════════════════════════════
-// v2026.2.51.119 — Trainingscenter: vraag van de dag (pure logica, geen databank/Express)
+// v2026.2.51.125 — Trainingscenter: vraag van de dag (pure logica, geen databank/Express)
 //   • persoonlijke vraag per dag, op niveau en onderwerpen van de leerling
 //   • streak = opeenvolgende dagen met een juist antwoord; weekend breekt niet; joker per week
 //   • per klas instelbaar (standaardwaarden hieronder)

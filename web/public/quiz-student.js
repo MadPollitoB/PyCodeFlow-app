@@ -439,8 +439,75 @@ async function haalStartInfo() {
 }
 haalStartInfo();
 
+// ── v122: anti-fraude ───────────────────────────────────────────────────────
+// Logboek: elke poging gaat (met een korte rem per type) naar de server, zodat de leerkracht
+// achteraf per leerling ziet wat er gebeurde. Werkt ook vóór de start.
+const _incidentLaatst = {};
+function meldIncident(type, detail) {
+  try {
+    const nu = Date.now();
+    if (_incidentLaatst[type] && nu - _incidentLaatst[type] < 1500) return;
+    _incidentLaatst[type] = nu;
+    socket.emit('quiz_incident', { code: urlCode, name: urlName, type, detail: detail || '' });
+  } catch (e) { /* loggen mag de toets nooit storen */ }
+}
+
+// Tweede scherm: window.screen.isExtended (Chrome/Edge). Een gespiegeld scherm of een browser
+// zonder deze eigenschap (Firefox/Safari) kunnen we niet zien — dan gaat de toets gewoon open.
+function tweedeSchermActief() {
+  try { return window.screen && window.screen.isExtended === true; } catch (e) { return false; }
+}
+
+// Klembord leegmaken (enkel het laatste item; de geschiedenis van het toestel blijft buiten bereik).
+function wisKlembord() {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText('').catch(() => {});
+  } catch (e) { /* geen toestemming of geen focus: stil negeren */ }
+}
+
+let _tweedeSchermBewaakt = false;
+let _tweedeSchermGemeld = false;
+function toonTweedeSchermOverlay(tonen) {
+  let el = document.getElementById('tweede-scherm-overlay');
+  if (!el) {
+    if (!tonen) return;
+    el = document.createElement('div');
+    el.id = 'tweede-scherm-overlay';
+    el.setAttribute('role', 'alertdialog');
+    el.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#0f172a;color:#fff;display:none;' +
+      'flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:24px;';
+    el.innerHTML = '<h2 style="margin:0;font-size:1.5rem;">🖥️ Tweede scherm gedetecteerd</h2>' +
+      '<p style="max-width:520px;margin:0;font-size:1.05rem;">Koppel het tweede scherm los. Je toets blijft verborgen tot dat gebeurd is. Dit is gelogd.</p>';
+    document.body.appendChild(el);
+  }
+  el.style.display = tonen ? 'flex' : 'none';
+}
+function controleerTweedeScherm() {
+  if (!_fullscreenRequired || _afgesloten || !_state) return;
+  if (tweedeSchermActief()) {
+    toonTweedeSchermOverlay(true);
+    if (!_tweedeSchermGemeld) { _tweedeSchermGemeld = true; meldIncident('tweede_scherm'); }
+  } else {
+    _tweedeSchermGemeld = false;
+    toonTweedeSchermOverlay(false);
+  }
+}
+function zetTweedeSchermBewakingAan() {
+  if (_tweedeSchermBewaakt) return;
+  _tweedeSchermBewaakt = true;
+  try { window.screen.addEventListener('change', controleerTweedeScherm); } catch (e) { /* niet ondersteund */ }
+  setInterval(controleerTweedeScherm, 1500);
+  controleerTweedeScherm();
+}
+
 async function startQuiz() {
   const soort = _startInfo?.type === 'taak' ? 'taak' : 'toets';
+  // v122: met een tweede scherm gaat de toets/taak niet open (en dat wordt gelogd).
+  if (_startInfo?.fullscreenRequired !== false && tweedeSchermActief()) {
+    meldIncident('tweede_scherm_start');
+    await window.pyAlert(`Er is een tweede scherm aangesloten. Koppel het los en probeer opnieuw: de ${soort} gaat niet open zolang er een tweede scherm is. Dit is gelogd.`, 'warn');
+    return;
+  }
   const regels = [];
   // Sprint 83: anti-spiek — enkel bij een toets, en vooraan in de lijst (belangrijk genoeg
   // om als eerste te zien, vóór terugbladeren/timer/aantal vragen).
@@ -517,6 +584,7 @@ function updateFullscreenVergrendeling() {
   const el = document.getElementById('fullscreen-overlay');
   if (!el) return;
   const blokkeer = _fullscreenRequired && fullscreenMogelijk() && !_afgesloten && !document.fullscreenElement && !document.webkitFullscreenElement;
+  if (blokkeer && !el.classList.contains('visible') && _state) meldIncident('fullscreen_uit');  // v122
   el.classList.toggle('visible', blokkeer);
 }
 function zetFullscreenVergrendelingAan() {
@@ -534,19 +602,35 @@ function zetKopieerBlokAan() {
   if (kopieerKnop) kopieerKnop.style.display = _copyPasteBlocked ? 'none' : '';
   if (_kopieerBlokAan) return;
   _kopieerBlokAan = true;
+  const incidentVoor = { copy: 'kopieren', cut: 'knippen', paste: 'plakken', drop: 'slepen', dragstart: 'slepen' };
   const stop = (e) => {
     if (!_copyPasteBlocked) return;
     e.preventDefault(); e.stopPropagation();
+    if (incidentVoor[e.type] && _state && !_afgesloten) meldIncident(incidentVoor[e.type]);
   };
   for (const ev of ['copy', 'cut', 'paste', 'drop', 'dragstart', 'contextmenu']) {
     document.addEventListener(ev, stop, true);
   }
+  // v122: ook invoer via plakken/slepen die zonder paste-event binnenkomt (autocorrectie, IME, ...).
+  document.addEventListener('beforeinput', (e) => {
+    if (!_copyPasteBlocked) return;
+    if (/^insertFrom(Paste|Drop|Yank)/.test(e.inputType || '')) {
+      e.preventDefault(); e.stopPropagation();
+      if (_state && !_afgesloten) meldIncident(/Drop/.test(e.inputType) ? 'slepen' : 'plakken');
+    }
+  }, true);
+  // Het klembord leeg bij terugkeer in het venster.
+  window.addEventListener('focus', () => { if (_copyPasteBlocked && _state && !_afgesloten) wisKlembord(); });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && _copyPasteBlocked && _state && !_afgesloten) wisKlembord();
+  });
   document.addEventListener('keydown', (e) => {
     if (!_copyPasteBlocked) return;
     const k = (e.key || '').toLowerCase();
     const ctrl = e.ctrlKey || e.metaKey;
     if ((ctrl && ['c', 'v', 'x', 'insert'].includes(k)) || (e.shiftKey && (k === 'insert' || k === 'delete'))) {
       e.preventDefault(); e.stopPropagation();
+      if (_state && !_afgesloten) meldIncident(k === 'c' || (ctrl && k === 'insert') ? 'kopieren' : (k === 'x' || (e.shiftKey && k === 'delete')) ? 'knippen' : 'plakken');
     }
   }, true);
 }
@@ -770,6 +854,8 @@ socket.on('quiz_state', async (state) => {
   zetFullscreenVergrendelingAan();
   updateFullscreenVergrendeling();
   zetKopieerBlokAan();
+  if (_copyPasteBlocked) wisKlembord();   // v122
+  if (_fullscreenRequired) zetTweedeSchermBewakingAan();   // v122
   if (_tabSwitchEnabled) zetTabWisselDetectieAan();
   setupCursusPaneel(state.cursusUrl || null);
   // v99: klasbord — hand opsteken (toets altijd, taak met vinkje) + tab-verlaten-signaal (toets)
@@ -848,6 +934,13 @@ socket.on('quiz_reset', () => {
 // gewoon terug op via dezelfde weg als een normale (her)verbinding.
 socket.on('quiz_reopened', () => {
   window.pyAlert('Je leerkracht heeft je toets/taak terug opengezet — je kan verdergaan.', 'info')
+    .then(() => location.reload());
+});
+
+// v121: de leerkracht draaide de heropening terug — de oorspronkelijke ingediende versie staat weer.
+socket.on('quiz_heropening_teruggedraaid', () => {
+  _afgesloten = true;
+  window.pyAlert('Je leerkracht heeft de heropening gesloten. Je oorspronkelijke ingediende versie blijft behouden.', 'info')
     .then(() => location.reload());
 });
 

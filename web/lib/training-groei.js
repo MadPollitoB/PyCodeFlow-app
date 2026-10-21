@@ -1,6 +1,6 @@
 'use strict';
 // ═══════════════════════════════════════════════════════════════════════════════
-// v2026.2.51.119 — Trainingscenter: groeimogelijkheden (pure logica, geen databank/Express)
+// v2026.2.51.125 — Trainingscenter: groeimogelijkheden (pure logica, geen databank/Express)
 //   • herhaling van fouten (Leitner-doosjes: 1, 3, 7, 14, 30 dagen)
 //   • streak (weekend-vriendelijk) en "Dagelijkse 5"
 //   • groeipad: wat is de volgende stap per onderwerp

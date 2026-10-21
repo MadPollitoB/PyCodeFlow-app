@@ -1,4 +1,19 @@
-## v2026.2.51.119 — Bewerkpopup niet meer achter de titelbalk
+## v2026.2.51.125 — Opmaak in opdrachten, bewaren bij de sessie, nieuw volledig scherm, verbindingsherstel
+
+- **Opmaak** (`public/rijke-tekst.js`, strikte whitelist, ook server-side gesaneerd): vet, cursief, onderlijnen, 6 kleuren, code/codeblok met Python-kleuren. Groter invulveld over de hele breedte. Codevoorbeeld met live kleur.
+- **Bewaren bij de sessie** op knop (`teacher_save_drafts`, opgeslagen in `config_json._drafts`); eerste keer openen neemt een leeg schrijfblok over van de server; "Laad bewaarde" met bevestiging.
+- **Volledig scherm**: drie blokken bovenaan, smaller codeveld, lijsten CODE (links) en RUN (rechts) met één leerling per rij; exclusieve rechten ongewijzigd (server).
+- **Verbinding**: `teacher_rebind` (zonder reset van leerlingrechten), `teacher_ping` hartslag elke 20 s, herstelbalk. Oorzaak: `teacher_join_session` werd enkel bij het laden verstuurd.
+
+## v2026.2.51.124 — Inlogblokkade per leerling + schoon sessieblad
+
+- **Blokkade:** teller per (IP + account) i.p.v. per IP; plafond per account en een hoog plafond per IP. Leerkrachten/beheerders nooit geblokkeerd. Melding aan de leerling met resterende tijd.
+- **Toegang-pagina** voor leerkrachten (netwerk ontgrendelen, per leerling ontgrendelen), rode banner op Sessies, audit-log; beheerders-tabel toont soort + IP/account.
+- **pycodeflow.sh** menu 23: netwerk ontgrendelen via interne, tokenbeveiligde loopback-aanroep.
+- **Sessieblad:** account-identiteit, één blok per leerling, overname van de verbinding, samenvoegen van dubbels, gast-resume via resumeId, `offlineSince`, rode offline-blokken na 60 s, groep "Offline (n)" + "Opruimen" (`teacher_cleanup_offline`).
+- Socket-middleware herkent het leerlingcookie nu ook als leerkrachtauthenticatie uit staat.
+
+## v2026.2.51.123 — Bewerkpopup niet meer achter de titelbalk
 
 - De popups bij Bewerken/Bekijken (Trainingscenter) en de vergrote afbeelding bij Mijn klassen hingen onder de vaste titelbalk. Ze liggen nu boven de balk (maar onder de meldingspopups) en passen volledig in het scherm.
 
@@ -5685,3 +5700,17 @@ Reeks van 12 bugfix-releases voor het probleem waarbij de tweede `input()` aanro
 ---
 
 *PyCodeFlow · Atheneum Hoboken*
+
+## 2026.2.51.123
+- Heropende toets/taak: nieuwe inzendingen tellen als "te verbeteren" (oude score gewist bij opnieuw indienen); na nakijken terug "Afgerond". Nazicht sluit bij heropenen.
+
+## 2026.2.51.123
+- Heropenen met momentopname per leerling (tabel quiz_reopen_snapshots): geen dataverlies, score blijft staan zolang de leerling niets wijzigt.
+- Heropening terugdraaien per leerling met sliders voor het aanvaarden van wijzigingen.
+- Status: Actief zolang toegang, Te verbeteren tot nagekeken, daarna Afgerond.
+
+## 2026.2.51.123
+- Anti-fraude: tweede-schermcontrole (start geblokkeerd + overlay tijdens de toets), klembord leegmaken, kopiëren/knippen/plakken/slepen gelogd, incidentenlogboek (tabel quiz_incidents) met kolom "Incidenten" in Voortgang.
+
+## 2026.2.51.123
+- Klasmodus: paneel "Codevoorbeeld voor het codeveld" (Vorige/Volgende/Nieuw/Wissen + "Naar codeveld"), bewaard in de browser.

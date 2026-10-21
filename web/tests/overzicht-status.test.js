@@ -66,3 +66,35 @@ test('testaccounts worden vóór de statusbepaling uitgesloten (ingediend telt e
   // Server telt enkel niet-testaccounts; zonder echte inleveringen is een gesloten toets afgerond.
   assert.equal(st({ availability: 'closed', ingediend: 0, verbeterd: 0 }), 'afgerond');
 });
+
+// v120: heropenen → nieuwe inzendingen zijn "te verbeteren"; broncode-garanties.
+const fs = require('fs'), path = require('path');
+const dbSrc = fs.readFileSync(path.join(__dirname, '../db/database.js'), 'utf8');
+const srvSrc = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
+test('v120: bulk-heropenen sluit nazicht', () => {
+  assert.match(srvSrc, /setReviewMode\(code, false\)/);
+});
+test('v120: gesloten + onverbeterde inzending = te_verbeteren, daarna afgerond', () => {
+  const b = { availability: 'closed', ingediend: 5, verbeterd: 4 };
+  assert.equal(st(b), 'te_verbeteren');
+  assert.equal(st({ ...b, verbeterd: 5 }), 'afgerond');
+});
+
+// v121: heropenen met momentopname — broncode-garanties (de echte database-test staat in tests/live/).
+test('v121: momentopname, vergelijken, terugdraaien en opruimen bestaan', () => {
+  for (const f of ['maakHeropenSnapshot', 'vergelijkMetSnapshot', 'herstelHeropenSnapshot', 'verwerkHeropendeInzending', 'ruimSnapshotsOp', 'getOpenHeropeningen'])
+    assert.match(dbSrc, new RegExp('async ' + f + '\\('));
+  assert.match(dbSrc, /CREATE TABLE IF NOT EXISTS quiz_reopen_snapshots/);
+  assert.match(dbSrc, /await this\.verwerkHeropendeInzending\(sessionCode, studentId, studentName\)/);
+  assert.match(srvSrc, /\/reopen-undo/);
+  assert.match(srvSrc, /\/reopen-open/);
+});
+test('v121: heropenen zelf wist geen scores meer', () => {
+  assert.doesNotMatch(dbSrc, /submitted_by = 'heropend'/);
+  assert.doesNotMatch(dbSrc, /CASE WHEN submitted_by = 'heropend'/);
+});
+test('v121: knop "heropening terugdraaien" enkel bij open individuele heropening', () => {
+  const k = require('../lib/overzicht-status').knoppenVoorStatus;
+  assert.ok(k('actief', { availability: 'open', individualOpen: true }).more.includes('heropening_terug'));
+  assert.ok(!k('actief', { availability: 'open', individualOpen: false }).more.includes('heropening_terug'));
+});
