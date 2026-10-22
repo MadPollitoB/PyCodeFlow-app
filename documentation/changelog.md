@@ -3,6 +3,7 @@
 - **Opmaak** (`public/rijke-tekst.js`, strikte whitelist, ook server-side gesaneerd): vet, cursief, onderlijnen, 6 kleuren, code/codeblok met Python-kleuren. Groter invulveld over de hele breedte. Codevoorbeeld met live kleur.
 - **Bewaren bij de sessie** op knop (`teacher_save_drafts`, opgeslagen in `config_json._drafts`); eerste keer openen neemt een leeg schrijfblok over van de server; "Laad bewaarde" met bevestiging.
 - **Volledig scherm**: drie blokken bovenaan, smaller codeveld, lijsten CODE (links) en RUN (rechts) met één leerling per rij; exclusieve rechten ongewijzigd (server).
+- **Offline-blok** onder CODE/RUN: vaste hoogte (2×10), na 30 s offline; lijsten erboven vullen de rest. Bovenaan: opdracht + voorbeelden even breed en samen even breed als het codeveld, timer boven de lijsten.
 - **Verbinding**: `teacher_rebind` (zonder reset van leerlingrechten), `teacher_ping` hartslag elke 20 s, herstelbalk. Oorzaak: `teacher_join_session` werd enkel bij het laden verstuurd.
 
 ## v2026.2.51.124 — Inlogblokkade per leerling + schoon sessieblad

@@ -79,3 +79,20 @@ test('sessiescherm: drie blokken bovenaan en lijsten CODE links, RUN rechts', ()
   assert.match(c, /\.tfs-pills-row \{ display: flex; flex-direction: column/);
   assert.match(c, /\.rt-c1/);
 });
+
+test('volledig scherm: offline-blok onderaan, even breed als CODE+RUN, vaste hoogte, 2 kolommen van 10', () => {
+  const h = r('public/teacher-app.html');
+  assert.ok(h.indexOf('id="tfs-offline-block"') > h.indexOf('id="tfs-pills-group-run"'), 'offline staat onder CODE/RUN');
+  const c = r('public/styles.css');
+  assert.match(c, /\.tfs-offline-block \{ flex: none; height: min\(330px, 40vh\)/);
+  assert.match(c, /grid-template-rows: repeat\(10, minmax\(0, 1fr\)\)/);
+  assert.match(c, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  const a = r('public/app.js');
+  assert.match(a, /TFS_OFFLINE_NA_MS = 30 \* 1000/);
+  assert.match(a, /tfs-offline-row/);
+});
+test('volledig scherm: opdracht + voorbeelden samen even breed als het codeveld, timer boven de lijsten', () => {
+  const c = r('public/styles.css');
+  assert.match(c, /\.tfs-top \{ display: grid; grid-template-columns: minmax\(0, 1fr\) 6px var\(--tfs-sidebar-w/);
+  assert.match(c, /\.tfs-top-left \{[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\)/);
+});

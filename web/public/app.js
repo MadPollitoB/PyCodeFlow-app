@@ -2484,7 +2484,27 @@ window.heropenLeerling = async function(code, studentId, studentName) {
       // Sprint 68: aparte, onafhankelijke pillenrijen voor Run en Code — hergebruikt
       // de al bestaande, exclusieve per-veld-logica in teacher_toggle_student (één
       // "run"-leerling tegelijk, los van één "code"-leerling tegelijk).
-      const gesorteerd = [...students].sort((a, b) => a.name.localeCompare(b.name, 'nl'));
+      // v125: wie echt offline is (na 30 s herverbindingstijd) gaat naar het offline-blok onderaan;
+      // enkel wie aanwezig is (of nog even herverbindt) staat in de CODE/RUN-lijsten.
+      const TFS_OFFLINE_NA_MS = 30 * 1000;
+      const echtOffline = x => !x.online && (!x.offlineSince || Date.now() - x.offlineSince >= TFS_OFFLINE_NA_MS);
+      const alfa = (a, b) => a.name.localeCompare(b.name, 'nl');
+      const gesorteerd = students.filter(x => !echtOffline(x)).sort(alfa);
+      const offlineLijst = students.filter(echtOffline).sort(alfa);
+      const offlineHost = qs('tfs-offline-row');
+      if (offlineHost) {
+        offlineHost.innerHTML = offlineLijst.length
+          ? offlineLijst.map(x => `<div class="tfs-offline-item" title="Offline"><span class="tfs-bullet"></span>${escapeHtml(x.name)}</div>`).join('')
+          : '<div class="tfs-offline-leeg">Niemand offline</div>';
+        const lab = qs('tfs-offline-label');
+        if (lab) lab.textContent = `Offline (${offlineLijst.length})`;
+      }
+      clearTimeout(window._tfsOfflineTimer);
+      const wachtend = students.filter(x => !x.online && x.offlineSince && Date.now() - x.offlineSince < TFS_OFFLINE_NA_MS);
+      if (wachtend.length) {
+        const rest = Math.min(...wachtend.map(x => TFS_OFFLINE_NA_MS - (Date.now() - x.offlineSince)));
+        window._tfsOfflineTimer = setTimeout(() => tfsRender(), Math.max(500, rest + 200));
+      }
       const runHost = qs('tfs-pills-row-run');
       if (runHost) {
         runHost.innerHTML = gesorteerd.map(s => `<button type="button" class="tfs-pill tfs-pill-run ${s.canRun ? 'tfs-pill-active' : ''}${s.online ? '' : ' tfs-pill-offline'}"
