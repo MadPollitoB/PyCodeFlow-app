@@ -634,15 +634,17 @@ body.compact-page { min-height: auto; }
   content: ''; position: absolute; top: 0; bottom: 0; left: -6px; right: -6px;
 }
 
-.tfs-main { display: grid; grid-template-columns: minmax(0, 1fr) 6px var(--tfs-sidebar-w, 46vw); min-height: 0; }
+.tfs-main { display: grid; grid-template-columns: minmax(0, 1fr) 6px var(--tfs-sidebar-w, 42vw); min-height: 0; }
 .tfs-sidebar {
   min-height: 0; height: 100%; overflow: hidden; padding-left: 12px;
   display: flex; flex-direction: column; gap: 10px; box-sizing: border-box;
 }
 .tfs-lists { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 /* v125: bovenaan drie blokken: opdracht · voorbeelden · timer/modus */
-.tfs-top { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) 270px; gap: 12px; align-items: stretch;
+/* Zelfde kolommen als .tfs-main: links (opdracht + voorbeelden) = breedte codeveld, rechts (timer) = breedte lijsten. */
+.tfs-top { display: grid; grid-template-columns: minmax(0, 1fr) 6px var(--tfs-sidebar-w, 42vw); gap: 0; align-items: stretch;
   height: 40vh; min-height: 240px; max-height: 380px; margin-bottom: 12px; }
+.tfs-top-left { grid-column: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; min-height: 0; padding-right: 12px; }
 .tfs-top-slot { min-width: 0; min-height: 0; display: flex; }
 .tfs-top-slot > .announcement-compose { flex: 1; min-height: 0; display: flex; flex-direction: column;
   margin-top: 0 !important; padding: 10px 12px !important; box-sizing: border-box; overflow: hidden; }
@@ -653,7 +655,7 @@ body.compact-page { min-height: auto; }
 .tfs-top-slot .announcement-actions .btn, .tfs-top-slot .announcement-nav .btn { padding: 5px 10px; font-size: .82rem; }
 .tfs-top-slot .announcement-nav { margin-top: 4px; }
 .tfs-top-slot .rt-toolbar { margin: 4px 0; }
-.tfs-top-controls { display: flex; flex-direction: column; gap: 10px; min-width: 0; overflow: auto;
+.tfs-top-controls { grid-column: 3; margin-left: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; overflow: auto;
   background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 12px; box-sizing: border-box; }
 .tfs-topbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .tfs-student-count { font-weight: 700; color: var(--text); font-size: 0.9rem; }
@@ -707,6 +709,8 @@ body.compact-page { min-height: auto; }
 @media (max-width: 900px) {
   #teacher-fullscreen-overlay { overflow-y: auto; grid-template-rows: auto auto; }
   .tfs-top { grid-template-columns: 1fr; height: auto; max-height: none; }
+  .tfs-top-left { grid-template-columns: 1fr; padding-right: 0; }
+  .tfs-top-controls { grid-column: 1; margin-left: 0; margin-top: 12px; }
   .tfs-top-slot .rt-editor, .tfs-top-slot .code-hl-wrap { min-height: 110px; }
   .tfs-main { grid-template-columns: 1fr; }
   .tfs-editor-slot { height: 55vh; padding-right: 0; }
