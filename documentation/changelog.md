@@ -1,3 +1,10 @@
+## v2026.2.51.140 — ▶ Uitvoeren werkt weer bij het nakijken
+
+- **Fix**: de knop **▶ Uitvoeren** in het nakijkscherm deed niets. Het scherm stuurde zijn aanvraag langs de route van leerlingen in de vrije editor, en die negeerde een leerkracht stilzwijgend. Nu een eigen route voor ingelogde leerkrachten, met dezelfde limieten (3 s tussen runs, max. 32 KB, per netwerk) en met ondersteuning voor `input()`.
+- Het uitvoervenster meldt nu ook **wachtrij** en **"wacht even"** i.p.v. stil te blijven, en een lopende run stopt als je de pagina sluit.
+- Versienummer: **2026.2.51.140**.
+- Tests: `tests/v140.test.js`.
+
 ## v2026.2.51.139 — Versienummer weer gelijkgetrokken
 
 - Het versienummer (`VERSION`, `web/VERSION` en de `?v=`-verwijzingen in alle pagina's) stond sinds v133 nog op .132, waardoor de app de oude versie bleef tonen en browsers oude scripts konden blijven gebruiken. Nu staat alles op **2026.2.51.139**.

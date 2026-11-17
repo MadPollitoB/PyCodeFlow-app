@@ -9322,6 +9322,97 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     } catch (e) { /* stille fout — zie debug */ }
   });
 
+  // v140: "▶ Uitvoeren" in het nakijkscherm. Het nakijkscherm stuurde 'free_run_request' (enkel voor leerlingen
+  // in de vrije editor, ctx.role === 'free') — voor een leerkrachtsocket 'return'de de server stil, dus op Run
+  // drukken deed niets. Eigen, beveiligde route: enkel ingelogde leerkrachten, met dezelfde rate limits.
+  const reviewRun = { runId: null, accum: '' };
+  socket.on('review_run_request', async ({ codeText } = {}) => {
+    const stop = (msg) => { if (msg) socket.emit('free_run_output', { output: msg }); socket.emit('free_run_end'); };
+    if (!socketIsTeacherAuthorized(socket)) return stop('⚠️ Niet ingelogd als leerkracht — herlaad de pagina.');
+    if (typeof codeText !== 'string' || !codeText.trim()) return stop('⚠️ Er is geen code om uit te voeren.');
+    if (codeText.length > 32768) return stop('⚠️ De code is te lang (max. 32 KB).');
+    const now = Date.now();
+    const lastRun = runRateLimit.get(socket.id) || 0;
+    if (now - lastRun < RUN_RATE_LIMIT_MS) {
+      return socket.emit('free_run_rate_limited', { waitMs: RUN_RATE_LIMIT_MS - (now - lastRun), message: 'Wacht even voor je opnieuw runt.' });
+    }
+    runRateLimit.set(socket.id, now);
+    const ipCheck = checkIpRateLimit(getClientIp(socket.request || {}));
+    if (!ipCheck.allowed) {
+      return socket.emit('free_run_rate_limited', { waitMs: ipCheck.retryAfterMs || 60000, message: `Te veel runs van dit netwerk. Probeer opnieuw over ${Math.ceil((ipCheck.retryAfterMs || 60000) / 1000)} seconde(n).` });
+    }
+    if (reviewRun.runId) {
+      try { await fetch(`${RUNNER_URL}/runs/${reviewRun.runId}/cancel`, { method: 'POST' }); } catch (e) { /* best-effort */ }
+      reviewRun.runId = null;
+    }
+    let runData;
+    try { runData = await runnerStart(codeText); }
+    catch (err) { return stop(`Fout bij starten: ${err.message}`); }
+    const runId = runData.runId;
+    reviewRun.runId = runId; reviewRun.accum = '';
+    const poll = async () => {
+      let lastSeq = 0;
+      for (;;) {
+        if (reviewRun.runId !== runId) return;
+        let evData;
+        try {
+          const r = await fetch(`${RUNNER_URL}/runs/${runId}/events?after=${lastSeq}`);
+          if (!r.ok) break;
+          evData = await r.json();
+        } catch { break; }
+        if (reviewRun.runId !== runId) return;
+        for (const ev of (evData.events || [])) {
+          lastSeq = ev.seq;
+          if (ev.type === 'stdout' || ev.type === 'stderr') {
+            reviewRun.accum += ev.data;
+            socket.emit('free_run_output', { output: reviewRun.accum });
+          } else if (ev.type === 'input_request') {
+            runnerWaitingForInput.add(runId);
+            socket.emit('free_input_request');
+          } else if (ev.type === 'run_error') {
+            let errData = {};
+            try { errData = typeof ev.data === 'string' ? JSON.parse(ev.data || '{}') : (ev.data || {}); } catch (e) { /* ongeldige fout-data */ }
+            const icons = { cpu_timeout: '⏱', input_timeout: '⏳', disconnect: '🔌', cancelled: '⏹' };
+            reviewRun.accum += `\n${icons[errData.errorType] || '⚠️'} ${errData.message || 'Fout'}${errData.line ? ` (regel ${errData.line})` : ''}\n`;
+            socket.emit('free_run_output', { output: reviewRun.accum });
+          } else if (ev.type === 'end') {
+            socket.emit('free_run_end');
+            if (reviewRun.runId === runId) reviewRun.runId = null;
+            return;
+          }
+        }
+        if (evData.queued) {
+          socket.emit('free_run_queued', { position: evData.queuePosition || 1 });
+          await new Promise(r => setTimeout(r, 800));
+        } else if (!evData.running && !runnerWaitingForInput.has(runId)) {
+          socket.emit('free_run_end');
+          if (reviewRun.runId === runId) reviewRun.runId = null;
+          return;
+        } else {
+          await new Promise(r => setTimeout(r, 180));
+        }
+      }
+    };
+    poll().catch(() => { socket.emit('free_run_end'); if (reviewRun.runId === runId) reviewRun.runId = null; });
+  });
+
+  socket.on('review_runtime_input', async ({ value } = {}) => {
+    if (!socketIsTeacherAuthorized(socket) || !reviewRun.runId || !runnerWaitingForInput.has(reviewRun.runId)) return;
+    const runId = reviewRun.runId;
+    runnerWaitingForInput.delete(runId);
+    const weergave = String(value ?? '');
+    try {
+      const result = await runnerInput(runId, weergave);
+      if (result && result.rejected) { runnerWaitingForInput.add(runId); return; }
+      reviewRun.accum += (weergave === '' ? '[lege invoer]' : `[${weergave}]`) + '\n';
+      socket.emit('free_run_output', { output: reviewRun.accum });
+    } catch (e) { /* runner al klaar */ }
+  });
+
+  socket.on('disconnect', () => {   // loopt de run nog als de leerkracht de pagina sluit? Dan stoppen.
+    if (reviewRun.runId) { fetch(`${RUNNER_URL}/runs/${reviewRun.runId}/cancel`, { method: 'POST' }).catch(() => {}); reviewRun.runId = null; }
+  });
+
   socket.on("student_reconnect", ({ code, studentId }) => {
     const session = sessions.get((code || "").toUpperCase());
     if (!session || session.closed || session.deleted || session.blocked) return socket.emit("force_landing");

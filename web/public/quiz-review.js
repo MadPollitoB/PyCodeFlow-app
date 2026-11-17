@@ -644,9 +644,15 @@ _socket.on('free_run_output', ({ output }) => {
   if (p) { p.textContent += output; p.scrollTop = p.scrollHeight; }
 });
 _socket.on('free_run_end', () => {});
+_socket.on('free_run_queued', ({ position }) => {   // v140: zichtbaar wachten i.p.v. niets
+  const p = document.getElementById('review-output'); if (p) p.textContent = `⏳ In de wachtrij (plaats ${position})…`;
+});
+_socket.on('free_run_rate_limited', ({ message }) => {
+  const p = document.getElementById('review-output'); if (p) p.textContent = '⏳ ' + (message || 'Wacht even voor je opnieuw runt.');
+});
 _socket.on('free_input_request', async () => {
   const val = await pyPrompt({ title: 'Invoer vereist', body: 'Invoer vereist:', confirmLabel: 'Verstuur' });
-  if (val !== null) _socket.emit('free_runtime_input', { value: val });
+  if (val !== null) _socket.emit('review_runtime_input', { value: val });   // v140
 });
 
 // Sprint 43.11: app.js houdt de Monaco-instanties in een interne editorStore (niet globaal).
@@ -662,7 +668,7 @@ function setQuizEditorReadOnly(ro) {
 function runReviewCode() {
   const code = (window.getEditorValue && window.getEditorValue('quiz')) || '';
   document.getElementById('review-output').textContent = '';
-  _socket.emit('free_run_request', { codeText: code });
+  _socket.emit('review_run_request', { codeText: code });   // v140: eigen route voor de leerkracht
 }
 
 function loadHistoryRun(code) {
