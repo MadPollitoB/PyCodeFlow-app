@@ -1,3 +1,123 @@
+## v2026.2.51.139 — Versienummer weer gelijkgetrokken
+
+- Het versienummer (`VERSION`, `web/VERSION` en de `?v=`-verwijzingen in alle pagina's) stond sinds v133 nog op .132, waardoor de app de oude versie bleef tonen en browsers oude scripts konden blijven gebruiken. Nu staat alles op **2026.2.51.139**.
+- Geen functionele wijzigingen.
+
+## v2026.2.51.138 — Gelijkenismelding uitklapbaar
+
+- Bij een vraag staat de melding "Verdachte gelijkenis met X — 81 %" nu als **uitklapbaar blokje**. Klik erop en je ziet:
+  - het antwoord van beide leerlingen **naast elkaar**;
+  - **alle overeenkomsten tussen die twee leerlingen** over de hele toets, elk met een link naar de vraag;
+  - het **totaalbeeld uit het gelijkenisrapport** (risico, gedeelde foute meerkeuzeantwoorden, timing, placeholders);
+  - een knop **👤 Open X** om meteen naar het nakijken van die leerling te gaan (op dezelfde vraag).
+- Gelijkenissen bij onderdelen van samengestelde vragen worden nu ook bij de juiste vraag getoond (ze werden vroeger niet gekoppeld).
+- Enkel client-wijziging (`quiz-review.js`); geen database- of serverwijzigingen.
+- Tests: `tests/v138.test.js`.
+
+## v2026.2.51.137 — Klasbord met tijd, pool met gelijke punten en niveaumix, placeholders met vinkje, moeilijkheidsrapport
+
+- **Klasbord (beamer-scherm)**: elke tegel toont nu de **naam en de resterende tijd** (aftellend, per leerling); *geen* "vraag x/y" meer. Kleuren en klikgedrag ongewijzigd. De tijd houdt rekening met het einde van het tijdsvenster. **Klik op de sessiecode** → grote popup met de code (sluiten met klik of Esc).
+- **Vragenpool: gelijke punten**: in een groep met "trek N uit M" moeten alle vragen evenveel punten waard zijn. Anders blokkeert het aanmaakscherm (rode melding + knop *Zet alle op X punt*) en weigert de server de toets. Zo kan elke leerling evenveel punten halen. Zonder pool verandert er niets: iedereen krijgt dezelfde vragen, met vrije punten per vraag.
+- **Vragenpool: niveaumix (optioneel)**: knop ⚖️ per groep: bv. "2 makkelijk, 1 gemiddeld, 1 moeilijk". Elke leerling krijgt dan precies die mix, maar andere vragen. Een mix die niet kan (som ≠ N of te weinig vragen van een niveau) wordt niet bewaard.
+- **Telling van unieke toetsen** op het bevestigingsscherm: exact, per groep en in totaal, rekening houdend met niveaumix en met placeholder-waarden. Waarschuwing bij < 30 mogelijke toetsen of minder toetsen dan leerlingen.
+- **Placeholders per vraag met een vinkje** ("🎲 Placeholders gebruiken", standaard uit = gewone vraag). Aan: een tabel met automatisch een rij per `{{naam}}` in vraag, opties, modelantwoord en onderdelen; per rij het soort en de **toegelaten waarden** (bereik of lijst) en het aantal mogelijkheden. Optionele **voorwaarde** (`a > b`, `n % 2 == 0`, `a != b and a + b < 50`): enkel combinaties die eraan voldoen worden getrokken.
+- **Geen onmogelijke situaties**: bij het opslaan worden alle combinaties doorgerekend. Geblokkeerd: delen door nul, geen enkele geldige combinatie, twee antwoordopties met dezelfde tekst. Waarschuwingen: niet-gehele uitkomsten, ongebruikte placeholders. Knop *Controleer + voorbeeld voor 3 leerlingen* toont ook het aantal mogelijke invullingen. Staat er `{{…}}` in de vraag terwijl het vinkje uit staat, dan krijg je een melding.
+- **Moeilijkheidsrapport** (knop 📊 *Moeilijkheid* op het nakijkscherm): per vraag gemiddelde, slaagpercentage en een oordeel t.o.v. het ingestelde niveau (makkelijker/moeilijker dan ingesteld, vanaf 5 leerlingen); per leerling de **verwachte score van zijn set** naast de werkelijke score, met een melding bij een duidelijk zwaardere of lichtere set (≥ 5 procentpunt) en de totale spreiding.
+- Opslag: `quiz_question_snapshots.difficulty` (niveau wordt per toets bewaard); een voorwaarde staat als los element in `variables_json` (geen schemawijziging). Bestaande toetsen en vragen blijven gelijk (zonder voorwaarde geven placeholders exact dezelfde waarden als in v135).
+- Nieuw: `lib/moeilijkheid.js`, `POST /api/quiz/pool-telling`, `GET /api/quiz/:code/moeilijkheidsrapport`.
+- Tests: `tests/v137.test.js`, `tests/live/v137-live.js`; `v134`/`v135`-tests aangepast voor het bord zonder vraagnummer en de uitgebreide opslag.
+
+## v2026.2.51.136 — Gelijkenisrapport
+
+- **Nakijkscherm → 🔍 Gelijkenisrapport**: overzicht per *paar* leerlingen, gesorteerd op risico (hoog / middel / laag) met een puntenscore. Drempel voor tekst-gelijkenis instelbaar (50–100 %, standaard 80), export als CSV.
+- **Wat wordt vergeleken**: (1) tekst en code van open-/codevragen en onderdelen van samengestelde vragen, **ook structuur** (namen/getallen vervangen — vangt hernoemde variabelen); (2) **dezelfde foute meerkeuzekeuze**, enkel als slechts weinig leerlingen die fout maakten (een veelgemaakte fout telt niet); (3) **placeholders**: identiek antwoord ondanks andere waarden, of een antwoord dat de waarde van de *ander* bevat; (4) **timing**: tijd tussen opslaan en indienen; (5) context: aantal plak- en tabwissel-incidenten per leerling.
+- **Eerlijk bij pools**: enkel vragen die beide leerlingen kregen komen in aanmerking; testaccounts, afwezigen en te korte antwoorden (< 8 tokens) tellen niet mee. Het rapport vermeldt zelf dat het een signaal is en geen bewijs.
+- Het bestaande waarschuwingsbandje per vraag gebruikt nu dezelfde (betere) berekening; `/api/quiz/:code/similarity` blijft dezelfde vorm geven.
+- Nieuw: `lib/gelijkenis.js` (pure functies), `GET /api/quiz/:code/gelijkenisrapport[?drempel=80&format=csv]`. Geen databasewijzigingen.
+- Tests: `tests/v136.test.js`, `tests/live/gelijkenis-live.js`.
+
+## v2026.2.51.135 — Placeholders per leerling
+
+- **Vragenbank → vraag bewerken**: nieuw uitklapblok "🎲 Variabelen (placeholders)". Voeg *Getal* (min–max) of *Keuze uit lijst* toe en gebruik ze in vraagtekst, antwoordopties, modeloplossing en onderdelen als `{{n}}`. Rekenen mag: `{{n*2}}`, `{{a+b}}`, `//`, `%`, `**` (veilige rekenmodule, geen eval). Knop **👁 Voorbeeld voor 3 leerlingen** toont drie invullingen.
+- **Per leerling anders, maar altijd dezelfde**: de waarden volgen deterministisch uit toetscode + leerling + vraag + variabele. Bij herladen of herverbinden verandert er niets en er wordt niets extra opgeslagen.
+- **Overal gelijk**: leerlingscherm, eigen nazicht, nakijkscherm van de leerkracht (per leerling), PDF's, ZIP en AI-nakijken zien dezelfde ingevulde tekst, inclusief de juiste optie/modeloplossing met de eigen getallen.
+- **Veilig opslaan**: onbekende `{{naam}}` bij een vraag met variabelen, min ≥ max of dubbele namen geven een foutmelding. Vragen zonder variabelen blijven ongewijzigd (ook als er `{{...}}` in staat).
+- **JSON-import** accepteert `variabelen`; dupliceren van vragen en toetsen neemt ze mee.
+- Opslag: `question_bank.variables_json` en `quiz_question_snapshots.variables_json`.
+- Tests: `tests/v135.test.js`, `tests/live/placeholders-live.js`.
+
+## v2026.2.51.134 — Vragenpool: trek N uit M per groep
+
+- **Aanmaak- en bewerkscherm, stap 2**: bovenaan elke groep een regel "🎲 Vragenpool: trek [N] uit M". Leeg = alle vragen. Elke leerling krijgt bij het starten **zijn eigen willekeurige selectie** van N vragen uit die groep (rest van de toets ongewijzigd); een groep zonder regel blijft volledig. De ✂️-knop (groepsscheiding) is nu ook beschikbaar als de volgorde vast is, want groepen zijn ook de basis van de pool.
+- **Bevestigingsscherm**: per groep "elke leerling krijgt N van M (willekeurig)", en een regel **Per leerling** met aantal vragen en punten. Hebben de vragen in een pool verschillende punten, dan staat er een waarschuwing (het totaal verschilt dan per leerling).
+- **Eerlijk en vast**: de trekking is uniform willekeurig (crypto), wordt opgeslagen in de persoonlijke vraaglijst en blijft **gelijk bij herladen of herverbinden**. Daarna wordt (indien ingesteld) per groep gehusseld.
+- **Overal per leerling zijn eigen vragen**: nakijkscherm van de leerkracht (totalen, tabs, "x/y verbeterd"), eigen nazicht van de leerling, PDF's (per leerling, ZIP, klasoverzicht met "·" voor niet getrokken vragen en een eigen maximum), tekst-export, CSV-export (extra kolom *Maximum (eigen vragen)*), voortgang van de leerkracht en het klasbord (eigen totaal).
+- **Stoppen/aanvullen**: bij het stoppen worden ontbrekende antwoorden enkel aangevuld voor de vragen die de leerling kreeg (niet voor alle vragen); wie nooit begon krijgt alsnog een trekking, zodat zijn maximum klopt.
+- **Opslag**: nieuwe kolom `assignment_bank.pool_json` (`{ "<groepNr>": N }`), gevalideerd op de werkelijke groepen (1 ≤ N < aantal vragen). Dupliceren neemt de pool mee. Toetsen zonder pool zijn volledig ongewijzigd.
+- Tests: `tests/v134.test.js`, `tests/live/pool-live.js` (6 leerlingen, herverbinden, aanvullen, nazicht, CSV, dupliceren).
+
+## v2026.2.51.133 — Meerkeuze met gedeeld juist + halve punten overal
+
+- **Meerkeuze (meerdere juiste opties), nieuwe regel "gedeeld juist"**: score = punten × max(0, 1 − (1,5 × gemist + 3 × fout aangeduid) ÷ aantal juiste opties), afgerond op het dichtstbijzijnde half punt (0,25 en hoger rondt omhoog). Volle punten enkel bij alles juist; **alle opties aanduiden geeft altijd 0** (gokken loont niet). Voorbeeld V4 (A,B,D juist; 2 p): ABD = 2, AB = 1, A = 0, ABC = 0.
+- **Instelling per toets/taak** (aanmaak- en bewerkscherm + bevestigingsscherm): "Gedeeld juist" of "Klassiek" (de oude pro-rata-regel). Nieuwe toetsen/taken starten op *gedeeld*; **bestaande blijven klassiek** zodat nagekeken resultaten niet achteraf veranderen. Dupliceren neemt de keuze mee. Nieuwe kolom `assignment_bank.mc_scoring`. Enkelvoudige vragen blijven alles-of-niets.
+- **Halve punten overal**: `question_bank.max_points`, snapshot-`points` en `quiz_answers.score` zijn nu `NUMERIC(6,1)` (eenmalige, automatische omzetting; gehele waarden blijven geldig). De pg-bibliotheek geeft NUMERIC nu als getal terug (anders werd "1,5" + "2" = "1,52"). Eén hulpfunctie `normaliseerScore` laat enkel veelvouden van 0,5 toe (komma of punt); de score-eindpunten weigeren iets als 1,3 met een melding i.p.v. het stil af te ronden of te wissen.
+- **Schermen**: score-invoer bij het nakijken (hele vraag en onderdelen), punten per vraag in de vragenbank, deelpunten van samengestelde vragen en de puntenaanpassing in de wizard hebben stap 0,5. Weergave overal met een Nederlandse komma (`fmtP`), ook in PDF's, het archief, de klasmatrix en de CSV-export.
+- **Import**: JSON- en CSV-import accepteren 0,5-punten (vraag en onderdelen). **AI-nakijken** stelt scores voor in stappen van 0,5 (voorheen 0,25).
+- **Leerling-nazicht**: bij een meerkeuzevraag de korte uitleg "2 van 3 juist · 1 gemist · 1 fout aangeduid".
+- Tests: `tests/v133.test.js`, `tests/live/halve-punten-live.js` (incl. migratie INTEGER → NUMERIC).
+
+## v2026.2.51.132 — Cursus-links per vraag (toets en taak)
+
+- **Aanmaak- en bewerkscherm, stap 2 (vragen)**: onderaan een rooster **Cursus-links**. Per link een titel (tabnaam), een https-adres en een knop **🔗 Vragen koppelen**. De popup toont alle geselecteerde vragen met checkboxes, plus een checkbox per **groep** (vinkt al haar vragen aan of uit, met "gedeeltelijk"-stand) en "Alle vragen". Een link kan bij meerdere vragen horen en een vraag kan meerdere links hebben. Het veld "Cursus-link" op de eerste pagina is verdwenen.
+- **Leerling**: het uitschuifbare paneel toont per vraag enkel de links die erbij horen. Meerdere links = tabs bovenaan het paneel; geen link = geen knop en een gesloten paneel.
+- **Bevestigingsscherm**: per link titel, host en koppeling ("Groep 2 + vragen 1, 3" of "alle vragen"), met een waarschuwing bij een link zonder vragen (die wordt nergens getoond).
+- **Opslag**: nieuwe kolom `assignment_bank.cursus_links` (JSON, gekoppeld via bank-id van de vraag). Bestaande toetsen/taken met één cursus-link worden eenmalig omgezet naar één link ("Cursus") voor alle vragen; `cursus_url` wordt daarna niet meer gebruikt.
+- **Server**: `normaliseerCursusLinks` (max. 20 links, titel max. 40, enkel geldige https, vragen buiten de toets worden gefilterd); een oude client die enkel `cursusUrl` stuurt krijgt één link voor alle vragen. Dupliceren kopieert de links mee. `quiz_state` stuurt `cursusLinks` (titel, url, vraag-id's) in plaats van `cursusUrl`.
+- De cursus-link van de klassessie (student-app) is ongewijzigd.
+- Tests: `tests/v132.test.js`, `tests/live/cursus-links-live.js`.
+
+## v2026.2.51.131 — Dupliceren kopieert alles; bevestigingsscherm toont de instellingen
+
+- **Bugfix dupliceren (toets én taak)**: de kopie nam enkel een deel van de instellingen over. Nu worden ook **de groepen van de vragen** (`random_group`), automatisch indienen bij de deadline, 1 kans per vraag, anti-spiek (tabwissel, drempel en respijt), cursus-link, zelfevaluatie, klasbord, volledig scherm en kopiëren/plakken meegenomen. Resultaten, vrijgave en nazicht beginnen in de kopie bewust opnieuw uit.
+- **Laatste scherm (bevestigen)**: toont nu een blok **Instellingen** (start, deadline, automatisch indienen, 1 kans per vraag, anti-spiek, volledig scherm, kopiëren/plakken, min. 1 run, vraag verbergen, cursus-link, zelfevaluatie of klasbord) en elke groep krijgt een kop met aantal vragen en punten (ook Groep 1).
+- Tests: `tests/v131.test.js`, `tests/live/dupliceren-live.js`.
+
+## v2026.2.51.130 — Snel scores en nazicht vrijgeven of intrekken in het overzicht
+
+- **Toets overzicht en Taak overzicht**: op elke kaart onder "Afgerond" en "Te verbeteren" staan twee wisselknoppen: **Scores vrijgeven / intrekken** en **Nazicht openen / sluiten**. De knop toont de huidige stand (groen of blauw met vinkje = aan). Gebruikt de bestaande routes `POST /api/quiz/:code/release` en `/review-mode` (auditlog en melding aan leerlingen blijven zoals op de Scores-pagina). Bevestiging via toast, geen popups.
+- Tests: `tests/v130.test.js`.
+
+## v2026.2.51.129 — JSON-import van vragen (met titel)
+
+- **Vragenbank → tab "Import (CSV/JSON)"**: plak JSON of kies een `.json`-bestand; het formaat wordt automatisch herkend (begint met `{` of `[`). Nieuwe route `POST /api/quiz/bank/import-json` (leerkracht + CSRF, max 1 MB) en `importQuizQuestionsJSON` in `db/database.js`.
+- **Titel per vraag** (`title`) via de import, plus echte keuzeobjecten (`choices: [{text, correct}]`) en samengestelde vragen (`answerParts`). Formaat: `{ "vragen": [ { title, subject, difficulty, type, points, text, choices, modelAnswer, answerParts, tags, share } ] }` (ook `questions` of een kale array).
+- Regels: duplicaat op exacte vraagtekst wordt overgeslagen (zoals CSV); keuzevragen vragen minstens 2 opties en 1 juiste (enkelvoudig precies 1); fouten per vraag worden getoond zonder de rest te blokkeren.
+- Scoring ongewijzigd (meerkeuze blijft pro-rata, fout aangevinkt = 0).
+- Tests: `tests/v129.test.js`.
+
+## v2026.2.51.128 — Leerling kopieert werkblad naar de klascode
+
+- **Knop "⇪ Naar klas"** naast Run bij de leerling (enkel in klasmodus): zet de code van het zichtbare werkblad (bij een reeks opdrachten: de opdracht die op dat moment open staat) in de gedeelde klascode. Actief enkel met bewerkrecht op de klascode (exclusief recht, zoals bij de leerkrachtknoppen) én op het werkblad; anders grijs met uitleg. Overschrijft altijd, zonder popup; een leeg werkblad kopieert niets.
+- **Server** (`student_copy_to_class`): controleert klasmodus, recht en leeg werkblad zelf en neemt de eigen werkbladcode van de server (niet wat de client meestuurt). Ook de kopiërende leerling en de leerkracht krijgen de nieuwe klascode.
+- **Melding voor de leerkracht**: "Jan heeft zijn code naar de klas gezet" in de statusbox, een blauwe meldingenbalk in het volledige scherm (pil per leerling, klik wist; Reset wist alles; `teacher_reset_copy`) en een badge "⇪ Code naar klas" in de leerlingenlijst.
+- De meldingenbalken (Klaar/Hand/Code naar klas) hadden nog geen CSS en kregen een lichte opmaak.
+- Tests: `tests/v128.test.js`, `tests/live/kopieer-naar-klas-live.js`.
+
+## v2026.2.51.127 — Ollama in eigen compose, model Qwen3.5-9B, thinking als parameter
+
+- **Eigen compose** `docker-compose.ollama.yml` (project `pycodeflow-ollama`, container `pycodeflow-ollama-1`); Ollama staat niet meer in `docker-compose.yml`. Poort `${OLLAMA_BIND:-0.0.0.0}:${OLLAMA_PORT:-11434}` → bereikbaar via LAN en Tailscale (geen login: nooit naar het internet openzetten; `OLLAMA_BIND=<tailscale-ip>` beperkt dit). Instelbaar: `OLLAMA_MEM_LIMIT` (12g), `OLLAMA_CPUS`, `OLLAMA_KEEP_ALIVE`, `OLLAMA_NUM_PARALLEL`. Het modellenvolume `pycodeflow_ollama_data` blijft gebruikt, dus gedownloade modellen blijven bewaard. Commentaar voor AMD/ROCm (iGPU) staat klaar.
+- **pycodeflow.sh**: één blok `OLLAMA-LOKAAL` + haken met `[OLLAMA-LOKAAL]` in optie 2/3/4/5/13/14. Eenmalige vraag "Ollama op DEZE machine mee laten draaien? (ja/nee)" → `OLLAMA_LOKAAL` in `.env`. Oude installaties (`OLLAMA_URL=http://ollama:11434`) worden automatisch gemigreerd naar `http://host.docker.internal:11434`. Nieuwe machine? Zet `OLLAMA_URL=http://<ip>:11434` + `OLLAMA_LOKAAL=false`; alles verwijderen kan met `sed -i '/OLLAMA-LOKAAL-STAR[T]/,/OLLAMA-LOKAAL-EIND[E]/d; /\[OLLAMA-LOKAAL\]/d' pycodeflow.sh`.
+- **Model**: standaard `qwen3.5:9b` (was `qwen2.5-coder:7b`); bij optie 5 wordt het oude standaardmodel omgezet na bevestiging, eigen "-custom"-modellen blijven ongemoeid. Controleer dat deze tag bij Ollama bestaat (`ollama pull qwen3.5:9b`).
+- **Thinking uit** (sneller, korte antwoorden) als parameter: `OLLAMA_THINK=false` in `.env` (globaal) en `{ think: true }` per aanroep in `lib/ai-grading.js` (`gradeAnswer`, `generateGeneralComment`, `generateHiddenTrap`). Modellen zonder thinking-ondersteuning worden automatisch zonder die parameter herprobeerd.
+- Tests: `tests/v127.test.js` (compose, script-syntax, strip-test, migratie met nep-docker, think-parameter).
+
+## v2026.2.51.126 — Volledig scherm inklapbaar, klassenkiezer, cursus in de sessie
+
+- **Volledig scherm**: timerblok inklapbaar (ingeklapt: enkel knoppen + pil met aftelling; op kleine schermen standaard ingeklapt). Opdracht en Voorbeelden inklapbaar (titel + aantal "(n)"), één pijl voor het hele bovenblok én een pijltje per blok; inklappen vergroot het codeveld. OFFLINE-blok enkel zichtbaar met offline leerlingen, altijd 2 kolommen, minimale hoogte (max 10 rijen). De schuifbalk stopt wanneer het codeveld (480px) of de zijkant (320px) niet smaller kan.
+- **Sessiestart**: "Alle klassen" uitvinken zet alle klassen uit; het vinkje volgt de losse keuzes.
+- **Cursus in de sessie** (klasmodus én individueel): leerkracht-vinkje "Cursus tonen" + paginakeuze (startpagina, H1–H25, woordenlijst of eigen https-link); leerling krijgt knop "📄 Cursus" en een inklapbaar zijpaneel. Server: `teacher_set_cursus`, `cursus_update`, opgeslagen in `config_json._cursus`; CSP `frame-src` nu ook voor `/student-app.html`.
+- Tests: `tests/v126.test.js`, `tests/live/cursus-live.js`.
+
 ## v2026.2.51.125 — Opmaak in opdrachten, bewaren bij de sessie, nieuw volledig scherm, verbindingsherstel
 
 - **Opmaak** (`public/rijke-tekst.js`, strikte whitelist, ook server-side gesaneerd): vet, cursief, onderlijnen, 6 kleuren, code/codeblok met Python-kleuren. Groter invulveld over de hele breedte. Codevoorbeeld met live kleur.

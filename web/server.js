@@ -149,6 +149,26 @@ function validateCsrf(req) {
   return true;
 }
 
+// v132: cursus-links per vraag. Opslag: assignment_bank.cursus_links (JSON-tekst) met
+// questionIds = bank-id's van de vragen. Leest veilig (kapotte JSON => geen links).
+function leesCursusLinks(meta) {
+  try {
+    const l = JSON.parse((meta && meta.cursus_links) || '[]');
+    return Array.isArray(l) ? l : [];
+  } catch { return []; }
+}
+// Voor de leerling: koppel bank-id's aan de snapshot-id's van zijn vragen. Links zonder
+// vragen worden niet meegestuurd; wat wel meegaat is enkel titel, url en vraag-id's.
+function cursusLinksVoorLeerling(meta, snapshots) {
+  const perBank = new Map();
+  for (const q of snapshots || []) if (q.bank_question_id) perBank.set(String(q.bank_question_id), q.id);
+  return leesCursusLinks(meta).map(l => ({
+    title: String(l.title || 'Cursus').slice(0, 40),
+    url: String(l.url || ''),
+    vragen: (Array.isArray(l.questionIds) ? l.questionIds : []).map(b => perBank.get(String(b))).filter(Boolean),
+  })).filter(l => l.url && l.vragen.length);
+}
+
 function requireCsrf(req, res, next) {
   if (!validateCsrf(req)) {
     return res.status(403).json({ error: 'CSRF validatie mislukt' });
@@ -214,6 +234,23 @@ const freeStudents = new Map();
 // Sprint 34a: auth/crypto helpers geëxtraheerd naar lib/auth.js (getest in tests/)
 const authLib = require('./lib/auth');
 const scoringLib = require('./lib/scoring');
+const vragenpoolLib = require('./lib/vragenpool');   // v134: trek N uit M per groep
+const moeilijkheidLib = require('./lib/moeilijkheid');   // v137: moeilijkheidsrapport
+const gelijkenisLib = require('./lib/gelijkenis');       // v136: gelijkenisrapport
+const placeholdersLib = require('./lib/placeholders');   // v135: {{variabelen}} per leerling
+// v133: halve punten tonen met een Nederlandse komma (PDF's, tekstexports).
+// v134: enkel de vragen die DEZE leerling kreeg (vragenpool). Zonder pool: alle vragen.
+// `antwoorden` = de antwoord-rijen van de leerling; na het stoppen zijn die aangevuld voor zijn eigen vragen.
+function vragenVanLeerling(vragen, antwoorden, poolIsActief) {
+  if (!poolIsActief) return vragen;
+  const gezien = new Set((antwoorden || []).map(a => a.question_id));
+  return vragen.filter(q => gezien.has(q.id));
+}
+async function poolIsActiefVoor(code, vragen) {
+  const m = await dbModule.getQuizMeta(code).catch(() => null);
+  return vragenpoolLib.poolActief(vragenpoolLib.normaliseerPool(m?.pool_json, vragen));
+}
+const fmtPunten = (n) => (n === null || n === undefined || n === '') ? '' : String(Math.round(Number(n) * 100) / 100).replace('.', ',');
 const validationLib = require('./lib/validation');
 const overzichtStatus = require('./lib/overzicht-status');
 const klasbordLib = require('./lib/klasbord'); // v99: klasbord + hand opsteken bij toets/taak
@@ -825,7 +862,8 @@ app.use((req, res, next) => {
   // 'default-src self', wat elke externe link zou blokkeren. Enkel https: toegelaten
   // (nooit http:, data: of javascript:) — dat dekt elke normale cursus-link (Drive,
   // schoolwebsite, een gehost PDF, …) zonder de deur open te zetten voor iets anders.
-  const frameSrc = magIngebedWorden ? "frame-src 'self' https:; " : "";
+  // v126: ook de leerlingpagina van een sessie (student-app.html) toont de cursus in een zijpaneel.
+  const frameSrc = (magIngebedWorden || req.path === '/student-app.html') ? "frame-src 'self' https:; " : "";
   // ── CSP (sprint 30b — OPTIE A, TIJDELIJK) ────────────────────────────────────
   // Alle inline <script> BLOKKEN zijn geëxtraheerd (sprint 32a), dus scripts laden
   // via 'self'. 'unsafe-inline' in script-src blijft ENKEL nog nodig voor de ~123
@@ -900,7 +938,7 @@ const globaleJson = express.json({ limit: '64kb' });
 const trainingImportJson = express.json({ limit: '2mb' });
 app.use((req, res, next) => {
   if (LOGO_UPLOAD_PAD.test(req.path)) return next();   // eigen parser op de route zelf
-  if (req.path === '/api/teacher/training/import') return trainingImportJson(req, res, next);
+  if (req.path === '/api/teacher/training/import' || req.path === '/api/quiz/bank/import-json') return trainingImportJson(req, res, next);
   return globaleJson(req, res, next);
 });
 // base64 is ~33% groter dan de ruwe bytes; +40% marge voor de JSON-omhulling.
@@ -3111,8 +3149,42 @@ app.post('/api/quiz/bank/ai-trap-suggestie', requireTeacherAuth, requireCsrf, as
   }
 });
 
+// v135: valideert de variabelen van een vraag en of elke {{placeholder}} berekend kan worden.
+// Geen variabelen = niets te controleren (bestaande vragen met accolades blijven ongewijzigd).
+function valideerVariabelen(ruw, velden, qType) {
+  if (ruw === undefined || ruw === null || (Array.isArray(ruw) && ruw.length === 0)) return { variabelen: [], opslag: [], waarschuwingen: [] };
+  const nv = placeholdersLib.normaliseerVariabelen(ruw);
+  if (nv.fouten.length) return { fout: nv.fouten[0] };
+  if (!nv.variabelen.length) return { variabelen: [], opslag: [], waarschuwingen: [] };
+  const keuzes = ['multiple', 'single'].includes(qType) ? (velden.choices || []).map(c => ({ text: String(c?.text || '') })) : [];
+  const delen = qType === 'composite' ? (velden.answerParts || []) : [];
+  const vraag = { text: String(velden.text || ''), model_answer: String(velden.modelAnswer || ''), choices_json: keuzes, answer_parts: delen };
+  const tokenFouten = placeholdersLib.controleerTokens(nv.variabelen, placeholdersLib.tekstenVanVraag(vraag));
+  if (tokenFouten.length) return { fout: tokenFouten[0] };
+  // v137: alle combinaties doorrekenen — onmogelijke situaties (delen door nul, gelijke opties, geen geldige combinatie) blokkeren.
+  const combi = placeholdersLib.controleerCombinaties(nv.variabelen, nv.voorwaarde, vraag);
+  if (combi.fouten.length) return { fout: combi.fouten[0] };
+  return { variabelen: nv.variabelen, voorwaarde: nv.voorwaarde, opslag: placeholdersLib.opslagVan(nv.variabelen, nv.voorwaarde),
+           waarschuwingen: combi.waarschuwingen, aantalCombinaties: combi.aantal, exact: combi.exact };
+}
+
+// v135: voorbeeld-invullingen voor de vraag-editor ("zo zien leerling 1, 2 en 3 de vraag").
+app.post('/api/quiz/bank/variabelen-voorbeeld', requireTeacherAuth, requireCsrf, (req, res) => {
+  const b = req.body || {};
+  const check = valideerVariabelen(b.variables, { text: b.text, modelAnswer: b.modelAnswer, choices: b.choices || [], answerParts: b.answerParts || [] }, b.questionType);
+  if (check.fout) return res.status(400).json({ error: check.fout });
+  const voorbeelden = placeholdersLib.voorbeeldVoorbeelden({
+    text: String(b.text || ''), model_answer: String(b.modelAnswer || ''),
+    choices_json: JSON.stringify((b.choices || []).map(c => ({ text: String(c?.text || ''), correct: c?.correct === true }))),
+    answer_parts: JSON.stringify(b.answerParts || []), variables_json: JSON.stringify(check.opslag),
+  }, 3);
+  res.json({ ok: true, aantalCombinaties: check.aantalCombinaties ?? null, exact: check.exact !== false, waarschuwingen: check.waarschuwingen || [], voorbeelden: voorbeelden.map(v => ({
+    waarden: v.waarden, text: v.vraag.text, modelAnswer: v.vraag.model_answer,
+    choices: JSON.parse(v.vraag.choices_json || '[]'), answerParts: JSON.parse(v.vraag.answer_parts || '[]') })) });
+});
+
 app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => {
-  const { text, title, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer, answerParts, flowchartJson, hiddenAiTrap } = req.body || {};
+  const { text, title, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer, answerParts, flowchartJson, hiddenAiTrap, variables } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: 'Vraagstelling is verplicht.' });
   if (text.length > 5000) return res.status(400).json({ error: 'Vraagstelling te lang (max 5000 tekens).' });
   // Sprint 77: titel is volledig optioneel — enkel om de vraag makkelijker terug te vinden.
@@ -3132,6 +3204,9 @@ app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => 
   if (qType === 'composite' && (!Array.isArray(answerParts) || answerParts.length < 1)) {
     return res.status(400).json({ error: 'Een samengestelde vraag heeft minstens 1 antwoordonderdeel nodig.' });
   }
+  // v135: variabelen per leerling ({{placeholders}} in vraag, opties, modelantwoord en onderdelen).
+  const variabelenCheck = valideerVariabelen(variables, { text, modelAnswer, choices: choices || [], answerParts: answerParts || [] }, qType);
+  if (variabelenCheck.fout) return res.status(400).json({ error: variabelenCheck.fout });
   try {
     // Sprint 51-fix (kritiek): dit las de eigenaar voorheen uit een HTTP Basic-Auth-header
     // (parseBasicAuthHeader(req.headers.authorization)) — die bestaat enkel bij de oude
@@ -3145,7 +3220,7 @@ app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => 
       text, title: (title || '').slice(0, 200),
       subject: (subject || '').slice(0, 64),
       difficulty: ['makkelijk','gemiddeld','moeilijk'].includes(difficulty) ? difficulty : 'gemiddeld',
-      maxPoints: Math.max(1, Math.min(100, parseInt(maxPoints) || 4)),
+      maxPoints: validationLib.normaliseerVraagPunten(maxPoints, 4),
       questionType: qType,
       choicesJson: qType === 'code' || qType === 'open' || qType === 'composite' ? '[]' : JSON.stringify(
         (choices || []).map(ch => ({
@@ -3161,13 +3236,14 @@ app.post('/api/quiz/bank', requireTeacherAuth, requireCsrf, async (req, res) => 
       answerParts: qType === 'composite' ? JSON.stringify(answerParts) : '[]',
       flowchartJson: String(flowchartJson || '').slice(0, 200000),
       hiddenAiTrap: String(hiddenAiTrap || '').slice(0, 500),
+      variablesJson: JSON.stringify(variabelenCheck.opslag),   // v135
     });
-    res.json({ ok: true, id });
+    res.json({ ok: true, id, waarschuwingen: variabelenCheck.waarschuwingen || [] });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) => {
-  const { text, title, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer, answerParts, flowchartJson, hiddenAiTrap } = req.body || {};
+  const { text, title, subject, difficulty, maxPoints, questionType, choices, tags, modelAnswer, answerParts, flowchartJson, hiddenAiTrap, variables } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: 'Vraagstelling is verplicht.' });
   if (title && title.length > 200) return res.status(400).json({ error: 'Titel te lang (max 200 tekens).' });
   // Sprint 51c: enkel de eigenaar (of admin/legacy) mag een vraag bewerken.
@@ -3181,11 +3257,14 @@ app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) 
   if (qType === 'composite' && (!Array.isArray(answerParts) || answerParts.length < 1)) {
     return res.status(400).json({ error: 'Een samengestelde vraag heeft minstens 1 antwoordonderdeel nodig.' });
   }
+  // v135: variabelen per leerling ({{placeholders}} in vraag, opties, modelantwoord en onderdelen).
+  const variabelenCheck = valideerVariabelen(variables, { text, modelAnswer, choices: choices || [], answerParts: answerParts || [] }, qType);
+  if (variabelenCheck.fout) return res.status(400).json({ error: variabelenCheck.fout });
   const ok = await dbModule.updateQuizQuestion(req.params.id, {
     text, title: (title || '').slice(0, 200),
     subject: (subject || '').slice(0, 64),
     difficulty: ['makkelijk','gemiddeld','moeilijk'].includes(difficulty) ? difficulty : 'gemiddeld',
-    maxPoints: Math.max(1, Math.min(100, parseInt(maxPoints) || 4)),
+    maxPoints: validationLib.normaliseerVraagPunten(maxPoints, 4),
     questionType: qType,
     choicesJson: qType === 'code' || qType === 'open' || qType === 'composite' ? '[]' : JSON.stringify(
       (choices || []).map(ch => ({
@@ -3199,8 +3278,9 @@ app.put('/api/quiz/bank/:id', requireTeacherAuth, requireCsrf, async (req, res) 
     answerParts: qType === 'composite' ? JSON.stringify(answerParts) : '[]',
     flowchartJson: String(flowchartJson || '').slice(0, 200000),
     hiddenAiTrap: String(hiddenAiTrap || '').slice(0, 500),
+    variablesJson: JSON.stringify(variabelenCheck.opslag),   // v135
   });
-  res.json({ ok });
+  res.json({ ok, waarschuwingen: variabelenCheck.waarschuwingen || [] });
 });
 
 // 38: dupliceer één bankvraag in het vragenoverzicht (los van toets dupliceren).
@@ -3332,6 +3412,53 @@ app.post('/api/quiz/bank/import-csv', requireTeacherAuth, requireCsrf, async (re
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// v129: JSON-import van vragen (met titel). Body: { json: "<tekst>" } of { data: <object|array> }.
+// Aanvaardt { vragen: [...] }, { questions: [...] } of een kale array.
+app.post('/api/quiz/bank/import-json', requireTeacherAuth, requireCsrf, async (req, res) => {
+  const { json, data } = req.body || {};
+  let parsed = data;
+  if (parsed === undefined) {
+    if (typeof json !== 'string' || !json.trim()) return res.status(400).json({ error: 'JSON-data is verplicht.' });
+    if (json.length > 1024 * 1024) return res.status(400).json({ error: 'JSON te groot (max 1MB).' });
+    try { parsed = JSON.parse(json); } catch (e) { return res.status(400).json({ error: 'Ongeldige JSON: ' + e.message }); }
+  }
+  const lijst = Array.isArray(parsed) ? parsed : (parsed && (parsed.vragen || parsed.questions));
+  if (!Array.isArray(lijst) || !lijst.length) return res.status(400).json({ error: 'Geen vragen gevonden (verwacht "vragen": [...]).' });
+  try {
+    const schoolId = leesScopeVoor(req.teacher) || null;
+    const result = await dbModule.importQuizQuestionsJSON(lijst, req.teacher?.id || null, schoolId);
+    res.json({ ok: true, ...result });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// v137: hoeveel verschillende toetsen kan deze pool opleveren? Gebruikt voor het bevestigingsscherm.
+// Body: { questions: [{ id, randomGroup, points }], pool: { groepNr: N | {n, mix} } }
+app.post('/api/quiz/pool-telling', requireTeacherAuth, requireCsrf, async (req, res) => {
+  try {
+    const lijst = Array.isArray(req.body?.questions) ? req.body.questions.slice(0, 200) : [];
+    if (!lijst.length) return res.status(400).json({ error: 'Geen vragen.' });
+    const bank = await dbModule.getQuizBankByIds(lijst.map(q => q.id));
+    const varianten = {}; const vragen = [];
+    for (const q of lijst) {
+      const b = bank.get ? bank.get(q.id) : null;
+      const nv = placeholdersLib.normaliseerVariabelen(b?.variables_json);
+      if (nv.variabelen.length) varianten[q.id] = placeholdersLib.telCombinaties(nv.variabelen, nv.voorwaarde).aantal;
+      vragen.push({ id: q.id, random_group: parseInt(q.randomGroup) || 0, difficulty: b?.difficulty || 'gemiddeld',
+        points: validationLib.normaliseerVraagPunten(q.points ?? b?.max_points, 4) });
+    }
+    const pool = vragenpoolLib.normaliseerPool(req.body?.pool, vragen);
+    const tel = vragenpoolLib.telUniekeToetsen(vragen, pool, varianten);
+    const ongelijk = vragenpoolLib.controleerGelijkePunten(vragen, pool);
+    const niveaus = {};
+    for (const g of vragenpoolLib.bouwGroepen(vragen)) {
+      const n = niveaus[g.nr] || (niveaus[g.nr] = { makkelijk: 0, gemiddeld: 0, moeilijk: 0 });
+      g.vragen.forEach(q => { n[vragenpoolLib.niveauVan(q)]++; });
+    }
+    res.json({ ok: true, pool, perGroep: tel.perGroep.map(g => ({ ...g, niveaus: niveaus[g.nr] })), totaal: tel.totaal,
+      metPlaceholders: Object.keys(varianten).length > 0, ongelijkePunten: ongelijk });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── 16b: Toets aanmaken & beheren ────────────────────────────────────────────
 
 app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
@@ -3339,7 +3466,7 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
           hideQuestionOnScreen, isTeacherPreview, templateCode,
           noTimer, accessFrom, accessUntil, autoSubmitLate,
           schoolYear, targetClass, type, studentIds,
-          tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusUrl, selfEvalEnabled, klasbordEnabled, fullscreenRequired, copyPasteBlocked } = req.body || {};
+          tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusUrl, cursusLinks, selfEvalEnabled, klasbordEnabled, fullscreenRequired, copyPasteBlocked, mcScoring, pool } = req.body || {};
   if (!name?.trim()) return res.status(400).json({ error: 'Naam is verplicht.' });
   // Sprint 43.14: type is voortaan EXPLICIET (komt uit de link waarmee het
   // aanmaakscherm geopend werd) — niet langer afgeleid uit noTimer. De server
@@ -3359,11 +3486,11 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
   const effectiveSelfEval = validationLib.bepaalZelfevaluatieInstelling({
     type, enabled: selfEvalEnabled === true,
   });
-  if (cursusUrl && !validationLib.isValidCursusUrl(cursusUrl)) {
-    return res.status(400).json({ error: 'De cursus-link moet een geldige https://-link zijn (max. 2000 tekens).' });
-  }
   if (!questions?.length) return res.status(400).json({ error: 'Selecteer minstens 1 vraag.' });
   if (questions.length > 50) return res.status(400).json({ error: `Max 50 vragen per ${type}.` });
+  // v132: cursus-links per vraag valideren en tot de gekozen vragen beperken.
+  const cursusCheck = validationLib.normaliseerCursusLinks(cursusLinks, cursusUrl, questions.map(q => q.id));
+  if (!cursusCheck.ok) return res.status(400).json({ error: cursusCheck.error });
   // Sprint 43.3: einddatum + uur is VERPLICHT voor béide types (toets én taak).
   // Preview-toetsen zijn vrijgesteld: die dienen enkel om zelf even te testen.
   if (!isTeacherPreview && !accessUntil) {
@@ -3405,6 +3532,15 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
     // 37b: haal de volledige bankvragen op zodat vraagtype, keuzes én modelantwoord
     // correct in de snapshot terechtkomen (de frontend stuurt enkel id/text/punten mee).
     const bankById = await dbModule.getQuizBankByIds(questions.map(q => q.id));
+    // v137: pool = vragen met niveau + punten; in een pool-groep moeten alle vragen evenveel punten waard zijn.
+    const poolVragen = questions.map(q => ({ id: q.id, random_group: parseInt(q.randomGroup) || 0,
+      difficulty: (bankById.get ? bankById.get(q.id) : null)?.difficulty || 'gemiddeld',
+      points: validationLib.normaliseerVraagPunten(q.points ?? q.max_points, 4) }));
+    const poolGezuiverd = vragenpoolLib.normaliseerPool(pool, poolVragen);
+    const ongelijk = vragenpoolLib.controleerGelijkePunten(poolVragen, poolGezuiverd);
+    if (ongelijk.length) {
+      return res.status(400).json({ error: `In een vragenpool moeten alle vragen van een groep evenveel punten hebben (groep ${ongelijk.map(g => g.nr + 1).join(', ')}: ${ongelijk.map(g => g.punten.map(p => String(p).replace('.', ',')).join(' / ')).join('; ')}).` });
+    }
     await dbModule.createQuizSession({
       sessionCode: code,
       questions: questions.map((q, i) => {
@@ -3412,13 +3548,15 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
         return {
           bankId: q.id, orderIndex: i,
           text: q.text, subject: q.subject || '',
-          points: parseInt(q.points) || parseInt(q.max_points) || 4,
+          points: validationLib.normaliseerVraagPunten(q.points ?? q.max_points, 4),
           questionType: bank?.question_type || 'code',
           choicesJson: bank?.choices_json || '[]',
           modelAnswer: bank?.model_answer || '',
           answerParts: bank?.answer_parts || '[]',
           flowchartJson: bank?.flowchart_json || '',
           hiddenAiTrap: bank?.hidden_ai_trap || '',
+          variablesJson: bank?.variables_json || '[]',   // v135
+          difficulty: bank?.difficulty || 'gemiddeld',   // v137
           // Sprint 76: groep voor onafhankelijke randomisatie (bv. theorie/oefeningen apart).
           randomGroup: parseInt(q.randomGroup) || 0,
         };
@@ -3448,7 +3586,7 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
       tabSwitchThreshold: tabWissel.threshold,
       // Sprint 94: het respijt vóór een tabwissel écht meetelt — instelbaar per toets.
       tabSwitchGraceSeconds: tabWissel.graceSeconds,
-      cursusUrl: cursusUrl?.trim() || null,
+      cursusLinks: JSON.stringify(cursusCheck.links),
       // Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij een toets).
       selfEvalEnabled: effectiveSelfEval,
       // v99: klasbord + hand opsteken (enkel een keuze bij een taak; een toets heeft het altijd)
@@ -3456,6 +3594,8 @@ app.post('/api/quiz', requireTeacherAuth, requireCsrf, async (req, res) => {
       // v113: anti-kopiëren en volledig scherm — per toets/taak instelbaar, standaard aan
       fullscreenRequired: fullscreenRequired !== false,
       copyPasteBlocked: copyPasteBlocked !== false,
+      mcScoring: validationLib.normaliseerMcScoring(mcScoring) || 'gedeeld',   // v133: nieuwe toetsen standaard 'gedeeld'
+      poolJson: JSON.stringify(poolGezuiverd),   // v134/v137
     });
     // Sprint 43.4: expliciete leerling-selectie (leeg/afwezig = hele klas mag meedoen)
     if (Array.isArray(studentIds) && studentIds.length) {
@@ -3500,7 +3640,20 @@ app.get('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, async (req,
   const session = sessions.get(code);
   const meta = await dbModule.getQuizMeta(code);
   const questions = await dbModule.getQuizQuestions(code);
-  res.json({ session: session ? { code, name: session.name, mode: session.mode } : null, meta, questions });
+  // v134: bij een vragenpool weet het nakijkscherm zo welke vragen elke leerling kreeg.
+  const poolIsActief = vragenpoolLib.poolActief(vragenpoolLib.normaliseerPool(meta?.pool_json, questions));
+  const toewijzing = poolIsActief ? await dbModule.getQuizToewijzing(code) : null;
+  const heeftVariabelen = questions.some(q => placeholdersLib.heeftVariabelen(q));   // v135
+  res.json({ session: session ? { code, name: session.name, mode: session.mode } : null, meta, questions, toewijzing, heeftVariabelen });
+});
+
+// v135: de vragen zoals DEZE leerling ze zag (placeholders ingevuld) — voor het nakijkscherm van de leerkracht.
+app.get('/api/quiz/:code/vragen-van/:studentId', requireTeacherAuth, requireSessionAccess, async (req, res) => {
+  try {
+    const code = req.params.code.toUpperCase();
+    const questions = await dbModule.getQuizQuestions(code);
+    res.json(questions.map(q => placeholdersLib.vulVraagIn(q, code, req.params.studentId)));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Sprint 50 (bug 2): een toets/taak bewerken ───────────────────────────────
@@ -3570,13 +3723,15 @@ app.get('/api/quiz/:code/edit', requireTeacherAuth, requireSessionAccess, async 
         // Sprint 94: instelbaar respijt — meegeven zodat het bewerkscherm de huidige
         // waarde toont i.p.v. altijd de default.
         tabSwitchGraceSeconds: meta.tab_switch_grace_seconds ?? 5,
-        cursusUrl: meta.cursus_url || '',
+        cursusLinks: leesCursusLinks(meta),
         // Sprint 90: zelfevaluatie-enquête ná het indienen.
         selfEvalEnabled: meta.self_eval_enabled === true,
         // v99: klasbord + hand opsteken bij een taak
         klasbordEnabled: meta.klasbord_enabled === true,
         fullscreenRequired: meta.fullscreen_required !== false,
         copyPasteBlocked: meta.copy_paste_blocked !== false,
+        mcScoring: meta.mc_scoring === 'gedeeld' ? 'gedeeld' : 'klassiek',
+        pool: vragenpoolLib.normaliseerPool(meta.pool_json, snaps.map(q => ({ id: q.id, random_group: q.random_group || 0, difficulty: q.difficulty }))),   // v134/v137
       },
       // Vragen zoals ze nu in de toets zitten (met bank-id zodat het aanmaakscherm ze
       // terugvindt en er nieuwe bij kan selecteren of ze kan verwijderen).
@@ -3584,6 +3739,8 @@ app.get('/api/quiz/:code/edit', requireTeacherAuth, requireSessionAccess, async 
         id: q.bank_question_id, text: q.text_snapshot, subject: q.subject || '',
         points: q.points, question_type: q.question_type, choices_json: q.choices_json,
         flowchart_json: q.flowchart_json || '', hidden_ai_trap: q.hidden_ai_trap || '',
+        variables_json: q.variables_json || '[]',   // v135
+        difficulty: q.difficulty || 'gemiddeld',   // v137
         // Sprint 76: groep zodat het bewerkscherm de groepsscheidingen kan herstellen.
         random_group: q.random_group || 0,
       })),
@@ -3624,7 +3781,7 @@ app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf
     const { name, questions, randomize, timerSeconds, noTimer, minRunsPerQ,
             hideQuestionOnScreen, noBack, accessFrom, accessUntil, autoSubmitLate,
             schoolYear, targetClass, studentIds,
-            tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusUrl, selfEvalEnabled, klasbordEnabled, fullscreenRequired, copyPasteBlocked } = req.body || {};
+            tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusUrl, cursusLinks, selfEvalEnabled, klasbordEnabled, fullscreenRequired, copyPasteBlocked, mcScoring, pool } = req.body || {};
 
     if (!name?.trim()) return res.status(400).json({ error: 'Naam is verplicht.' });
     // Sprint 83: type staat vast (kan niet gewijzigd worden bij een update — zie meta
@@ -3637,11 +3794,11 @@ app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf
     const effectiveSelfEval = validationLib.bepaalZelfevaluatieInstelling({
       type: meta.type, enabled: selfEvalEnabled === true,
     });
-    if (cursusUrl && !validationLib.isValidCursusUrl(cursusUrl)) {
-      return res.status(400).json({ error: 'De cursus-link moet een geldige https://-link zijn (max. 2000 tekens).' });
-    }
     if (!questions?.length) return res.status(400).json({ error: 'Selecteer minstens 1 vraag.' });
     if (questions.length > 50) return res.status(400).json({ error: 'Max 50 vragen.' });
+    // v132: cursus-links per vraag valideren en tot de gekozen vragen beperken.
+    const cursusCheck = validationLib.normaliseerCursusLinks(cursusLinks, cursusUrl, questions.map(q => q.id));
+    if (!cursusCheck.ok) return res.status(400).json({ error: cursusCheck.error });
     // Deadline blijft verplicht (het type blijft hetzelfde als bij aanmaken).
     if (!accessUntil) return res.status(400).json({ error: 'Een einddatum en uur (deadline) is verplicht.' });
     if (accessUntil && accessFrom && Number(accessUntil) <= Number(accessFrom)) {
@@ -3653,6 +3810,15 @@ app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf
 
     // Vraag-snapshots opnieuw opbouwen uit de bank (net als bij aanmaken).
     const bankById = await dbModule.getQuizBankByIds(questions.map(q => q.id));
+    // v137: pool = vragen met niveau + punten; in een pool-groep moeten alle vragen evenveel punten waard zijn.
+    const poolVragen = questions.map(q => ({ id: q.id, random_group: parseInt(q.randomGroup) || 0,
+      difficulty: (bankById.get ? bankById.get(q.id) : null)?.difficulty || 'gemiddeld',
+      points: validationLib.normaliseerVraagPunten(q.points ?? q.max_points, 4) }));
+    const poolGezuiverd = vragenpoolLib.normaliseerPool(pool, poolVragen);
+    const ongelijk = vragenpoolLib.controleerGelijkePunten(poolVragen, poolGezuiverd);
+    if (ongelijk.length) {
+      return res.status(400).json({ error: `In een vragenpool moeten alle vragen van een groep evenveel punten hebben (groep ${ongelijk.map(g => g.nr + 1).join(', ')}: ${ongelijk.map(g => g.punten.map(p => String(p).replace('.', ',')).join(' / ')).join('; ')}).` });
+    }
     await dbModule.updateQuizSessionFull({
       sessionCode: code,
       questions: questions.map((q, i) => {
@@ -3660,13 +3826,15 @@ app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf
         return {
           bankId: q.id, orderIndex: i,
           text: q.text, subject: q.subject || '',
-          points: parseInt(q.points) || parseInt(q.max_points) || 4,
+          points: validationLib.normaliseerVraagPunten(q.points ?? q.max_points, 4),
           questionType: bank?.question_type || q.question_type || 'code',
           choicesJson: bank?.choices_json || q.choices_json || '[]',
           modelAnswer: bank?.model_answer || '',
           answerParts: bank?.answer_parts || q.answer_parts || '[]',
           flowchartJson: bank?.flowchart_json || q.flowchart_json || '',
           hiddenAiTrap: bank?.hidden_ai_trap || q.hidden_ai_trap || '',
+          variablesJson: bank?.variables_json || q.variables_json || '[]',   // v135
+          difficulty: bank?.difficulty || q.difficulty || 'gemiddeld',   // v137
           // Sprint 76: groep voor onafhankelijke randomisatie (bv. theorie/oefeningen apart).
           randomGroup: parseInt(q.randomGroup) || 0,
         };
@@ -3689,7 +3857,7 @@ app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf
       tabSwitchThreshold: tabWissel.threshold,
       // Sprint 94: het respijt vóór een tabwissel écht meetelt — instelbaar per toets.
       tabSwitchGraceSeconds: tabWissel.graceSeconds,
-      cursusUrl: cursusUrl?.trim() || null,
+      cursusLinks: JSON.stringify(cursusCheck.links),
       // Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij een toets).
       selfEvalEnabled: effectiveSelfEval,
       // v99: klasbord + hand opsteken (enkel een keuze bij een taak; een toets heeft het altijd)
@@ -3697,6 +3865,8 @@ app.put('/api/quiz/:code', requireTeacherAuth, requireSessionAccess, requireCsrf
       // v113: anti-kopiëren en volledig scherm — per toets/taak instelbaar, standaard aan
       fullscreenRequired: fullscreenRequired !== false,
       copyPasteBlocked: copyPasteBlocked !== false,
+      mcScoring: validationLib.normaliseerMcScoring(mcScoring),   // v133: null = ongewijzigd laten
+      poolJson: JSON.stringify(poolGezuiverd),   // v134/v137
     });
 
     // Naam bijwerken (sessies-tabel + in-memory sessie).
@@ -3755,6 +3925,10 @@ app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireSessionAccess, 
       answerParts: q.answer_parts || '[]',
       flowchartJson: q.flowchart_json || '',
       hiddenAiTrap: q.hidden_ai_trap || '',
+      variablesJson: q.variables_json || '[]',   // v135
+      difficulty: q.difficulty || 'gemiddeld',   // v137
+      // v131: groepen (onafhankelijke randomisatie) meekopiëren
+      randomGroup: parseInt(q.random_group) || 0,
     })),
     randomize: meta.randomize,
     noTimer: meta.no_timer || false,
@@ -3764,6 +3938,23 @@ app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireSessionAccess, 
     isTeacherPreview: false,
     schoolYear: meta.school_year || '',
     targetClass: meta.target_class || '',
+    // v131: ALLE instellingen van het eerste scherm meekopiëren (voorheen enkel een deel):
+    // tijdsvenster, automatisch indienen, 1 kans per vraag, anti-spiek (tabwissel),
+    // cursus-link, zelfevaluatie, klasbord, volledig scherm en kopiëren/plakken.
+    accessFrom: meta.access_from ?? null,
+    accessUntil: meta.access_until ?? null,
+    autoSubmitLate: meta.auto_submit_late !== false,
+    noBack: meta.no_back === true,
+    tabSwitchEnabled: meta.tab_switch_enabled === true,
+    tabSwitchThreshold: meta.tab_switch_threshold ?? 1,
+    tabSwitchGraceSeconds: meta.tab_switch_grace_seconds ?? 5,
+    cursusLinks: meta.cursus_links || '[]',   // v132: zelfde vragen (bank-id's), dus de koppelingen blijven kloppen
+    selfEvalEnabled: meta.self_eval_enabled === true,
+    klasbordEnabled: meta.klasbord_enabled === true,
+    fullscreenRequired: meta.fullscreen_required !== false,
+    copyPasteBlocked: meta.copy_paste_blocked !== false,
+    mcScoring: meta.mc_scoring === 'gedeeld' ? 'gedeeld' : 'klassiek',   // v133: dupliceren neemt de berekening mee
+    poolJson: meta.pool_json || '{}',   // v134: en de vragenpool
     // Sprint 43.14: type expliciet meekopiëren van het origineel — anders viel dit terug
     // op de (foutieve) noTimer-afleiding en kon een taak per ongeluk een toets worden.
     type: (meta.type === 'taak' || meta.type === 'toets') ? meta.type : (meta.no_timer ? 'taak' : 'toets'),
@@ -3773,9 +3964,9 @@ app.post('/api/quiz/:code/duplicate', requireTeacherAuth, requireSessionAccess, 
   try {
     await dbModule.query(
       `UPDATE assignment_bank SET access_from = $1, access_until = $2, individual_timer = $3,
-         fullscreen_required = $5, copy_paste_blocked = $6, cursus_url = $7 WHERE session_code = $4`,
+         fullscreen_required = $5, copy_paste_blocked = $6 WHERE session_code = $4`,
       [meta.access_from ?? null, meta.access_until ?? null, meta.individual_timer ?? true, newCode,
-       meta.fullscreen_required !== false, meta.copy_paste_blocked !== false, meta.cursus_url || null]
+       meta.fullscreen_required !== false, meta.copy_paste_blocked !== false]
     );
   } catch (e) { log.warn('[duplicate] tijdsvenster kopiëren mislukt:', e.message); }
   res.json({ ok: true, code: newCode });
@@ -4033,6 +4224,8 @@ app.post('/api/library/templates/:id/materialize', requireTeacherAuth, requireCs
         questionType: q.question_type || 'code', choicesJson: q.choices_json || '[]',
         modelAnswer: q.model_answer || '', answerParts: q.answer_parts || '[]',
         flowchartJson: q.flowchart_json || '', hiddenAiTrap: q.hidden_ai_trap || '',
+        variablesJson: q.variables_json || '[]',   // v135
+        difficulty: q.difficulty || 'gemiddeld',   // v137
       })),
       randomize: tpl.randomize,
       noTimer: tpl.no_timer || false,
@@ -4201,8 +4394,13 @@ app.get('/api/quiz/:code/export/csv', requireTeacherAuth, requireSessionAccess, 
       return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     };
     const maxTotal = questions.reduce((sum, q) => sum + (q.points || 0), 0);
-    const header = ['Naam', 'Klas', ...questions.map(q => `${q.label} (${q.points}pt)`),
-      `Totaal (/${maxTotal})`];
+    // v133: halve punten met een komma (NL Excel); tekstcellen blijven ongewijzigd.
+    const nl = (n) => String(n).replace('.', ',');
+    // v134: bij een vragenpool heeft elke leerling een ander maximum → extra kolom "Maximum".
+    const poolInExport = vragenpoolLib.poolActief(vragenpoolLib.normaliseerPool(meta?.pool_json,
+      await dbModule.getQuizQuestions(code)));
+    const header = ['Naam', 'Klas', ...questions.map(q => `${q.label} (${nl(q.points)}pt)`),
+      poolInExport ? 'Totaal' : `Totaal (/${nl(maxTotal)})`, ...(poolInExport ? ['Maximum (eigen vragen)'] : [])];
     const lines = [header.map(esc).join(';')];
     // Sorteer op klas, dan naam
     const sorted = [...students.values()].sort((a, b) =>
@@ -4212,9 +4410,10 @@ app.get('/api/quiz/:code/export/csv', requireTeacherAuth, requireSessionAccess, 
       const cells = questions.map(q => {
         const sc = s.scores[q.id];
         if (sc !== null && sc !== undefined) total += sc;
-        return sc === null || sc === undefined ? '' : sc;
+        return sc === null || sc === undefined ? '' : nl(sc);
       });
-      lines.push([esc(s.name), esc(s.klas), ...cells, total].join(';'));
+      const eigenMax = questions.reduce((m, q) => m + (Object.prototype.hasOwnProperty.call(s.scores, q.id) ? (q.points || 0) : 0), 0);
+      lines.push([esc(s.name), esc(s.klas), ...cells, nl(total), ...(poolInExport ? [nl(eigenMax)] : [])].join(';'));
     }
     // BOM zodat Excel UTF-8 (accenten) correct toont.
     const csv = '\uFEFF' + lines.join('\r\n');
@@ -4238,13 +4437,17 @@ app.get('/api/quiz/:code/run-history/:studentId/:questionId', requireTeacherAuth
 
 app.put('/api/quiz/:code/answers/:answerId/score', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   const { score, teacherComment } = req.body || {};
+  // v133: enkel veelvouden van 0,5 (komma of punt); iets als 1,3 wordt geweigerd i.p.v. stil afgerond of gewist.
+  if (score !== undefined && score !== null && score !== '' && validationLib.normaliseerScore(score) === null) {
+    return res.status(400).json({ error: 'Een score moet een getal zijn in stappen van 0,5 (bv. 1 of 1,5).' });
+  }
   const actor = getActorFromReq(req);
   const code = req.params.code.toUpperCase();
   // Sprint 51-ai (v5): één gerichte lookup i.p.v. de hele antwoordenlijst op te halen om er
   // één rij uit te vissen — geeft meteen ook de velden (question_type/model_answer) die
   // nodig zijn voor de stille correctie-vastlegging hieronder.
   const oldAns = await dbModule.getAnswerContextForTraining(req.params.answerId).catch(() => null);
-  const nieuweScore = score !== undefined ? parseInt(score) : null;
+  const nieuweScore = score !== undefined ? validationLib.normaliseerScore(score) : null;   // v133: halve punten
   const nieuwCommentaar = String(teacherComment || '').slice(0, 1000);
   await dbModule.scoreQuizAnswer(req.params.answerId, nieuweScore, nieuwCommentaar);
   // Sprint 51-ai (v5): PASSIEVE correctie-vastlegging — dit was een AI-gescoord antwoord
@@ -4277,6 +4480,10 @@ app.put('/api/quiz/:code/answers/:answerId/score', requireTeacherAuth, requireSe
 // answerId en maakt de rij aan als ze nog niet bestaat (upsert).
 app.put('/api/quiz/:code/students/:studentId/questions/:questionId/score', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   const { score, teacherComment } = req.body || {};
+  // v133: enkel veelvouden van 0,5 (komma of punt); iets als 1,3 wordt geweigerd i.p.v. stil afgerond of gewist.
+  if (score !== undefined && score !== null && score !== '' && validationLib.normaliseerScore(score) === null) {
+    return res.status(400).json({ error: 'Een score moet een getal zijn in stappen van 0,5 (bv. 1 of 1,5).' });
+  }
   const code = req.params.code.toUpperCase();
   try {
     const actor = getActorFromReq(req);
@@ -4287,11 +4494,11 @@ app.put('/api/quiz/:code/students/:studentId/questions/:questionId/score', requi
     const studentClass = bestaand?.student_class || '';
     const answerId = await dbModule.scoreQuizAnswerByQuestion(
       code, req.params.studentId, req.params.questionId, studentName, studentClass,
-      score !== undefined && score !== null && score !== '' ? parseInt(score, 10) : null,
+      score !== undefined && score !== null && score !== '' ? validationLib.normaliseerScore(score) : null,
       String(teacherComment || '').slice(0, 1000)
     );
     dbModule.auditLog(actor, 'score_changed', answerId, {
-      sessionCode: code, newScore: score !== undefined ? parseInt(score) : null, studentName,
+      sessionCode: code, newScore: score !== undefined ? validationLib.normaliseerScore(score) : null, studentName,
     }, req.ip).catch(() => {});
     res.json({ ok: true, answerId });
   } catch (e) {
@@ -4305,6 +4512,10 @@ app.put('/api/quiz/:code/students/:studentId/questions/:questionId/score', requi
 app.put('/api/quiz/:code/answers/:answerId/part-score', requireTeacherAuth, requireSessionAccess, requireCsrf, async (req, res) => {
   const { partId, score, teacherComment } = req.body || {};
   if (!partId) return res.status(400).json({ error: 'partId is verplicht.' });
+  // v133: enkel veelvouden van 0,5 (komma of punt); iets als 1,3 wordt geweigerd i.p.v. stil afgerond of gewist.
+  if (score !== undefined && score !== null && score !== '' && validationLib.normaliseerScore(score) === null) {
+    return res.status(400).json({ error: 'Een score moet een getal zijn in stappen van 0,5 (bv. 1 of 1,5).' });
+  }
   const actor = getActorFromReq(req);
   const code = req.params.code.toUpperCase();
   // Sprint 51-ai (v5): gerichte lookup i.p.v. de hele antwoordenlijst — geeft ook de
@@ -4317,7 +4528,7 @@ app.put('/api/quiz/:code/answers/:answerId/part-score', requireTeacherAuth, requ
   try { oldPartScores = JSON.parse(oldAns?.part_scores || '{}'); } catch { /* leeg */ }
   try { oldPartComments = JSON.parse(oldAns?.part_comments || '{}'); } catch { /* leeg */ }
 
-  const nieuweScore = score !== undefined && score !== null && score !== '' ? parseInt(score, 10) : null;
+  const nieuweScore = score !== undefined && score !== null && score !== '' ? validationLib.normaliseerScore(score) : null;
   const nieuwCommentaar = teacherComment !== undefined ? String(teacherComment || '').slice(0, 1000) : null;
   const ok = await dbModule.scoreQuizAnswerPart(req.params.answerId, partId, nieuweScore, nieuwCommentaar);
   if (!ok) return res.status(404).json({ error: 'Antwoord niet gevonden.' });
@@ -4629,7 +4840,12 @@ async function verwerkAIGradeJob(code, studentIds, overwriteExisting, job) {
     job.huidigeLeerling = leerling.naam;
 
     for (const item of leerling.items) {
-      const { antwoord: a, onderdeel } = item;
+      // v135: nakijken met de vraag zoals DEZE leerling ze kreeg ({{placeholders}} ingevuld).
+      const a = placeholdersLib.vulVraagIn({ ...item.antwoord, id: item.antwoord.question_id }, code, item.antwoord.student_id) || item.antwoord;
+      let onderdeel = item.onderdeel;
+      if (onderdeel) {
+        try { onderdeel = (JSON.parse(a.answer_parts || '[]').find(d => d.id === onderdeel.id)) || onderdeel; } catch { /* oorspronkelijk onderdeel */ }
+      }
       try {
         let leerlingAntwoord, modelAntwoord, vraagstelling, maxPunten, type;
         let uitvoerResultaat = null, modelUitvoerResultaat = null;
@@ -4693,6 +4909,7 @@ async function verwerkAIGradeJob(code, studentIds, overwriteExisting, job) {
         // ziet, zonder de data opnieuw uit de database te moeten ophalen.
         a.score = onderdeel ? a.score : resultaat.score;
         a.teacher_comment = onderdeel ? a.teacher_comment : resultaat.comment;
+        if (item.antwoord !== a) { item.antwoord.score = a.score; item.antwoord.teacher_comment = a.teacher_comment; }   // v135: kopie ↔ origineel gelijk houden
         // Sprint 51-fix: gedetailleerd log per verwerkt item — voor de popup die opent bij
         // een klik op de voortgangspil, zodat je kan meevolgen wat er precies gebeurt in
         // plaats van enkel een percentage te zien.
@@ -4821,7 +5038,7 @@ app.get('/api/quiz/:code/my-result', requireReviewToken, async (req, res) => {
 
     // 37b: juiste antwoorden + modelcode worden nu WEL onthuld in nakijk-modus.
     // De toegang is al afgeschermd door requireReviewToken; nakijk-modus staat open.
-    const resultaat = buildMyResult(rows, {
+    const resultaat = buildMyResult(rows.map(r => placeholdersLib.vulVraagIn({ ...r, id: r.question_id }, code, req.reviewStudentId)), {   // v135: eigen waarden
       onthulJuisteAntwoorden: true,
       algemeenCommentaar,
     });
@@ -4841,49 +5058,51 @@ app.put('/api/quiz/:code/question/:questionId/model', requireTeacherAuth, requir
   res.json({ ok: true });
 });
 
+// v136: gelijkenisrapport. Eén berekening voor beide endpoints; het oude /similarity-endpoint
+// blijft dezelfde vorm teruggeven (lijst per vraag) en profiteert dus meteen van de betere vergelijking.
+async function berekenGelijkenis(code, opties = {}) {
+  const rijen = await dbModule.getQuizAnswers(code);
+  const incidenten = await dbModule.getIncidenten(code).catch(() => []);
+  const eenheden = gelijkenisLib.eenhedenUit(rijen, {
+    waardenVan: (r) => {
+      return placeholdersLib.waardenVoorVraag(r, code, r.student_id, r.question_id);
+    },
+  });
+  return gelijkenisLib.bouwRapport(eenheden, incidenten, opties);
+}
+
 app.get('/api/quiz/:code/similarity', requireTeacherAuth, requireSessionAccess, async (req, res) => {
   try {
-    const answers = await dbModule.getQuizAnswers(req.params.code.toUpperCase());
-    // Bereken Levenshtein-gelijkenis per vraag
-    function levenshtein(a, b) {
-      const m = a.length, n = b.length;
-      const d = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
-      for (let j = 0; j <= n; j++) d[0][j] = j;
-      for (let i = 1; i <= m; i++)
-        for (let j = 1; j <= n; j++)
-          d[i][j] = a[i-1] === b[j-1] ? d[i-1][j-1]
-            : 1 + Math.min(d[i-1][j], d[i][j-1], d[i-1][j-1]);
-      return d[m][n];
-    }
-    function similarity(a, b) {
-      if (!a && !b) return 0;
-      const maxLen = Math.max(a.length, b.length);
-      if (maxLen === 0) return 100;
-      return Math.round((1 - levenshtein(a, b) / maxLen) * 100);
-    }
-    // Groepeer per vraag
-    const byQuestion = {};
-    for (const a of answers) {
-      if (!byQuestion[a.question_id]) byQuestion[a.question_id] = [];
-      byQuestion[a.question_id].push(a);
-    }
-    const results = [];
-    for (const [qid, qAnswers] of Object.entries(byQuestion)) {
-      for (let i = 0; i < qAnswers.length; i++) {
-        for (let j = i + 1; j < qAnswers.length; j++) {
-          const pct = similarity(qAnswers[i].code || '', qAnswers[j].code || '');
-          if (pct >= 80 && (qAnswers[i].code || '').length > 20) {
-            results.push({
-              questionId: qid, questionText: qAnswers[i].text_snapshot?.slice(0, 60),
-              student1: { id: qAnswers[i].student_id, name: qAnswers[i].student_name },
-              student2: { id: qAnswers[j].student_id, name: qAnswers[j].student_name },
-              similarity: pct,
-            });
-          }
-        }
+    const rapport = await berekenGelijkenis(req.params.code.toUpperCase());
+    res.json(rapport.perVraag);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/quiz/:code/gelijkenisrapport', requireTeacherAuth, requireSessionAccess, async (req, res) => {
+  try {
+    const code = req.params.code.toUpperCase();
+    const drempel = parseInt(req.query.drempel);
+    const opties = Number.isFinite(drempel) ? { drempelTekst: Math.max(50, Math.min(100, drempel)) } : {};
+    const rapport = await berekenGelijkenis(code, opties);
+    if (req.query.format === 'csv') {
+      const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const regels = [['Risico', 'Leerling 1', 'Leerling 2', 'Punten', 'Items', 'Gedeelde fouten', 'Indientijd verschil (s)'].map(esc).join(';')];
+      for (const p of rapport.paren) {
+        regels.push([p.risico, p.leerling1.naam, p.leerling2.naam, p.punten, p.aantalItems, p.gedeeldeFouten, p.tijdsverschilIndienenSec ?? ''].map(esc).join(';'));
       }
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="gelijkenis-${code}.csv"`);
+      return res.send('\ufeff' + regels.join('\r\n'));
     }
-    res.json(results.sort((a, b) => b.similarity - a.similarity));
+    res.json(rapport);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// v137: moeilijkheidsrapport — hoe moeilijk bleken de vragen, en hoe zwaar was de set van elke leerling (pools)?
+app.get('/api/quiz/:code/moeilijkheidsrapport', requireTeacherAuth, requireSessionAccess, async (req, res) => {
+  try {
+    const rijen = await dbModule.getQuizAnswers(req.params.code.toUpperCase());
+    res.json(moeilijkheidLib.bouwRapport(rijen));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -4941,7 +5160,7 @@ function compositeAnswerBlock(doc, q, ans, scored, codeBlockFn) {
   parts.forEach((p) => {
     if (doc.y > 700) doc.addPage();
     const label = p.type === 'code' ? '🐍 Code' : (p.label || 'Antwoord');
-    const scoreTxt = scored && partScores[p.id] !== undefined ? `  (${partScores[p.id]}/${p.points} pt)` : `  ( /${p.points} pt)`;
+    const scoreTxt = scored && partScores[p.id] !== undefined ? `  (${fmtPunten(partScores[p.id])}/${fmtPunten(p.points)} pt)` : `  ( /${fmtPunten(p.points)} pt)`;
     doc.fontSize(9).font('Helvetica-Bold').fillColor('#374151').text(label + scoreTxt);
     doc.fillColor('#000').moveDown(0.15);
     if (p.type === 'code') {
@@ -4989,6 +5208,7 @@ async function generateQuizPDF(sessionCode, type, studentId = null, scored = fal
   const school = await getSchoolNameVoorSessie(sessionCode);
   const meta = await dbModule.getQuizMeta(sessionCode);
   const questions = await dbModule.getQuizQuestions(sessionCode);
+  const poolIsActief = await poolIsActiefVoor(sessionCode, questions);   // v134
   const sessionInfo = await dbModule.loadActiveSessions().then(ss => ss.find(s => s.code === sessionCode))
     || { name: sessionCode, code: sessionCode };
   const now = new Date().toLocaleDateString('nl-BE', { day:'2-digit', month:'2-digit', year:'numeric' });
@@ -5071,9 +5291,10 @@ async function generateQuizPDF(sessionCode, type, studentId = null, scored = fal
     const processStudent = async (stud) => {
       const answers = await dbModule.getQuizAnswersByStudent(sessionCode, stud.id);
       const generalComment = await dbModule.getQuizGeneralComment(sessionCode, stud.id);
-      const orderedAnswers = questions.map(q => answers.find(a => a.question_id === q.id));
+      const mijnVragen = vragenVanLeerling(questions, answers, poolIsActief).map(q => placeholdersLib.vulVraagIn(q, sessionCode, stud.id));   // v134 + v135
+      const orderedAnswers = mijnVragen.map(q => answers.find(a => a.question_id === q.id));
       const totalScore = scored ? answers.reduce((s, a) => s + (a.score || 0), 0) : null;
-      const maxScore = questions.reduce((s, q) => s + (q.points || 0), 0);
+      const maxScore = mijnVragen.reduce((s, q) => s + (q.points || 0), 0);
       const sub = answers[0];
 
       header(
@@ -5082,16 +5303,16 @@ async function generateQuizPDF(sessionCode, type, studentId = null, scored = fal
       );
 
       orderedAnswers.forEach((ans, i) => {
-        const q = questions[i];
+        const q = mijnVragen[i];
         if (doc.y > 650) doc.addPage();
         doc.fontSize(11).font('Helvetica-Bold')
            .text(`Vraag ${i+1} — ${q.subject || ''}`, { continued: true });
         if (scored && ans?.score !== null && ans?.score !== undefined) {
           doc.font('Helvetica').fontSize(10).fillColor('#2563eb')
-             .text(`   ${ans.score}/${q.points} pt`, { align: 'right' });
+             .text(`   ${fmtPunten(ans.score)}/${fmtPunten(q.points)} pt`, { align: 'right' });
         } else {
           doc.font('Helvetica').fontSize(10).fillColor('#666')
-             .text(`   ___/${q.points} pt`, { align: 'right' });
+             .text(`   ___/${fmtPunten(q.points)} pt`, { align: 'right' });
         }
         doc.fillColor('#000').moveDown(0.2);
         doc.fontSize(9).font('Helvetica').fillColor('#666').text(q.text_snapshot?.slice(0,100) || '', { lineGap: 2 });
@@ -5170,6 +5391,7 @@ async function generateQuizPDF(sessionCode, type, studentId = null, scored = fal
     doc.y = y0 + 22;
 
     let totalScores = [];
+    const maxTotalen = [];   // v134: per leerling zijn eigen maximum
     // Sprint 64: testaccounts tellen niet mee in het klasgemiddelde. quiz_answers houdt
     // geen link met de students-tabel bij deze PDF (enkel losse naam/klas-tekst), dus
     // hier een kleine, gerichte opzoeking op basis van de betrokken student-ID's.
@@ -5183,14 +5405,18 @@ async function generateQuizPDF(sessionCode, type, studentId = null, scored = fal
       doc.fillColor('#000').fontSize(8).font('Helvetica');
       const studAnswers = allAnswers.filter(a => a.student_id === stud.id);
       let total = 0;
+      let eigenMax = 0;
       doc.text(testAccountIds.has(stud.id) ? `🧪 ${stud.name} (testaccount)` : stud.name, 54, y + 4, { width: nameW, lineBreak: false });
       questions.forEach((q, i) => {
         const ans = studAnswers.find(a => a.question_id === q.id);
-        const s = ans?.score !== null && ans?.score !== undefined ? ans.score : '—';
+        // v134: bij een pool is een niet-getrokken vraag "·" (geen punt), niet "—" (niet verbeterd).
+        const s = ans?.score !== null && ans?.score !== undefined ? ans.score : ((poolIsActief && !ans) ? '·' : '—');
         if (typeof s === 'number') total += s;
-        doc.text(String(s), 54 + nameW + i * colW, y + 4, { width: colW, align: 'center', lineBreak: false });
+        if (!poolIsActief || ans) eigenMax += q.points || 0;
+        doc.text(typeof s === 'number' ? fmtPunten(s) : String(s), 54 + nameW + i * colW, y + 4, { width: colW, align: 'center', lineBreak: false });
       });
-      doc.font('Helvetica-Bold').text(total > 0 ? `${total}/${maxScore}` : '—',
+      maxTotalen.push(eigenMax);
+      doc.font('Helvetica-Bold').text(total > 0 ? `${fmtPunten(total)}/${fmtPunten(eigenMax)}` : '—',
         54 + nameW + questions.length * colW, y + 4, { width: 60, align: 'right', lineBreak: false });
       if (!testAccountIds.has(stud.id)) totalScores.push(total);
       doc.y = y + 18;
@@ -5199,7 +5425,8 @@ async function generateQuizPDF(sessionCode, type, studentId = null, scored = fal
     // Gemiddelde
     const avg = totalScores.filter(s => s > 0).reduce((a,b) => a+b, 0) / (totalScores.filter(s=>s>0).length || 1);
     doc.moveDown(0.5);
-    doc.fontSize(9).font('Helvetica-Bold').text(`Klasgemiddelde: ${avg.toFixed(1)}/${maxScore} punten`);
+    const gemMax = maxTotalen.length ? maxTotalen.reduce((a, b) => a + b, 0) / maxTotalen.length : maxScore;
+    doc.fontSize(9).font('Helvetica-Bold').text(`Klasgemiddelde: ${fmtPunten(Math.round(avg * 10) / 10)}/${fmtPunten(Math.round((poolIsActief ? gemMax : maxScore) * 10) / 10)} punten`);
   }
 
   doc.flushPages();
@@ -5296,6 +5523,7 @@ app.get('/api/quiz/:code/pdf/zip', requireTeacherAuth, requireSessionAccess, asy
 
   const answers = await dbModule.getQuizAnswers(code);
   const questions = await dbModule.getQuizQuestions(code);
+  const poolIsActief = await poolIsActiefVoor(code, questions);   // v134
 
   // Unieke leerlingen
   const seen = new Set();
@@ -5340,8 +5568,9 @@ app.get('/api/quiz/:code/pdf/zip', requireTeacherAuth, requireSessionAccess, asy
 
       const schoolName = school;   // Sprint 77: school van deze toets, niet uit .env
       const studAnswers = answers.filter(a => a.student_id === stud.id);
+      const mijnVragen = vragenVanLeerling(questions, studAnswers, poolIsActief).map(q => placeholdersLib.vulVraagIn(q, code, stud.id));   // v134 + v135
       const totalScore = scored ? studAnswers.reduce((s, a) => s + (a.score || 0), 0) : null;
-      const maxScore = questions.reduce((s, q) => s + (q.points || 0), 0);
+      const maxScore = mijnVragen.reduce((s, q) => s + (q.points || 0), 0);
 
       doc.fontSize(14).font('Helvetica-Bold').text(schoolName);
       doc.fontSize(10).font('Helvetica').fillColor('#666').text('PyCodeFlow · Toetsplatform');
@@ -5353,7 +5582,7 @@ app.get('/api/quiz/:code/pdf/zip', requireTeacherAuth, requireSessionAccess, asy
          .text(`${stud.class || ''} · ${scored ? `Score: ${totalScore}/${maxScore} pt · ` : ''}${new Date().toLocaleDateString('nl-BE')}`);
       doc.moveDown(0.5);
 
-      questions.forEach((q, i) => {
+      mijnVragen.forEach((q, i) => {
         if (doc.y > 650) doc.addPage();
         const ans = studAnswers.find(a => a.question_id === q.id);
         const qType = q.question_type || 'code';
@@ -5361,9 +5590,9 @@ app.get('/api/quiz/:code/pdf/zip', requireTeacherAuth, requireSessionAccess, asy
         doc.fontSize(11).font('Helvetica-Bold')
            .text(`Vraag ${i+1} — ${q.subject || ''} · `, { continued: true });
         if (scored && ans?.score !== null && ans?.score !== undefined) {
-          doc.fillColor('#2563eb').text(`${ans.score}/${q.points} pt`);
+          doc.fillColor('#2563eb').text(`${fmtPunten(ans.score)}/${fmtPunten(q.points)} pt`);
         } else {
-          doc.fillColor('#666').text(`___/${q.points} pt`);
+          doc.fillColor('#666').text(`___/${fmtPunten(q.points)} pt`);
         }
         doc.fillColor('#000').moveDown(0.2);
         doc.fontSize(9).font('Helvetica').fillColor('#666')
@@ -5508,6 +5737,7 @@ app.get('/api/quiz/:code/export/zip', requireTeacherAuth, requireSessionAccess, 
   const code = req.params.code.toUpperCase();
   const answers = await dbModule.getQuizAnswers(code);
   const questions = await dbModule.getQuizQuestions(code);
+  const poolIsActief = await poolIsActiefVoor(code, questions);   // v134
 
   // Groepeer per leerling
   const seen = new Set();
@@ -5531,9 +5761,10 @@ ${'='.repeat(60)}
 `;
     for (const q of questions) {
       const ans = answers.find(a => a.student_id === stud.student_id && a.question_id === q.id);
+      if (poolIsActief && !ans) continue;   // v134: niet getrokken voor deze leerling
       content += `# --- Vraag ${q.order_index + 1}: ${q.text_snapshot?.slice(0,60) || ''} ---
 `;
-      content += `# Score: ${ans?.score !== null && ans?.score !== undefined ? ans.score + '/' + q.points : 'niet verbeterd'}
+      content += `# Score: ${ans?.score !== null && ans?.score !== undefined ? fmtPunten(ans.score) + '/' + fmtPunten(q.points) : 'niet verbeterd'}
 `;
       if (ans?.teacher_comment) content += `# Opmerking: ${ans.teacher_comment}
 `;
@@ -7110,14 +7341,16 @@ async function bouwBordState(session) {
     let totaal = 0; let meta = null;
     try { meta = await dbModule.getQuizMeta(session.code); } catch { /* bord toont dan 0 */ }
     try { totaal = (await dbModule.getQuizQuestions(session.code)).length; } catch { /* idem */ }
-    session._bordCache = { ts: nu, totaal, actief: klasbordLib.klasbordActief(meta), type: meta?.type || 'toets' };
+    session._bordCache = { ts: nu, totaal, actief: klasbordLib.klasbordActief(meta), type: meta?.type || 'toets',
+      tijd: { timerSeconds: meta?.timer_seconds || null, noTimer: meta?.no_timer === true, accessUntil: meta?.access_until ? Number(meta.access_until) : null } };
   }
-  const leerlingen = klasbordLib.bouwBordLeerlingen(Object.values(session.students || {}), session._bordCache.totaal);
+  const leerlingen = klasbordLib.bouwBordLeerlingen(Object.values(session.students || {}), session._bordCache.totaal, session._bordCache.tijd);
   return {
     code: session.code, naam: session.name, type: session._bordCache.type,
     actief: session._bordCache.actief,
     kolommen: klasbordLib.bordKolommen(leerlingen.length),
     gepauzeerd: session.quizPaused === true,
+    nu: Date.now(),   // v137: klok van de server, zodat het aftellen op het bord klopt
     leerlingen,
   };
 }
@@ -7226,6 +7459,8 @@ function buildTeacherData(session) {
     // Klaar-knop
     isDone:   Boolean(s.isDone),
     doneAt:   s.doneAt || null,
+    // v128: leerling heeft zijn werkblad naar de klascode gekopieerd (melding voor de leerkracht)
+    codeNaarKlasAt: s.codeNaarKlasAt || null,
     // Sprint 13B: badge en klas
     joinBadge:   s.joinBadge || null,
     className:   s.className || '',
@@ -7267,6 +7502,7 @@ function buildTeacherData(session) {
     opdrachten: opdrachtenVan(session),
     opdrachtIdx: session.opdrachtIdx || 0,
     drafts: draftsVan(session),
+    cursus: cursusVan(session),
     announcementHistory: session.announcementHistory || [],
     snippet: session.snippet || "",
     snippetVersion: session.snippetVersion || 0,
@@ -7305,6 +7541,17 @@ function schoneOpdracht(t) {
   return rijkeTekst.rtLeeg(h) ? '' : h;
 }
 const MAX_OPDRACHTEN = 20;
+// v126: cursus in een sessie — de leerkracht zet ze aan en kiest welke pagina de leerlingen zien.
+const CURSUS_STANDAARD_URL = 'https://cursus.pycodeflow.org/';
+function cursusVan(session) {
+  if (!session.cursus) {
+    const c = session.config && session.config._cursus;
+    session.cursus = c && typeof c === 'object'
+      ? { enabled: c.enabled === true, url: validationLib.isValidCursusUrl(c.url) && c.url ? String(c.url) : CURSUS_STANDAARD_URL }
+      : { enabled: false, url: CURSUS_STANDAARD_URL };
+  }
+  return session.cursus;
+}
 function draftsVan(session) {
   if (!session.drafts) {
     const d = session.config && session.config._drafts;
@@ -7397,6 +7644,7 @@ function emitStudentState(session, student) {
     mode: session.mode,
     editorAssist: session.editorAssist !== false,
     announcement: opdrachtTekstVoor(session, student, activeWorkspace),
+    cursus: cursusVan(session),
     opdrachten: opdrachtenVan(session),
     opdrachtIdx: activeWorkspace === "personal" ? studentIdx(session, student) : session.opdrachtIdx,
     activeWorkspace,
@@ -8047,6 +8295,29 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
 
   // v125: voorbereide opdrachten en codevoorbeelden bewaren bij de sessie (op knopdruk, zodat
   // typen en opslaan elkaar nooit in de weg zitten) — ook beschikbaar op een andere laptop.
+  // v126: cursus aan/uit en welke pagina. Werkt in klasmodus én individuele werkfase; leerlingen
+  // krijgen meteen een melding (en bij een latere join zit het in hun state).
+  socket.on("teacher_set_cursus", ({ enabled, url }, cb) => {
+    const antwoord = (o) => { if (typeof cb === "function") cb(o); };
+    if (!socketIsTeacherAuthorized(socket)) return antwoord({ ok: false, error: "Leerkracht-authenticatie vereist" });
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "teacher") return antwoord({ ok: false, error: "Geen sessie geopend" });
+    const session = sessions.get(ctx.code);
+    if (!session) return antwoord({ ok: false, error: "Sessie niet gevonden" });
+    const huidig = cursusVan(session);
+    let nieuweUrl = huidig.url;
+    if (typeof url === "string" && url.trim()) {
+      const u = url.trim();
+      if (!validationLib.isValidCursusUrl(u)) return antwoord({ ok: false, error: "Enkel https-links zijn toegelaten." });
+      nieuweUrl = u;
+    }
+    session.cursus = { enabled: enabled === true, url: nieuweUrl };
+    schedulePersist(session);
+    socket.to(session.code).emit("cursus_update", session.cursus);
+    emitTeacherSession(session);
+    antwoord({ ok: true, cursus: session.cursus });
+  });
+
   socket.on("teacher_save_drafts", ({ opdrachten, voorbeelden }, cb) => {
     const antwoord = (o) => { if (typeof cb === "function") cb(o); };
     if (!socketIsTeacherAuthorized(socket)) return antwoord({ ok: false, error: "Leerkracht-authenticatie vereist" });
@@ -8708,6 +8979,45 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     if (!s || s.removed) return;
     s.isDone = false;
     s.doneAt = null;
+    emitTeacherSession(session);
+  });
+
+  // v128: een leerling kopieert de code van zijn (zichtbare) werkblad naar de gedeelde klascode.
+  // Enkel toegestaan in klasmodus én met bewerkrecht op de klascode (het recht is exclusief: de
+  // leerkracht geeft het aan één leerling tegelijk). De server neemt zelf de code van het
+  // werkblad dat de leerling nu ziet (student.personalCode = huidige oefening) — niet wat de
+  // client meestuurt. Overschrijft altijd de klascode; een leeg werkblad kopieert niets.
+  socket.on("student_copy_to_class", (_payload, ack) => {
+    const antwoord = (r) => { if (typeof ack === "function") ack(r); };
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "student") return antwoord({ ok: false, reden: "geen-leerling" });
+    const session = sessions.get(ctx.code);
+    if (!session || session.closed) return antwoord({ ok: false, reden: "geen-sessie" });
+    if (session.mode !== "class") return antwoord({ ok: false, reden: "geen-klasmodus" });
+    const s = session.students[ctx.studentId];
+    if (!s || s.removed) return antwoord({ ok: false, reden: "geen-leerling" });
+    if (s.classCanEdit === false) return antwoord({ ok: false, reden: "geen-recht" });
+    const code = typeof s.personalCode === "string" ? s.personalCode : "";
+    if (!code.trim()) return antwoord({ ok: false, reden: "leeg" });
+    session.sharedCode = code;
+    session.sharedCodeRevision = nextRevision(session.sharedCodeRevision);
+    session.sharedCodeSourceSocketId = null; // ook de kopiërende leerling krijgt de klascode bijgewerkt
+    s.codeNaarKlasAt = Date.now();
+    schedulePersist(session, 5000);
+    broadcastClassCode(session, null, false);
+    setStatus(session, `${s.name} heeft zijn code naar de klas gezet`, "info");
+    antwoord({ ok: true });
+  });
+
+  socket.on("teacher_reset_copy", ({ studentId } = {}) => {
+    if (!socketIsTeacherAuthorized(socket)) return;
+    const ctx = socketToUser.get(socket.id);
+    if (!ctx || ctx.role !== "teacher") return;
+    const session = sessions.get(ctx.code);
+    if (!session) return;
+    const wis = (st) => { if (st && !st.removed) st.codeNaarKlasAt = null; };
+    if (studentId) wis(session.students[studentId]);
+    else Object.values(session.students).forEach(wis);
     emitTeacherSession(session);
   });
 
@@ -9831,7 +10141,10 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       // eerdere verbinding)? Dan hergebruiken en NIET opnieuw husselen. Anders genereren.
       let orderedIds = (await dbModule.getQuizStudentOrder(normalizedCode, id)).map(r => r.question_id);
       if (!orderedIds.length) {
-        const questions = await dbModule.getQuizQuestions(normalizedCode);
+        const alleVragen = await dbModule.getQuizQuestions(normalizedCode);
+        // v134: vragenpool — eerst trekken (N uit M per groep), daarna pas husselen.
+        const pool = vragenpoolLib.normaliseerPool(meta.pool_json, alleVragen);
+        const questions = vragenpoolLib.poolActief(pool) ? vragenpoolLib.trekVragen(alleVragen, pool) : alleVragen;
         orderedIds = questions.map(q => q.id);
         if (meta.randomize) {
           // Sprint 76: groepen (random_group) blijven in hun vaste volgorde t.o.v. elkaar
@@ -9841,16 +10154,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
           // oefeningen in een eigen willekeurige volgorde — nooit een oefening vóór de
           // theorie. Vragen zitten al in order_index-volgorde (getQuizQuestions), dus een
           // groep = een aaneengesloten reeks vragen met hetzelfde random_group-nummer.
-          const groepen = [];
-          let vorigeGroep = null;
-          for (const q of questions) {
-            const g = q.random_group || 0;
-            if (vorigeGroep === null || g !== vorigeGroep) {
-              groepen.push([]);
-              vorigeGroep = g;
-            }
-            groepen[groepen.length - 1].push(q.id);
-          }
+          const groepen = vragenpoolLib.bouwGroepen(questions).map(g => g.vragen.map(q => q.id));
           // Fisher-Yates shuffle met crypto.randomBytes, per groep afzonderlijk.
           for (const groep of groepen) {
             for (let i = groep.length - 1; i > 0; i--) {
@@ -9922,7 +10226,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       paused: session.quizPaused || false,
       hideQuestionOnScreen: meta.hide_question_on_screen,
       noBack: meta.no_back === true,             // Sprint 69: 1 kans per vraag
-      questions: dichtGezet ? [] : vragenLijst,
+      questions: dichtGezet ? [] : vragenLijst.map(q => placeholdersLib.vulVraagIn(q, normalizedCode, student.id)),   // v135: eigen waarden
       savedAnswers: dichtGezet ? {} : savedAnswers.reduce((acc, a) => {
         // Bugfix (MAJOR, sprint 70.1): dit gaf voorheen enkel code/runCount/
         // answerFlowchartJson terug — selected_choices (single/multiple-choice) en
@@ -9956,7 +10260,9 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       // waarde die quiz-student.js écht gebruikt voor de aftel-overlay (in tegenstelling
       // tot /startinfo hierboven, dat enkel voor de spelregel-tekst vóór het starten dient).
       tabSwitchGraceSeconds: meta.tab_switch_grace_seconds ?? 5,
-      cursusUrl: meta.cursus_url || null,
+      // v132: cursus-links per vraag: [{title, url, vragen:[snapshot-id's]}]; de client toont per
+      // vraag enkel de links die erbij horen (tabs bij meerdere), en niets als er geen is.
+      cursusLinks: cursusLinksVoorLeerling(meta, questions),
       fullscreenRequired: meta.fullscreen_required !== false,
       copyPasteBlocked: meta.copy_paste_blocked !== false,
       // Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij een toets).
@@ -9974,7 +10280,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
         studentId: student.id, studentName: student.name,
         className: student.className,
         currentQuestion: student.quizCurrentQuestion,
-        totalQuestions: questions.length,
+        totalQuestions: student.quizPersonalOrder?.length || questions.length,   // v134
         savedCount: savedAnswers.length,
         submitted: student.quizSubmitted,
         startedAt: student.quizStartedAt,
@@ -10215,7 +10521,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       io.to(session.teacherSocketId).emit('quiz_student_progress', {
         studentId: ctx.studentId, studentName: student.name,
         className: student.className,
-        currentQuestion, totalQuestions: questions.length,
+        currentQuestion, totalQuestions: student.quizPersonalOrder?.length || questions.length,   // v134: pool = eigen aantal
         savedCount: Object.keys(student.quizAnswers).length,
         submitted: false, startedAt: student.quizStartedAt,
       });
@@ -10254,10 +10560,12 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
     // die mislukking bleef. Nu wordt elke fout gelogd én bijgehouden, zodat de
     // leerling — en de leerkracht, via de voortgangsmelding — hier altijd van weet.
     const mislukteVragen = [];
+    // v133: meerkeuze-berekening van deze toets/taak ('gedeeld' of 'klassiek').
+    const mcModus = (await dbModule.getQuizMeta(ctx.code).catch(() => null))?.mc_scoring === 'gedeeld' ? 'gedeeld' : 'klassiek';
     for (const [questionId, ans] of Object.entries(answers || {})) {
       const q = questionMap[questionId];
       // Sprint 34a: auto-scoring via lib/scoring.js (getest in tests/)
-      const { autoScore, autoScored } = scoringLib.computeAutoScore(q, ans.selectedChoices);
+      const { autoScore, autoScored } = scoringLib.computeAutoScore(q, ans.selectedChoices, { modus: mcModus });
 
       await dbModule.saveQuizAnswer({
         sessionCode: ctx.code, studentId: ctx.studentId,
@@ -10303,7 +10611,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
               const gekozen = ans.partAnswers[p.id];
               const { autoScore: partScore, autoScored: partAutoScored } = scoringLib.computeAutoScore(
                 { question_type: p.type, choices_json: JSON.stringify(p.choices || []), points: p.points },
-                gekozen
+                gekozen, { modus: mcModus }
               );
               if (partAutoScored && partScore !== null) {
                 await dbModule.scoreQuizAnswerPart(savedAns.id, p.id, partScore,
@@ -10355,9 +10663,9 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       io.to(session.teacherSocketId).emit('quiz_student_progress', {
         studentId: ctx.studentId, studentName: student.name,
         className: student.className,
-        currentQuestion: questions.length,
-        totalQuestions: questions.length,
-        savedCount: questions.length,
+        currentQuestion: student.quizPersonalOrder?.length || questions.length,
+        totalQuestions: student.quizPersonalOrder?.length || questions.length,   // v134
+        savedCount: student.quizPersonalOrder?.length || questions.length,
         submitted: true, startedAt: student.quizStartedAt,
       });
     }
@@ -10380,7 +10688,7 @@ io.on("connection", (socket) => {  // Fix SEC-5: genereer unieke CSRF nonce per 
       .map(s => ({
         studentId: s.id, studentName: s.name, className: s.className,
         currentQuestion: s.quizCurrentQuestion || 0,
-        totalQuestions: questions.length,
+        totalQuestions: s.quizPersonalOrder?.length || questions.length,   // v134
         savedCount: Object.keys(s.quizAnswers || {}).length,
         submitted: s.quizSubmitted || false,
         startedAt: s.quizStartedAt || null,

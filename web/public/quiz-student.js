@@ -138,7 +138,7 @@ function renderReviewChart(vragen) {
       else if (ratio > 0) kleur = '#f59e0b';
       else kleur = '#dc2626';
     }
-    const label = v.beoordeeld ? `${v.score}/${max}` : '?';
+    const label = v.beoordeeld ? `${fmtP(v.score)}/${fmtP(max)}` : '?';
     return `<rect x="${x}" y="${y}" width="${W}" height="${hoogte}" rx="3" fill="${kleur}"></rect>` +
       `<text x="${x + W/2}" y="${H - 4}" text-anchor="middle" font-size="10" fill="#64748b">V${v.nummer}</text>` +
       `<text x="${x + W/2}" y="${y - 3}" text-anchor="middle" font-size="9" fill="#334155">${label}</text>`;
@@ -262,7 +262,7 @@ function renderJuisteAntwoord(o, idPrefix) {
 // met per-onderdeel score, elk met de "Jouw antwoord" / "Juiste antwoord"-tweedeling.
 function renderCompositeAntwoord(onderdelen, vraagId) {
   return (onderdelen || []).map(o => {
-    const scoreTekst = o.beoordeeld ? `${o.score}/${o.punten}` : `? / ${o.punten}`;
+    const scoreTekst = o.beoordeeld ? `${fmtP(o.score)}/${fmtP(o.punten)}` : `? / ${fmtP(o.punten)}`;
     const titel = o.type === 'code' ? '🐍 Code' : escHtml(o.label || 'Onderdeel');
     const idPrefix = 'rv-' + vraagId + '-' + o.id;
     const juisteHtml = renderJuisteAntwoord(o, idPrefix);
@@ -287,9 +287,24 @@ function renderCompositeAntwoord(onderdelen, vraagId) {
   }).join('');
 }
 
+// v133: korte uitleg bij een meerkeuzevraag met meerdere juiste antwoorden: "2 van 3 juist, 1 gemist".
+function meerkeuzeUitleg(v) {
+  if (v.type !== 'multiple' || !v.beoordeeld) return '';
+  const opties = v.opties || [];
+  const totaalJuist = opties.filter(o => o.correct === true).length;
+  if (!totaalJuist) return '';
+  const juist = opties.filter(o => o.correct === true && o.gekozen).length;
+  const fout = opties.filter(o => o.correct !== true && o.gekozen).length;
+  const gemist = totaalJuist - juist;
+  const delen = [`${juist} van ${totaalJuist} juist`];
+  if (gemist) delen.push(`${gemist} gemist`);
+  if (fout) delen.push(`${fout} fout aangeduid`);
+  return `<div class="muted" style="font-size:0.82rem;margin-top:6px;">${delen.join(' · ')}</div>`;
+}
+
 function renderVraagKaart(v) {
   const scoreTekst = v.beoordeeld
-    ? `<strong>${v.score}</strong> / ${v.punten}`
+    ? `<strong>${fmtP(v.score)}</strong> / ${fmtP(v.punten)}`
     : `<span class="muted">nog niet beoordeeld</span>`;
   const idPrefix = 'rv-' + v.vraagId;
 
@@ -331,6 +346,7 @@ function renderVraagKaart(v) {
     ` : `
       <div style="font-size:0.85rem;color:var(--muted);margin-top:10px;">Jouw antwoord:</div>
       ${jouwHtml}
+      ${meerkeuzeUitleg(v)}
       ${juisteHtml ? `<div style="font-size:0.85rem;color:var(--muted);margin-top:10px;">✅ Juiste antwoord:</div>${juisteHtml}` : ''}
     `}
     ${commentaarHtml}
@@ -356,7 +372,7 @@ function renderMyResult(naam, data) {
         <h2 style="margin:0 0 4px;">👁 Jouw toets</h2>
         <p class="muted" style="margin:0 0 10px;">${escHtml(naam)} · ${beantwoord}/${vragen.length} vragen ingevuld</p>
         <div style="font-size:1.6rem;font-weight:700;">
-          ${totaal} <span style="font-size:1rem;font-weight:400;color:var(--muted);">/ ${maxTotaal} punten (${pct}%)</span>
+          ${fmtP(totaal)} <span style="font-size:1rem;font-weight:400;color:var(--muted);">/ ${fmtP(maxTotaal)} punten (${pct}%)</span>
         </div>
         ${allesBeoordeeld ? '' :
           '<p class="muted" style="font-size:0.84rem;margin:8px 0 0;">⏳ Niet alle vragen zijn al verbeterd. De score kan nog wijzigen.</p>'}
@@ -780,19 +796,65 @@ function zetBordFocusSignaalAan() {
   document.addEventListener('fullscreenchange', () => meld(!document.fullscreenElement));
 }
 
-function setupCursusPaneel(url) {
+// v132: cursus-links per vraag. De server stuurt [{title, url, vragen:[vraag-id's]}]; per vraag tonen
+// we enkel de links die erbij horen. Geen link bij de vraag = geen knop en een gesloten paneel;
+// meerdere links = tabs bovenaan het paneel.
+let _cursusLinks = [];
+let _cursusActieveUrl = '';
+let _cursusGeladenUrl = '';
+const CURSUS_GESLOTEN = '-46vw';
+
+function setupCursusPaneel(links) {
+  const btn = document.getElementById('cursus-toggle-btn');
+  const panel = document.getElementById('cursus-panel');
+  const closeBtn = document.getElementById('cursus-close-btn');
+  if (!btn || !panel) return;
+  _cursusLinks = Array.isArray(links) ? links : [];
+  const toggle = () => { panel.style.right = panel.style.right === '0px' ? CURSUS_GESLOTEN : '0px'; };
+  btn.onclick = toggle;
+  if (closeBtn) closeBtn.onclick = () => { panel.style.right = CURSUS_GESLOTEN; };
+  updateCursusVoorVraag(_currentQuestionId);
+}
+
+function updateCursusVoorVraag(qid) {
   const btn = document.getElementById('cursus-toggle-btn');
   const panel = document.getElementById('cursus-panel');
   const iframe = document.getElementById('cursus-iframe');
-  const closeBtn = document.getElementById('cursus-close-btn');
+  const tabs = document.getElementById('cursus-tabs');
   if (!btn || !panel || !iframe) return;
-  if (!url) { btn.style.display = 'none'; return; }
+  const lijst = _cursusLinks.filter(l => Array.isArray(l.vragen) && l.vragen.includes(qid));
+  if (!lijst.length) {
+    btn.style.display = 'none';
+    panel.style.right = CURSUS_GESLOTEN;
+    if (_cursusGeladenUrl) { iframe.src = 'about:blank'; _cursusGeladenUrl = ''; }
+    _cursusActieveUrl = '';
+    if (tabs) { tabs.style.display = 'none'; tabs.textContent = ''; }
+    return;
+  }
   btn.style.display = '';
-  iframe.src = url; // via DOM-property, niet via HTML-string — geen injectierisico
-  const GESLOTEN = '-46vw';
-  const toggle = () => { panel.style.right = panel.style.right === '0px' ? GESLOTEN : '0px'; };
-  btn.onclick = toggle;
-  if (closeBtn) closeBtn.onclick = () => { panel.style.right = GESLOTEN; };
+  if (!lijst.some(l => l.url === _cursusActieveUrl)) _cursusActieveUrl = lijst[0].url;
+  const toon = (url) => {
+    _cursusActieveUrl = url;
+    if (url !== _cursusGeladenUrl) { iframe.src = url; _cursusGeladenUrl = url; } // via DOM-property, niet via HTML-string
+    renderTabs();
+  };
+  const renderTabs = () => {
+    if (!tabs) return;
+    tabs.textContent = '';
+    if (lijst.length < 2) { tabs.style.display = 'none'; return; }
+    tabs.style.display = 'flex';
+    lijst.forEach(l => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'cursus-linktab' + (l.url === _cursusActieveUrl ? ' actief' : '');
+      b.textContent = l.title || 'Cursus';
+      b.title = l.title || 'Cursus';
+      b.setAttribute('aria-pressed', l.url === _cursusActieveUrl ? 'true' : 'false');
+      b.onclick = () => toon(l.url);
+      tabs.appendChild(b);
+    });
+  };
+  toon(_cursusActieveUrl);
 }
 
 socket.on('quiz_state', async (state) => {
@@ -857,7 +919,7 @@ socket.on('quiz_state', async (state) => {
   if (_copyPasteBlocked) wisKlembord();   // v122
   if (_fullscreenRequired) zetTweedeSchermBewakingAan();   // v122
   if (_tabSwitchEnabled) zetTabWisselDetectieAan();
-  setupCursusPaneel(state.cursusUrl || null);
+  setupCursusPaneel(state.cursusLinks || []);
   // v99: klasbord — hand opsteken (toets altijd, taak met vinkje) + tab-verlaten-signaal (toets)
   zetHandKnopOp(state.klasbordActief === true, state.handUp === true);
   if (_isToets && state.klasbordActief === true) zetBordFocusSignaalAan();
@@ -1299,6 +1361,7 @@ async function goToQuestion(idx) {
   _currentIdx = idx;
   const q = questions[idx];
   _currentQuestionId = q.id;
+  updateCursusVoorVraag(q.id);   // v132: cursus-links horen per vraag
 
   // Markeer als bezocht
   if (!_visited.has(q.id)) {
@@ -1317,7 +1380,7 @@ async function goToQuestion(idx) {
     questionEl.style.display = 'block';
     const typeLabel = {code:'🐍 Code',open:'✏️ Open vraag',single:'◉ Single choice',multiple:'☑ Meerkeuze',composite:'🧩 Samengestelde vraag',stroomdiagram:'🔀 Stroomdiagram'}[qType] || '';
     document.getElementById('q-header').textContent =
-      `Vraag ${idx+1} van ${questions.length} · ${q.subject || ''} · ${q.points} punten · ${typeLabel}`;
+      `Vraag ${idx+1} van ${questions.length} · ${q.subject || ''} · ${fmtP(q.points)} punten · ${typeLabel}`;
     // Sprint 19f: Markdown rendering
     const qTextEl = document.getElementById('q-text');
     const rawText = q.text_snapshot || q.text || '';

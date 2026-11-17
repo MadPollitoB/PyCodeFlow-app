@@ -134,6 +134,38 @@
       '<div class="ov-prog-bar"><div style="width:' + pct + '%"></div></div><span>' + a.verbeterd + '/' + a.ingediend + ' verbeterd</span></div>';
   }
 
+  // v130: snelle wisselknoppen voor de rechten van de leerlingen: scores vrijgeven/intrekken
+  // en nazicht openen/sluiten. Enkel voor afgeronde of te verbeteren items.
+  function snelVrijgave(a) {
+    if (a.status !== 'te_verbeteren' && a.status !== 'afgerond') return '';
+    var c = "'" + esc(a.code) + "'";
+    function wissel(aan, labelAan, labelUit, soort, tip) {
+      return '<button type="button" class="ov-toggle' + (aan ? ' aan' : '') + '" data-soort="' + soort + '" aria-pressed="' + (aan ? 'true' : 'false') + '"' +
+        ' onclick="zetLeerlingRecht(' + c + ',\'' + soort + '\',' + (aan ? 'false' : 'true') + ')" title="' + tip + '">' +
+        (aan ? '&#10003; ' + labelAan : labelUit) + '</button>';
+    }
+    return '<div class="ov-quick">' +
+      wissel(!!a.resultsReleased, 'Scores zichtbaar \u00b7 intrekken', 'Scores vrijgeven', 'scores', 'Leerlingen zien hun punten en feedback (of niet meer)') +
+      wissel(!!a.reviewMode, 'Nazicht open \u00b7 sluiten', 'Nazicht openen', 'nazicht', 'Leerlingen kunnen hun volledige ' + LABEL + ' nakijken (of niet meer)') +
+      '</div>';
+  }
+
+  window.zetLeerlingRecht = async function (code, soort, aan) {
+    try {
+      var pad = soort === 'nazicht' ? '/review-mode' : '/release';
+      var r = await window.apiFetch('/api/quiz/' + encodeURIComponent(code) + pad, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: !!aan })
+      });
+      var d = await r.json().catch(function () { return {}; });
+      if (!r.ok) throw new Error(d.error || r.status);
+      var tekst = soort === 'nazicht'
+        ? (aan ? 'Nazicht geopend voor de leerlingen.' : 'Nazicht gesloten.')
+        : (aan ? 'Scores vrijgegeven aan de leerlingen.' : 'Scores ingetrokken: leerlingen zien ze niet meer.');
+      if (window.pyToast) pyToast(tekst, 'success');
+      await window.reloadAssignments();
+    } catch (e) { if (window.pyAlert) pyAlert('Mislukt: ' + e.message, 'error'); }
+  };
+
   function card(a) {
     var k = a.knoppen || { primary: 'scores', more: [] };
     var start = a.accessFrom || a.createdAt;
@@ -150,7 +182,7 @@
           '<div class="ov-title"><strong>' + esc(a.name || a.code) + '</strong>' + statusBadge(a) + releaseBadges(a) +
             (a.status === 'actief' && a.onlineCount ? '<span class="ov-badge" style="background:#dcfce7;color:#166534;">' + a.onlineCount + ' online</span>' : '') +
             '<span id="ai-grade-badge-' + esc(a.code) + '"></span></div>' +
-          '<div class="ov-meta">' + meta + '</div>' + voortgangBalk(a) +
+          '<div class="ov-meta">' + meta + '</div>' + voortgangBalk(a) + snelVrijgave(a) +
         '</div>' +
         '<div class="ov-acts">' + knop(k.primary, a, true) +
           (meer ? '<button type="button" class="ov-chev" data-toggle="' + esc(a.code) + '" aria-expanded="' + isOpen + '" title="Meer acties">&#9662;</button>' : '') +

@@ -169,7 +169,8 @@ function renderQuestions(qs, targetId) {
         <span class="badge" style="background:#f0f9ff;color:#0369a1;font-size:0.72rem;">
           ${typeLabel[q.question_type] || 'Code'}
         </span>
-        <span class="muted" style="font-size:0.78rem;margin-left:auto;">${q.max_points} pt</span>
+        ${(q.variables_json && q.variables_json !== '[]') ? '<span title="Deze vraag heeft variabelen: elke leerling krijgt andere waarden" style="font-size:0.78rem;">🎲</span>' : ''}
+        <span class="muted" style="font-size:0.78rem;margin-left:auto;">${fmtP(q.max_points)} pt</span>
         ${q.archived ? '<span class="badge" style="background:#fee2e2;color:#991b1b;font-size:0.72rem;">Gearchiveerd</span>' : ''}
       </div>
       ${q.title ? `<div class="q-title" style="font-weight:700;font-size:0.92rem;margin:6px 0 0;">${esc(q.title)}</div>` : ''}
@@ -259,6 +260,7 @@ function editQuestion(id) {
   document.getElementById('q-tags').value = q.tags || '';
   document.getElementById('q-model').value = q.model_answer || '';
   document.getElementById('q-hidden-trap').value = q.hidden_ai_trap || '';
+  zetVariabelen(q.variables_json);   // v135
   // Sprint 63: stroomdiagram bij de vraagstelling herladen indien aanwezig.
   verwijderFlowchartStem();
   if (q.flowchart_json) {
@@ -302,6 +304,7 @@ function resetQuestionForm(eindTab) {
   document.getElementById('q-tags').value = '';
   document.getElementById('q-model').value = '';
   document.getElementById('q-hidden-trap').value = '';
+  zetVariabelen('[]');   // v135
   verwijderFlowchartStem();
   const codeRadio = document.querySelector('[name=q-type][value=code]');
   if (codeRadio) { codeRadio.checked = true; onTypeChange('code'); }
@@ -662,7 +665,7 @@ function removePart(id) {
 function setPartField(id, field, value) {
   const p = _parts.find(x => x.id === id);
   if (!p) return;
-  if (field === 'points') { p.points = Math.max(0, parseInt(value, 10) || 0); updatePartsPointsTotal(); return; }
+  if (field === 'points') { const n = parseFloat(String(value).replace(',', '.')); p.points = (isFinite(n) && n >= 0) ? Math.round(n * 2) / 2 : 0; updatePartsPointsTotal(); return; }   // v133: halve punten
   p[field] = value;
 }
 
@@ -751,7 +754,7 @@ function renderParts() {
             <option value="code" ${p.type === 'code' ? 'selected' : ''} ${(heeftCode && p.type !== 'code') ? 'disabled' : ''}>🐍 Code (uitvoerbaar)</option>
           </select>
           <label style="font-size:0.8rem;color:var(--muted);margin-left:auto;">Punten:
-            <input type="number" min="0" max="100" value="${p.points}" style="width:64px;padding:4px 6px;"
+            <input type="number" min="0" max="100" step="0.5" value="${p.points}" style="width:64px;padding:4px 6px;"
               oninput="setPartField('${p.id}', 'points', this.value)"/>
           </label>
         </div>
@@ -820,11 +823,171 @@ function renderPartChoices(p) {
 }
 
 
+// ── v135/v137: placeholders per leerling ──────────────────────────────────────
+let _varsAan = false;
+let _vars = [];          // [{ naam, type:'geheel'|'keuze', min, max, waardenTekst }]
+let _voorwaarde = '';
+
+function varsVanServer(json) {
+  let lijst = [];
+  try { lijst = JSON.parse(json || '[]'); } catch { lijst = []; }
+  lijst = Array.isArray(lijst) ? lijst : [];
+  _voorwaarde = (lijst.find(v => v && typeof v.voorwaarde === 'string') || {}).voorwaarde || '';
+  return lijst.filter(v => v && v.naam).map(v => v.type === 'keuze'
+    ? { naam: v.naam, type: 'keuze', waardenTekst: (v.waarden || []).join(', ') }
+    : { naam: v.naam, type: 'geheel', min: v.min, max: v.max });
+}
+
+function varsVoorServer() {
+  if (!_varsAan || !_vars.length) return [];
+  const lijst = _vars.map(v => v.type === 'keuze'
+    ? { naam: String(v.naam || '').trim(), type: 'keuze', waarden: String(v.waardenTekst || '').split(',').map(w => w.trim()).filter(Boolean) }
+    : { naam: String(v.naam || '').trim(), type: 'geheel', min: parseInt(v.min, 10), max: parseInt(v.max, 10) });
+  if (_voorwaarde.trim()) lijst.push({ voorwaarde: _voorwaarde.trim() });
+  return lijst;
+}
+
+// Alle teksten van de vraag waarin {{...}} mag staan.
+function tekstenVoorVars() {
+  const type = document.querySelector('[name=q-type]:checked')?.value || 'code';
+  const t = [document.getElementById('q-text')?.value || ''];
+  t.push((type === 'code' && typeof _qmodelEditor !== 'undefined' && _qmodelEditor) ? _qmodelEditor.getValue() : (document.getElementById('q-model')?.value || ''));
+  if (['single', 'multiple'].includes(type)) _choices.forEach(c => t.push(c.text || ''));
+  if (type === 'composite') _parts.forEach(p => { t.push(p.label || ''); t.push(p.modelAnswer || ''); (p.choices || []).forEach(c => t.push(c.text || '')); });
+  return t;
+}
+
+const _TAAL_WOORDEN = new Set(['and', 'or', 'not', 'if', 'else']);
+function gevondenNamen() {
+  const namen = [];
+  for (const tekst of tekstenVoorVars()) {
+    for (const m of String(tekst).matchAll(/\{\{([^{}]*)\}\}/g)) {
+      if (!/^[\sA-Za-z0-9_+\-*\/%().]+$/.test(m[1])) continue;
+      for (const id of m[1].match(/[A-Za-z_][A-Za-z0-9_]*/g) || []) {
+        if (!_TAAL_WOORDEN.has(id) && !namen.includes(id)) namen.push(id);
+      }
+    }
+  }
+  return namen.slice(0, 8);
+}
+
+// Voeg een rij toe voor elke {{naam}} in de vraag (bestaande rijen blijven staan).
+function syncVars(toonMelding) {
+  if (!_varsAan) return;
+  const bekend = new Set(_vars.map(v => v.naam));
+  const nieuw = gevondenNamen().filter(n => !bekend.has(n));
+  nieuw.forEach(n => _vars.push({ naam: n, type: 'geheel', min: 2, max: 9 }));
+  if (nieuw.length || toonMelding) renderVars();
+  if (toonMelding && !_vars.length) pyToast('Geen {{placeholders}} gevonden in de vraag. Typ bv. {{n}} in de tekst.', 'info');
+}
+
+function aantalVoorVar(v) {
+  if (v.type === 'keuze') return String(v.waardenTekst || '').split(',').map(w => w.trim()).filter(Boolean).filter((w, i, a) => a.indexOf(w) === i).length;
+  const mn = parseInt(v.min, 10), mx = parseInt(v.max, 10);
+  return Number.isInteger(mn) && Number.isInteger(mx) && mx >= mn ? mx - mn + 1 : 0;
+}
+
+function renderVars() {
+  const el = document.getElementById('vars-list');
+  if (!el) return;
+  const gebruikt = new Set(gevondenNamen());
+  el.innerHTML = _vars.map((v, i) => {
+    const n = aantalVoorVar(v);
+    const invoer = v.type === 'keuze'
+      ? `<input type="text" value="${escAttr(v.waardenTekst || '')}" placeholder="waarden, gescheiden door komma's (bv. Anna, Bram, Chloë)" style="width:100%;" aria-label="Toegelaten waarden"
+          oninput="zetVar(${i}, 'waardenTekst', this.value)"/>`
+      : `<span class="muted">van</span> <input type="number" value="${v.min ?? ''}" style="width:80px;" aria-label="Minimum" oninput="zetVar(${i}, 'min', this.value)"/>
+         <span class="muted">tot en met</span> <input type="number" value="${v.max ?? ''}" style="width:80px;" aria-label="Maximum" oninput="zetVar(${i}, 'max', this.value)"/>`;
+    return `<tr style="border-top:1px solid var(--border);">
+      <td style="padding:4px 6px;"><code>{{${esc(v.naam)}}}</code>${gebruikt.has(v.naam) ? '' : '<div class="muted" style="font-size:0.74rem;">niet gebruikt in de vraag</div>'}</td>
+      <td style="padding:4px 6px;"><select aria-label="Soort" onchange="wisselVarType(${i}, this.value)">
+        <option value="geheel"${v.type === 'keuze' ? '' : ' selected'}>Geheel getal</option>
+        <option value="keuze"${v.type === 'keuze' ? ' selected' : ''}>Keuze uit lijst</option></select></td>
+      <td style="padding:4px 6px;">${invoer}</td>
+      <td style="padding:4px 6px;" id="vars-n-${i}">${n || '—'}</td>
+      <td style="padding:4px 6px;"><button type="button" class="btn btn-muted small" aria-label="Rij verwijderen" onclick="verwijderVariabele(${i})">✕</button></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="5" class="muted" style="padding:6px;">Nog geen placeholders gevonden. Typ <code>{{n}}</code> in de vraag.</td></tr>';
+  const vw = document.getElementById('vars-voorwaarde');
+  if (vw && vw !== document.activeElement) vw.value = _voorwaarde;
+}
+
+function wisselVarType(i, type) {
+  const v = _vars[i]; if (!v) return;
+  if (type === 'keuze') { v.type = 'keuze'; v.waardenTekst = v.waardenTekst || ''; }
+  else { v.type = 'geheel'; if (v.min === undefined) v.min = 2; if (v.max === undefined) v.max = 9; }
+  renderVars();
+}
+
+function zetVarsAan(aan) {
+  _varsAan = !!aan;
+  const d = document.getElementById('q-vars-details');
+  if (d) d.style.display = _varsAan ? '' : 'none';
+  const cb = document.getElementById('q-vars-aan'); if (cb) cb.checked = _varsAan;
+  if (_varsAan) { syncVars(false); renderVars(); }
+}
+
+function zetVoorwaarde(w) { _voorwaarde = String(w || ''); }
+function addVariable(type) {   // blijft bestaan voor oudere aanroepen; de tabel vult zichzelf aan
+  if (_vars.length >= 8) { pyToast('Maximaal 8 placeholders per vraag.', 'warn'); return; }
+  _vars.push(type === 'keuze' ? { naam: 'naam' + (_vars.length + 1), type: 'keuze', waardenTekst: '' } : { naam: 'n' + (_vars.length + 1), type: 'geheel', min: 2, max: 9 });
+  renderVars();
+}
+function verwijderVariabele(i) { _vars.splice(i, 1); renderVars(); }
+function zetVar(i, veld, waarde) {
+  if (!_vars[i]) return;
+  _vars[i][veld] = waarde;
+  const c = document.getElementById('vars-n-' + i); if (c) c.textContent = aantalVoorVar(_vars[i]) || '—';
+}
+
+function zetVariabelen(json) {
+  _vars = varsVanServer(json);
+  _varsAan = _vars.length > 0;
+  zetVarsAan(_varsAan);
+  renderVars();
+  const pv = document.getElementById('vars-preview');
+  if (pv) pv.innerHTML = '';
+}
+
+// Rijen automatisch bijhouden terwijl je de vraag typt (licht vertraagd).
+let _varsSyncTimer = null;
+document.addEventListener('input', (e) => {
+  if (!_varsAan) return;
+  if (!e.target || !(e.target.id === 'q-text' || e.target.id === 'q-model' || (e.target.closest && e.target.closest('#choices-list, .q-choices, #parts-list')))) return;
+  clearTimeout(_varsSyncTimer);
+  _varsSyncTimer = setTimeout(() => syncVars(false), 500);
+});
+
+async function previewVariabelen() {
+  const type = document.querySelector('[name=q-type]:checked')?.value || 'code';
+  const body = {
+    text: document.getElementById('q-text').value, questionType: type,
+    modelAnswer: (type === 'code' && _qmodelEditor) ? _qmodelEditor.getValue() : document.getElementById('q-model').value,
+    choices: ['single', 'multiple'].includes(type) ? _choices : [], answerParts: type === 'composite' ? _parts : [],
+    variables: varsVoorServer(),
+  };
+  const pv = document.getElementById('vars-preview');
+  try {
+    const r = await fetch('/api/quiz/bank/variabelen-voorbeeld', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!r.ok) { pv.innerHTML = `<div style="color:var(--error-fg,#b91c1c);">${esc(d.error || 'Voorbeeld mislukt.')}</div>`; return; }
+    const info = `<div style="font-size:0.86rem;margin-bottom:6px;">✅ Controle geslaagd — ${d.aantalCombinaties != null ? (d.exact ? '' : '± ') + d.aantalCombinaties.toLocaleString('nl-BE') + ' mogelijke invullingen' : ''}.</div>` +
+      (d.waarschuwingen || []).map(w => `<div style="font-size:0.84rem;color:#92400e;">⚠️ ${esc(w)}</div>`).join('');
+    pv.innerHTML = info + d.voorbeelden.map((v, i) => `<div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:6px;font-size:0.86rem;">
+      <div class="muted" style="font-size:0.76rem;">Leerling ${i + 1} — ${Object.entries(v.waarden).map(([k, w]) => esc(k) + ' = ' + esc(w)).join(', ') || 'geen variabelen'}</div>
+      <div style="white-space:pre-wrap;">${esc(v.text)}</div>
+      ${(v.choices || []).length ? '<ul style="margin:4px 0 0 18px;">' + v.choices.map(c => `<li>${c.correct ? '✅ ' : ''}${esc(c.text)}</li>`).join('') + '</ul>' : ''}
+      ${v.modelAnswer ? `<div class="muted" style="margin-top:4px;white-space:pre-wrap;font-size:0.8rem;">Modelantwoord: ${esc(v.modelAnswer)}</div>` : ''}
+    </div>`).join('');
+  } catch (e) { pv.innerHTML = `<div style="color:var(--error-fg,#b91c1c);">Netwerkfout: ${esc(e.message)}</div>`; }
+}
+
 // ── Opslaan ────────────────────────────────────────────────────────────────────
 async function saveQuestion() {
   const id   = document.getElementById('edit-id').value;
   const type = document.querySelector('[name=q-type]:checked')?.value || 'code';
   const text = document.getElementById('q-text').value.trim();
+  syncVars(false);   // v137: rijen aanvullen vóór het opslaan
 
   if (!text) return void await pyAlert('Vul een vraagstelling in.', "warn");
   if (['single','multiple'].includes(type)) {
@@ -836,7 +999,7 @@ async function saveQuestion() {
     if (_parts.length < 1) return void await pyAlert('Voeg minstens 1 antwoordonderdeel toe.', "warn");
     const zonderLabel = _parts.find(p => p.type !== 'code' && !p.label.trim());
     if (zonderLabel) return void await pyAlert('Elk open/keuze-onderdeel heeft een label nodig.', "warn");
-    if (_parts.some(p => p.points <= 0)) return void await pyAlert('Elk onderdeel heeft minstens 1 punt nodig.', "warn");
+    if (_parts.some(p => p.points <= 0)) return void await pyAlert('Elk onderdeel heeft minstens 0,5 punt nodig.', "warn");
     // Sprint 51y: single/multiple onderdelen hebben dezelfde eisen als een gewone keuzevraag.
     for (const p of _parts) {
       if (p.type !== 'single' && p.type !== 'multiple') continue;
@@ -859,20 +1022,27 @@ async function saveQuestion() {
     modelAnswer:  (type === 'code' && _qmodelEditor)
       ? _qmodelEditor.getValue()
       : document.getElementById('q-model').value,
-    maxPoints:    parseInt(document.getElementById('q-points').value) || 4,
+    maxPoints:    (() => { const n = parseFloat(String(document.getElementById('q-points').value).replace(',', '.')); return (isFinite(n) && n >= 0.5) ? Math.round(n * 2) / 2 : 4; })(),   // v133: halve punten
     questionType: type,
     choices:      ['single','multiple'].includes(type) ? _choices : [],
     answerParts:  type === 'composite' ? _parts : [],
     hiddenAiTrap: document.getElementById('q-hidden-trap').value.trim(),
     flowchartJson: _qStemFlowchart ? _qStemFlowchart.getData() : '',
+    variables:    varsVoorServer(),   // v135
   };
+  // v137: staat er {{...}} in de vraag terwijl placeholders uit staan? Dan zien leerlingen dat letterlijk.
+  const letterlijk = !_varsAan && gevondenNamen().length > 0;
 
   try {
     const url    = id ? `/api/quiz/bank/${id}` : '/api/quiz/bank';
     const method = id ? 'PUT' : 'POST';
     const r    = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     const data = await r.json();
-    if (data.ok || data.id) { cancelEdit(); loadSubjects(); loadQuestions(); }
+    if (data.ok || data.id) {
+      cancelEdit(); loadSubjects(); loadQuestions();
+      (data.waarschuwingen || []).forEach(w => pyToast('⚠️ ' + w, 'warn'));   // v137
+      if (letterlijk) pyToast('Let op: er staat {{…}} in de vraag, maar "Placeholders gebruiken" staat uit — leerlingen zien dit letterlijk.', 'warn');
+    }
     else await pyAlert('Fout bij opslaan: ' + data.error, "error");
   } catch(e) { await pyAlert('Netwerkfout: ' + e.message, "error"); }
 }
@@ -959,20 +1129,32 @@ async function deleteQuestion(id, preview) {
 }
 
 // ── CSV import ─────────────────────────────────────────────────────────────────
+// v129: bestandskiezer voor JSON — de inhoud komt in het tekstvak.
+function laadJsonBestand(input) {
+  const f = input.files && input.files[0];
+  if (!f) return;
+  const lezer = new FileReader();
+  lezer.onload = () => { document.getElementById('csv-input').value = String(lezer.result || ''); };
+  lezer.readAsText(f, 'utf-8');
+}
+window.laadJsonBestand = laadJsonBestand;
+
 async function importCSV() {
   const csv = document.getElementById('csv-input').value.trim();
-  if (!csv) return void await pyAlert('Voer CSV-data in.', "warn");
+  if (!csv) return void await pyAlert('Voer CSV- of JSON-data in.', "warn");
+  // v129: begint de tekst met { of [ dan is het JSON (CSV begint nooit zo).
+  const isJson = /^[\[{]/.test(csv);
   try {
-    const r    = await fetch('/api/quiz/bank/import-csv', {
+    const r    = await fetch(isJson ? '/api/quiz/bank/import-json' : '/api/quiz/bank/import-csv', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ csv }),
+      body: JSON.stringify(isJson ? { json: csv } : { csv }),
     });
     const data = await r.json();
     const el   = document.getElementById('import-result');
     el.style.display = 'block';
     if (data.ok) {
       el.className = 'import-ok';
-      el.innerHTML = `✅ <strong>${data.added}</strong> toegevoegd · <strong>${data.skipped}</strong> overgeslagen${data.errors.length ? '<br>⚠️ ' + data.errors.join(', ') : ''}`;
+      el.innerHTML = `✅ <strong>${data.added}</strong> toegevoegd · <strong>${data.skipped}</strong> overgeslagen${data.errors.length ? '<br>⚠️ ' + data.errors.map(esc).join('<br>⚠️ ') : ''}`;
       loadSubjects(); loadQuestions();
     } else {
       el.className = 'import-err';
@@ -985,6 +1167,14 @@ async function importCSV() {
 // Zo werken de knoppen altijd, ook als loadSubjects/loadQuestions een fout gooit.
 window.switchTab         = switchTab;
 window.addChoice         = addChoice;
+window.addVariable       = addVariable;       // v135
+window.verwijderVariabele = verwijderVariabele;
+window.previewVariabelen = previewVariabelen;
+window.zetVar            = zetVar;
+window.zetVarsAan        = zetVarsAan;       // v137
+window.zetVoorwaarde     = zetVoorwaarde;
+window.syncVars          = syncVars;
+window.wisselVarType     = wisselVarType;
 window.removeChoice      = removeChoice;
 window.toggleChoiceCode  = toggleChoiceCode;
 window.setChoiceText     = setChoiceText;

@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Nieuwe toets/taak aanmaken</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.125"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.139"/>
   <style>
     .wizard-steps { display:flex; gap:0; margin-bottom:28px; }
     .wizard-step { flex:1; padding:12px; text-align:center; background:var(--surface-soft);
@@ -24,6 +24,21 @@
       background:var(--surface-soft); border-radius:8px; }
     .sel-row .pts { width:60px; text-align:center; padding:4px;
       border:1px solid var(--border); border-radius:6px; font-size:0.88rem; }
+    .cl-rij { display:grid; grid-template-columns:150px 1fr auto auto auto; gap:8px; align-items:center;
+      padding:8px 10px; background:var(--surface-soft); border-radius:8px; }
+    .cl-rij input[type=text], .cl-rij input[type=url] { width:100%; padding:7px 9px; border:1.5px solid var(--border);
+      border-radius:8px; background:var(--surface); color:var(--text); font:inherit; font-size:0.86rem; box-sizing:border-box; }
+    .cl-samen { font-size:0.78rem; color:var(--muted); white-space:nowrap; }
+    .cl-samen.leeg { color:#b45309; font-weight:700; }
+    @media(max-width:760px){ .cl-rij { grid-template-columns:1fr 1fr; } .cl-rij input[type=url] { grid-column:1 / -1; } }
+    .cl-overlay { position:fixed; inset:0; background:rgba(15,23,42,0.5); z-index:9000; display:flex; align-items:center; justify-content:center; padding:16px; }
+    .cl-modal { background:var(--surface,#fff); border-radius:14px; max-width:640px; width:100%; max-height:86vh; display:flex; flex-direction:column; box-shadow:0 20px 50px rgba(0,0,0,.3); }
+    .cl-modal-kop { padding:16px 20px; border-bottom:1px solid var(--border); }
+    .cl-modal-lijst { padding:10px 20px; overflow-y:auto; display:flex; flex-direction:column; gap:4px; }
+    .cl-modal-voet { padding:14px 20px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:flex-end; }
+    .cl-groepkop { display:flex; align-items:center; gap:8px; margin-top:10px; padding:6px 8px; background:#eff6ff; border-radius:8px; font-weight:700; font-size:0.84rem; color:var(--primary); }
+    .cl-vraagrij { display:flex; align-items:flex-start; gap:8px; padding:5px 8px; font-size:0.88rem; cursor:pointer; }
+    .cl-vraagrij input, .cl-groepkop input { width:17px; height:17px; flex-shrink:0; margin-top:1px; }
     .form-row-2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
     @media(max-width:600px){ .form-row-2 { grid-template-columns:1fr; } }
     .preview-badge { font-size:0.72rem; background:#fef3c7; color:#92400e;
@@ -263,6 +278,16 @@
         </div>
       </div>
 
+      <!-- v133: berekening van meerkeuzevragen (toets én taak) -->
+      <div id="quiz-mc-sectie" style="margin-top:14px;padding:14px;background:var(--surface-soft);
+        border-radius:10px;border:1.5px solid var(--border);">
+        <label for="quiz-mc-scoring" style="font-size:0.85rem;font-weight:700;display:block;margin-bottom:6px;">✅ Meerkeuzevragen met meerdere juiste antwoorden</label>
+        <select id="quiz-mc-scoring" style="max-width:420px;">
+          <option value="gedeeld">Gedeeld juist (halve punten; gemist of fout kost punten)</option>
+          <option value="klassiek">Klassiek (pro rata; één fout antwoord = 0)</option>
+        </select>
+        <div class="muted" style="font-size:0.78rem;margin-top:6px;">Bij &laquo;gedeeld juist&raquo; telt een gemist juist antwoord 1,5&times; en een fout aangeduid antwoord 3&times; mee. Alle opties aanduiden geeft altijd 0. Volle punten enkel bij alles juist.</div>
+      </div>
       <!-- v113: beveiliging voor toetsen ÉN taken — standaard aan -->
       <div id="quiz-beveiliging-sectie" style="margin-top:14px;padding:14px;background:var(--surface-soft);
         border-radius:10px;border:1.5px solid var(--border);">
@@ -279,15 +304,6 @@
           Zonder volledig scherm is de leerling geblokkeerd tot hij terugkeert. Op toestellen die geen
           volledig scherm ondersteunen (bv. een iPhone) geldt dit niet.
         </p>
-        <div style="margin-top:12px;">
-          <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Cursus-link (optioneel)</label>
-          <input type="url" id="quiz-cursus-url" placeholder="https://... (bv. een gedeelde PDF)"
-            style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);"/>
-          <p style="font-size:0.76rem;color:var(--muted);margin:4px 0 0;">
-            Verschijnt als een zijpaneel binnen de toets/taak zelf — de leerling hoeft dus niet naar
-            een ander tabblad. Enkel https-links. Leeg laten = geen cursus beschikbaar.
-          </p>
-        </div>
       </div>
 
       <!-- Sprint 90: zelfevaluatie-enquête — enkel bij een toets, net als anti-spiek. -->
@@ -349,6 +365,18 @@
         <span class="muted" style="font-size:0.82rem;margin-left:8px;" id="sel-count">0 geselecteerd · 0 punten</span>
         <div class="selected-list" style="margin-top:10px;" id="sel-list"></div>
       </div>
+      <!-- v132: cursus-links per vraag -->
+      <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:16px;" id="cl-sectie">
+        <strong>Cursus-links</strong>
+        <span class="muted" style="font-size:0.82rem;margin-left:8px;" id="cl-count">geen links</span>
+        <p style="font-size:0.78rem;color:var(--muted);margin:6px 0 10px;">
+          Optioneel. De leerling opent de link in een zijpaneel binnen de toets/taak zelf (geen apart tabblad).
+          Koppel elke link aan de vragen waarbij hij zichtbaar moet zijn; vragen zonder link tonen geen cursus.
+          Meerdere links bij één vraag verschijnen als tabs. Enkel https-links.
+        </p>
+        <div id="cl-lijst" style="display:flex;flex-direction:column;gap:8px;"></div>
+        <button type="button" class="btn btn-soft small" style="margin-top:10px;" onclick="voegCursusLinkToe()">+ Link toevoegen</button>
+      </div>
       <div style="margin-top:16px;display:flex;gap:10px;">
         <button class="btn btn-muted small" onclick="goStep(1)">← Terug</button>
         <button class="btn btn-primary small" onclick="goStep(3)">③ Preview bekijken →</button>
@@ -393,10 +421,10 @@
 </div>
 </div><!-- /wizard-root -->
 
-<script src="/popups.js?v=v2026.2.51.125"></script>
-<script src="/app.js?v=v2026.2.51.125"></script>
+<script src="/popups.js?v=v2026.2.51.139"></script>
+<script src="/app.js?v=v2026.2.51.139"></script>
 <script src="/vendor/marked/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.125"></script>
-<script src="/quiz-teacher.js?v=v2026.2.51.125"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.125"></script></body>
+<script src="/code-highlight.js?v=v2026.2.51.139"></script>
+<script src="/quiz-teacher.js?v=v2026.2.51.139"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.139"></script></body>
 </html>

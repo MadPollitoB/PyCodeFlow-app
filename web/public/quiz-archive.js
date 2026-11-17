@@ -90,7 +90,7 @@ function renderArchive(quizzes) {
         <div class="quiz-stat">Leerlingen: <strong>${q.student_count || 0}</strong></div>
         <div class="quiz-stat">Vragen: <strong>${q.question_count || 0}</strong></div>
         ${!q.no_timer ? `<div class="quiz-stat">Timer: <strong>${Math.round((q.timer_seconds||2700)/60)} min</strong></div>` : ''}
-        ${avgPct !== null ? `<div class="quiz-stat">Gemiddelde: <strong>${q.avg_score}/${maxScore} (${avgPct}%)</strong></div>` : ''}
+        ${avgPct !== null ? `<div class="quiz-stat">Gemiddelde: <strong>${fmtP(q.avg_score)}/${fmtP(maxScore)} (${avgPct}%)</strong></div>` : ''}
       </div>
       ${avgPct !== null ? `
       <div class="bar-wrap" style="margin:6px 0;">
@@ -147,7 +147,7 @@ async function toggleStats(code) {
         <div class="bar-wrap" style="margin:4px 0;">
           <div class="bar-bg"><div class="bar" style="width:${p}%;height:8px;background:${p>=60?'var(--primary)':'#f59e0b'};"></div></div>
           <span style="font-size:0.75rem;color:var(--muted);min-width:80px;">
-            gem. ${s.avg_score}/${q.points} pt (${p}%) · ${s.avg_runs} runs
+            gem. ${fmtP(s.avg_score)}/${fmtP(q.points)} pt (${p}%) · ${s.avg_runs} runs
           </span>
         </div>` : '<span class="muted"> — niet verbeterd</span>'}
       </div>`;
@@ -212,7 +212,7 @@ async function searchStudent() {
   el.innerHTML = `
     <div class="card" style="padding:20px;">
       <h3 style="margin:0 0 6px;">${esc(studentName)}</h3>
-      <p class="muted" style="margin:0 0 14px;">${esc(studentClass)} · ${results.length} toets${results.length!==1?'en':''} · Totaal: ${totalScore}/${totalMax} pt</p>
+      <p class="muted" style="margin:0 0 14px;">${esc(studentClass)} · ${results.length} toets${results.length!==1?'en':''} · Totaal: ${fmtP(totalScore)}/${fmtP(totalMax)} pt</p>
       <table class="student-history-table">
         <thead><tr>
           <th>Toets</th><th>Datum</th><th>Schooljaar</th><th>Score</th><th>%</th><th>Acties</th>
@@ -236,7 +236,7 @@ async function searchStudent() {
         <tfoot>
           <tr style="font-weight:700;border-top:2px solid var(--border);">
             <td colspan="3">Totaal</td>
-            <td>${totalScore}/${totalMax}</td>
+            <td>${fmtP(totalScore)}/${fmtP(totalMax)}</td>
             <td>${totalMax > 0 ? pct(totalScore, totalMax) + '%' : '—'}</td>
             <td></td>
           </tr>

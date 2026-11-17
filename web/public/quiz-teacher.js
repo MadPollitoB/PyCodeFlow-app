@@ -88,6 +88,11 @@ let _selected = {}; // { id: { ...question, points: override } }
 // groep begint; het eerste geselecteerde item start altijd groep 0.
 let _selectedOrder = []; // [id, id, ...] — bepaalt de weergave- én verzendvolgorde
 let _groupBreaks = new Set();
+// v134: vragenpool — per groep "trek N van de M vragen" (willekeurig per leerling). Sleutel = id van de
+// eerste vraag van de groep, zodat de instelling meebeweegt als groepen verschoven worden.
+let _poolPerStart = {};
+let _poolMixPerStart = {};   // v137: optionele niveaumix per groep: { eersteId: { makkelijk, gemiddeld, moeilijk } }
+let _poolMixOpen = {};
 
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -134,7 +139,7 @@ function filterBank() {
             background:${q.difficulty==='makkelijk'?'#d1fae5':q.difficulty==='moeilijk'?'#fee2e2':'#fef3c7'};
             color:${q.difficulty==='makkelijk'?'#065f46':q.difficulty==='moeilijk'?'#991b1b':'#92400e'};">
             ${q.difficulty}</span>
-          <span class="muted" style="font-size:0.78rem;">${q.max_points} pt</span>
+          <span class="muted" style="font-size:0.78rem;">${fmtP(q.max_points)} pt</span>
           ${(q.tags || '').split(',').map(t => t.trim()).filter(Boolean).map(t =>
             `<span class="badge" style="background:var(--surface-soft);font-size:0.7rem;">#${esc(t)}</span>`).join('')}
         </div>
@@ -167,6 +172,121 @@ function moveSelected(id, richting) {
   renderSelectedList();
 }
 
+// v137: invoer voor de niveaumix van één groep
+function mixHtml(id, g, n) {
+  const t = niveauTelling(g);
+  const mix = _poolMixPerStart[id] || { makkelijk: 0, gemiddeld: 0, moeilijk: 0 };
+  const som = ['makkelijk', 'gemiddeld', 'moeilijk'].reduce((x, k) => x + (Number(mix[k]) || 0), 0);
+  const ok = mixGeldig(g, n, _poolMixPerStart[id]);
+  return `<div style="font-size:0.8rem;margin:0 0 6px 12px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;">
+    <div class="muted" style="margin-bottom:4px;">Elke leerling krijgt precies:</div>
+    ${['makkelijk', 'gemiddeld', 'moeilijk'].map(k => `<label style="margin-right:12px;">
+      <input type="number" min="0" max="${t[k]}" step="1" value="${mix[k] || 0}" ${t[k] === 0 ? 'disabled' : ''} style="width:56px;padding:2px 6px;" aria-label="Aantal ${NIVEAU_LABELS[k]}e vragen"
+        onchange="zetMix('${id}', '${k}', this.value)"/> ${NIVEAU_LABELS[k]} <span class="muted">(van ${t[k]})</span></label>`).join('')}
+    <div style="margin-top:4px;${ok ? 'color:#047857;' : 'color:#b91c1c;'}">${ok ? '✓ Mix klopt: ' + n + ' vragen' : `Totaal moet ${n} zijn (nu ${som}) — tot dan wordt gewoon willekeurig getrokken.`}</div>
+  </div>`;
+}
+
+// v134: de groepen als lijst: [{ nr, ids:[...], eersteId }]
+function groepenLijst() {
+  const groepPerId = berekenGroepen();
+  const uit = [];
+  _selectedOrder.forEach((id) => {
+    const nr = groepPerId[id] || 0;
+    if (!uit.length || uit[uit.length - 1].nr !== nr) uit.push({ nr, ids: [], eersteId: id });
+    uit[uit.length - 1].ids.push(id);
+  });
+  return uit;
+}
+
+const NIVEAU_LABELS = { makkelijk: 'makkelijk', gemiddeld: 'gemiddeld', moeilijk: 'moeilijk' };
+const niveauVanVraag = (id) => (['makkelijk', 'gemiddeld', 'moeilijk'].includes(_selected[id] && _selected[id].difficulty) ? _selected[id].difficulty : 'gemiddeld');
+
+// Aantal vragen per niveau in een groep.
+function niveauTelling(g) {
+  const t = { makkelijk: 0, gemiddeld: 0, moeilijk: 0 };
+  g.ids.forEach(id => { t[niveauVanVraag(id)]++; });
+  return t;
+}
+
+// Een geldige mix: som = N en per niveau niet meer dan er beschikbaar zijn.
+function mixGeldig(g, n, mix) {
+  if (!mix) return false;
+  const t = niveauTelling(g);
+  let som = 0;
+  for (const k of Object.keys(t)) {
+    const a = Number(mix[k] || 0);
+    if (!Number.isInteger(a) || a < 0 || a > t[k]) return false;
+    som += a;
+  }
+  return som === n;
+}
+
+// v134: geldige pool-instellingen (1 ≤ N < aantal vragen in de groep); de rest wordt opgeruimd.
+// v137: geeft N terug, of { n, mix } als er een geldige niveaumix is ingesteld.
+function geldigePool() {
+  const uit = {}; const mixUit = {};
+  groepenLijst().forEach(g => {
+    const n = _poolPerStart[g.eersteId];
+    if (Number.isInteger(n) && n >= 1 && n < g.ids.length) {
+      uit[g.eersteId] = n;
+      if (_poolMixPerStart[g.eersteId]) mixUit[g.eersteId] = _poolMixPerStart[g.eersteId];   // ook halve invoer bewaren tot ze klopt
+    }
+  });
+  _poolPerStart = uit;
+  _poolMixPerStart = mixUit;
+  return uit;
+}
+
+function zetPool(eersteId, waarde) {
+  const n = parseInt(String(waarde).trim(), 10);
+  if (Number.isInteger(n) && n >= 1) _poolPerStart[eersteId] = n; else { delete _poolPerStart[eersteId]; delete _poolMixPerStart[eersteId]; }
+  renderSelectedList();
+}
+
+// v137: niveaumix aan/uit en waarden
+function wisselMix(eersteId) {
+  _poolMixOpen[eersteId] = !_poolMixOpen[eersteId];
+  if (!_poolMixOpen[eersteId]) delete _poolMixPerStart[eersteId];
+  renderSelectedList();
+}
+function zetMix(eersteId, niveau, waarde) {
+  const a = parseInt(String(waarde).trim(), 10);
+  const huidig = Object.assign({}, _poolMixPerStart[eersteId] || { makkelijk: 0, gemiddeld: 0, moeilijk: 0 });
+  huidig[niveau] = Number.isInteger(a) && a >= 0 ? a : 0;
+  _poolMixPerStart[eersteId] = huidig;
+  renderSelectedList();
+}
+
+// v137: alle vragen in een poolgroep evenveel punten geven (neemt de punten van de eerste vraag).
+function maakPuntenGelijk(eersteId) {
+  const g = groepenLijst().find(x => x.eersteId === eersteId);
+  if (!g) return;
+  const p = _selected[g.ids[0]].points || 1;
+  g.ids.forEach(id => { _selected[id].points = p; });
+  renderSelectedList();
+}
+
+// v137: groepen met een pool waarin de vragen niet evenveel punten waard zijn.
+function poolGroepenMetOngelijkePunten() {
+  const pool = geldigePool();
+  return groepenLijst().filter(g => pool[g.eersteId] && g.ids.some(id => (_selected[id].points || 0) !== (_selected[g.ids[0]].points || 0)));
+}
+
+// v134: punten per leerling bij een pool: kleinste en grootste mogelijke totaal.
+function puntenPerLeerling() {
+  const pool = geldigePool();
+  let min = 0; let max = 0; let verschillendePunten = false;
+  groepenLijst().forEach(g => {
+    const p = g.ids.map(id => _selected[id].points || 0).sort((a, b) => a - b);
+    const n = pool[g.eersteId] || p.length;
+    min += p.slice(0, n).reduce((s, x) => s + x, 0);
+    max += p.slice(p.length - n).reduce((s, x) => s + x, 0);
+    if (pool[g.eersteId] && p[0] !== p[p.length - 1]) verschillendePunten = true;
+  });
+  return { min, max, verschillendePunten, aantal: groepenLijst().reduce((s, g) => s + (pool[g.eersteId] || g.ids.length), 0) };
+}
+
 // Sprint 76: groepsscheiding vóór dit item aan/uit-zetten (enkel zinvol bij random
 // per leerling — bij een vaste volgorde is randomiseren toch niet aan de orde).
 function toggleGroupBreak(id) {
@@ -187,13 +307,214 @@ function berekenGroepen() {
   return groepPerId;
 }
 
+
+// ── v132: cursus-links per vraag ────────────────────────────────────────────────
+// Rooster onderaan stap 2. Elke link: titel (tabnaam), https-adres en de gekoppelde vragen
+// (bank-id's). Koppelen gaat via een popup met checkboxes per vraag én per groep.
+let _cursusLinks = [];   // [{ id, title, url, questionIds:[bankId, ...] }]
+let _clTeller = 0;
+
+function voegCursusLinkToe(link) {
+  _clTeller++;
+  _cursusLinks.push(Object.assign({ id: 'c' + Date.now().toString(36) + _clTeller, title: '', url: '', questionIds: [] }, link || {}));
+  renderCursusLinks();
+}
+
+function verwijderCursusLink(i) {
+  _cursusLinks.splice(i, 1);
+  renderCursusLinks();
+}
+
+// Houd de koppelingen in de pas met de geselecteerde vragen (een verwijderde vraag valt weg).
+function synchroniseerCursusKoppelingen() {
+  const geldig = new Set(_selectedOrder.map(String));
+  _cursusLinks.forEach(l => { l.questionIds = (l.questionIds || []).map(String).filter(id => geldig.has(id)); });
+}
+
+// "Vragen 1, 3 en 4", "Groep 2" of "alle vragen" — voor het rooster én het bevestigingsscherm.
+function beschrijfKoppeling(questionIds) {
+  const set = new Set((questionIds || []).map(String));
+  if (!set.size) return '';
+  if (set.size >= _selectedOrder.length) return 'alle vragen';
+  const groepPerId = berekenGroepen();
+  const groepen = {};
+  _selectedOrder.forEach((id, i) => { const g = groepPerId[id] || 0; (groepen[g] = groepen[g] || []).push({ id: String(id), nr: i + 1 }); });
+  const aantalGroepen = Object.keys(groepen).length;
+  const delen = [];
+  const losse = [];
+  Object.keys(groepen).forEach(g => {
+    const leden = groepen[g];
+    if (aantalGroepen > 1 && leden.length > 1 && leden.every(m => set.has(m.id))) delen.push('Groep ' + (Number(g) + 1));
+    else leden.forEach(m => { if (set.has(m.id)) losse.push(m.nr); });
+  });
+  if (losse.length) delen.push((losse.length === 1 ? 'vraag ' : 'vragen ') + losse.join(', '));
+  return delen.join(' + ');
+}
+
+function renderCursusLinks() {
+  const el = document.getElementById('cl-lijst');
+  if (!el) return;
+  synchroniseerCursusKoppelingen();
+  const teller = document.getElementById('cl-count');
+  if (teller) teller.textContent = _cursusLinks.length ? `${_cursusLinks.length} ${_cursusLinks.length === 1 ? 'link' : 'links'}` : 'geen links';
+  el.textContent = '';
+  _cursusLinks.forEach((l, i) => {
+    const rij = document.createElement('div');
+    rij.className = 'cl-rij';
+    const titel = document.createElement('input');
+    titel.type = 'text'; titel.maxLength = 40; titel.placeholder = 'Titel (bv. Cursus)'; titel.value = l.title || '';
+    titel.setAttribute('aria-label', 'Titel van link ' + (i + 1));
+    titel.oninput = () => { l.title = titel.value; };
+    const url = document.createElement('input');
+    url.type = 'url'; url.maxLength = 2000; url.placeholder = 'https://… (bv. een gedeelde PDF)'; url.value = l.url || '';
+    url.setAttribute('aria-label', 'Adres van link ' + (i + 1));
+    url.oninput = () => { l.url = url.value; };
+    const samen = document.createElement('span');
+    const tekst = beschrijfKoppeling(l.questionIds);
+    samen.className = 'cl-samen' + (tekst ? '' : ' leeg');
+    samen.textContent = tekst ? '→ ' + tekst : '⚠️ nog niet gekoppeld';
+    const koppel = document.createElement('button');
+    koppel.type = 'button'; koppel.className = 'btn btn-soft small'; koppel.textContent = '🔗 Vragen koppelen';
+    koppel.onclick = () => openCursusKoppeling(i);
+    const weg = document.createElement('button');
+    weg.type = 'button'; weg.className = 'btn btn-muted small'; weg.textContent = '✕';
+    weg.title = 'Link verwijderen'; weg.setAttribute('aria-label', 'Link ' + (i + 1) + ' verwijderen');
+    weg.onclick = () => verwijderCursusLink(i);
+    rij.append(titel, url, samen, koppel, weg);
+    el.appendChild(rij);
+  });
+}
+
+// Popup: alle geselecteerde vragen met checkboxes. Een groep aanvinken vinkt al haar vragen aan
+// (en omgekeerd); de groepcheckbox staat op "gedeeltelijk" als maar een deel is aangevinkt.
+function openCursusKoppeling(i) {
+  const link = _cursusLinks[i];
+  if (!link) return;
+  if (!_selectedOrder.length) { pyAlert('Selecteer eerst vragen om een link aan te koppelen.', 'warn'); return; }
+  const keuze = new Set((link.questionIds || []).map(String));
+  const groepPerId = berekenGroepen();
+  const groepen = {};
+  _selectedOrder.forEach((id, idx) => { const g = groepPerId[id] || 0; (groepen[g] = groepen[g] || []).push({ id: String(id), nr: idx + 1 }); });
+  const groepNrs = Object.keys(groepen).map(Number).sort((a, b) => a - b);
+  const toonGroepen = groepNrs.length > 1;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'cl-overlay';
+  const modal = document.createElement('div');
+  modal.className = 'cl-modal';
+  modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true');
+  const kop = document.createElement('div');
+  kop.className = 'cl-modal-kop';
+  const h = document.createElement('strong');
+  h.textContent = 'Vragen koppelen' + (link.title ? ' — ' + link.title : '');
+  const uitleg = document.createElement('div');
+  uitleg.className = 'muted'; uitleg.style.cssText = 'font-size:0.8rem;margin-top:4px;';
+  uitleg.textContent = 'Vink de vragen aan waarbij deze link zichtbaar is. Een groep aanvinken vinkt al haar vragen aan.';
+  kop.append(h, uitleg);
+  const lijst = document.createElement('div');
+  lijst.className = 'cl-modal-lijst';
+
+  const vraagBoxen = {};   // id -> checkbox
+  const groepBoxen = {};   // groepnr -> checkbox
+  let alleBox = null;
+  const verfris = () => {
+    groepNrs.forEach(g => {
+      const n = groepen[g].filter(m => keuze.has(m.id)).length;
+      const gb = groepBoxen[g];
+      if (gb) { gb.checked = n === groepen[g].length; gb.indeterminate = n > 0 && n < groepen[g].length; }
+    });
+    const tot = _selectedOrder.filter(id => keuze.has(String(id))).length;
+    alleBox.checked = tot === _selectedOrder.length;
+    alleBox.indeterminate = tot > 0 && tot < _selectedOrder.length;
+    Object.keys(vraagBoxen).forEach(id => { vraagBoxen[id].checked = keuze.has(id); });
+  };
+  const zetVragen = (ids, aan) => { ids.forEach(id => { if (aan) keuze.add(id); else keuze.delete(id); }); verfris(); };
+
+  const alleRij = document.createElement('label');
+  alleRij.className = 'cl-groepkop'; alleRij.style.background = '#f1f5f9'; alleRij.style.color = 'var(--text)';
+  alleBox = document.createElement('input'); alleBox.type = 'checkbox';
+  alleBox.onchange = () => zetVragen(_selectedOrder.map(String), alleBox.checked);
+  const alleTxt = document.createElement('span'); alleTxt.textContent = 'Alle vragen';
+  alleRij.append(alleBox, alleTxt);
+  lijst.appendChild(alleRij);
+
+  groepNrs.forEach(g => {
+    if (toonGroepen) {
+      const gr = document.createElement('label');
+      gr.className = 'cl-groepkop';
+      const gb = document.createElement('input'); gb.type = 'checkbox';
+      gb.onchange = () => zetVragen(groepen[g].map(m => m.id), gb.checked);
+      groepBoxen[g] = gb;
+      const gt = document.createElement('span');
+      gt.textContent = '✂️ Groep ' + (g + 1) + ' · ' + groepen[g].length + (groepen[g].length === 1 ? ' vraag' : ' vragen');
+      gr.append(gb, gt);
+      lijst.appendChild(gr);
+    }
+    groepen[g].forEach(m => {
+      const q = _selected[m.id] || {};
+      const rij = document.createElement('label');
+      rij.className = 'cl-vraagrij';
+      const cb = document.createElement('input'); cb.type = 'checkbox';
+      cb.onchange = () => { if (cb.checked) keuze.add(m.id); else keuze.delete(m.id); verfris(); };
+      vraagBoxen[m.id] = cb;
+      const t = document.createElement('span');
+      const tekst = String(q.text || '');
+      t.textContent = m.nr + '. ' + tekst.slice(0, 90) + (tekst.length > 90 ? '…' : '');
+      rij.append(cb, t);
+      lijst.appendChild(rij);
+    });
+  });
+
+  const voet = document.createElement('div');
+  voet.className = 'cl-modal-voet';
+  const annuleer = document.createElement('button');
+  annuleer.type = 'button'; annuleer.className = 'btn btn-muted small'; annuleer.textContent = 'Annuleren';
+  const opslaan = document.createElement('button');
+  opslaan.type = 'button'; opslaan.className = 'btn btn-primary small'; opslaan.textContent = 'Koppeling opslaan';
+  const sluit = () => { document.removeEventListener('keydown', toets); overlay.remove(); };
+  const toets = (e) => { if (e.key === 'Escape') sluit(); };
+  annuleer.onclick = sluit;
+  opslaan.onclick = () => {
+    link.questionIds = _selectedOrder.map(String).filter(id => keuze.has(id));
+    sluit();
+    renderCursusLinks();
+  };
+  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) sluit(); });
+  document.addEventListener('keydown', toets);
+  voet.append(annuleer, opslaan);
+  modal.append(kop, lijst, voet);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  verfris();
+  opslaan.focus();
+}
+
+// De rijen die echt iets bevatten, klaar voor de server. Geeft { fout } terug bij een
+// onvolledige rij (titel of koppeling ingevuld, maar geen adres).
+function verzamelCursusLinks() {
+  synchroniseerCursusKoppelingen();
+  const uit = [];
+  for (let i = 0; i < _cursusLinks.length; i++) {
+    const l = _cursusLinks[i];
+    const url = (l.url || '').trim(), titel = (l.title || '').trim();
+    if (!url && !titel && !(l.questionIds || []).length) continue;   // lege rij negeren
+    if (!url) return { fout: 'Cursus-link ' + (i + 1) + ' heeft nog geen adres.' };
+    if (!/^https:\/\//i.test(url)) return { fout: 'Cursus-link ' + (i + 1) + ': enkel https://-links zijn toegelaten.' };
+    uit.push({ id: l.id, title: titel, url, questionIds: (l.questionIds || []).map(String) });
+  }
+  return { links: uit };
+}
+
 function renderSelectedList() {
   const ids = _selectedOrder;
   const total = ids.reduce((s, id) => s + (_selected[id].points || 0), 0);
-  document.getElementById('sel-count').textContent = `${ids.length} geselecteerd · ${total} punten`;
+  document.getElementById('sel-count').textContent = `${ids.length} geselecteerd · ${fmtP(total)} punten`;
   const random = document.querySelector('[name=quiz-order]:checked')?.value === 'random';
   const groepPerId = berekenGroepen();
   const aantalGroepen = new Set(Object.values(groepPerId)).size;
+  geldigePool();   // v134: ruim verouderde pool-instellingen op
+  const ppl = puntenPerLeerling();
+  if (Object.keys(_poolPerStart).length) document.getElementById('sel-count').textContent += ` · per leerling ${ppl.aantal} vragen, ${ppl.min === ppl.max ? fmtP(ppl.min) : fmtP(ppl.min) + '–' + fmtP(ppl.max)} punten`;
   document.getElementById('sel-list').innerHTML = ids.map((id, i) => {
     const q = _selected[id];
     const isBreak = i > 0 && _groupBreaks.has(id);
@@ -205,9 +526,28 @@ function renderSelectedList() {
       <span style="font-size:0.74rem;font-weight:700;color:var(--primary);">✂️ Nieuwe groep — Groep ${groepPerId[id] + 1}</span>
       <div style="flex:1;border-top:2px dashed var(--primary);"></div>
     </div>` : '';
+    // v134: pool-instelling bovenaan elke groep ("Trek N uit M").
+    const groepStart = i === 0 || isBreak;
+    const poolHtml = groepStart ? (() => {
+      const g = groepenLijst().find(x => x.eersteId === id);
+      const m = g ? g.ids.length : 1;
+      const n = _poolPerStart[id];
+      return `<div class="pool-regel" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:${i === 0 ? '0' : '2px'} 0 4px;font-size:0.8rem;">
+        <span class="muted">🎲 Vragenpool ${aantalGroepen > 1 ? 'groep ' + (groepPerId[id] + 1) : ''}:</span>
+        <label>trek <input type="number" class="pool-n" min="1" max="${Math.max(1, m - 1)}" step="1" value="${n || ''}" placeholder="alle" ${m < 2 ? 'disabled' : ''}
+          style="width:64px;padding:2px 6px;" aria-label="Aantal vragen dat elke leerling uit deze groep krijgt"
+          onchange="zetPool('${id}', this.value)"/> uit ${m}</label>
+        <span class="muted">${n && n < m ? '(elke leerling krijgt zijn eigen willekeurige ' + n + ')' : '(leeg = alle vragen)'}</span>
+        ${n && n < m ? `<button type="button" class="btn btn-muted small" onclick="wisselMix('${id}')" title="Zorg dat elke leerling evenveel makkelijke, gemiddelde en moeilijke vragen krijgt">⚖️ niveaumix ${_poolMixOpen[id] ? '▲' : '▼'}</button>` : ''}
+      </div>
+      ${n && n < m && _poolMixOpen[id] ? mixHtml(id, g, n) : ''}
+      ${n && n < m && g.ids.some(x => (_selected[x].points || 0) !== (_selected[g.ids[0]].points || 0))
+        ? `<div style="font-size:0.78rem;color:#b91c1c;margin:0 0 4px;">⚠️ In een pool moeten alle vragen evenveel punten waard zijn (nu verschillend).
+            <button type="button" class="btn btn-muted small" onclick="maakPuntenGelijk('${id}')">Zet alle op ${fmtP(_selected[g.ids[0]].points || 1)} punt</button></div>` : ''}`;
+    })() : '';
     const groepBadge = random && aantalGroepen > 1
       ? `<span class="muted" style="font-size:0.7rem;border:1px solid var(--border);border-radius:5px;padding:1px 5px;" title="Groep ${groepPerId[id] + 1} wordt apart gehusseld van de andere groepen">G${groepPerId[id] + 1}</span>` : '';
-    return `${breakHtml}<div class="sel-row">
+    return `${breakHtml}${poolHtml}<div class="sel-row">
       <span style="display:flex;flex-direction:column;gap:0;">
         <button type="button" style="background:none;border:none;cursor:pointer;color:var(--muted);padding:0;line-height:1;" title="Naar boven verplaatsen" aria-label="Vraag naar boven verplaatsen" ${i===0?'disabled':''} onclick="moveSelected('${id}',-1)">▲</button>
         <button type="button" style="background:none;border:none;cursor:pointer;color:var(--muted);padding:0;line-height:1;" title="Naar onder verplaatsen" aria-label="Vraag naar onder verplaatsen" ${i===ids.length-1?'disabled':''} onclick="moveSelected('${id}',1)">▼</button>
@@ -215,13 +555,14 @@ function renderSelectedList() {
       <span style="font-weight:700;min-width:24px;">${i+1}.</span>
       <span style="flex:1;font-size:0.88rem;">${esc(q.text.slice(0, 60))}...</span>
       ${groepBadge}
-      <input type="number" class="pts" value="${q.points}" min="1" max="100"
-        onchange="_selected['${id}'].points=parseInt(this.value)||1; renderSelectedList()"/>
+      <input type="number" class="pts" value="${q.points}" min="0.5" max="100" step="0.5"
+        onchange="{ const n = parseFloat(String(this.value).replace(',', '.')); _selected['${id}'].points = (isFinite(n) && n >= 0.5) ? Math.round(n * 2) / 2 : 1; renderSelectedList(); }"/>
       <span class="muted" style="font-size:0.78rem;">pt</span>
-      ${random && i > 0 ? `<button type="button" style="background:none;border:none;cursor:pointer;color:${isBreak ? 'var(--primary)' : 'var(--muted)'};" title="Groepsscheiding hier aan/uit — vragen in dezelfde groep worden onafhankelijk van andere groepen gehusseld" aria-label="Groepsscheiding hier aan of uit zetten" onclick="toggleGroupBreak('${id}')">✂️</button>` : ''}
+      ${i > 0 ? `<button type="button" style="background:none;border:none;cursor:pointer;color:${isBreak ? 'var(--primary)' : 'var(--muted)'};" title="Groepsscheiding hier aan/uit — een groep wordt apart gehusseld en kan een eigen vragenpool (trek N uit M) hebben" aria-label="Groepsscheiding hier aan of uit zetten" onclick="toggleGroupBreak('${id}')">✂️</button>` : ''}
       <button type="button" style="background:none;border:none;cursor:pointer;color:var(--muted);" title="Vraag uit selectie verwijderen" aria-label="Vraag uit selectie verwijderen" onclick="toggleSelect('${id}')">✕</button>
     </div>`;
   }).join('');
+  renderCursusLinks();   // v132: koppelingen volgen de geselecteerde vragen en groepen
 }
 
 async function goStep(n) {
@@ -343,7 +684,7 @@ function renderPreviewQuestion(idx) {
   document.getElementById('preview-content').innerHTML =
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">' +
       '<span class="badge" style="background:#f0f9ff;color:#0369a1;">' + typeLabel + '</span>' +
-      '<span class="muted" style="font-size:0.82rem;">Vraag ' + (idx+1) + ' van ' + _previewOrder.length + ' · ' + q.points + ' punten</span>' +
+      '<span class="muted" style="font-size:0.82rem;">Vraag ' + (idx+1) + ' van ' + _previewOrder.length + ' · ' + fmtP(q.points) + ' punten</span>' +
     '</div>' +
     '<div class="md-preview" style="padding:0;border:none;background:none;">' + renderedText + '</div>' +
     answerHtml +
@@ -364,6 +705,45 @@ function renderConfirm() {
   const targetClassEl = document.getElementById('quiz-target-class');
   const targetClassName = targetClassEl.options[targetClassEl.selectedIndex]?.text || '—';
   const meta = QUIZ_TYPE_META[QUIZ_TYPE] || QUIZ_TYPE_META.toets;
+  // v131: alle instellingen van het eerste scherm in het overzicht tonen.
+  const aan = (id, standaard) => { const el = document.getElementById(id); return el ? el.checked : standaard; };
+  const fmtDatum = (id) => { const v = document.getElementById(id)?.value; return v ? new Date(v).toLocaleString('nl-BE', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) : null; };
+  const start = fmtDatum('quiz-access-from'), einde = fmtDatum('quiz-access-until');
+  const tabAan = aan('quiz-tabswitch-enabled', false);
+  const tabDrempel = parseInt(document.getElementById('quiz-tabswitch-threshold')?.value) || 1;
+  const gr = parseInt(document.getElementById('quiz-tabswitch-grace')?.value);
+  const tabGrace = isNaN(gr) ? 5 : gr;
+  // v132: cursus-links per vraag (met waarschuwing als een link nergens aan gekoppeld is)
+  const cl = verzamelCursusLinks().links || [];
+  const hostVan = (u) => { try { return new URL(u).host; } catch { return u; } };
+  const cursusRijen = cl.length
+    ? cl.map((l, i) => {
+        const k = beschrijfKoppeling(l.questionIds);
+        return ['Cursus-link ' + (i + 1) + ': ' + esc(l.title || 'Link ' + (i + 1)),
+          esc(hostVan(l.url)) + (k ? ' <span class="muted">→ ' + esc(k) + '</span>' : ' <span style="color:#b45309;">⚠️ niet gekoppeld aan een vraag: wordt nergens getoond</span>')];
+      })
+    : [['Cursus-links', '—']];
+  const vink = (b) => b ? '✅ Aan' : '❌ Uit';
+  const instellingen = [
+    ['Start', start || 'Direct beschikbaar'],
+    ['Deadline', einde || '—'],
+    ['Automatisch indienen', vink(aan('quiz-auto-submit', true)) + ' <span class="muted">(bij de deadline)</span>'],
+    ['1 kans per vraag', vink(aan('quiz-no-back', false)) + ' <span class="muted">(niet terug kunnen)</span>'],
+    ['Anti-spiek', tabAan ? `✅ Aan <span class="muted">(drempel ${tabDrempel}, respijt ${tabGrace} s)</span>` : '❌ Uit'],
+    ['Volledig scherm', vink(aan('quiz-fullscreen-required', true)) + ' <span class="muted">(verplicht)</span>'],
+    ['Kopiëren/plakken', aan('quiz-copypaste-blocked', true) ? '🚫 Geblokkeerd' : '✅ Toegestaan'],
+    ['Meerkeuze (meerdere juist)', (document.getElementById('quiz-mc-scoring')?.value === 'klassiek') ? 'Klassiek <span class="muted">(pro rata, één fout = 0)</span>' : 'Gedeeld juist <span class="muted">(halve punten, gemist/fout kost punten)</span>'],
+    ['Min. 1 run per vraag', vink(aan('quiz-min-runs', false))],
+    ['Vraag verbergen op scherm', vink(aan('quiz-hide-question', false))],
+  ].concat(cursusRijen);
+  if (QUIZ_TYPE === 'toets') instellingen.push(['Zelfevaluatie na indienen', vink(aan('quiz-self-eval', false))]);
+  if (QUIZ_TYPE === 'taak') instellingen.push(['Klasbord / hand opsteken', vink(aan('quiz-klasbord', false))]);
+  const groepInfo = {};
+  ids.forEach(id => { const g = groepPerId[id] || 0; (groepInfo[g] = groepInfo[g] || { n: 0, p: 0 }); groepInfo[g].n++; groepInfo[g].p += (_selected[id].points || 0); });
+  // v134: vragenpool op het bevestigingsscherm
+  const poolConfirm = geldigePool();
+  const ppl = puntenPerLeerling();
+  const poolRegel = Object.keys(poolConfirm).length ? `<tr><td style="padding:6px 0;color:var(--muted);">Per leerling</td><td><strong>🎲 ${ppl.aantal} vragen · ${ppl.min === ppl.max ? fmtP(ppl.min) : fmtP(ppl.min) + '–' + fmtP(ppl.max)} punten</strong>${ppl.verschillendePunten ? '<div style="color:#b91c1c;font-size:0.8rem;margin-top:2px;font-weight:700;">⛔ In een pool moeten alle vragen van een groep evenveel punten hebben. Pas dit aan in stap 2 — aanmaken is geblokkeerd.</div>' : ''}<div id="pool-telling" class="muted" style="font-size:0.84rem;margin-top:6px;">Aantal mogelijke toetsen berekenen…</div></td></tr>` : '';
   document.getElementById('confirm-panel').innerHTML = `
     <h3 style="margin:0 0 16px;">${meta.confirmTitle}</h3>
     ${isPreview ? '<div style="background:#fef3c7;color:#92400e;padding:10px;border-radius:8px;margin-bottom:14px;font-weight:700;">⚠️ PREVIEW MODE — antwoorden worden niet opgeslagen</div>' : ''}
@@ -371,22 +751,70 @@ function renderConfirm() {
       <tr><td style="padding:6px 0;color:var(--muted);width:140px;">Naam</td><td><strong>${esc(document.getElementById('quiz-name').value)}</strong></td></tr>
       <tr><td style="padding:6px 0;color:var(--muted);">Timer</td><td><strong>${noTimer ? '∞ Geen tijdslimiet' : mins + ' minuten'}</strong></td></tr>
       <tr><td style="padding:6px 0;color:var(--muted);">Volgorde</td><td><strong>${random ? '🔀 Random per leerling' : '📋 Vast voor iedereen'}</strong>${random && aantalGroepen > 1 ? ` <span class="muted" style="font-size:0.8rem;">(${aantalGroepen} groepen, elk apart gehusseld)</span>` : ''}</td></tr>
-      <tr><td style="padding:6px 0;color:var(--muted);">Vragen</td><td><strong>${ids.length} vragen · ${total} punten</strong></td></tr>
+      <tr><td style="padding:6px 0;color:var(--muted);">Vragen</td><td><strong>${ids.length} vragen · ${fmtP(total)} punten</strong></td></tr>
+      ${poolRegel}
       ${schoolYear ? `<tr><td style="padding:6px 0;color:var(--muted);">Schooljaar</td><td><strong>${esc(schoolYear)}</strong></td></tr>` : ''}
       <tr><td style="padding:6px 0;color:var(--muted);">Klas</td><td><strong>${esc(targetClassName)}</strong></td></tr>
     </table>
     <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">
+      <div style="font-size:0.8rem;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;">Instellingen</div>
+      <table style="width:100%;font-size:0.9rem;border-collapse:collapse;">
+        ${instellingen.map(r => `<tr><td style="padding:4px 0;color:var(--muted);width:200px;">${r[0]}</td><td><strong>${r[1]}</strong></td></tr>`).join('')}
+      </table>
+    </div>
+    <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">
       ${ids.map((id, i) => {
         const q = _selected[id];
-        const isBreak = random && i > 0 && _groupBreaks.has(id);
-        return `${isBreak ? `<div style="font-size:0.74rem;font-weight:700;color:var(--primary);margin:8px 0 2px;">✂️ Groep ${groepPerId[id] + 1}</div>` : ''}<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.88rem;">
-          <strong>${i+1}.</strong> ${esc(q.text.slice(0,90))}${q.text.length > 90 ? '…' : ''} <span class="muted">(${q.points}pt)</span>
+        const heeftPool = Object.keys(poolConfirm).length > 0;
+        const isBreak = (aantalGroepen > 1 || heeftPool) && (i === 0 || _groupBreaks.has(id));
+        const gi = groepInfo[groepPerId[id] || 0] || { n: 0, p: 0 };
+        const poolN = poolConfirm[id];
+        return `${isBreak ? `<div style="font-size:0.74rem;font-weight:700;color:var(--primary);margin:8px 0 2px;">✂️ Groep ${(groepPerId[id] || 0) + 1} <span class="muted" style="font-weight:600;">· ${gi.n} ${gi.n === 1 ? 'vraag' : 'vragen'} · ${fmtP(gi.p)} ${gi.p === 1 ? 'punt' : 'punten'}</span>${poolN ? ` <span style="font-weight:700;">· 🎲 elke leerling krijgt ${poolN} van ${gi.n} (willekeurig)</span>` : ''}</div>` : ''}<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.88rem;">
+          <strong>${i+1}.</strong> ${esc(q.text.slice(0,90))}${q.text.length > 90 ? '…' : ''} <span class="muted">(${fmtP(q.points)}pt)</span>
         </div>`;
       }).join('')}
     </div>`;
+  // v137: blokkeer aanmaken bij ongelijke punten in een pool, en toon het aantal unieke toetsen
+  const createBtnC = document.getElementById('create-btn');
+  if (createBtnC) createBtnC.disabled = poolGroepenMetOngelijkePunten().length > 0;
+  if (Object.keys(poolConfirm).length) laadPoolTelling(ids, groepPerId);
+}
+
+// v137: hoeveel verschillende toetsen levert deze pool op? (server rekent exact, ook met niveaumix en placeholders)
+async function laadPoolTelling(ids, groepPerId) {
+  const el = document.getElementById('pool-telling');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/quiz/pool-telling', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ questions: ids.map(id => ({ id, randomGroup: groepPerId[id] || 0, points: _selected[id].points })), pool: poolVoorPayload() }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Fout');
+    const fmt = (str) => { const x = BigInt(str); return x > 1000000000000n ? 'meer dan 10¹²' : Number(x).toLocaleString('nl-BE'); };
+    const groepen = d.perGroep.filter(g => g.n < g.m).map(g =>
+      `groep ${g.nr + 1}: <strong>${fmt(g.aantal)}</strong> mogelijkheden (${g.n} uit ${g.m}${g.metMix ? ', met niveaumix' : ''})`).join(' · ');
+    const klas = Array.isArray(window._selectedStudentIds) ? window._selectedStudentIds.length : 0;
+    const totaal = BigInt(d.totaal);
+    const te_weinig = klas > 0 && totaal < BigInt(klas);
+    el.innerHTML = `🧮 <strong>${fmt(d.totaal)} verschillende toetsen</strong> mogelijk${d.metPlaceholders ? ' (incl. placeholder-waarden)' : ''}.<br>${groepen}` +
+      (te_weinig ? `<div style="color:#b91c1c;margin-top:2px;">⚠️ Minder unieke toetsen (${fmt(d.totaal)}) dan leerlingen (${klas}): sommigen krijgen dezelfde toets.</div>` : '') +
+      (totaal < 30n ? `<div style="color:#92400e;margin-top:2px;">⚠️ Minder dan 30 mogelijke toetsen: in een klas zullen leerlingen identieke toetsen krijgen. Vergroot de pool of voeg placeholders toe.</div>` : '');
+  } catch (e) { el.textContent = 'Telling niet beschikbaar: ' + e.message; }
+}
+
+// v134: pool-instelling voor de server: groepNummer → N.
+function poolVoorPayload() {
+  const pool = geldigePool();
+  const uit = {};
+  groepenLijst().forEach(g => {
+    if (!pool[g.eersteId]) return;
+    const mix = _poolMixPerStart[g.eersteId];
+    uit[g.nr] = (mix && mixGeldig(g, pool[g.eersteId], mix)) ? { n: pool[g.eersteId], mix } : pool[g.eersteId];   // enkel een kloppende mix gaat mee
+  });
+  return uit;
 }
 
 async function createQuiz() {
+  if (poolGroepenMetOngelijkePunten().length) { await pyAlert('In een vragenpool moeten alle vragen van een groep evenveel punten hebben.', 'warn'); return; }   // v137
   const createBtn  = document.getElementById('create-btn');
   const backBtn    = document.getElementById('back-btn');
   const statusEl   = document.getElementById('create-status');
@@ -427,7 +855,10 @@ async function createQuiz() {
   // Sprint 94: instelbaar respijt (0 is een geldige waarde — geen respijt — dus geen "|| 5").
   const parsedGrace           = parseInt(document.getElementById('quiz-tabswitch-grace')?.value);
   const tabSwitchGraceSeconds = isNaN(parsedGrace) ? 5 : parsedGrace;
-  const cursusUrl             = document.getElementById('quiz-cursus-url')?.value.trim() || '';  // v113: ook bij een taak
+  // v132: cursus-links per vraag (vervangt de ene cursus-link van de eerste pagina)
+  const clResultaat = verzamelCursusLinks();
+  if (clResultaat.fout) { await pyAlert(clResultaat.fout, 'warn'); return; }
+  const cursusLinks = clResultaat.links;
   const copyPasteBlocked      = document.getElementById('quiz-copypaste-blocked')?.checked !== false;
   const fullscreenRequired    = document.getElementById('quiz-fullscreen-required')?.checked !== false;
   // Sprint 90: zelfevaluatie-enquête — zelfde toets-only redenering als hierboven.
@@ -473,13 +904,17 @@ async function createQuiz() {
                       hideQuestionOnScreen, schoolYear, targetClass,
                       accessFrom, accessUntil, autoSubmitLate, noBack,
                       // Sprint 83: anti-spiek (sprint 94: + instelbaar respijt)
-                      tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusUrl,
+                      tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds, cursusLinks,
                       // Sprint 90: zelfevaluatie-enquête
                       selfEvalEnabled,
                       // v99: klasbord + hand opsteken bij een taak
                       klasbordEnabled,
                       // v113: beveiliging (toets én taak)
                       copyPasteBlocked, fullscreenRequired,
+                      // v134: vragenpool { groepNr: N }
+                      pool: poolVoorPayload(),
+                      // v133: meerkeuze-berekening
+                      mcScoring: document.getElementById('quiz-mc-scoring')?.value === 'klassiek' ? 'klassiek' : 'gedeeld',
                       // Leerling-selectie: in bewerkmodus ALTIJD meesturen (ook leeg =
                       // beperking opheffen). Bij aanmaken enkel als er een selectie is.
                       studentIds: IS_EDIT
@@ -695,12 +1130,17 @@ async function loadForEdit() {
     // checken i.p.v. "|| 5" (dat zou een bewuste 0 tonen als 5).
     setVal('quiz-tabswitch-grace', m.tabSwitchGraceSeconds !== undefined && m.tabSwitchGraceSeconds !== null ? m.tabSwitchGraceSeconds : 5);
     toggleTabSwitchThreshold(!!m.tabSwitchEnabled);
-    setVal('quiz-cursus-url', m.cursusUrl || '');
+    // v132: cursus-links per vraag; het rooster wordt getekend zodra de vragen hersteld zijn (hieronder).
+    _cursusLinks = (Array.isArray(m.cursusLinks) ? m.cursusLinks : []).map((l, i) => ({
+      id: l.id || ('c' + (i + 1)), title: l.title || '', url: l.url || '',
+      questionIds: Array.isArray(l.questionIds) ? l.questionIds.map(String) : [],
+    }));
     // Sprint 90: zelfevaluatie-enquête
     setChk('quiz-self-eval', m.selfEvalEnabled);
     // v99: klasbord + hand opsteken bij een taak
     setChk('quiz-klasbord', m.klasbordEnabled);
     setChk('quiz-copypaste-blocked', m.copyPasteBlocked !== false);
+    { const mc = document.getElementById('quiz-mc-scoring'); if (mc) mc.value = m.mcScoring === 'gedeeld' ? 'gedeeld' : 'klassiek'; }   // v133
     setChk('quiz-fullscreen-required', m.fullscreenRequired !== false);
     // Sprint 51s: wacht tot de schooljaar-dropdown zijn opties heeft, en voeg het opgeslagen
     // jaar toe als het er nog niet bij staat (bv. een ouder/gearchiveerd jaar) — zo blijft
@@ -776,12 +1216,25 @@ async function loadForEdit() {
         id: q.id, text: q.text, subject: q.subject,
         max_points: q.points, points: q.points,
         question_type: q.question_type, choices_json: q.choices_json,
+        difficulty: q.difficulty || 'gemiddeld',   // v137
         text_snapshot: q.text,
       };
       _selectedOrder.push(q.id);
       const groep = q.random_group || 0;
       if (i > 0 && groep !== vorigeGroep) _groupBreaks.add(q.id);
       vorigeGroep = groep;
+    });
+    // v134: pool (per groepnummer) terugzetten op de eerste vraag van elke groep.
+    _poolPerStart = {};
+    const poolOpgeslagen = (data.meta && data.meta.pool) || {};
+    _poolMixPerStart = {}; _poolMixOpen = {};
+    groepenLijst().forEach(g => {
+      const w = poolOpgeslagen[g.nr];
+      const n = Number(w && typeof w === 'object' ? w.n : w);
+      if (n >= 1 && n < g.ids.length) {
+        _poolPerStart[g.eersteId] = n;
+        if (w && typeof w === 'object' && w.mix) { _poolMixPerStart[g.eersteId] = w.mix; _poolMixOpen[g.eersteId] = true; }
+      }
     });
     renderSelectedList();
   } catch (e) {

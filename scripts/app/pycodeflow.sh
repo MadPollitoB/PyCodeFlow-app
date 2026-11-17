@@ -95,144 +95,154 @@ versie_display() {
   [[ -z "$j" ]] && get_env APP_VERSION || echo "${j}.${m}.${n}.${b}"
 }
 
-# ── Sprint 51-ai: AI-verbeteren (lokale Ollama) — installatie + configuratie ───
-# Biedt drie paden: (1) Ollama volledig installeren via dit script, als Docker-service
-# binnen dezelfde stack (aanbevolen — geen aparte installatie nodig); (2) enkel het adres
-# invullen van een Ollama die al ergens anders draait; (3) overslaan. Volledig optioneel —
-# zonder OLLAMA_URL in .env blijft de rest van PyCodeFlow gewoon werken, enkel de
-# "🤖 AI verbeteren"-knop op de verbeterpagina toont dan een nette foutmelding. Wordt
-# aangeroepen vanuit zowel de eerste-start-wizard (optie 13) als vóór een rebuild (optie 5),
-# zodat ook een bestaande installatie die deze update binnenhaalt de kans krijgt dit alsnog
-# in te stellen, zonder de volledige wizard opnieuw te moeten doorlopen.
-configureer_ollama() {
-  local bestaand_url
-  bestaand_url=$(get_env OLLAMA_URL)
-  if [[ -n "$bestaand_url" ]]; then
-    ok "AI-verbeteren (Ollama) al geconfigureerd: $bestaand_url"
-    return
+# >>> OLLAMA-LOKAAL-START ──────────────────────────────────────────────────────
+# v127: de lokale AI (Ollama) heeft een EIGEN compose-bestand (docker-compose.ollama.yml) en
+# wordt door dit script enkel mee gestart/gestopt als OLLAMA_LOKAAL=true in .env staat.
+#
+# NIEUWE MACHINE VOOR DE AI? Dan hoeft Ollama hier niet meer te draaien:
+#   1. Zet op de nieuwe machine docker-compose.ollama.yml en start ze (zie kop van dat bestand).
+#   2. Zet in .env hier:  OLLAMA_URL=http://<ip-nieuwe-machine>:11434  en  OLLAMA_LOKAAL=false
+#   3. (Optioneel) Haal alle Ollama-code uit dit script:
+#        sed -i '/OLLAMA-LOKAAL-STAR[T]/,/OLLAMA-LOKAAL-EIND[E]/d; /\[OLLAMA-LOKAAL\]/d' pycodeflow.sh
+#      Dat verwijdert dit blok én alle aanroepen (regels met [OLLAMA-LOKAAL]).
+# Zonder stap 3 blijft alles werken: met OLLAMA_LOKAAL=false doen deze functies niets.
+OLLAMA_COMPOSE_FILE="$BASE/docker-compose.ollama.yml"
+OLLAMA_CONT="pycodeflow-ollama-1"
+OLLAMA_OUD_MODEL="qwen2.5-coder:7b"
+OLLAMA_NIEUW_MODEL="qwen3.5:9b"
+
+_ollama_compose() {
+  local e=()
+  [[ -f "$ENV_FILE" ]] && e=(--env-file "$ENV_FILE")
+  docker compose -p pycodeflow-ollama -f "$OLLAMA_COMPOSE_FILE" "${e[@]}" "$@"
+}
+
+_ollama_ja() { [[ "$1" =~ ^([jJ]|[jJ][aA]|[yY]|[yY][eE][sS])$ ]]; }
+
+ollama_lokaal_actief() {
+  [[ "$(get_env OLLAMA_LOKAAL)" == "true" && -f "$OLLAMA_COMPOSE_FILE" ]]
+}
+
+# Oude installaties (≤ v126) hadden Ollama IN docker-compose.yml (profiel 'ollama',
+# OLLAMA_URL=http://ollama:11434). Dat adres bestaat niet meer: omzetten naar de nieuwe opzet.
+_ollama_migreer_oud() {
+  if [[ "$(get_env OLLAMA_URL)" == "http://ollama:11434" ]]; then
+    set_env "OLLAMA_URL" "http://host.docker.internal:11434"
+    set_env "OLLAMA_LOKAAL" "true"
+    ok "Ollama-instelling gemigreerd naar de eigen compose (OLLAMA_URL → http://host.docker.internal:11434)."
   fi
-  # Bewust eerder overgeslagen? Dan niet bij elke rebuild opnieuw vragen — enkel
-  # handmatig in .env of via deze stap alsnog in te stellen.
-  if [[ "$(get_env OLLAMA_SETUP_SKIPPED)" == "true" ]]; then
-    info "AI-verbeteren nog niet geconfigureerd (eerder bewust overgeslagen)."
-    info "Alsnog instellen: handmatig in .env, of verwijder OLLAMA_SETUP_SKIPPED om deze vraag terug te zien."
-    return
+  if grep -qE '^COMPOSE_PROFILES=ollama$' "$ENV_FILE" 2>/dev/null; then
+    sed -i '/^COMPOSE_PROFILES=ollama$/d' "$ENV_FILE"
   fi
-
-  echo ""
-  echo -e "  ${BOLD}AI-verbeteren (optioneel)${RESET}"
-  echo -e "  ${DIM}Laat open- en code-vragen automatisch nakijken door een LOKALE AI (Ollama)"
-  echo -e "  — er verlaat hierbij nooit iets je eigen netwerk.${RESET}"
-  echo ""
-  echo -e "  ${BOLD}1)${RESET} Ollama nu installeren via dit script ${DIM}(aanbevolen — draait als"
-  echo -e "     extra Docker-service binnen deze installatie, geen aparte setup nodig)${RESET}"
-  echo -e "  ${BOLD}2)${RESET} Ollama draait al ergens anders — enkel het adres invullen"
-  echo -e "  ${BOLD}3)${RESET} Niet nu ${DIM}(kan later via deze stap of handmatig in .env)${RESET}"
-  echo ""
-  read -rp "  Keuze (1/2/3) [3]: " ollama_keuze
-  ollama_keuze="${ollama_keuze:-3}"
-
-  case "$ollama_keuze" in
-    1) _ollama_installeren ;;
-    2) _ollama_extern_configureren ;;
-    *)
-      set_env "OLLAMA_SETUP_SKIPPED" "true"
-      info "Overgeslagen — kan later via deze stap of handmatig in .env (OLLAMA_URL/OLLAMA_MODEL)."
-      ;;
-  esac
 }
 
-# Vraagt enkel het adres/model van een Ollama die al ELDERS draait (los van deze
-# docker-compose-stack) — geen installatie, enkel configuratie.
-_ollama_extern_configureren() {
-  echo ""
-  echo -e "  ${DIM}Draait Ollama op deze zelfde NAS, maar NIET in deze docker-compose-stack"
-  echo -e "  (bv. als losse container of native dienst)? Gebruik dan"
-  echo -e "  'host.docker.internal' in plaats van 'localhost' — anders verwijst"
-  echo -e "  'localhost' naar de PyCodeFlow-container zelf, niet naar de NAS.${RESET}"
-  echo ""
-  local ollama_url
-  read -rp "  Ollama-adres [http://host.docker.internal:11434]: " ollama_url
-  ollama_url="${ollama_url:-http://host.docker.internal:11434}"
-  set_env "OLLAMA_URL" "$ollama_url"
-
-  local ollama_model
-  ollama_model=$(_vraag_ollama_model)
-  set_env "OLLAMA_MODEL" "$ollama_model"
-
-  ok "AI-verbeteren geconfigureerd: $ollama_url ($ollama_model)"
-  info "Werkt dit niet meteen? Controleer dat Ollama daadwerkelijk draait en dat het"
-  info "model opgehaald is (ollama pull ${ollama_model}). De knop toont anders een"
-  info "duidelijke foutmelding — de rest van PyCodeFlow blijft intussen gewoon werken."
+# Een oude Ollama-container uit het hoofdproject zou de naam blokkeren. De modellen blijven
+# bewaard (het volume wordt niet verwijderd).
+_ollama_oude_container_opruimen() {
+  local proj
+  proj=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$OLLAMA_CONT" 2>/dev/null)
+  if [[ -n "$proj" && "$proj" != "pycodeflow-ollama" ]]; then
+    info "Oude Ollama-container (project '$proj') vervangen door de eigen compose..."
+    docker rm -f "$OLLAMA_CONT" > /dev/null 2>&1
+  fi
 }
 
-# Vraagt welk model, met uitleg — hergebruikt door beide installatiepaden.
-# Resultaat komt op stdout (echo), zodat de aanroeper het met $(...) kan opvangen.
-_vraag_ollama_model() {
-  echo -e "  ${DIM}Aanbevolen model voor het nakijken van Python-code: qwen2.5-coder." >&2
-  echo -e "  Kies de modelgrootte op basis van je hardware — hoe groter, hoe beter maar" >&2
-  echo -e "  ook trager (zeker zonder losse GPU): 3b (snel, minder genuanceerd), 7b" >&2
-  echo -e "  (goede balans), 14b/32b (zwaarder, wel een stevige GPU aangeraden).${RESET}" >&2
-  echo "" >&2
-  local ollama_model
-  read -rp "  Ollama-model [qwen2.5-coder:7b]: " ollama_model >&2
-  echo "${ollama_model:-qwen2.5-coder:7b}"
-}
-
-# Installeert Ollama ALS Docker-service binnen deze stack (profiel 'ollama' in
-# docker-compose.yml — start dus niet mee tenzij hier geactiveerd), start de container,
-# en haalt het gekozen model op. Kan enkele minuten tot tientallen minuten duren afhankelijk
-# van de modelgrootte en de internetverbinding van de NAS — de eigen voortgangsbalk van
-# 'ollama pull' wordt gewoon rechtstreeks getoond.
-_ollama_installeren() {
-  local ollama_model
-  ollama_model=$(_vraag_ollama_model)
-
-  set_env "OLLAMA_URL" "http://ollama:11434"
-  set_env "OLLAMA_MODEL" "$ollama_model"
-  # COMPOSE_PROFILES wordt door Docker Compose zelf uit dit .env-bestand gelezen (project-
-  # directory .env) — hiermee telt de 'ollama'-service voortaan automatisch mee bij elke
-  # gewone start/restart/rebuild, niet enkel bij deze installatie-stap.
-  set_env "COMPOSE_PROFILES" "ollama"
-
-  echo ""
-  stap "Ollama installeren"
-  info "Container ophalen en starten (kan een minuutje duren bij de eerste keer)..."
-  if ! $COMPOSE --project-directory "$BASE" --profile ollama up -d ollama; then
-    err "Kon de Ollama-container niet starten — zie de foutmelding hierboven."
-    err "AI-verbeteren blijft uitgeschakeld; de rest van PyCodeFlow werkt gewoon door."
+# Start Ollama (indien lokaal) en haalt het gekozen model op als het ontbreekt.
+ollama_lokaal_start() {
+  ollama_lokaal_actief || return 0
+  stap "Ollama (AI) starten"
+  _ollama_oude_container_opruimen
+  if ! _ollama_compose up -d; then
+    err "Kon Ollama niet starten — zie de melding hierboven. De rest van PyCodeFlow werkt gewoon door."
     return 1
   fi
-
-  info "Wachten tot Ollama klaar is om te antwoorden..."
   local pogingen=0
-  while ! docker exec pycodeflow-ollama-1 ollama list > /dev/null 2>&1; do
-    sleep 2
-    pogingen=$((pogingen + 1))
+  while ! docker exec "$OLLAMA_CONT" ollama list > /dev/null 2>&1; do
+    sleep 2; pogingen=$((pogingen + 1))
     if [[ $pogingen -gt 30 ]]; then
-      err "Ollama start niet op na 60 seconden."
-      err "Controleer: docker compose --project-directory \"$BASE\" logs ollama"
+      err "Ollama start niet op na 60 seconden. Controleer: docker logs $OLLAMA_CONT"
       return 1
     fi
-    echo -n "."
   done
-  echo ""
-  ok "Ollama draait"
-  echo ""
-
-  echo -e "  ${GEEL}Model ophalen: ${ollama_model} — dit kan enkele GB downloaden en dus"
-  echo -e "  even duren, zeker over een trage verbinding. De voortgang hieronder komt"
-  echo -e "  rechtstreeks van Ollama zelf.${RESET}"
-  echo ""
-  if docker exec pycodeflow-ollama-1 ollama pull "$ollama_model"; then
-    echo ""
-    ok "AI-verbeteren volledig geïnstalleerd en klaar: http://ollama:11434 ($ollama_model)"
-  else
-    echo ""
-    err "Kon het model niet ophalen — Ollama zelf draait wel."
-    err "Probeer later opnieuw: docker exec pycodeflow-ollama-1 ollama pull ${ollama_model}"
+  local poort; poort=$(get_env OLLAMA_PORT); poort="${poort:-11434}"
+  ok "Ollama draait (poort $poort, bereikbaar via LAN/Tailscale — geen login, nooit openzetten naar het internet)"
+  local model; model=$(get_env OLLAMA_MODEL)
+  if [[ -n "$model" ]] && ! docker exec "$OLLAMA_CONT" ollama list 2>/dev/null | awk 'NR>1{print $1}' | grep -qx "$model"; then
+    echo -e "  ${GEEL}Model ophalen: ${model} — enkele GB, dit kan even duren (voortgang van Ollama zelf).${RESET}"
+    if docker exec "$OLLAMA_CONT" ollama pull "$model"; then
+      ok "Model klaar: $model"
+    else
+      err "Kon het model niet ophalen. Later opnieuw: docker exec $OLLAMA_CONT ollama pull $model"
+    fi
   fi
 }
+
+# Stopt Ollama (indien lokaal). $1 = "volumes" om ook de gedownloade modellen te wissen.
+ollama_lokaal_stop() {
+  [[ -f "$OLLAMA_COMPOSE_FILE" ]] || return 0
+  [[ "$(get_env OLLAMA_LOKAAL)" == "true" || "$(container_status "$OLLAMA_CONT")" == "running" ]] || return 0
+  if [[ "$1" == "volumes" ]]; then _ollama_compose down --volumes 2>/dev/null
+  else _ollama_compose down 2>/dev/null; fi
+  warn "Ollama gestopt."
+}
+
+# Wordt aangeroepen vanuit de eerste-start-wizard (optie 13) en vóór een rebuild (optie 5).
+# Stelt (eenmalig) de vraag of Ollama op DEZE machine moet draaien en past het model aan.
+configureer_ollama() {
+  _ollama_migreer_oud
+  [[ -z "$(get_env OLLAMA_THINK)" ]] && set_env "OLLAMA_THINK" "false"
+
+  local lokaal url
+  lokaal=$(get_env OLLAMA_LOKAAL); url=$(get_env OLLAMA_URL)
+  if [[ -z "$lokaal" ]]; then
+    if [[ -n "$url" && "$url" != *"host.docker.internal"* && "$url" != *"localhost"* ]]; then
+      set_env "OLLAMA_LOKAAL" "false"
+      ok "AI (Ollama) draait op een andere machine: $url"
+    elif [[ "$(get_env OLLAMA_SETUP_SKIPPED)" == "true" ]]; then
+      info "AI-verbeteren eerder bewust overgeslagen (verwijder OLLAMA_SETUP_SKIPPED in .env om opnieuw te kiezen)."
+    else
+      echo ""
+      echo -e "  ${BOLD}AI-verbeteren (optioneel)${RESET}"
+      echo -e "  ${DIM}Laat open- en code-vragen nakijken door een LOKALE AI (Ollama) — er verlaat"
+      echo -e "  niets je eigen netwerk. Ollama heeft een eigen compose (docker-compose.ollama.yml).${RESET}"
+      echo ""
+      read -rp "  Ollama op DEZE machine mee laten draaien? (ja/nee) [nee]: " antw
+      if _ollama_ja "$antw"; then
+        set_env "OLLAMA_LOKAAL" "true"
+        set_env "OLLAMA_URL" "http://host.docker.internal:11434"
+        [[ -z "$(get_env OLLAMA_MODEL)" ]] && set_env "OLLAMA_MODEL" "$OLLAMA_NIEUW_MODEL"
+        ok "Ollama wordt mee gestart (model: $(get_env OLLAMA_MODEL))."
+      else
+        set_env "OLLAMA_LOKAAL" "false"
+        read -rp "  Adres van een Ollama op een andere machine (bv. http://100.x.y.z:11434), Enter = overslaan: " extern
+        if [[ -n "$extern" ]]; then
+          set_env "OLLAMA_URL" "$extern"
+          [[ -z "$(get_env OLLAMA_MODEL)" ]] && set_env "OLLAMA_MODEL" "$OLLAMA_NIEUW_MODEL"
+          ok "AI gekoppeld aan $extern (model: $(get_env OLLAMA_MODEL))."
+          info "Zorg dat dat model daar opgehaald is:  ollama pull $(get_env OLLAMA_MODEL)"
+        else
+          set_env "OLLAMA_SETUP_SKIPPED" "true"
+          info "Overgeslagen — later via .env (OLLAMA_URL / OLLAMA_MODEL / OLLAMA_LOKAAL)."
+        fi
+      fi
+    fi
+  else
+    ok "AI (Ollama): lokaal=$lokaal, adres $(get_env OLLAMA_URL), model $(get_env OLLAMA_MODEL)"
+  fi
+
+  # Oude standaardmodel → voorstel om naar het nieuwe over te schakelen (eigen "-custom"-
+  # modellen uit de AI-training blijven ongemoeid).
+  if [[ "$(get_env OLLAMA_MODEL)" == "$OLLAMA_OUD_MODEL" ]]; then
+    read -rp "  Overschakelen van $OLLAMA_OUD_MODEL naar $OLLAMA_NIEUW_MODEL? (ja/nee) [ja]: " sw
+    if [[ -z "$sw" ]] || _ollama_ja "$sw"; then
+      set_env "OLLAMA_MODEL" "$OLLAMA_NIEUW_MODEL"
+      ok "Model ingesteld op $OLLAMA_NIEUW_MODEL (wordt opgehaald bij het starten van Ollama)."
+      if [[ "$(get_env OLLAMA_LOKAAL)" != "true" ]]; then info "Op de andere machine: ollama pull $OLLAMA_NIEUW_MODEL"; fi
+    fi
+  fi
+  return 0
+}
+# <<< OLLAMA-LOKAAL-EINDE ──────────────────────────────────────────────────────
 
 container_status() {
   docker inspect --format='{{.State.Status}}' "$1" 2>/dev/null || echo "niet gevonden"
@@ -475,7 +485,7 @@ setup_eerste_start() {
   fi
   echo ""
   stap "Stap 2c: AI-verbeteren (optioneel)"
-  configureer_ollama
+  declare -F configureer_ollama >/dev/null && configureer_ollama # [OLLAMA-LOKAAL]
   echo ""
   stap "Stap 3: Basisinstellingen"
   echo ""
@@ -556,6 +566,7 @@ setup_eerste_start() {
 
   $COMPOSE --project-directory "$BASE" up --build -d --remove-orphans
   local compose_exit=$?
+  [[ $compose_exit -eq 0 ]] && declare -F ollama_lokaal_start >/dev/null && ollama_lokaal_start # [OLLAMA-LOKAAL]
 
   if [[ $compose_exit -ne 0 ]]; then
     err "Docker compose mislukt (exit code $compose_exit)"
@@ -746,6 +757,7 @@ actie_start() {
     fi
   fi
   $COMPOSE --project-directory "$BASE" up -d
+  declare -F ollama_lokaal_start >/dev/null && ollama_lokaal_start # [OLLAMA-LOKAAL]
   echo ""
   ok "Gestart."
   echo ""
@@ -757,6 +769,7 @@ actie_stop() {
   stap "Stop PyCodeFlow"
   echo ""
   $COMPOSE --project-directory "$BASE" down
+  declare -F ollama_lokaal_stop >/dev/null && ollama_lokaal_stop # [OLLAMA-LOKAAL]
   echo ""
   warn "Gestopt."
   echo ""
@@ -769,9 +782,11 @@ actie_restart() {
   echo ""
   info "Stoppen..."
   $COMPOSE --project-directory "$BASE" down
+  declare -F ollama_lokaal_stop >/dev/null && ollama_lokaal_stop # [OLLAMA-LOKAAL]
   echo ""
   info "Starten..."
   $COMPOSE --project-directory "$BASE" up -d
+  declare -F ollama_lokaal_start >/dev/null && ollama_lokaal_start # [OLLAMA-LOKAAL]
   echo ""
   ok "Herstart voltooid."
   echo ""
@@ -926,7 +941,7 @@ actie_rebuild() {
   # Sprint 51-ai: ontbrekende, optionele instellingen aanvullen vóór de rebuild — zo krijgt
   # ook een bestaande installatie die deze update binnenhaalt de kans om AI-verbeteren te
   # configureren, zonder de volledige eerste-start-wizard opnieuw te moeten doorlopen.
-  configureer_ollama
+  declare -F configureer_ollama >/dev/null && configureer_ollama # [OLLAMA-LOKAAL]
   echo ""
   # Sprint 51: rebuild-bevestiging. Kiest de gebruiker 'n', dan stopt ALLES hier —
   # ook de OLDIES-opruiming wordt dan overgeslagen (geen extra vragen).
@@ -939,6 +954,7 @@ actie_rebuild() {
   oldies_stap
   # Effectieve rebuild + install
   $COMPOSE --project-directory "$BASE" up --build -d
+  declare -F ollama_lokaal_start >/dev/null && ollama_lokaal_start # [OLLAMA-LOKAAL]
   echo ""
   ok "Rebuild voltooid."
   controleer_deploy
@@ -1442,6 +1458,7 @@ actie_volledige_reset() {
   stap "Stap 1: Containers stoppen en verwijderen"
   # Gebruik --env-file zodat compose de variabelen kent ook als .env ontbreekt
   docker compose --project-directory "$BASE" down --volumes --remove-orphans 2>/dev/null     || docker compose -f "$BASE/docker-compose.yml" down --remove-orphans 2>/dev/null
+  declare -F ollama_lokaal_stop >/dev/null && ollama_lokaal_stop volumes # [OLLAMA-LOKAAL]
   ok "Containers gestopt"
 
   stap "Stap 2: Docker images verwijderen"

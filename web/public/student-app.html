@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Leerling</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.125"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.139"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 </head><body>
 <!-- Sprint 60: blokkerende melding wanneer de leerkracht niet (meer) ingelogd is op
@@ -37,6 +37,16 @@
   </div>
 
 
+  <!-- v126: cursus-zijpaneel (zoals bij taken). Verschijnt enkel als de leerkracht "Cursus tonen" aanzette. -->
+  <button id="cursus-toggle-btn" class="cursus-tab hidden" title="Cursus tonen/verbergen" aria-expanded="false">📄 Cursus</button>
+  <div id="cursus-panel" class="cursus-panel" aria-hidden="true">
+    <div class="cursus-panel-head">
+      <strong>📄 Cursusmateriaal</strong>
+      <button class="btn btn-muted small" id="cursus-close-btn">✕ Sluiten</button>
+    </div>
+    <iframe id="cursus-iframe" class="cursus-iframe" title="Cursusmateriaal"></iframe>
+  </div>
+
   <div id="student-announcement-card" class="card announcement-card hidden" style="margin-top:20px;">
     <div class="announcement-title">Opdracht van de leerkracht</div>
     <div id="student-announcement-text" class="announcement-text"></div>
@@ -55,6 +65,7 @@
       <div id="student-timer-display" style="display:none; font-size:1rem; font-weight:800; color:var(--primary); padding:4px 10px; background:var(--primary-soft); border-radius:8px; margin-right:8px;"></div>
       <div id="student-autosave-indicator" style="font-size:0.75rem; color:var(--muted); opacity:0; transition:opacity 0.5s; margin-right:8px; align-self:center;">💾 Concept opgeslagen</div>
       <button class="btn btn-soft small" id="student-run-btn" title="Voer jouw code uit (Ctrl+Enter)" title="Voer jouw code uit (Ctrl+Enter)">Run</button>
+      <button class="btn btn-soft small hidden" id="student-copy-class-btn" style="margin-left:8px;" title="Zet de code van je werkblad in de klascode (enkel met codeerrechten)" disabled>⇪ Naar klas</button>
             <button id="student-copy-btn" title="Kopieer code" aria-label="Kopieer code" onclick="if(window.copyContextual) copyContextual('student', this)" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:8px;padding:4px 10px;cursor:pointer;font-size:1rem;">📋</button>
       <button class="btn btn-muted small" id="student-raise-hand-btn" style="margin-left:8px;">✋ Hand opsteken</button>
       <button class="btn btn-muted small" id="student-done-btn" title="Meld aan de leerkracht dat je klaar bent" style="margin-left:8px;">✓ Klaar</button>
@@ -81,7 +92,7 @@
   </div>
 </div>
 </div><script src="/socket.io/socket.io.js"></script><script src="/monaco-env.js"></script>
-<script src="/monaco/min/vs/loader.js"></script><script src="/code-highlight.js?v=v2026.2.51.125"></script>
-<script src="/rijke-tekst.js?v=v2026.2.51.125"></script>
-<script src="/popups.js?v=v2026.2.51.125"></script>
-<script src="/app.js?v=v2026.2.51.125"></script><script src="/privacy.js?v=v2026.2.51.125"></script></body></html>
+<script src="/monaco/min/vs/loader.js"></script><script src="/code-highlight.js?v=v2026.2.51.139"></script>
+<script src="/rijke-tekst.js?v=v2026.2.51.139"></script>
+<script src="/popups.js?v=v2026.2.51.139"></script>
+<script src="/app.js?v=v2026.2.51.139"></script><script src="/privacy.js?v=v2026.2.51.139"></script></body></html>

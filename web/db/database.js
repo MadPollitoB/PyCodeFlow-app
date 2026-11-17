@@ -11,8 +11,14 @@
  */
 'use strict';
 
-const { Pool } = require('pg');
+const { Pool, types: pgTypes } = require('pg');
+// v133: halve punten → NUMERIC. pg geeft NUMERIC standaard als tekst terug ("1.5" + "2" = "1.52"),
+// dus altijd naar een JS-getal omzetten (scores zijn kleine getallen, dus zonder precisieverlies).
+pgTypes.setTypeParser(1700, (v) => (v === null ? null : parseFloat(v)));
 const crypto   = require('crypto');
+const { normaliseerScore, normaliseerVraagPunten } = require('../lib/validation');   // v133: halve punten
+const vragenpoolLib = require('../lib/vragenpool');   // v134
+const placeholdersLib = require('../lib/placeholders');   // v135
 
 // ── Connection string ──────────────────────────────────────────────────────────
 // Bouw DATABASE_URL automatisch op uit POSTGRES_PASSWORD als die niet ingesteld is.
@@ -112,7 +118,7 @@ function normalizeAnswerParts(input) {
       else codeGezien = true;
     }
     const id = (typeof ruw.id === 'string' && ruw.id) ? ruw.id : crypto.randomUUID();
-    const points = Math.max(0, parseInt(ruw.points, 10) || 0);
+    const points = normaliseerScore(ruw.points, 1000) ?? 0;   // v133: halve punten toegelaten
     const onderdeel = {
       id,
       type,
@@ -167,7 +173,7 @@ async function _scoreQuizAnswerPartIntern(answerId, partId, score, teacherCommen
     delete aiFlags[partId];
     delete comments[partId];
   } else {
-    scores[partId] = Math.max(0, parseInt(score, 10) || 0);
+    scores[partId] = normaliseerScore(score, 1000) ?? 0;   // v133: halve punten
     if (aiGraded) aiFlags[partId] = true;
     else delete aiFlags[partId]; // handmatige score wist de ai-markering van dít onderdeel
     if (teacherComment !== null && teacherComment !== undefined) comments[partId] = teacherComment;
@@ -673,7 +679,7 @@ async function initSchema() {
       text            TEXT NOT NULL,
       subject         TEXT NOT NULL DEFAULT '',
       difficulty      TEXT NOT NULL DEFAULT 'gemiddeld',
-      max_points      INTEGER NOT NULL DEFAULT 4,
+      max_points      NUMERIC(6,1) NOT NULL DEFAULT 4,
       question_type   TEXT NOT NULL DEFAULT 'code',
       -- 'code' = Python editor, 'open' = vrije tekst,
       -- 'multiple' = meerdere juiste, 'single' = één juiste
@@ -715,6 +721,8 @@ async function initSchema() {
       -- in de vraagtekst geweven, zodat een leerling die de vraag in een AI-chatbot plakt
       -- een herkenbaar spoor in het teruggegeven antwoord krijgt.
       BEGIN ALTER TABLE question_bank ADD COLUMN hidden_ai_trap TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- v135: variabelen per leerling ([{naam,type,min,max|waarden}]) voor {{placeholders}} in de vraag.
+      BEGIN ALTER TABLE question_bank ADD COLUMN variables_json TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
       -- Sprint 77: optionele titel — puur voor herkenning in de vragenbank-lijst (naast/vóór
       -- de "Delen"-dropdown); heeft geen enkel effect op een toets/taak zelf. Leeg toegelaten.
       BEGIN ALTER TABLE question_bank ADD COLUMN title TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
@@ -777,7 +785,7 @@ async function initSchema() {
       order_index      INTEGER NOT NULL,
       text_snapshot    TEXT NOT NULL,
       subject          TEXT NOT NULL DEFAULT '',
-      points           INTEGER NOT NULL DEFAULT 4,
+      points           NUMERIC(6,1) NOT NULL DEFAULT 4,
       question_type    TEXT NOT NULL DEFAULT 'code',
       choices_json     TEXT NOT NULL DEFAULT '[]',
       model_answer     TEXT NOT NULL DEFAULT ''
@@ -792,6 +800,8 @@ async function initSchema() {
       -- vraag op het moment van aanmaken, los van latere wijzigingen in de vragenbank.
       BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN flowchart_json TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN hidden_ai_trap TEXT NOT NULL DEFAULT ''; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN variables_json TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;   -- v135
+      BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN difficulty TEXT NOT NULL DEFAULT 'gemiddeld'; EXCEPTION WHEN duplicate_column THEN NULL; END;   -- v137: niveau bij de toets bewaard (voor de niveaumix en het moeilijkheidsrapport)
       -- Sprint 51j: snapshot van de antwoordonderdelen bij een composite-vraag.
       BEGIN ALTER TABLE quiz_question_snapshots ADD COLUMN answer_parts TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
       -- Sprint 76: groepsnummer voor onafhankelijke randomisatie per groep (bv. vraag 1-5
@@ -872,7 +882,35 @@ async function initSchema() {
       -- volledig scherm verplicht (leerling kan het enkel verlaten door in te dienen).
       BEGIN ALTER TABLE assignment_bank ADD COLUMN fullscreen_required BOOLEAN NOT NULL DEFAULT true; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE assignment_bank ADD COLUMN copy_paste_blocked BOOLEAN NOT NULL DEFAULT true; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- v132: cursus-links per vraag: JSON-lijst [{id, title, url, questionIds:[bank-id, ...]}].
+      -- Vervangt de ene toets-brede cursus_url (blijft als kolom bestaan maar wordt niet meer gebruikt).
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN cursus_links TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- v133: meerkeuze-berekening per toets/taak: 'gedeeld' (gedeeld juist, straf voor gemist/fout) of
+      -- 'klassiek' (de oude regel). Bestaande toetsen/taken blijven 'klassiek' zodat reeds nagekeken
+      -- resultaten niet achteraf veranderen; nieuwe krijgen 'gedeeld' (zie createQuizSession).
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN mc_scoring TEXT NOT NULL DEFAULT 'klassiek'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- v134: vragenpool. JSON { "<groepNr>": N } = elke leerling krijgt N willekeurige vragen uit die groep.
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN pool_json TEXT NOT NULL DEFAULT '{}'; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- v133: halve punten. Eenmalig INTEGER → NUMERIC(6,1); bestaande gehele waarden blijven geldig.
+      IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'question_bank' AND column_name = 'max_points') = 'integer' THEN
+        ALTER TABLE question_bank ALTER COLUMN max_points TYPE NUMERIC(6,1);
+      END IF;
+      IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'quiz_question_snapshots' AND column_name = 'points') = 'integer' THEN
+        ALTER TABLE quiz_question_snapshots ALTER COLUMN points TYPE NUMERIC(6,1);
+      END IF;
+      IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'quiz_answers' AND column_name = 'score') = 'integer' THEN
+        ALTER TABLE quiz_answers ALTER COLUMN score TYPE NUMERIC(6,1);
+      END IF;
     END $$;
+    -- v132: bestaande cursus_url eenmalig omzetten naar één link gekoppeld aan alle vragen van die toets/taak.
+    UPDATE assignment_bank ab SET
+      cursus_links = json_build_array(json_build_object(
+        'id', 'c1', 'title', 'Cursus', 'url', ab.cursus_url,
+        'questionIds', (SELECT COALESCE(json_agg(s.bank_question_id), '[]'::json)
+                          FROM quiz_question_snapshots s
+                         WHERE s.session_code = ab.session_code AND s.bank_question_id IS NOT NULL)))::text,
+      cursus_url = NULL
+    WHERE ab.cursus_url IS NOT NULL AND ab.cursus_url <> '' AND ab.cursus_links = '[]';
 
     -- Sprint 43.3: bestaande rijen krijgen hun type afgeleid uit no_timer (timerloos = taak).
     -- Eenmalig: enkel rijen die nog op de default staan én timerloos zijn.
@@ -915,7 +953,7 @@ async function initSchema() {
       saved_at         BIGINT NOT NULL,
       submitted_at     BIGINT,
       auto_submitted   BOOLEAN NOT NULL DEFAULT false,
-      score            INTEGER,
+      score            NUMERIC(6,1),
       teacher_comment  TEXT NOT NULL DEFAULT '',
       selected_choices TEXT NOT NULL DEFAULT '[]',
       -- JSON array van gekozen choice IDs (bij multiple/single)
@@ -1562,7 +1600,7 @@ module.exports = {
       session.announcement  || '',
       session.classWorkspaceMode || 'shared',
       JSON.stringify(students),
-      JSON.stringify({ ...(session.config || {}), _opdrachten: Array.isArray(session.opdrachten) ? session.opdrachten : [], _opdrachtIdx: session.opdrachtIdx || 0, ...(session.drafts ? { _drafts: session.drafts } : (session.config && session.config._drafts ? { _drafts: session.config._drafts } : {})) }),
+      JSON.stringify({ ...(session.config || {}), _opdrachten: Array.isArray(session.opdrachten) ? session.opdrachten : [], _opdrachtIdx: session.opdrachtIdx || 0, ...(session.drafts ? { _drafts: session.drafts } : (session.config && session.config._drafts ? { _drafts: session.config._drafts } : {})), ...(session.cursus ? { _cursus: session.cursus } : (session.config && session.config._cursus ? { _cursus: session.config._cursus } : {})) }),
       session.teacherId || null,
       // Sprint 48c2: school_id wordt (net als teacher_id) bij aanmaak gezet en NIET in de
       // ON CONFLICT UPDATE herzien — de tenant van een sessie ligt vast.
@@ -1893,12 +1931,17 @@ module.exports = {
   // bepaalt dat moment (handmatig stoppen, de deadline-cronjob, of — robuuster — telkens de
   // verbeterpagina geopend wordt voor een reeds-gestopte toets, ongeacht hoe die stopte).
   async fillMissingQuizAnswers(sessionCode) {
-    const meta = await query(`SELECT target_class FROM assignment_bank WHERE session_code = $1`, [sessionCode]);
+    const meta = await query(`SELECT target_class, pool_json FROM assignment_bank WHERE session_code = $1`, [sessionCode]);
     const targetClass = meta.rows[0]?.target_class;
 
     const vragen = await query(
-      `SELECT id, order_index FROM quiz_question_snapshots WHERE session_code = $1 ORDER BY order_index`,
+      `SELECT id, order_index, random_group FROM quiz_question_snapshots WHERE session_code = $1 ORDER BY order_index`,
       [sessionCode]);
+    // v134: bij een vragenpool hoort een leerling enkel bij ZIJN getrokken vragen. Wie nooit begon,
+    // krijgt hier alsnog een trekking (zodat het maximum klopt); wie wel begon, wordt enkel
+    // aangevuld voor zijn eigen vragen.
+    const pool = vragenpoolLib.normaliseerPool(meta.rows[0]?.pool_json, vragen.rows);
+    const poolIsActief = vragenpoolLib.poolActief(pool);
     if (!vragen.rows.length) return { nietDeelgenomen: 0, aangevuld: 0 };
 
     const now = Date.now();
@@ -1919,7 +1962,9 @@ module.exports = {
         [targetClass, sessionCode]);
       for (const leerling of leerlingen.rows) {
         let pos = 0;
-        for (const vraag of vragen.rows) {
+        const eigenVragen = poolIsActief ? vragenpoolLib.trekVragen(vragen.rows, pool) : vragen.rows;
+        if (poolIsActief) await this.saveQuizStudentOrder(sessionCode, leerling.id, eigenVragen.map(v => v.id));
+        for (const vraag of eigenVragen) {
           await query(
             `INSERT INTO quiz_answers (id, session_code, student_id, student_name, student_class,
                question_id, personal_order, code, run_count, saved_at, submitted_at,
@@ -1943,7 +1988,12 @@ module.exports = {
         `SELECT question_id FROM quiz_answers WHERE session_code = $1 AND student_id = $2`,
         [sessionCode, leerling.student_id]);
       const beantwoordeIds = new Set(beantwoord.rows.map(r => r.question_id));
-      const ontbrekend = vragen.rows.filter(v => !beantwoordeIds.has(v.id));
+      let eigenVragen = vragen.rows;
+      if (poolIsActief) {
+        const volgorde = await this.getQuizStudentOrder(sessionCode, leerling.student_id);
+        if (volgorde.length) { const mijn = new Set(volgorde.map(r => r.question_id)); eigenVragen = vragen.rows.filter(v => mijn.has(v.id)); }
+      }
+      const ontbrekend = eigenVragen.filter(v => !beantwoordeIds.has(v.id));
       if (!ontbrekend.length) continue;
       for (const vraag of ontbrekend) {
         await query(
@@ -3462,7 +3512,7 @@ module.exports = {
                                questionType = 'code', choicesJson = '[]', tags = '',
                                modelAnswer = '', createdBy = null, schoolId = null,
                                shareScope = 'private', answerParts = '[]',
-                               flowchartJson = '', hiddenAiTrap = '', title = '' }) {
+                               flowchartJson = '', hiddenAiTrap = '', title = '', variablesJson = '[]' }) {
     const id = crypto.randomUUID();
     const now = Date.now();
     const scope = ['private', 'school', 'public'].includes(shareScope) ? shareScope : 'private';
@@ -3473,32 +3523,32 @@ module.exports = {
     await query(
       `INSERT INTO question_bank (id, text, subject, difficulty, max_points,
          question_type, choices_json, tags, model_answer, share_scope, created_by, school_id, created_at, updated_at, answer_parts,
-         flowchart_json, hidden_ai_trap, title)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+         flowchart_json, hidden_ai_trap, title, variables_json)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
       [id, text.trim(), subject.trim(), difficulty, punten,
        questionType, choicesJson, (tags || '').trim(), String(modelAnswer || ''), scope, createdBy, schoolId, now, now,
        JSON.stringify(parts), String(flowchartJson || ''), String(hiddenAiTrap || '').slice(0, 500),
-       String(title || '').trim().slice(0, 200)]
+       String(title || '').trim().slice(0, 200), typeof variablesJson === 'string' ? variablesJson : JSON.stringify(variablesJson || [])]
     );
     return id;
   },
 
   async updateQuizQuestion(id, { text, subject, difficulty, maxPoints, questionType,
                                  choicesJson, tags, modelAnswer, answerParts,
-                                 flowchartJson = '', hiddenAiTrap = '', title = '' }) {
+                                 flowchartJson = '', hiddenAiTrap = '', title = '', variablesJson = '[]' }) {
     const parts = normalizeAnswerParts(answerParts);
     const punten = questionType === 'composite' && parts.length
       ? parts.reduce((s, p) => s + (p.points || 0), 0) : maxPoints;
     const r = await query(
       `UPDATE question_bank SET text=$1, subject=$2, difficulty=$3, max_points=$4,
          question_type=$5, choices_json=$6, tags=$7, model_answer=$8, updated_at=$9, answer_parts=$11,
-         flowchart_json=$12, hidden_ai_trap=$13, title=$14
+         flowchart_json=$12, hidden_ai_trap=$13, title=$14, variables_json=$15
        WHERE id=$10`,
       [text.trim(), subject.trim(), difficulty, punten,
        questionType || 'code', choicesJson || '[]', (tags || '').trim(),
        String(modelAnswer || ''), Date.now(), id, JSON.stringify(parts),
        String(flowchartJson || ''), String(hiddenAiTrap || '').slice(0, 500),
-       String(title || '').trim().slice(0, 200)]
+       String(title || '').trim().slice(0, 200), typeof variablesJson === 'string' ? variablesJson : JSON.stringify(variablesJson || [])]
     );
     return r.rowCount > 0;
   },
@@ -3555,6 +3605,7 @@ module.exports = {
       choicesJson,
       tags: q.tags || '',
       modelAnswer: q.model_answer || '',
+      variablesJson: q.variables_json || '[]',   // v135
       createdBy,
     });
   },
@@ -3652,7 +3703,7 @@ module.exports = {
           const puntenRaw = String(row.punten || row.max_punten || '').trim();
           const scoreMatch = puntenRaw.match(/^\[(.*)\]$/);
           const typeMatch = String(row.keuzes || '').match(/^\[(.*)\]$/);
-          const scores = scoreMatch ? scoreMatch[1].split(';').map(s => parseInt(s.trim(), 10) || 0) : [];
+          const scores = scoreMatch ? scoreMatch[1].split(';').map(s => normaliseerScore(s.trim(), 1000) ?? 0) : [];
           const types  = typeMatch ? typeMatch[1].split(';').map(s => s.trim().toLowerCase()) : [];
           let codeGezien = false;
           answerParts = labels.map((label, i) => {
@@ -3683,7 +3734,7 @@ module.exports = {
           text,
           subject: row.onderwerp || '',
           difficulty: niveau,
-          maxPoints: parseInt(row.max_punten || row.punten) || 4,
+          maxPoints: normaliseerVraagPunten(row.max_punten || row.punten, 4),
           questionType,
           choicesJson,
           tags: row.tags || '',
@@ -3695,6 +3746,81 @@ module.exports = {
         });
         added++;
       } catch (e) { errors.push(`Fout bij rij: ${e.message}`); }
+    }
+    return { added, skipped, errors };
+  },
+
+  // v129: JSON-import van vragen (met titel). Zelfde regels als de CSV-import (duplicaat op
+  // exacte vraagtekst), maar met een apart titelveld, echte keuzeobjecten en onderdelen.
+  async importQuizQuestionsJSON(items, teacherId, schoolId = null) {
+    let added = 0, skipped = 0; const errors = [];
+    const lijst = Array.isArray(items) ? items.slice(0, 500) : [];
+    for (let i = 0; i < lijst.length; i++) {
+      const it = lijst[i] || {};
+      const naam = `Vraag ${i + 1}${it.title ? ` (${String(it.title).slice(0, 40)})` : ''}`;
+      try {
+        const text = String(it.text || it.vraag || '').trim();
+        if (!text) { errors.push(`${naam}: lege vraagtekst, overgeslagen`); continue; }
+        if (text.length > 5000) { errors.push(`${naam}: vraagtekst te lang (max 5000), overgeslagen`); continue; }
+        const exists = await query(`SELECT 1 FROM question_bank WHERE text = $1 LIMIT 1`, [text.trim()]);
+        if (exists.rows.length > 0) { skipped++; continue; }
+
+        let type = String(it.type || it.questionType || 'code').trim().toLowerCase();
+        if (!['code', 'open', 'single', 'multiple', 'composite'].includes(type)) {
+          errors.push(`${naam}: onbekend type "${type}", overgeslagen`); continue;
+        }
+        let choicesJson = '[]';
+        if (type === 'single' || type === 'multiple') {
+          const ruw = Array.isArray(it.choices) ? it.choices : [];
+          const choices = ruw.slice(0, 8).map(c => ({
+            id: crypto.randomUUID().slice(0, 8),
+            text: String((c && c.text) != null ? c.text : '').trim().slice(0, 500),
+            correct: !!(c && c.correct === true),
+          })).filter(c => c.text);
+          if (choices.length < 2 || !choices.some(c => c.correct)) {
+            errors.push(`${naam}: keuzevraag heeft minstens 2 opties en 1 juiste nodig, overgeslagen`); continue;
+          }
+          if (type === 'single' && choices.filter(c => c.correct).length !== 1) {
+            errors.push(`${naam}: enkelvoudige vraag moet precies 1 juiste optie hebben, overgeslagen`); continue;
+          }
+          choicesJson = JSON.stringify(choices);
+        }
+        let answerParts = [];
+        if (type === 'composite') {
+          answerParts = normalizeAnswerParts(it.answerParts || it.onderdelen || []);
+          if (!answerParts.length) { errors.push(`${naam}: samengestelde vraag zonder onderdelen, overgeslagen`); continue; }
+        }
+        const scopeMap = { prive: 'private', 'privé': 'private', private: 'private', school: 'school', publiek: 'public', public: 'public' };
+        const scope = scopeMap[String(it.share || it.delen || 'private').trim().toLowerCase()] || 'private';
+        let niveau = String(it.difficulty || it.niveau || 'gemiddeld').trim().toLowerCase();
+        if (!['makkelijk', 'gemiddeld', 'moeilijk'].includes(niveau)) niveau = 'gemiddeld';
+        // v135: variabelen per leerling ({{placeholders}}), optioneel in de import.
+        let variablesJson = '[]';
+        const ruweVariabelen = it.variabelen ?? it.variables;
+        if (ruweVariabelen !== undefined && ruweVariabelen !== null && !(Array.isArray(ruweVariabelen) && !ruweVariabelen.length)) {
+          const nv = placeholdersLib.normaliseerVariabelen(ruweVariabelen);
+          if (nv.fouten.length) { errors.push(`${naam}: variabelen ongeldig (${nv.fouten[0]}), overgeslagen`); continue; }
+          const tokenFouten = placeholdersLib.controleerTokens(nv.variabelen, placeholdersLib.tekstenVanVraag({
+            text, model_answer: String(it.modelAnswer || it.modelantwoord || ''), choices_json: choicesJson, answer_parts: JSON.stringify(answerParts) }));
+          if (tokenFouten.length) { errors.push(`${naam}: ${tokenFouten[0]} — overgeslagen`); continue; }
+          const combi = placeholdersLib.controleerCombinaties(nv.variabelen, nv.voorwaarde, { text, model_answer: String(it.modelAnswer || it.modelantwoord || ''), choices_json: choicesJson, answer_parts: JSON.stringify(answerParts) });
+          if (combi.fouten.length) { errors.push(`${naam}: ${combi.fouten[0]} — overgeslagen`); continue; }
+          variablesJson = JSON.stringify(placeholdersLib.opslagVan(nv.variabelen, nv.voorwaarde));
+        }
+        const punten = normaliseerVraagPunten(it.points ?? it.punten, 4);   // v133: ook 0,5-stappen
+        const tags = Array.isArray(it.tags) ? it.tags.join(', ') : String(it.tags || '');
+
+        await this.createQuizQuestion({
+          text, title: String(it.title || it.titel || '').slice(0, 200),
+          subject: String(it.subject || it.onderwerp || '').slice(0, 64),
+          difficulty: niveau, maxPoints: punten, questionType: type, choicesJson,
+          tags: tags.slice(0, 200), modelAnswer: String(it.modelAnswer || it.modelantwoord || '').slice(0, 10000),
+          shareScope: scope, createdBy: teacherId, schoolId: scope === 'school' ? schoolId : null,
+          variablesJson,   // v135
+          answerParts: JSON.stringify(answerParts),
+        });
+        added++;
+      } catch (e) { errors.push(`${naam}: ${e.message}`); }
     }
     return { added, skipped, errors };
   },
@@ -3733,7 +3859,7 @@ module.exports = {
                              noTimer, minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
                              schoolYear, targetClass, accessFrom, accessUntil, autoSubmitLate,
                              type, noBack, tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds,
-                             cursusUrl, selfEvalEnabled, klasbordEnabled, fullscreenRequired, copyPasteBlocked }) {
+                             cursusUrl, cursusLinks, selfEvalEnabled, klasbordEnabled, fullscreenRequired, copyPasteBlocked, mcScoring, poolJson }) {
     const now = Date.now();
     // noTimer = true → geen tijdslimiet (taak)
     // timerSeconds = null + noTimer = false → gebruik standaard 2700s
@@ -3770,8 +3896,8 @@ module.exports = {
           min_runs_per_q, hide_question_on_screen, results_released, is_teacher_preview,
           school_year, target_class, access_from, access_until, auto_submit_late, type, no_back,
           tab_switch_enabled, tab_switch_threshold, tab_switch_grace_seconds, cursus_url,
-          self_eval_enabled, klasbord_enabled, fullscreen_required, copy_paste_blocked, created_at)
-         VALUES ($1,$2,$3,$4,true,$5,$6,false,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
+          self_eval_enabled, klasbord_enabled, fullscreen_required, copy_paste_blocked, cursus_links, mc_scoring, pool_json, created_at)
+         VALUES ($1,$2,$3,$4,true,$5,$6,false,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)`,
         [sessionCode, randomize, effectiveTimer, noTimer || false,
          minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
          schoolYear || currentYear, targetClass || '',
@@ -3787,6 +3913,9 @@ module.exports = {
          // v99: klasbord bij taak (bij een toets altijd aan, dus de vlag zelf is daar irrelevant)
          effectiveType === 'taak' && klasbordEnabled === true,
          fullscreenRequired !== false, copyPasteBlocked !== false,
+         typeof cursusLinks === 'string' ? cursusLinks : JSON.stringify(cursusLinks || []),
+         mcScoring === 'klassiek' ? 'klassiek' : 'gedeeld',   // v133: nieuwe toetsen/taken standaard 'gedeeld'
+         typeof poolJson === 'string' ? poolJson : JSON.stringify(poolJson || {}),   // v134
          now]
       );
       for (const q of questions) {
@@ -3794,11 +3923,13 @@ module.exports = {
           `INSERT INTO quiz_question_snapshots
              (id, session_code, bank_question_id, order_index, text_snapshot, subject, points,
               question_type, choices_json, model_answer, answer_parts, flowchart_json, hidden_ai_trap,
-              random_group)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+              random_group, variables_json, difficulty)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
           [crypto.randomUUID(), sessionCode, q.bankId, q.orderIndex, q.text, q.subject, q.points,
            q.questionType || 'code', q.choicesJson || '[]', q.modelAnswer || '', q.answerParts || '[]',
-           q.flowchartJson || '', q.hiddenAiTrap || '', parseInt(q.randomGroup) || 0]
+           q.flowchartJson || '', q.hiddenAiTrap || '', parseInt(q.randomGroup) || 0,
+           typeof q.variablesJson === 'string' ? q.variablesJson : JSON.stringify(q.variablesJson || []),
+           ['makkelijk', 'gemiddeld', 'moeilijk'].includes(q.difficulty) ? q.difficulty : 'gemiddeld']
         );
       }
     });
@@ -3843,7 +3974,7 @@ module.exports = {
       `SELECT a.id AS answer_id, a.session_code, a.student_id, a.student_name, a.code,
               a.score, a.teacher_comment, a.part_answers, a.part_scores, a.submitted_by,
               q.id AS question_id, q.text_snapshot, q.question_type, q.model_answer,
-              q.answer_parts, q.points,
+              q.answer_parts, q.points, q.variables_json,
               gc.comment AS general_comment
          FROM quiz_answers a
          JOIN quiz_question_snapshots q ON q.id = a.question_id
@@ -3939,7 +4070,7 @@ module.exports = {
                                 minRunsPerQ, hideQuestionOnScreen, schoolYear, targetClass,
                                 accessFrom, accessUntil, autoSubmitLate, noBack,
                                 tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds,
-                                cursusUrl, selfEvalEnabled, klasbordEnabled, fullscreenRequired, copyPasteBlocked }) {
+                                cursusUrl, cursusLinks, selfEvalEnabled, klasbordEnabled, fullscreenRequired, copyPasteBlocked, mcScoring, poolJson }) {
     const effectiveTimer = noTimer ? null : (timerSeconds || 2700);
     // Sprint 83/90: server.js heeft deze velden al door validationLib.bepaalTabWisselInstellingen()
     // / bepaalZelfevaluatieInstelling() gehaald (type staat hier vast en verandert niet bij een
@@ -3956,16 +4087,20 @@ module.exports = {
            hide_question_on_screen = $6, school_year = $7, target_class = $8,
            access_from = $9, access_until = $10, auto_submit_late = $11, no_back = $12,
            tab_switch_enabled = $13, tab_switch_threshold = $14, tab_switch_grace_seconds = $15,
-           cursus_url = $16, self_eval_enabled = $17, klasbord_enabled = $18,
-           fullscreen_required = $19, copy_paste_blocked = $20
+           cursus_links = $16, cursus_url = NULL, self_eval_enabled = $17, klasbord_enabled = $18,
+           fullscreen_required = $19, copy_paste_blocked = $20,
+           mc_scoring = COALESCE($21, mc_scoring),
+           pool_json = COALESCE($22, pool_json)
          WHERE session_code = $1`,
         [sessionCode, randomize, effectiveTimer, noTimer || false, minRunsPerQ,
          hideQuestionOnScreen, schoolYear || '', targetClass || '',
          accessFrom || null, accessUntil || null, autoSubmitLate !== false, noBack === true,
          tabSwitchEnabled === true, Math.max(0, parseInt(tabSwitchThreshold) || 0),
-         effectiveTabSwitchGraceSeconds, cursusUrl || null,
+         effectiveTabSwitchGraceSeconds, typeof cursusLinks === 'string' ? cursusLinks : JSON.stringify(cursusLinks || []),
          selfEvalEnabled === true, klasbordEnabled === true,
-         fullscreenRequired !== false, copyPasteBlocked !== false]
+         fullscreenRequired !== false, copyPasteBlocked !== false,
+         (mcScoring === 'gedeeld' || mcScoring === 'klassiek') ? mcScoring : null,
+         poolJson === undefined ? null : (typeof poolJson === 'string' ? poolJson : JSON.stringify(poolJson || {}))]
       );
       // Vraag-snapshots volledig vervangen (volgorde + punten kunnen gewijzigd zijn).
       await client.query(`DELETE FROM quiz_question_snapshots WHERE session_code = $1`, [sessionCode]);
@@ -3974,11 +4109,13 @@ module.exports = {
           `INSERT INTO quiz_question_snapshots
              (id, session_code, bank_question_id, order_index, text_snapshot, subject, points,
               question_type, choices_json, model_answer, answer_parts, flowchart_json, hidden_ai_trap,
-              random_group)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+              random_group, variables_json, difficulty)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
           [crypto.randomUUID(), sessionCode, q.bankId, q.orderIndex, q.text, q.subject, q.points,
            q.questionType || 'code', q.choicesJson || '[]', q.modelAnswer || '', q.answerParts || '[]',
-           q.flowchartJson || '', q.hiddenAiTrap || '', parseInt(q.randomGroup) || 0]
+           q.flowchartJson || '', q.hiddenAiTrap || '', parseInt(q.randomGroup) || 0,
+           typeof q.variablesJson === 'string' ? q.variablesJson : JSON.stringify(q.variablesJson || []),
+           ['makkelijk', 'gemiddeld', 'moeilijk'].includes(q.difficulty) ? q.difficulty : 'gemiddeld']
         );
       }
       // Geen activiteit ⇒ geen echte volgordes, maar opruimen is veilig en houdt alles net.
@@ -5004,6 +5141,7 @@ module.exports = {
     // (met een 0) getoond werd, zonder onderscheid.
     const r = await query(
       `SELECT a.*, q.text_snapshot, q.subject, q.points, q.order_index,
+              q.question_type, q.variables_json, q.answer_parts, q.difficulty,   -- v136/v137: gelijkenis- en moeilijkheidsrapport
               gc.comment AS general_comment,
               ass.status AS student_status,
               COALESCE(s.is_test_account, false) AS is_test_account
@@ -5037,6 +5175,7 @@ module.exports = {
               q.choices_json,
               q.model_answer,
               q.answer_parts,
+              q.variables_json,
               a.code,
               a.score,
               a.selected_choices,
@@ -5051,10 +5190,26 @@ module.exports = {
                AND a.session_code = q.session_code
                AND a.student_id   = $2
         WHERE q.session_code = $1
+          AND (
+            -- v134: bij een vragenpool enkel de vragen die DEZE leerling getrokken kreeg
+            NOT EXISTS (SELECT 1 FROM assignment_bank ab WHERE ab.session_code = $1 AND ab.pool_json <> '{}')
+            OR NOT EXISTS (SELECT 1 FROM quiz_student_order o0 WHERE o0.session_code = $1 AND o0.student_id = $2)
+            OR EXISTS (SELECT 1 FROM quiz_student_order o WHERE o.session_code = $1 AND o.student_id = $2 AND o.question_id = q.id)
+          )
         ORDER BY q.order_index`,
       [sessionCode, studentId]
     );
     return r.rows;
+  },
+
+  // v134: welke vragen kreeg welke leerling? { studentId: [questionId, ...] } — enkel zinvol bij een pool.
+  async getQuizToewijzing(sessionCode) {
+    const r = await query(
+      `SELECT student_id, question_id FROM quiz_student_order WHERE session_code = $1 ORDER BY student_id, personal_pos`,
+      [sessionCode]);
+    const uit = {};
+    for (const row of r.rows) (uit[row.student_id] = uit[row.student_id] || []).push(row.question_id);
+    return uit;
   },
 
   async getQuizAnswersByStudent(sessionCode, studentId) {

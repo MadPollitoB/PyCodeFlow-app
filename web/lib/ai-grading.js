@@ -23,7 +23,12 @@
 'use strict';
 
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5-coder:7b';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen3.5:9b';
+// v127: "thinking" (het redeneren van het model vóór het antwoord) staat standaard UIT: dat is
+// veel sneller en de antwoorden blijven kort. Het is een PARAMETER: elke functie hieronder
+// accepteert { think: true } als laatste argument om het voor één aanroep aan te zetten, en
+// OLLAMA_THINK=true in .env zet het globaal aan.
+const OLLAMA_THINK_STANDAARD = /^(1|true|ja|yes|aan)$/i.test(String(process.env.OLLAMA_THINK || ''));
 // Ruime, maar niet oneindige timeout — CPU-only inferentie op bescheiden hardware kan
 // traag zijn; een enkel antwoord mag lang duren, een hele klas draait toch al als
 // achtergrondtaak. Iets ruimer dan voorheen: het redenering-veld (zie hieronder) kost
@@ -118,19 +123,30 @@ function bouwAlgemeenPrompt({ studentNaam, totaalScore, maxTotaal, vraagResultat
 
 // Interne helper: roept Ollama aan met een gegeven prompt+schema, valideert het
 // antwoord niet verder dan JSON-parsing (de aanroepers doen hun eigen validatie).
-async function _ollamaChat(prompt, schema) {
-  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+async function _ollamaChat(prompt, schema, opts = {}) {
+  const think = typeof opts.think === 'boolean' ? opts.think : OLLAMA_THINK_STANDAARD;
+  const bouwBody = (metThink) => JSON.stringify({
+    model: OLLAMA_MODEL,
+    messages: [{ role: 'user', content: prompt }],
+    stream: false,
+    format: schema,
+    ...(metThink ? { think } : {}),
+    options: { temperature: 0.2 }, // laag: consistente, voorspelbare beoordelingen
+  });
+  const post = (metThink) => fetch(`${OLLAMA_URL}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: OLLAMA_MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      stream: false,
-      format: schema,
-      options: { temperature: 0.2 }, // laag: consistente, voorspelbare beoordelingen
-    }),
+    body: bouwBody(metThink),
     signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
   });
+  let res = await post(true);
+  // Een model zonder thinking-ondersteuning (bv. een oud model) kan de parameter weigeren:
+  // dan opnieuw zonder, zodat de aanroep niet faalt.
+  if (res.status === 400) {
+    const tekst = await res.text().catch(() => '');
+    if (/think/i.test(tekst)) res = await post(false);
+    else throw new Error(`Ollama gaf status 400 terug`);
+  }
   if (!res.ok) throw new Error(`Ollama gaf status ${res.status} terug`);
   const data = await res.json();
   const inhoud = data?.message?.content;
@@ -147,14 +163,14 @@ async function _ollamaChat(prompt, schema) {
 async function gradeAnswer(opties) {
   const prompt = bouwPrompt(opties);
   const maxPunten = Number(opties.maxPunten) || 1;
-  const parsed = await _ollamaChat(prompt, SCORE_SCHEMA);
+  const parsed = await _ollamaChat(prompt, SCORE_SCHEMA, { think: opties.think });
 
   // Applicatie-laag-validatie: het "format"-schema is een sterke hint, geen garantie —
   // we vertrouwen het dus niet blind.
   let score = Number(parsed.score);
   if (!Number.isFinite(score)) throw new Error('Ollama gaf geen geldig getal als score');
   score = Math.max(0, Math.min(maxPunten, score));
-  score = Math.round(score * 4) / 4; // afronden op kwart punten, geen valse precisie
+  score = Math.round(score * 2) / 2; // v133: afronden op halve punten (de score-invoer kent enkel 0,5-stappen)
 
   const comment = String(parsed.comment || '').trim().slice(0, 1000);
   return { score, comment: comment || '(geen commentaar gegenereerd)' };
@@ -167,7 +183,7 @@ async function gradeAnswer(opties) {
 async function generateGeneralComment(opties) {
   try {
     const prompt = bouwAlgemeenPrompt(opties);
-    const parsed = await _ollamaChat(prompt, ALGEMEEN_SCHEMA);
+    const parsed = await _ollamaChat(prompt, ALGEMEEN_SCHEMA, { think: opties.think });
     const comment = String(parsed.comment || '').trim().slice(0, 1000);
     return comment || null;
   } catch {
@@ -180,13 +196,13 @@ async function generateGeneralComment(opties) {
 // of gewoon zelf iets typen — dit is puur een startpunt. Geeft null terug bij een
 // fout, zodat de knop in de UI gewoon een duidelijke foutmelding kan tonen i.p.v. de
 // hele vraag-opstelpagina te laten vastlopen.
-async function generateHiddenTrap(vraagTekst) {
+async function generateHiddenTrap(vraagTekst, opts = {}) {
   try {
     const tekst = String(vraagTekst || '').trim().slice(0, 2000);
     const prompt = tekst
       ? `Hier is een vraag die een leerkracht aan leerlingen stelt:\n\n"${tekst}"\n\nBedenk een korte, onzichtbare "AI-val"-instructie om bij deze vraag te verstoppen (zie schema).`
       : 'Bedenk een korte, algemeen bruikbare, onzichtbare "AI-val"-instructie om bij een schoolvraag te verstoppen (zie schema).';
-    const parsed = await _ollamaChat(prompt, AI_VAL_SCHEMA);
+    const parsed = await _ollamaChat(prompt, AI_VAL_SCHEMA, { think: opts.think });
     const valTekst = String(parsed.val_tekst || '').trim().slice(0, 500);
     return valTekst || null;
   } catch {
@@ -213,4 +229,4 @@ async function checkOllamaBeschikbaar() {
   }
 }
 
-module.exports = { gradeAnswer, generateGeneralComment, generateHiddenTrap, checkOllamaBeschikbaar, bouwPrompt, OLLAMA_MODEL, OLLAMA_URL };
+module.exports = { _ollamaChat, OLLAMA_THINK_STANDAARD, gradeAnswer, generateGeneralComment, generateHiddenTrap, checkOllamaBeschikbaar, bouwPrompt, OLLAMA_MODEL, OLLAMA_URL };

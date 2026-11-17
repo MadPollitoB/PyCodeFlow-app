@@ -30,3 +30,10 @@
 .empty-state{color:var(--muted);text-align:center;padding:40px}
 .a-roster{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}
 .ov-row a.btn{text-decoration:none}
+
+/* v130: snelle vrijgave-wisselknoppen op de kaart */
+.ov-quick{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.ov-toggle{font:inherit;font-size:.82rem;font-weight:600;padding:5px 12px;border-radius:999px;border:1.5px solid var(--border);background:var(--surface,#fff);color:var(--text,#1f2937);cursor:pointer}
+.ov-toggle:hover{border-color:#94a3b8}
+.ov-toggle.aan{background:#dcfce7;border-color:#86efac;color:#166534}
+.ov-toggle[data-soort="nazicht"].aan{background:#e0e7ff;border-color:#a5b4fc;color:#3730a3}

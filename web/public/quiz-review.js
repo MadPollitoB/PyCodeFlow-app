@@ -7,7 +7,17 @@ if (!sessionCode) {   // geen code in de URL: vraag ze via de eigen popup en her
   (async () => { const c = await window.pyPrompt({ title: 'Toetscode', body: 'Toetscode:', confirmLabel: 'Openen' });
     if (c && c.trim()) { params.set('code', c.trim().toUpperCase()); location.search = params.toString(); } })();
 }
-let _questions = [];
+let _questions = [];      // v134: de vragen van de GEKOZEN leerling (bij een vragenpool een eigen subset)
+let _questionsAlle = [];  // alle vragen van de toets
+let _heeftVariabelen = false;   // v135: vragen met {{placeholders}} → per leerling andere tekst
+let _vragenCache = {};          // v135: studentId → vragen met zijn waarden ingevuld
+let _toewijzing = null;   // v134: { studentId: [questionId, ...] } enkel bij een vragenpool
+// v134: welke vragen kreeg deze leerling? Zonder pool (of zonder bekende trekking): alle vragen.
+function vragenVoor(studentId) {
+  if (!_toewijzing || !_toewijzing[studentId]) return _questionsAlle;
+  const set = new Set(_toewijzing[studentId]);
+  return _questionsAlle.filter(q => set.has(q.id));
+}
 let _students = [];      // unieke leerlingen
 let _testAccounts = [];  // Sprint 64: testaccounts, apart gehouden (geen verbeterverplichting)
 let _answers = [];       // alle antwoorden
@@ -46,8 +56,11 @@ function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
 async function init() {
   // Laad meta
   const qr = await fetch(`/api/quiz/${sessionCode}`);
-  const { session, questions, meta } = await qr.json();
-  _questions = questions || [];
+  const { session, questions, meta, toewijzing, heeftVariabelen } = await qr.json();
+  _heeftVariabelen = heeftVariabelen === true;
+  _questionsAlle = questions || [];
+  _toewijzing = toewijzing || null;
+  _questions = _questionsAlle;
   _reviewMode = meta?.review_mode === true;
   _resultsReleased = meta?.results_released === true;
   updateReviewModeBtn();
@@ -89,7 +102,7 @@ async function init() {
   document.getElementById('stats-mini').innerHTML =
     `<div class="chip">👤 ${total} leerlingen</div>
      <div class="chip">✏️ ${scored}/${total} volledig verbeterd</div>
-     <div class="chip">❓ ${_questions.length} vragen</div>`;
+     <div class="chip">❓ ${_questionsAlle.length} vragen${_toewijzing ? ' <span class="muted">(vragenpool: elke leerling een eigen selectie)</span>' : ''}</div>`;
 
   // Gelijkenis
   loadSimilarityWarnings();
@@ -106,9 +119,10 @@ function renderStudentList() {
   function bouwRij(s) {
     const studentAnswers = _answers.filter(a => a.student_id === s.id);
     const scored = studentAnswers.filter(a => a.score !== null).length;
-    const total = _questions.length;
+    const eigenVragen = vragenVoor(s.id);   // v134
+    const total = eigenVragen.length;
     const totalScore = studentAnswers.reduce((sum, a) => sum + (a.score || 0), 0);
-    const maxScore = _questions.reduce((sum, q) => sum + (q.points || 0), 0);
+    const maxScore = eigenVragen.reduce((sum, q) => sum + (q.points || 0), 0);
     const isActive = _currentStudent?.id === s.id;
     // Sprint 51o: leerlingen die nooit gestart zijn (aangevuld bij het stoppen/deadline)
     // krijgen een duidelijke "niet deelgenomen"-badge i.p.v. een misleidende score.
@@ -120,7 +134,7 @@ function renderStudentList() {
       ? `<span style="color:#1e40af;">🔵 gewettigd afwezig</span>`
       : nietDeelgenomen
         ? `<span style="color:var(--error-fg,#b91c1c);">❌ niet deelgenomen</span>`
-        : `${scored}/${total} ✓ ${scored === total ? `· ${totalScore}/${maxScore}pt` : ''}`;
+        : `${scored}/${total} ✓ ${scored === total ? `· ${fmtP(totalScore)}/${fmtP(maxScore)}pt` : ''}`;
     return `<div class="student-row ${isActive ? 'active' : ''}" onclick="selectStudent('${s.id}')">
       <div><strong>${esc(s.name)}</strong></div>
       <div style="font-size:0.78rem;color:${isActive?'rgba(255,255,255,0.7)':'var(--muted)'};">${esc(s.class || '')}</div>
@@ -140,8 +154,19 @@ function renderStudentList() {
   }
 }
 
-function selectStudent(studentId) {
+async function selectStudent(studentId) {
   _currentStudent = _students.find(s => s.id === studentId) || _testAccounts.find(s => s.id === studentId);
+  _questions = vragenVoor(studentId);   // v134: enkel de vragen van deze leerling
+  if (_heeftVariabelen) {   // v135: de vraag zoals deze leerling ze zag (eigen getallen/namen)
+    try {
+      if (!_vragenCache[studentId]) {
+        const rv = await fetch(`/api/quiz/${sessionCode}/vragen-van/${encodeURIComponent(studentId)}`);
+        if (rv.ok) _vragenCache[studentId] = await rv.json();
+      }
+      const eigen = _vragenCache[studentId];
+      if (eigen) { const ids = new Set(_questions.map(q => q.id)); _questions = eigen.filter(q => ids.has(q.id)); }
+    } catch { /* val terug op de ongevulde tekst */ }
+  }
   _currentQIdx = 0;
   _editMode = false;
   renderStudentList();
@@ -168,7 +193,7 @@ function renderProgressChart(studentAnswers) {
       else if (ratio > 0) color = '#f59e0b';
       else color = 'var(--error-fg, #dc2626)';
     }
-    const label = scored ? `${val}/${max}` : '?';
+    const label = scored ? `${fmtP(val)}/${fmtP(max)}` : '?';
     return `<rect x="${x}" y="${y}" width="${W}" height="${barH}" rx="3" fill="${color}"></rect>` +
       `<text x="${x + W/2}" y="${H - 4}" text-anchor="middle" font-size="10" fill="var(--muted,#64748b)">V${i+1}</text>` +
       `<text x="${x + W/2}" y="${y - 3}" text-anchor="middle" font-size="9" fill="var(--text,#334155)">${label}</text>`;
@@ -226,7 +251,7 @@ function renderReviewPanel() {
       <h3 style="margin:0;">${esc(_currentStudent.name)}</h3>
       <span class="muted">${esc(_currentStudent.class || '')}</span>
       ${afwezigBlok(studentAnswers)}
-      <span style="margin-left:auto;font-weight:700;">Totaal: ${totalScore}/${maxScore} pt</span>
+      <span style="margin-left:auto;font-weight:700;">Totaal: ${fmtP(totalScore)}/${fmtP(maxScore)} pt</span>
       <button class="btn btn-muted small" onclick="exportStudent('${_currentStudent.id}',false)">🖨️ PDF</button>
       <button class="btn btn-muted small" onclick="exportStudent('${_currentStudent.id}',true)">🖨️ PDF + scores</button>
     </div>
@@ -235,7 +260,7 @@ function renderReviewPanel() {
         const ans = studentAnswers.find(a => a.question_id === q.id);
         const isScored = ans?.score !== null && ans?.score !== undefined;
         return `<div class="q-tab ${isScored ? 'scored' : ''} ${i === _currentQIdx ? 'active' : ''}"
-          onclick="selectQuestion(${i})">V${i+1} ${isScored ? ans.score+'/'+q.points : '?/'+q.points}</div>`;
+          onclick="selectQuestion(${i})">V${i+1} ${isScored ? fmtP(ans.score)+'/'+fmtP(q.points) : '?/'+fmtP(q.points)}</div>`;
       }).join('')}
     </div>
     ${renderProgressChart(studentAnswers)}
@@ -275,14 +300,11 @@ async function selectQuestion(idx) {
 
   // Gelijkenis waarschuwing voor deze vraag+leerling
   const simWarn = _simWarnings.filter(w =>
-    w.questionId === q.id &&
+    simBasisId(w.questionId) === q.id &&
     (w.student1.id === _currentStudent.id || w.student2.id === _currentStudent.id)
   );
 
-  const simHtml = simWarn.map(w => {
-    const other = w.student1.id === _currentStudent.id ? w.student2.name : w.student1.name;
-    return `<div class="similarity-warning">⚠️ Verdachte gelijkenis met <strong>${esc(other)}</strong> — ${w.similarity}% overeenkomst</div>`;
-  }).join('');
+  const simHtml = simWarn.map(w => simKaartHtml(w, ans)).join('');
 
   const code = ans?.code || '';
   const score = ans?.score !== null && ans?.score !== undefined ? ans.score : '';
@@ -498,7 +520,7 @@ async function selectQuestion(idx) {
           return `<div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border);">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
               <span style="flex:1;font-size:0.88rem;">${label}${aiBadge}</span>
-              <input type="number" class="part-score-input" data-part-id="${p.id}" value="${s}" min="0" max="${p.points}" placeholder="—" style="width:70px;"/>
+              <input type="number" class="part-score-input" data-part-id="${p.id}" value="${s}" min="0" max="${p.points}" step="0.5" placeholder="—" style="width:70px;"/>
               <span class="muted" style="font-size:0.82rem;">/ ${p.points}</span>
             </div>
             <textarea class="part-comment-input" data-part-id="${p.id}" placeholder="Opmerking bij dit onderdeel…"
@@ -515,7 +537,7 @@ async function selectQuestion(idx) {
       <div>
         <label style="font-size:0.82rem;color:var(--muted);display:block;margin-bottom:4px;">Score</label>
         <div style="display:flex;align-items:center;gap:6px;">
-          <input type="number" id="score-input" value="${score}" min="0" max="${q.points}" placeholder="—"/>
+          <input type="number" id="score-input" value="${score}" min="0" max="${q.points}" step="0.5" placeholder="—"/>
           <span class="muted">/ ${q.points}</span>
         </div>
       </div>
@@ -656,7 +678,7 @@ function escJs(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'
 async function saveScore(answerId, qIdx, questionId) {
   const score = document.getElementById('score-input').value;
   const comment = document.getElementById('comment-input').value;
-  const scoreWaarde = score !== '' ? parseInt(score) : null;
+  const scoreWaarde = score !== '' ? parseFloat(String(score).replace(',', '.')) : null;   // v133: halve punten
 
   if (!answerId) {
     // Sprint 51q (bugfix): de leerling bekeek/beantwoordde deze vraag nooit, dus er bestaat
@@ -716,10 +738,10 @@ async function savePartScores(answerId, qIdx) {
       const partComment = commentEl ? commentEl.value : undefined;
       const r = await (window.apiFetch||fetch)(`/api/quiz/${sessionCode}/answers/${answerId}/part-score`, {
         method:'PUT', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ partId, score: val !== '' ? parseInt(val, 10) : null, teacherComment: partComment }),
+        body: JSON.stringify({ partId, score: val !== '' ? parseFloat(String(val).replace(',', '.')) : null, teacherComment: partComment }),
       });
       if (!r.ok) throw new Error('HTTP ' + r.status);
-      partScores[partId] = val !== '' ? parseInt(val, 10) : undefined;
+      partScores[partId] = val !== '' ? parseFloat(String(val).replace(',', '.')) : undefined;
       if (partComment !== undefined) partCommentsNieuw[partId] = partComment;
     }
   } catch (e) {
@@ -785,6 +807,202 @@ async function addTemplate() {
   if (_currentStudent) selectQuestion(_currentQIdx);
 }
 
+// v137: moeilijkheidsrapport (popup)
+function openMoeilijkheid() {
+  const modal = document.getElementById('moeilijkheid-modal');
+  modal.style.display = 'flex';
+  modal.classList.remove('hidden');
+  laadMoeilijkheid();
+}
+function sluitMoeilijkheid() {
+  const modal = document.getElementById('moeilijkheid-modal');
+  modal.style.display = 'none';
+  modal.classList.add('hidden');
+}
+async function laadMoeilijkheid() {
+  const el = document.getElementById('mk-inhoud');
+  el.innerHTML = '<p class="muted">Bezig met berekenen…</p>';
+  try {
+    const r = await fetch(`/api/quiz/${sessionCode}/moeilijkheidsrapport`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Fout');
+    el.innerHTML = renderMoeilijkheid(d);
+  } catch (e) {
+    el.innerHTML = `<div class="similarity-warning" style="background:#fee2e2;border-color:#fecaca;">⚠️ Kon het rapport niet laden: ${esc(e.message)}</div>`;
+  }
+}
+function renderMoeilijkheid(d) {
+  const sm = d.samenvatting;
+  const pct = (x) => x == null ? '—' : String(x).replace('.', ',') + ' %';
+  const signaalTekst = { moeilijker: '🔴 moeilijker dan ingesteld', makkelijker: '🟢 makkelijker dan ingesteld' };
+  const vragen = d.vragen.map(v => `<tr style="border-top:1px solid var(--border);">
+      <td style="padding:4px 6px;">${esc(v.tekst)}</td><td style="padding:4px 6px;">${esc(v.niveau)}</td>
+      <td style="padding:4px 6px;text-align:right;">${v.aantal}</td><td style="padding:4px 6px;text-align:right;">${pct(v.gemiddeldePct)}</td>
+      <td style="padding:4px 6px;text-align:right;">${pct(v.slaagPct)}</td>
+      <td style="padding:4px 6px;">${v.signaal ? signaalTekst[v.signaal] : (v.aantal < 5 ? '<span class="muted">te weinig data</span>' : '✓')}</td></tr>`).join('');
+  const zw = { zwaarder: '🔴 zwaardere set', lichter: '🟢 lichtere set', gelijk: '' };
+  const leerlingen = d.leerlingen.map(l => `<tr style="border-top:1px solid var(--border);">
+      <td style="padding:4px 6px;">${esc(l.naam)}</td>
+      <td style="padding:4px 6px;">${l.niveaus.makkelijk}/${l.niveaus.gemiddeld}/${l.niveaus.moeilijk}</td>
+      <td style="padding:4px 6px;text-align:right;">${pct(l.verwachtPct)}</td><td style="padding:4px 6px;text-align:right;">${pct(l.werkelijkPct)}</td>
+      <td style="padding:4px 6px;text-align:right;">${l.verschil == null ? '—' : (l.verschil > 0 ? '+' : '') + String(l.verschil).replace('.', ',')}</td>
+      <td style="padding:4px 6px;">${l.setZwaarte ? zw[l.setZwaarte] : ''}</td></tr>`).join('');
+  return `<div style="font-size:0.9rem;margin-bottom:10px;">
+      ${sm.aantalLeerlingen} leerlingen · ${sm.aantalVragen} vragen · ${sm.afwijkendeVragen} vraag/vragen wijken af van het ingestelde niveau.
+      ${sm.spreiding != null ? `<br>Zwaarte van de sets (verwachte score): <strong>${pct(sm.setMin)} – ${pct(sm.setMax)}</strong> (spreiding ${String(sm.spreiding).replace('.', ',')} procentpunt).
+        ${sm.spreiding >= 5 ? '<span style="color:#92400e;">Sommige leerlingen hadden duidelijk een zwaardere set — houd daar rekening mee.</span>' : '<span style="color:#047857;">De sets waren even zwaar.</span>'}` : ''}
+    </div>
+    <h3 style="margin:12px 0 4px;">Per vraag</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:0.86rem;"><thead><tr style="text-align:left;color:var(--muted);">
+      <th style="padding:4px 6px;">Vraag</th><th style="padding:4px 6px;">Niveau</th><th style="padding:4px 6px;text-align:right;">Aantal</th>
+      <th style="padding:4px 6px;text-align:right;">Gemiddelde</th><th style="padding:4px 6px;text-align:right;">Geslaagd</th><th style="padding:4px 6px;">Oordeel</th></tr></thead>
+      <tbody>${vragen}</tbody></table>
+    <h3 style="margin:16px 0 4px;">Per leerling</h3>
+    <div class="muted" style="font-size:0.8rem;margin-bottom:4px;">Verwacht = score die de set van deze leerling volgens het klasgemiddelde per vraag zou opleveren. Verschil = werkelijk − verwacht.</div>
+    <table style="width:100%;border-collapse:collapse;font-size:0.86rem;"><thead><tr style="text-align:left;color:var(--muted);">
+      <th style="padding:4px 6px;">Leerling</th><th style="padding:4px 6px;" title="makkelijk / gemiddeld / moeilijk">Mix M/G/M</th>
+      <th style="padding:4px 6px;text-align:right;">Verwacht</th><th style="padding:4px 6px;text-align:right;">Werkelijk</th>
+      <th style="padding:4px 6px;text-align:right;">Verschil</th><th style="padding:4px 6px;"></th></tr></thead>
+      <tbody>${leerlingen}</tbody></table>
+    <p class="muted" style="font-size:0.8rem;margin-top:8px;">${esc(d.opmerking)}</p>`;
+}
+window.openMoeilijkheid = openMoeilijkheid;
+window.sluitMoeilijkheid = sluitMoeilijkheid;
+
+// v136: gelijkenisrapport (popup)
+function openGelijkenisRapport() {
+  const modal = document.getElementById('gelijkenis-modal');
+  modal.style.display = 'flex';
+  modal.classList.remove('hidden');
+  laadGelijkenisRapport();
+}
+function sluitGelijkenisRapport() {
+  const modal = document.getElementById('gelijkenis-modal');
+  modal.style.display = 'none';
+  modal.classList.add('hidden');
+}
+async function laadGelijkenisRapport() {
+  const inhoud = document.getElementById('gl-inhoud');
+  const drempel = parseInt(document.getElementById('gl-drempel').value) || 80;
+  const basis = `/api/quiz/${sessionCode}/gelijkenisrapport?drempel=${drempel}`;
+  document.getElementById('gl-csv').href = basis + '&format=csv';
+  inhoud.innerHTML = '<p class="muted">Bezig met berekenen…</p>';
+  try {
+    const r = await fetch(basis);
+    const rap = await r.json();
+    if (!r.ok) throw new Error(rap.error || 'Fout');
+    inhoud.innerHTML = renderGelijkenisRapport(rap);
+  } catch (e) {
+    inhoud.innerHTML = `<div class="similarity-warning" style="background:#fee2e2;border-color:#fecaca;">⚠️ Kon het rapport niet laden: ${esc(e.message)}</div>`;
+  }
+}
+// v138: één regel van een leerlingenpaar (gebruikt in het rapport én in de uitklapbare melding)
+function gelijkenisItemHtml(it) {
+  if (it.soort === 'keuze') {
+    return `<li>${esc(it.vraagTekst)} — <strong>zelfde foute keuze</strong> (slechts ${it.aantalMetDezelfdeFout} leerlingen kozen dit)</li>`;
+  }
+  const extra = [];
+  if (it.hernoemd) extra.push('zelfde structuur, andere namen');
+  if (it.vreemdeWaarden) extra.push('bevat waarde van de ander: ' + it.vreemdeWaarden.map(esc).join(', '));
+  else if (it.andereWaarden) extra.push('placeholder-waarden verschillen');
+  if (it.tijdsverschilSec != null && it.tijdsverschilSec <= 60) extra.push(`opgeslagen met ${it.tijdsverschilSec}s verschil`);
+  return `<li>${esc(it.vraagTekst)} — tekst ${it.tekstPct}%, structuur ${it.structuurPct}%${extra.length ? ' <em>(' + extra.join('; ') + ')</em>' : ''}</li>`;
+}
+
+function renderGelijkenisRapport(rap) {
+  if (!rap.paren.length) return '<p>✅ Geen opvallende gelijkenissen gevonden.</p>';
+  const kleur = { hoog: '#fee2e2', middel: '#fef3c7', laag: '#f1f5f9' };
+  const label = { hoog: '🔴 Hoog', middel: '🟠 Middel', laag: '⚪ Laag' };
+  return rap.paren.map(p => {
+    const ctx = [p.leerling1, p.leerling2].map(l => {
+      const c = p.context && p.context[l.id];
+      return c ? `${esc(l.naam)}: ${c.plakken} plak, ${c.tabwissel} tabwissel` : '';
+    }).filter(Boolean).join(' · ');
+    const items = p.items.slice(0, 12).map(gelijkenisItemHtml).join('');
+    const tijd = p.tijdsverschilIndienenSec != null ? `ingediend met ${p.tijdsverschilIndienenSec}s verschil` : '';
+    return `<div style="background:${kleur[p.risico]};border-radius:10px;padding:10px 14px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        <strong>${esc(p.leerling1.naam)} ↔ ${esc(p.leerling2.naam)}</strong>
+        <span>${label[p.risico]} · ${p.punten} pt</span>
+      </div>
+      <ul style="margin:6px 0 0 18px;padding:0;font-size:0.88rem;">${items}</ul>
+      <div class="muted" style="font-size:0.8rem;margin-top:4px;">${[tijd, ctx].filter(Boolean).join(' · ')}</div>
+    </div>`;
+  }).join('') + `<p class="muted" style="font-size:0.8rem;">${esc(rap.opmerking)}</p>`;
+}
+window.openGelijkenisRapport = openGelijkenisRapport;
+window.sluitGelijkenisRapport = sluitGelijkenisRapport;
+window.laadGelijkenisRapport = laadGelijkenisRapport;
+
+// ── v138: gelijkenismelding uitklapbaar: antwoorden naast elkaar + alle overeenkomsten met die leerling ──
+const simBasisId = (qid) => String(qid).split(':')[0];     // samengestelde vragen: "vraagId:onderdeelId"
+let _rapportCache = null;
+
+function antwoordTekstVan(studentId, questionId) {
+  const [vraagId, deelId] = String(questionId).split(':');
+  const a = _answers.find(x => x.student_id === studentId && x.question_id === vraagId);
+  if (!a) return '';
+  if (deelId) {
+    try { const pa = typeof a.part_answers === 'string' ? JSON.parse(a.part_answers) : (a.part_answers || {}); const v = pa[deelId]; return Array.isArray(v) ? v.join(', ') : String(v ?? ''); } catch { return ''; }
+  }
+  return String(a.code || '');
+}
+
+function simKaartHtml(w, ans) {
+  const ikId = _currentStudent.id;
+  const ander = w.student1.id === ikId ? w.student2 : w.student1;
+  const sleutel = (w.questionId + '_' + ander.id).replace(/[^A-Za-z0-9_-]/g, '');
+  return `<details class="similarity-warning sim-kaart" ontoggle="if(this.open) laadSimDetail('${escJs(ander.id)}', '${escJs(w.questionId)}', '${sleutel}')">
+    <summary style="cursor:pointer;">⚠️ Verdachte gelijkenis met <strong>${esc(ander.name)}</strong> — ${w.similarity}% overeenkomst
+      <span class="muted" style="font-size:0.8rem;">· klik voor details</span></summary>
+    <div id="sim-detail-${sleutel}" style="margin-top:8px;font-size:0.88rem;"><span class="muted">Bezig met laden…</span></div>
+  </details>`;
+}
+
+async function laadSimDetail(anderId, questionId, sleutel) {
+  const el = document.getElementById('sim-detail-' + sleutel);
+  if (!el) return;
+  const ikId = _currentStudent.id;
+  const ander = _students.find(s => s.id === anderId) || { name: '?' };
+  const kolom = (naam, tekst) => `<div style="flex:1;min-width:240px;">
+      <div style="font-weight:700;margin-bottom:2px;">${esc(naam)}</div>
+      <pre style="margin:0;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;white-space:pre-wrap;word-break:break-word;max-height:240px;overflow:auto;font-size:0.82rem;">${esc(tekst || '(geen antwoord)')}</pre></div>`;
+  // alle overeenkomsten met deze leerling (uit de lijst per vraag)
+  const samen = _simWarnings.filter(w => (w.student1.id === ikId && w.student2.id === anderId) || (w.student2.id === ikId && w.student1.id === anderId));
+  const lijst = samen.map(w => {
+    const basis = simBasisId(w.questionId);
+    const idx = _questions.findIndex(x => x.id === basis);
+    const link = idx >= 0 ? `<a href="#" onclick="selectQuestion(${idx});return false;">${esc(w.questionText)}</a>` : esc(w.questionText);
+    return `<li>${link} — <strong>${w.similarity}%</strong></li>`;
+  }).join('');
+  el.innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+      ${kolom(_currentStudent.name, antwoordTekstVan(ikId, questionId))}${kolom(ander.name, antwoordTekstVan(anderId, questionId))}</div>
+    <div style="font-weight:700;">Alle overeenkomsten tussen ${esc(_currentStudent.name)} en ${esc(ander.name)} (${samen.length})</div>
+    <ul style="margin:4px 0 6px 18px;padding:0;">${lijst}</ul>
+    <div id="sim-rapport-${sleutel}" class="muted">Overige signalen (foute keuzes, timing, placeholders) laden…</div>
+    <div style="margin-top:8px;"><button type="button" class="btn btn-soft" onclick="gaNaarLeerling('${escJs(anderId)}', '${escJs(simBasisId(questionId))}')">👤 Open ${esc(ander.name)}</button></div>`;
+  // het volledige paar uit het gelijkenisrapport (eenmaal opgehaald)
+  const rEl = document.getElementById('sim-rapport-' + sleutel);
+  try {
+    if (!_rapportCache) { const r = await fetch(`/api/quiz/${sessionCode}/gelijkenisrapport`); if (r.ok) _rapportCache = await r.json(); }
+    const paar = _rapportCache && _rapportCache.paren.find(p => (p.leerling1.id === ikId && p.leerling2.id === anderId) || (p.leerling2.id === ikId && p.leerling1.id === anderId));
+    if (!paar) { rEl.textContent = 'Geen overige signalen.'; return; }
+    const label = { hoog: '🔴 Hoog', middel: '🟠 Middel', laag: '⚪ Laag' };
+    const tijd = paar.tijdsverschilIndienenSec != null ? ` · ingediend met ${paar.tijdsverschilIndienenSec}s verschil` : '';
+    rEl.className = '';
+    rEl.innerHTML = `<div><strong>Totaalbeeld: ${label[paar.risico]}</strong> (${paar.punten} pt${tijd})</div>
+      <ul style="margin:4px 0 0 18px;padding:0;">${paar.items.slice(0, 12).map(gelijkenisItemHtml).join('')}</ul>`;
+  } catch { rEl.textContent = 'Overige signalen niet beschikbaar.'; }
+}
+
+async function gaNaarLeerling(studentId, questionId) {
+  await selectStudent(studentId);
+  const idx = _questions.findIndex(q => q.id === questionId);
+  if (idx >= 0) selectQuestion(idx);
+}
+window.laadSimDetail = laadSimDetail;
+window.gaNaarLeerling = gaNaarLeerling;
+
 async function loadSimilarityWarnings() {
   try {
     const r = await fetch(`/api/quiz/${sessionCode}/similarity`);
@@ -793,7 +1011,7 @@ async function loadSimilarityWarnings() {
       document.getElementById('similarity-warnings').innerHTML =
         `<div class="similarity-warning" style="margin-bottom:12px;">
           ⚠️ ${_simWarnings.length} verdachte gelijkenis${_simWarnings.length!==1?'en':''} gedetecteerd.
-          Zie per leerling bij de specifieke vraag.
+          Zie per leerling bij de specifieke vraag, of open het <a href="#" onclick="openGelijkenisRapport();return false;">gelijkenisrapport</a>.
         </div>`;
     }
   } catch (e) { console.warn('[quiz-review] fout:', e.message); }
@@ -1093,7 +1311,7 @@ function toonAiGradeVoortgang() {
           if (regel.fout) {
             return `<div style="color:#b91c1c;padding:2px 0;">⚠️ ${tijd} · ${esc(regel.student)} · ${esc(regel.vraag)}${onderdeelDeel} — fout: ${esc(regel.fout)}</div>`;
           }
-          return `<div style="padding:2px 0;">✓ ${tijd} · ${esc(regel.student)} · ${esc(regel.vraag)}${onderdeelDeel} — ${regel.score}/${regel.maxPunten}</div>`;
+          return `<div style="padding:2px 0;">✓ ${tijd} · ${esc(regel.student)} · ${esc(regel.vraag)}${onderdeelDeel} — ${fmtP(regel.score)}/${fmtP(regel.maxPunten)}</div>`;
         }).join('');
       }
 

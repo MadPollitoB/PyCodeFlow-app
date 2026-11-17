@@ -307,6 +307,40 @@ function isValidCursusUrl(url) {
   return /^https:\/\//i.test(trimmed);
 }
 
+// ── v132: cursus-links per vraag ────────────────────────────────────────────────
+// Een toets/taak heeft een lijst links; elke link hoort bij nul of meer vragen (via hun
+// bank-id). Dit valideert en normaliseert de lijst uit een request:
+//  - max. 20 links, titel max. 40 tekens (leeg => "Link N"), enkel geldige https-links;
+//  - vragen die niet in de toets zitten worden eruit gefilterd, dubbels verwijderd;
+//  - een oude client die enkel `cursusUrl` meestuurt krijgt één link voor ALLE vragen.
+// Geeft { ok:true, links:[...] } of { ok:false, error }.
+const MAX_CURSUS_LINKS = 20;
+function normaliseerCursusLinks(cursusLinks, cursusUrlOud, geldigeVraagIds) {
+  const geldig = new Set((geldigeVraagIds || []).map(String));
+  let lijst = cursusLinks;
+  if (lijst === undefined || lijst === null) {
+    const oud = typeof cursusUrlOud === 'string' ? cursusUrlOud.trim() : '';
+    lijst = oud ? [{ title: 'Cursus', url: oud, questionIds: [...geldig] }] : [];
+  }
+  if (!Array.isArray(lijst)) return { ok: false, error: 'Cursus-links hebben een ongeldig formaat.' };
+  if (lijst.length > MAX_CURSUS_LINKS) return { ok: false, error: `Maximaal ${MAX_CURSUS_LINKS} cursus-links per toets/taak.` };
+  const uit = [];
+  const gebruikteIds = new Set();
+  for (let i = 0; i < lijst.length; i++) {
+    const l = lijst[i] || {};
+    const url = typeof l.url === 'string' ? l.url.trim() : '';
+    if (!url) return { ok: false, error: `Cursus-link ${i + 1} heeft geen adres.` };
+    if (!isValidCursusUrl(url)) return { ok: false, error: `Cursus-link ${i + 1}: de link moet een geldige https://-link zijn (max. 2000 tekens).` };
+    let id = typeof l.id === 'string' && /^[A-Za-z0-9_-]{1,20}$/.test(l.id) ? l.id : 'c' + (i + 1);
+    while (gebruikteIds.has(id)) id += 'x';
+    gebruikteIds.add(id);
+    const titel = (typeof l.title === 'string' ? l.title.trim() : '').slice(0, 40) || ('Link ' + (i + 1));
+    const ids = [...new Set((Array.isArray(l.questionIds) ? l.questionIds : []).map(String))].filter(x => geldig.has(x));
+    uit.push({ id, title: titel, url, questionIds: ids });
+  }
+  return { ok: true, links: uit };
+}
+
 // ── Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij een toets) ──────
 // Vaste, niet-configureerbare vragenlijst (leerkracht kan enkel aan/uit zetten
 // per toets — nooit de inhoud aanpassen). id's zijn stabiel: ze worden gebruikt
@@ -414,7 +448,34 @@ function valideerZelfevaluatie({ stemming, antwoorden } = {}) {
   return { ok: true, fout: null };
 }
 
+// v133: scores en punten mogen halve punten zijn. Geeft een getal (veelvoud van 0,5, tussen 0 en max)
+// of null als de invoer leeg/ongeldig is. Accepteert ook een komma ("1,5") en geeft nooit een
+// niet-veelvoud van 0,5 terug (1,3 wordt niet stil 1,5: dat is dan ongeldig → null).
+function normaliseerScore(waarde, max = 1000) {
+  if (waarde === null || waarde === undefined || waarde === '') return null;
+  const n = typeof waarde === 'number' ? waarde : Number(String(waarde).trim().replace(',', '.'));
+  if (!Number.isFinite(n)) return null;
+  if (Math.abs(n * 2 - Math.round(n * 2)) > 1e-9) return null;
+  const r = Math.round(n * 2) / 2;
+  if (r < 0 || r > max) return null;
+  return r;
+}
+
+// v133: punten van een vraag (min 0,5). Ongeldig → standaard.
+function normaliseerVraagPunten(waarde, standaard = 4, max = 100) {
+  const n = normaliseerScore(waarde, max);
+  return (n === null || n < 0.5) ? standaard : n;
+}
+
+// v133: meerkeuze-berekening per toets/taak. Onbekend → null (aanroeper kiest de standaard).
+function normaliseerMcScoring(waarde) {
+  return (waarde === 'gedeeld' || waarde === 'klassiek') ? waarde : null;
+}
+
 module.exports = {
+  normaliseerScore,
+  normaliseerVraagPunten,
+  normaliseerMcScoring,
   isValidSessionCode,
   ALLOWED_CONFIG_KEYS,
   isAllowedConfigKey,
@@ -442,6 +503,7 @@ module.exports = {
   // Sprint 83: anti-spiek (fullscreen verplicht + auto-indienen bij tabwissel)
   bepaalTabWisselInstellingen,
   isValidCursusUrl,
+  normaliseerCursusLinks,
   // Sprint 89: voortgang (X/Y beantwoord) in de Voortgang-weergave van de leerkracht
   heeftAntwoordServer,
   // Sprint 90: zelfevaluatie-enquête ná het indienen (enkel bij een toets)

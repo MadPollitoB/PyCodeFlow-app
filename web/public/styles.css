@@ -642,10 +642,17 @@ body.compact-page { min-height: auto; }
 .tfs-lists { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 /* v125: bovenaan drie blokken: opdracht · voorbeelden · timer/modus */
 /* Zelfde kolommen als .tfs-main: links (opdracht + voorbeelden) = breedte codeveld, rechts (timer) = breedte lijsten. */
-.tfs-top { display: grid; grid-template-columns: minmax(0, 1fr) 6px var(--tfs-sidebar-w, 42vw); gap: 0; align-items: stretch;
-  height: 40vh; min-height: 240px; max-height: 380px; margin-bottom: 12px; }
-.tfs-top-left { grid-column: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; min-height: 0; padding-right: 12px; }
+.tfs-top { display: grid; grid-template-columns: minmax(0, 1fr) 6px var(--tfs-sidebar-w, 42vw); gap: 0; align-items: start;
+  margin-bottom: 12px; }
+.tfs-top-left { grid-column: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; min-height: 0; padding-right: 12px; align-items: start; }
+/* v126: uitgeklapt krijgt het blok een hoogte (past zich aan het scherm aan); ingeklapt enkel de titelrij. */
+.tfs-top-left .tfs-top-slot:not(.tfs-collapsed) { height: clamp(210px, 36vh, 380px); }
+.tfs-top-slot > .announcement-compose { overflow: auto; }
+.tfs-top-left.tfs-opd-c { grid-template-columns: minmax(200px, max-content) minmax(0, 1fr); }
+.tfs-top-left.tfs-voor-c { grid-template-columns: minmax(0, 1fr) minmax(200px, max-content); }
+.tfs-top-left.tfs-opd-c.tfs-voor-c { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .tfs-top-slot { min-width: 0; min-height: 0; display: flex; }
+.tfs-top-slot.tfs-collapsed { height: auto; align-self: start; }
 .tfs-top-slot > .announcement-compose { flex: 1; min-height: 0; display: flex; flex-direction: column;
   margin-top: 0 !important; padding: 10px 12px !important; box-sizing: border-box; overflow: hidden; }
 .tfs-top-slot .announcement-compose-grid { display: flex !important; flex-direction: column !important; align-items: stretch !important; gap: 6px; flex: 1; min-height: 0; }
@@ -655,7 +662,7 @@ body.compact-page { min-height: auto; }
 .tfs-top-slot .announcement-actions .btn, .tfs-top-slot .announcement-nav .btn { padding: 5px 10px; font-size: .82rem; }
 .tfs-top-slot .announcement-nav { margin-top: 4px; }
 .tfs-top-slot .rt-toolbar { margin: 4px 0; }
-.tfs-top-controls { grid-column: 3; margin-left: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; overflow: auto;
+.tfs-top-controls { grid-column: 3; margin-left: 12px; align-self: start; display: flex; flex-direction: column; gap: 10px; min-width: 0; overflow: auto;
   background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 12px; box-sizing: border-box; }
 .tfs-topbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .tfs-student-count { font-weight: 700; color: var(--text); font-size: 0.9rem; }
@@ -764,3 +771,53 @@ body.compact-page { min-height: auto; }
   border: 1px solid #fecaca; font-size: .84rem; font-weight: 600; color: #7f1d1d; min-height: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tfs-offline-item .tfs-bullet { width: 11px; height: 11px; border-color: #f87171; }
 .tfs-offline-leeg { grid-column: 1 / -1; grid-row: 1; color: #991b1b; font-size: .85rem; opacity: .7; }
+
+/* v126: inklappen in volledig scherm */
+.compose-head { display: flex; align-items: center; gap: 8px; }
+.compose-head .announcement-label { margin: 0; }
+.tfs-count, .tfs-arrow { display: none; }
+.tfs-top-slot .tfs-count { display: inline; font-weight: 800; color: var(--muted); }
+.tfs-top-slot .tfs-arrow { display: inline-flex; margin-left: auto; width: 28px; height: 28px; align-items: center; justify-content: center;
+  border: 1px solid var(--border); background: var(--surface); border-radius: 8px; cursor: pointer; font-size: .95rem; }
+.tfs-top-slot .tfs-arrow:hover { background: var(--primary-soft); }
+.tfs-top-slot.tfs-collapsed .tfs-arrow { transform: rotate(-90deg); }
+.tfs-top-slot.tfs-collapsed .announcement-compose { padding-top: 8px !important; padding-bottom: 8px !important; }
+.tfs-top-slot.tfs-collapsed .rt-toolbar, .tfs-top-slot.tfs-collapsed .rt-editor, .tfs-top-slot.tfs-collapsed .code-hl-wrap,
+.tfs-top-slot.tfs-collapsed .announcement-nav, .tfs-top-slot.tfs-collapsed .announcement-actions { display: none !important; }
+.tfs-top-controls.tfs-timer-c .tfs-timer-block, .tfs-top-controls.tfs-timer-c .tfs-student-count { display: none; }
+.tfs-timer-pill { border: 0; border-radius: 999px; background: var(--primary); color: #fff; font-weight: 800; padding: 5px 12px; cursor: pointer; }
+.tfs-timer-pill.hidden { display: none; }
+#tfs-top-toggle[aria-expanded="false"], #tfs-timer-toggle[aria-expanded="false"] { background: var(--primary-soft); }
+/* offline-blok: enkel zichtbaar als er iemand offline is; altijd 2 kolommen, links-rechts gevuld, zo weinig ruimte als nodig (max. 10 rijen) */
+.tfs-offline-block { flex: none; height: auto; max-height: calc(10 * 32px + 46px); }
+.tfs-offline-block.hidden { display: none; }
+.tfs-offline-row { flex: none; max-height: calc(10 * 32px); overflow-y: auto; display: grid; grid-auto-flow: row;
+  grid-template-rows: none; grid-auto-rows: 28px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 10px; align-content: start; }
+
+/* v126: cursus-zijpaneel voor de leerling in een sessie (zelfde uitstraling als bij taken) */
+.cursus-tab { position: fixed; right: 0; top: 38%; z-index: 4900; writing-mode: vertical-rl; transform: rotate(180deg);
+  background: var(--primary); color: #fff; border: 0; border-radius: 0 12px 12px 0; padding: 14px 8px; font-weight: 800; cursor: pointer;
+  box-shadow: 2px 0 10px rgba(0,0,0,.18); }
+.cursus-tab.hidden { display: none; }
+.cursus-panel { position: fixed; top: 0; right: -48vw; width: 46vw; max-width: 640px; min-width: 300px; height: 100vh; background: var(--surface, #fff);
+  box-shadow: -4px 0 18px rgba(0,0,0,.18); z-index: 5000; display: flex; flex-direction: column; transition: right .25s ease; }
+.cursus-panel.open { right: 0; }
+.cursus-panel-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border, #e2e8f0); flex-shrink: 0; }
+.cursus-iframe { flex: 1; border: 0; width: 100%; }
+@media (max-width: 700px) { .cursus-panel { width: 92vw; max-width: none; right: -96vw; } }
+
+/* v126: cursus-bediening voor de leerkracht */
+.cursus-control { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.cursus-vink, .tfs-cursus { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; cursor: pointer; }
+.cursus-control select, .cursus-control input[type="url"] { padding: 6px 8px; border: 1.5px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); max-width: 260px; }
+.cursus-control input.hidden { display: none; }
+.tfs-cursus { font-size: .85rem; padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+
+/* v128: meldingenbalken in het volledige scherm (Klaar / Code naar klas / Hand): een pil per leerling */
+.tfs-status-bar { display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:10px; background:#eef2f7; }
+.tfs-status-bar.hidden { display:none; }
+.tfs-status-bar-done { background:#e3f5ea; }
+.tfs-status-bar-copy { background:#e4effc; }
+.tfs-status-bar-hand { background:#fff4d6; }
+.tfs-status-pills { display:flex; flex-wrap:wrap; gap:6px; flex:1; min-width:0; }
+.tfs-status-pill { border:1px solid rgba(0,0,0,.18); background:#fff; border-radius:999px; padding:3px 10px; font-size:.85rem; font-weight:600; cursor:pointer; }

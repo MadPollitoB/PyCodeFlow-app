@@ -1,0 +1,55 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PyCodeFlow — lokale AI (Ollama), EIGEN compose (v127)
+#
+#  Los van docker-compose.yml, zodat de AI op een andere machine kan draaien.
+#  Zelfstandig te gebruiken, ook zonder de rest van PyCodeFlow:
+#     docker compose -p pycodeflow-ollama -f docker-compose.ollama.yml up -d
+#  Via pycodeflow.sh (optie 2/3/4/5/13/14) wordt dit bestand automatisch meegenomen
+#  zolang OLLAMA_LOKAAL=true in .env staat.
+#
+#  Instellingen (allemaal optioneel, via .env of de omgeving):
+#     OLLAMA_BIND         op welk IP de poort luistert   (standaard 0.0.0.0 = alle interfaces:
+#                         LAN + Tailscale. Zet bv. je Tailscale-IP om enkel dat te openen.)
+#     OLLAMA_PORT         poort op de host               (standaard 11434)
+#     OLLAMA_MEM_LIMIT    geheugenlimiet container       (standaard 12g)
+#     OLLAMA_CPUS         CPU-limiet                     (standaard 4.0)
+#     OLLAMA_KEEP_ALIVE   hoe lang een model geladen blijft (standaard 30m)
+#     OLLAMA_NUM_PARALLEL gelijktijdige verzoeken        (standaard 2)
+#     OLLAMA_VOLUME       naam van het modellen-volume   (standaard pycodeflow_ollama_data
+#                         = het volume van de vroegere ingebouwde Ollama → modellen blijven bewaard)
+#
+#  ⚠ Ollama heeft GEEN login. Zet de poort nooit open op het internet (geen port-forward,
+#    geen Cloudflare-tunnel). Enkel LAN/Tailscale.
+# ═══════════════════════════════════════════════════════════════════════════════
+name: pycodeflow-ollama
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: pycodeflow-ollama-1
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_BIND:-0.0.0.0}:${OLLAMA_PORT:-11434}:11434"
+    environment:
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-2}
+    volumes:
+      - ollama_data:/root/.ollama
+    mem_limit: ${OLLAMA_MEM_LIMIT:-12g}
+    cpus: ${OLLAMA_CPUS:-4.0}
+    # GPU/iGPU (bv. AMD Ryzen AI Max): gebruik image ollama/ollama:rocm en haal dit uit commentaar:
+    # devices:
+    #   - /dev/kfd
+    #   - /dev/dri
+    # group_add:
+    #   - video
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  ollama_data:
+    name: ${OLLAMA_VOLUME:-pycodeflow_ollama_data}

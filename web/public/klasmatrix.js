@@ -87,7 +87,7 @@ function tekenMatrix() {
       // gemiddelde (zie de filter hieronder) — toon dan ook het cijfer, niet enkel het
       // icoon, anders lijkt de cel leeg terwijl ze wél meetelt.
       const toon = (c.score !== null && (c.status === 'op_tijd' || c.status === 'te_laat' || c.status === 'tab_switch'))
-        ? c.score : (info.icoon || '');
+        ? fmtP(c.score) : (info.icoon || '');
       // v111: "niets ingeleverd" kan hier met één klik op gewettigd afwezig gezet worden
       // (en terug); enkel bij wie niets indiende, een leerling met inhoud blijft ongemoeid.
       const klikbaar = (c.status === 'niets' || c.status === 'gewettigd') && !r.isTestAccount;
@@ -97,14 +97,14 @@ function tekenMatrix() {
         : '';
       const hint = klikbaar ? (aan ? ' · klik om gewettigd afwezig te zetten' : ' · klik om af te zetten') : '';
       return `<td><span class="cel${klikbaar ? ' afw-klik' : ''}"${klikAttr} style="background:#${esc(info.kleur || 'fff')};${klikbaar ? 'cursor:pointer;' : ''}"
-        title="${esc(info.label || '')}${c.score !== null ? ' · ' + c.score + ' punten' : ''}${hint}">${esc(toon)}</span></td>`;
+        title="${esc(info.label || '')}${c.score !== null ? ' · ' + fmtP(c.score) + ' punten' : ''}${hint}">${esc(toon)}</span></td>`;
     }).join('');
     // Gemiddelde over de zichtbare kolommen (volgt dus het typefilter).
     const zichtbaar = kolommen.map(k => r.cellen.find(x => x.code === k.code))
       .filter(c => c && c.score !== null && c.status !== 'gewettigd' && c.status !== 'nvt');
     const gem = zichtbaar.length
       ? Math.round((zichtbaar.reduce((n, c) => n + c.score, 0) / zichtbaar.length) * 100) / 100 : '';
-    return `<tr><th>${esc(r.naam)}</th>${cellen}<td><strong>${gem}</strong></td></tr>`;
+    return `<tr><th>${esc(r.naam)}</th>${cellen}<td><strong>${fmtP(gem)}</strong></td></tr>`;
   }
 
   const rijen = gewoneRijen.map(bouwRij).join('');

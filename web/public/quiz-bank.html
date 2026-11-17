@@ -4,8 +4,8 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Vragenbank</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.125"/>
-  <link rel="stylesheet" href="/flowchart-widget.css?v=v2026.2.51.125"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.139"/>
+  <link rel="stylesheet" href="/flowchart-widget.css?v=v2026.2.51.139"/>
   <style>
     .qb-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px; }
     @media(max-width:900px){ .qb-grid { grid-template-columns:1fr; } }
@@ -229,7 +229,7 @@
     <button class="active" onclick="switchTab('browse')">📋 Mijn vragen</button>
     <button onclick="switchTab('shared')">📚 Overneembaar <span id="shared-count-badge" class="muted" style="font-size:0.78rem;"></span></button>
     <button onclick="startNewQuestion()">+ Nieuwe vraag</button>
-    <button onclick="switchTab('csv')">📥 CSV-import</button>
+    <button onclick="switchTab('csv')">📥 Import (CSV/JSON)</button>
   </div>
 
   <!-- Tab: Bladeren (enkel EIGEN vragen — bewerkbaar/verwijderbaar) -->
@@ -440,7 +440,7 @@
         </div>
         <div>
           <label>Max. punten <span id="q-points-auto-hint" style="display:none;font-weight:normal;color:var(--muted);font-size:0.75rem;">(som van onderdelen)</span></label>
-          <input type="number" id="q-points" value="4" min="1" max="100"/>
+          <input type="number" id="q-points" value="4" min="0.5" max="100" step="0.5"/>
         </div>
       </div>
       <div class="form-row">
@@ -488,6 +488,36 @@
           <div id="qmodel-editor" class="monaco-editor-host" style="display:none;height:180px;border-radius:8px;"></div>
         </div>
       </div>
+      <!-- v135/v137: placeholders per leerling ({{naam}} in vraag, opties, modelantwoord en onderdelen) -->
+      <div class="form-row" id="q-vars-row">
+        <div style="flex:1;">
+          <label style="display:flex;align-items:center;gap:8px;font-weight:700;cursor:pointer;">
+            <input type="checkbox" id="q-vars-aan" onchange="zetVarsAan(this.checked)"/>
+            🎲 Placeholders gebruiken <span style="font-weight:400;color:var(--muted);">(andere getallen of namen per leerling)</span>
+          </label>
+          <div id="q-vars-details" style="display:none;margin-top:8px;">
+            <div style="color:var(--muted);font-size:0.82rem;margin-bottom:8px;">
+              Typ <code>{{naam}}</code> of een berekening zoals <code>{{n*2}}</code>, <code>{{a+b}}</code>, <code>{{n//2}}</code>, <code>{{n%3}}</code> in de vraagstelling, de antwoordopties, het modelantwoord of de onderdelen.
+              Voor elke naam komt hieronder vanzelf een rij; geef aan welke waarden de leerlingen mogen krijgen, zodat er geen onmogelijke situatie ontstaat.
+              Bij een meerkeuzevraag kies je welke optie <em>juist</em> is; de tekst ervan mag een berekening zijn.
+            </div>
+            <table class="vars-tabel" style="width:100%;border-collapse:collapse;font-size:0.88rem;">
+              <thead><tr style="text-align:left;color:var(--muted);">
+                <th style="padding:4px 6px;">Placeholder</th><th style="padding:4px 6px;">Soort</th>
+                <th style="padding:4px 6px;">Toegelaten waarden</th><th style="padding:4px 6px;">Mogelijkheden</th><th></th></tr></thead>
+              <tbody id="vars-list"></tbody>
+            </table>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+              <label style="font-size:0.85rem;">Voorwaarde (optioneel)
+                <input type="text" id="vars-voorwaarde" maxlength="120" placeholder="bv. a > b   of   n % 2 == 0" style="width:260px;"
+                  oninput="zetVoorwaarde(this.value)"/></label>
+              <button type="button" class="btn btn-muted small" onclick="syncVars(true)">↻ Zoek placeholders in de vraag</button>
+              <button type="button" class="btn btn-muted small" onclick="previewVariabelen()">✅ Controleer + voorbeeld voor 3 leerlingen</button>
+            </div>
+            <div id="vars-preview" style="margin-top:10px;"></div>
+          </div>
+        </div>
+      </div>
       <!-- Sprint 63: onzichtbare AI-val — enkel de leerkracht ziet dit veld; bij de
            leerling wordt deze tekst volledig onzichtbaar (font-size:0) in de vraagtekst
            geweven. Duidelijk anders gestyled (geel kader) zodat dit nooit per ongeluk
@@ -516,7 +546,11 @@
   <!-- Tab: CSV import -->
   <div class="tab-content" id="tab-csv">
     <div class="form-panel">
-      <h3 style="margin:0 0 8px;">CSV bulk-import</h3>
+      <h3 style="margin:0 0 8px;">Bulk-import (CSV of JSON)</h3>
+      <p style="font-size:0.85rem;color:var(--muted);margin:0 0 12px;">
+        <b>JSON</b> (met titel per vraag): kies een <code>.json</code>-bestand of plak de JSON in het vak hieronder, het formaat wordt automatisch herkend.
+        <input type="file" id="json-file" accept=".json,application/json" style="margin-left:8px;" onchange="laadJsonBestand(this)"/>
+      </p>
       <p style="font-size:0.85rem;color:var(--muted);margin:0 0 12px;">
         Volledige kolomvolgorde (header-rij mag, scheidingsteken <code>;</code> of <code>,</code>):<br/>
         <code>onderwerp ; niveau ; type ; punten ; vraag ; keuzes ; juiste ; modelantwoord ; tags ; delen ; onderdelen</code><br/>
@@ -537,7 +571,7 @@ Functies;gemiddeld;code;4;"Schrijf een functie die twee getallen optelt.";;;"def
 Lussen;makkelijk;code;2;"Druk de getallen 1 tot 10 af met een lus.";;;;lussen;private;
 Operatoren;gemiddeld;single;2;"Wat print print(2 ** 3)?";6|8|9;8;;machten;public;
 Lussen;gemiddeld;composite;"[3;3]";"Wat is op het einde de waarde van x en y?";"[open;open]";;;lussen;school;"Waarde van x|Waarde van y"</pre>
-      <textarea class="csv-area" id="csv-input" placeholder="Plak je CSV hier..." onkeydown="event.stopPropagation()"></textarea>
+      <textarea class="csv-area" id="csv-input" placeholder="Plak je CSV of JSON hier..." onkeydown="event.stopPropagation()"></textarea>
       <button class="btn btn-soft small" style="margin-top:10px;" onclick="importCSV()">📥 Importeren</button>
       <div id="import-result"></div>
     </div>
@@ -546,7 +580,7 @@ Lussen;gemiddeld;composite;"[3;3]";"Wat is op het einde de waarde van x en y?";"
 
 <!-- 22d: marked.js voor Markdown preview — geladen VOOR inline script -->
 <script src="/vendor/marked/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.125"></script>
+<script src="/code-highlight.js?v=v2026.2.51.139"></script>
 <script src="/vendor/dompurify/purify.min.js"></script>
 <!-- Sprint 51-fix: Monaco MOET na marked.min.js laden, niet ervoor — marked.min.js heeft een
      UMD/AMD-wrapper (typeof define && define.amd ? define(["exports"], t) : ...) die zich bij
@@ -556,9 +590,9 @@ Lussen;gemiddeld;composite;"[3;3]";"Wat is op het einde de waarde van x en y?";"
      quiz-student.html laadt in dezelfde (juiste) volgorde en heeft dit probleem niet. -->
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/flowchart-widget.js?v=v2026.2.51.125"></script>
-<script src="/popups.js?v=v2026.2.51.125"></script>
-<script src="/app.js?v=v2026.2.51.125"></script>
-<script src="/quiz-bank.js?v=v2026.2.51.125"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.125"></script></body>
+<script src="/flowchart-widget.js?v=v2026.2.51.139"></script>
+<script src="/popups.js?v=v2026.2.51.139"></script>
+<script src="/app.js?v=v2026.2.51.139"></script>
+<script src="/quiz-bank.js?v=v2026.2.51.139"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.139"></script></body>
 </html>

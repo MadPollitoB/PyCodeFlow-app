@@ -4,14 +4,14 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Klasbord</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.125"/>
-  <link rel="stylesheet" href="/toets-bord.css?v=v2026.2.51.125"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.139"/>
+  <link rel="stylesheet" href="/toets-bord.css?v=v2026.2.51.139"/>
 </head>
 <body>
 <header class="bord-top">
   <div class="bord-titel">
     <h1 id="bord-naam">Klasbord</h1>
-    <span id="bord-code" class="bord-sub"></span>
+    <button id="bord-code" class="bord-sub bord-code-knop" type="button" title="Klik om de code groot te tonen"></button>
   </div>
   <div class="bord-legenda" id="bord-legenda" aria-live="polite"></div>
   <div class="bord-acties">
@@ -21,6 +21,11 @@
   </div>
 </header>
 
+<div id="bord-code-groot" class="bord-code-groot" hidden role="dialog" aria-label="Sessiecode">
+  <div class="bord-code-label">Ga naar de toets en vul in:</div>
+  <div class="bord-code-tekst"></div>
+  <div class="bord-code-hint">Klik of druk op Esc om te sluiten</div>
+</div>
 <div id="bord-melding" class="bord-melding" style="display:none;"></div>
 <main id="bord-grid" class="bord-grid" aria-label="Leerlingen">
   <div class="bord-leeg">⏳ Verbinden met de toets…</div>
@@ -28,6 +33,6 @@
 <div id="bord-verbinding" class="bord-verbinding" style="display:none;">Verbinding met de server weg — probeert opnieuw…</div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="/toets-bord.js?v=v2026.2.51.125"></script>
+<script src="/toets-bord.js?v=v2026.2.51.139"></script>
 </body>
 </html>

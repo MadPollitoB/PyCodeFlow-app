@@ -5,6 +5,14 @@
  *   await pyAlert(tekst, 'error'|'warn'|'success'|'info')
  *   pyToast(tekst, type, duurMs)
  * Wordt geladen vóór app.js (en op pagina's zonder app.js zoals training.html). */
+// v133: punten mogen halve punten zijn. Toon ze met een Nederlandse komma (1,5) en zonder nutteloze
+// decimalen (2, niet 2,0). Gebruik overal waar een score of puntenaantal getoond wordt.
+window.fmtP = function (n) {
+  if (n === null || n === undefined || n === '') return '';
+  var x = Number(n);
+  if (!isFinite(x)) return String(n);
+  return String(Math.round(x * 100) / 100).replace('.', ',');
+};
 // CSS eenmalig injecteren
 (function injectModalCSS() {
   if (document.getElementById('py-modal-css')) return;

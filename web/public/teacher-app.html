@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Sessie actief</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.125"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.139"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .runner-health-bar-track {
@@ -165,6 +165,12 @@
   <div class="top-actions session-actions-row" style="margin-top:10px;">
     <a href="/teacher-sessions.html" class="btn btn-muted">Sessieoverzicht</a>
     <button class="btn btn-muted" id="teacher-toggle-workspace-btn" title="Wissel tussen gedeelde klascode en individuele werkfase per leerling">Start individuele werkfase</button>
+    <!-- v126: cursus tonen aan de leerlingen (zijpaneel bij de leerling), in klasmodus én individueel. -->
+    <span class="cursus-control" id="cursus-control">
+      <label class="cursus-vink" title="Leerlingen krijgen een knop 'Cursus' met een zijpaneel"><input type="checkbox" id="cursus-vink"/> 📄 Cursus tonen voor leerlingen</label>
+      <select id="cursus-keuze" title="Welke cursuspagina zien de leerlingen?" aria-label="Cursuspagina"></select>
+      <input type="url" id="cursus-eigen-url" class="hidden" placeholder="https://…" aria-label="Eigen cursuslink"/>
+    </span>
   </div>
 
   <!-- Sprint 66: ankerpunt om .announcement-compose terug op zijn plaats te zetten
@@ -173,7 +179,7 @@
   <div class="card announcement-compose" id="opdracht-compose" style="margin-top:20px;">
     <div class="announcement-compose-grid">
       <div class="compose-main">
-        <label class="announcement-label" id="opdracht-label">Opdracht voor leerlingen</label>
+        <div class="compose-head"><label class="announcement-label" id="opdracht-label">Opdracht voor leerlingen</label><span class="tfs-count" id="tfs-count-opdracht"></span><button type="button" class="tfs-arrow" data-tfs-collapse="opdracht" title="Inklappen / uitklappen" aria-expanded="true">▾</button></div>
         <!-- v125: opmaak (vet, onderlijnd, kleur, code). De knoppen houden de selectie vast. -->
         <div class="rt-toolbar" id="rt-toolbar" role="toolbar" aria-label="Opmaak">
           <button type="button" class="rt-btn" data-rt="bold" title="Vet (Ctrl+B)"><b>B</b></button>
@@ -219,7 +225,7 @@
   <div class="card announcement-compose" id="code-compose" style="margin-top:20px;">
     <div class="announcement-compose-grid">
       <div class="compose-main">
-        <label class="announcement-label" for="code-draft-input">Codevoorbeeld voor het codeveld</label>
+        <div class="compose-head"><label class="announcement-label" for="code-draft-input">Codevoorbeeld voor het codeveld</label><span class="tfs-count" id="tfs-count-voorbeeld"></span><button type="button" class="tfs-arrow" data-tfs-collapse="voorbeeld" title="Inklappen / uitklappen" aria-expanded="true">▾</button></div>
         <div class="code-hl-wrap">
           <pre class="code-hl-pre hl-python" id="code-draft-hl" aria-hidden="true"></pre>
           <textarea id="code-draft-input" class="code-hl-ta" spellcheck="false" wrap="off" placeholder="Typ of plak hier code die je later met één klik in het codeveld zet."></textarea>
@@ -478,16 +484,21 @@
       <div id="tfs-slot-opdracht" class="tfs-top-slot"></div>
       <div id="tfs-slot-voorbeeld" class="tfs-top-slot"></div>
     </div>
-    <div class="tfs-top-controls">
+    <div class="tfs-top-controls" id="tfs-top-controls">
       <div class="tfs-topbar">
         <div class="tfs-mode-switch">
           <button class="tfs-mode-btn" id="tfs-mode-class-btn" title="Terug naar gedeelde klascode">Klasmodus</button>
           <button class="tfs-mode-btn" id="tfs-mode-personal-btn" title="Start individuele werkfase per leerling">Individueel</button>
         </div>
         <button class="btn btn-muted small" id="tfs-exit-btn" title="Terug naar normale weergave (Esc)">✕ Esc</button>
+        <!-- v126: één pijl voor opdracht + voorbeelden samen; één pijl voor het timerblok. -->
+        <label class="tfs-cursus" title="Cursus tonen voor de leerlingen"><input type="checkbox" id="tfs-cursus-vink"/> 📄 Cursus</label>
+        <button class="btn btn-soft small" id="tfs-top-toggle" title="Opdracht en voorbeelden samen in- of uitklappen" aria-expanded="true">▾ Opdracht/voorbeelden</button>
+        <button class="btn btn-soft small" id="tfs-timer-toggle" title="Timerblok in- of uitklappen" aria-expanded="true">▾ Timer</button>
+        <button type="button" class="tfs-timer-pill hidden" id="tfs-timer-pill" title="Timer loopt — klik om het timerblok uit te klappen">⏱ <span id="tfs-timer-pill-tekst">—</span></button>
       </div>
       <span id="tfs-student-count" class="tfs-student-count">0 online</span>
-      <div class="tfs-timer-block">
+      <div class="tfs-timer-block" id="tfs-timer-block">
         <div class="tfs-timer-label">⏱ Countdown timer</div>
         <div class="tfs-timer-row">
           <input id="tfs-timer-input" type="number" min="1" max="90" value="10"/>
@@ -510,6 +521,10 @@
         <div id="tfs-done-pills" class="tfs-status-pills"></div>
         <button class="btn btn-muted small" id="tfs-done-reset-all-btn" title="Klaar-status van iedereen resetten">↺ Reset</button>
       </div>
+      <div id="tfs-copy-bar" class="tfs-status-bar tfs-status-bar-copy hidden">
+        <div id="tfs-copy-pills" class="tfs-status-pills"></div>
+        <button class="btn btn-muted small" id="tfs-copy-reset-all-btn" title="Alle meldingen 'code naar klas' wissen">↺ Reset</button>
+      </div>
       <div id="tfs-hand-bar" class="tfs-status-bar tfs-status-bar-hand hidden">
         <div id="tfs-hand-pills" class="tfs-status-pills"></div>
         <button class="btn btn-muted small" id="tfs-hand-reset-all-btn" title="Alle opgestoken handen laten zakken">↺ Reset</button>
@@ -528,7 +543,7 @@
         </div>
       </div>
       <!-- Offline leerlingen: vaste hoogte (max. 2 kolommen van 10), even breed als CODE + RUN samen. -->
-      <div class="tfs-offline-block" id="tfs-offline-block">
+      <div class="tfs-offline-block hidden" id="tfs-offline-block">
         <div class="tfs-pills-label" id="tfs-offline-label">Offline (0)</div>
         <div id="tfs-offline-row" class="tfs-offline-row"></div>
       </div>
@@ -539,8 +554,8 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.125"></script>
-<script src="/rijke-tekst.js?v=v2026.2.51.125"></script>
-<script src="/popups.js?v=v2026.2.51.125"></script>
-<script src="/app.js?v=v2026.2.51.125"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.125"></script></body></html>
+<script src="/code-highlight.js?v=v2026.2.51.139"></script>
+<script src="/rijke-tekst.js?v=v2026.2.51.139"></script>
+<script src="/popups.js?v=v2026.2.51.139"></script>
+<script src="/app.js?v=v2026.2.51.139"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.139"></script></body></html>

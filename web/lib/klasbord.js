@@ -45,8 +45,18 @@ function voortgangNummer(beantwoord, totaal) {
   return Math.min(b + 1, t);
 }
 
+// v137: tijdstip (ms) waarop de tijd van deze leerling om is: start + tijdslimiet, begrensd door
+// het einde van het tijdsvenster. null = niet gestart of geen limiet.
+function eindTijdVan(gestartOp, { timerSeconds, noTimer, accessUntil } = {}) {
+  if (!gestartOp) return null;
+  const kandidaten = [];
+  if (!noTimer && Number(timerSeconds) > 0) kandidaten.push(Number(gestartOp) + Number(timerSeconds) * 1000);
+  if (Number(accessUntil) > 0) kandidaten.push(Number(accessUntil));
+  return kandidaten.length ? Math.min(...kandidaten) : null;
+}
+
 // Bouwt de lijst die naar het bord gaat. `leerlingen` zijn de ruwe sessie-leerlingen.
-function bouwBordLeerlingen(leerlingen, totaalVragen) {
+function bouwBordLeerlingen(leerlingen, totaalVragen, tijd = {}) {
   const lijst = (leerlingen || []).filter(s => s && !s.removed).map(s => ({
     id: s.id,
     name: s.name,
@@ -58,6 +68,9 @@ function bouwBordLeerlingen(leerlingen, totaalVragen) {
     weg: Boolean(s.klasbordWeg),
     wisselCount: s.klasbordWisselCount || 0,
     beantwoord: s.quizAnswers ? Object.keys(s.quizAnswers).length : 0,
+    // v134: bij een vragenpool heeft elke leerling een eigen aantal vragen (zijn getrokken lijst).
+    gestartOp: s.quizStartedAt ? Number(s.quizStartedAt) : null,   // v137
+    eigenTotaal: Array.isArray(s.quizPersonalOrder) && s.quizPersonalOrder.length ? s.quizPersonalOrder.length : null,
   }));
   const nummers = handVolgorde(lijst);
   return lijst
@@ -68,8 +81,8 @@ function bouwBordLeerlingen(leerlingen, totaalVragen) {
       handNummer: nummers.get(s.id) || null,
       weg: s.weg,
       wisselCount: s.wisselCount,
-      vraag: s.submitted ? totaalVragen : voortgangNummer(s.beantwoord, totaalVragen),
-      totaal: totaalVragen,
+      // v137: GEEN vraagnummer meer op het bord (gaf zenuwen) — wel de resterende tijd.
+      eindAt: eindTijdVan(s.gestartOp, tijd),
     }))
     .sort((a, b) => a.name.localeCompare(b.name, 'nl'));
 }
@@ -84,5 +97,5 @@ function bordKolommen(aantal) {
 
 module.exports = {
   STATUSSEN, klasbordActief, bepaalStatus, handVolgorde,
-  voortgangNummer, bouwBordLeerlingen, bordKolommen,
+  voortgangNummer, bouwBordLeerlingen, bordKolommen, eindTijdVan,
 };

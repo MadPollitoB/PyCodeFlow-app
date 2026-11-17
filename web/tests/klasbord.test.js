@@ -55,13 +55,17 @@ test('voortgangNummer = beantwoord + 1, begrensd op het totaal', () => {
   assert.equal(K.voortgangNummer(undefined, 8), 1);
 });
 
-test('voortgang hangt niet af van de willekeurige vraagvolgorde', () => {
-  // twee leerlingen met 3 beantwoorde vragen (andere ids/volgorde) → allebei "vraag 4"
+test('v137: het bord toont GEEN vraagnummer meer, wel het einde van de tijd per leerling', () => {
   const l = K.bouwBordLeerlingen([
-    { id: 'x', name: 'An', online: true, quizAnswers: { q5: {}, q1: {}, q9: {} } },
-    { id: 'y', name: 'Bo', online: true, quizAnswers: { q2: {}, q3: {}, q4: {} } },
-  ], 10);
-  assert.deepEqual(l.map(s => s.vraag), [4, 4]);
+    { id: 'x', name: 'An', online: true, quizAnswers: { q5: {} }, quizStartedAt: 1000000 },
+    { id: 'y', name: 'Bo', online: true, quizAnswers: {} },
+  ], 10, { timerSeconds: 600 });
+  assert.ok(l.every(s => !('vraag' in s) && !('totaal' in s)));
+  assert.equal(l[0].eindAt, 1000000 + 600000);
+  assert.equal(l[1].eindAt, null, 'nog niet gestart');
+  assert.equal(K.eindTijdVan(1000, { noTimer: true }), null);
+  assert.equal(K.eindTijdVan(1000, { timerSeconds: 600, accessUntil: 5000 }), 5000, 'tijdsvenster begrenst');
+  assert.equal(K.eindTijdVan(1000, { accessUntil: 5000 }), 5000);
 });
 
 test('bouwBordLeerlingen: status, handnummer, ingediend, verwijderd en sortering', () => {
@@ -79,7 +83,7 @@ test('bouwBordLeerlingen: status, handnummer, ingediend, verwijderd en sortering
   assert.equal(per['Zoë'].handNummer, 2);
   assert.equal(per.Bram.status, 'blauw');
   assert.equal(per.Cleo.status, 'rood'); assert.equal(per.Cleo.weg, true); assert.equal(per.Cleo.wisselCount, 2);
-  assert.equal(per.Dirk.status, 'grijs'); assert.equal(per.Dirk.vraag, 5);
+  assert.equal(per.Dirk.status, 'grijs');
 });
 
 test('rood blijft staan na terugkeer tot de leerkracht reset (weg=false, rood=true)', () => {

@@ -4,8 +4,8 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets verbeteren</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.125"/>
-  <link rel="stylesheet" href="/flowchart-widget.css?v=v2026.2.51.125"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.139"/>
+  <link rel="stylesheet" href="/flowchart-widget.css?v=v2026.2.51.139"/>
   <style>
     .review-layout { display:grid; grid-template-columns:280px 1fr; gap:20px; }
     @media(max-width:900px){ .review-layout { grid-template-columns:1fr; } }
@@ -84,6 +84,12 @@
       <div id="similarity-warnings"></div>
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+      <button class="btn btn-soft" onclick="openMoeilijkheid()" title="Hoe moeilijk bleken de vragen, en hoe zwaar was de set van elke leerling?">
+        📊 Moeilijkheid
+      </button>
+      <button class="btn btn-soft" onclick="openGelijkenisRapport()" title="Overzicht van leerlingparen met opvallend gelijke antwoorden">
+        🔍 Gelijkenisrapport
+      </button>
       <button class="btn btn-soft" onclick="openAiGradePopup()" title="Laat open- en code-vragen automatisch nakijken door een lokale AI">
         🤖 AI verbeteren
       </button>
@@ -115,6 +121,38 @@
     <div id="review-panel">
       <p class="muted">Selecteer een leerling om te beginnen met verbeteren.</p>
     </div>
+  </div>
+</div>
+
+<!-- v137: moeilijkheidsrapport -->
+<div id="moeilijkheid-modal" class="modal-overlay hidden" style="position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:200;display:none;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border-radius:14px;padding:24px;max-width:900px;width:94%;max-height:88vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+      <h2 style="margin:0 0 4px;">📊 Moeilijkheid van de toets</h2>
+      <button class="btn btn-soft" onclick="sluitMoeilijkheid()">Sluiten</button>
+    </div>
+    <div id="mk-inhoud"><p class="muted">Bezig met berekenen…</p></div>
+  </div>
+</div>
+
+<!-- v136: gelijkenisrapport -->
+<div id="gelijkenis-modal" class="modal-overlay hidden" style="position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:200;display:none;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border-radius:14px;padding:24px;max-width:860px;width:94%;max-height:88vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+      <h2 style="margin:0 0 4px;">🔍 Gelijkenisrapport</h2>
+      <button class="btn btn-soft" onclick="sluitGelijkenisRapport()">Sluiten</button>
+    </div>
+    <p class="muted" style="font-size:0.85rem;margin:0 0 12px;">
+      Vergelijkt per paar leerlingen: gelijke tekst/code (ook met hernoemde variabelen), dezelfde foute meerkeuzeantwoorden,
+      antwoorden die niet bij de eigen placeholder-waarden passen en de tijd tussen indienen.
+      <strong>Een signaal, geen bewijs</strong> — beoordeel altijd zelf.
+    </p>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+      <label style="font-size:0.85rem;">Drempel tekst-gelijkenis
+        <input id="gl-drempel" type="number" min="50" max="100" value="80" style="width:70px;" onchange="laadGelijkenisRapport()"> %</label>
+      <a id="gl-csv" class="btn btn-soft" href="#" style="text-decoration:none;">⬇ CSV</a>
+    </div>
+    <div id="gl-inhoud"><p class="muted">Bezig met berekenen…</p></div>
   </div>
 </div>
 
@@ -205,13 +243,13 @@
 <!-- Sprint 43.10: UMD-libs vóór Monaco's AMD-loader (zie quiz-student.html) -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="/vendor/marked/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.125"></script>
+<script src="/code-highlight.js?v=v2026.2.51.139"></script>
 <script src="/vendor/dompurify/purify.min.js"></script>
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/flowchart-widget.js?v=v2026.2.51.125"></script>
-<script src="/popups.js?v=v2026.2.51.125"></script>
-<script src="/app.js?v=v2026.2.51.125"></script>
-<script src="/quiz-review.js?v=v2026.2.51.125"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.125"></script></body>
+<script src="/flowchart-widget.js?v=v2026.2.51.139"></script>
+<script src="/popups.js?v=v2026.2.51.139"></script>
+<script src="/app.js?v=v2026.2.51.139"></script>
+<script src="/quiz-review.js?v=v2026.2.51.139"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.139"></script></body>
 </html>

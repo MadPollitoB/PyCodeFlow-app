@@ -1069,6 +1069,9 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       const handBadge = s.handRaised
         ? `<span class="tab-badge tab-badge-hand">✋ Hand op</span>`
         : '';
+      const kopieBadge = s.codeNaarKlasAt
+        ? `<span class="tab-badge tab-badge-hand" title="Deze leerling zette zijn code in de klascode">⇪ Code naar klas</span>`
+        : '';
 
       // Sprint 10Q: run-status icoon
       const runStatusIcon = {
@@ -1097,7 +1100,7 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
         <div class="student-head">
           <div>
             <strong>${escapeHtml(s.name)}</strong> ${runStatusIcon}
-            ${doneBadge}${handBadge}${tabBadge}
+            ${doneBadge}${handBadge}${kopieBadge}${tabBadge}
             ${badgeHtml}
             <br/><span class="muted">${s.online ? 'online' : (offlineRood ? '○ offline' + (s.offlineSince ? ' sinds ' + Math.max(1, Math.round(offlineMs / 60000)) + ' min' : '') : '○ verbinding herstellen…')}</span>
           </div>
@@ -2495,7 +2498,9 @@ window.heropenLeerling = async function(code, studentId, studentName) {
       if (offlineHost) {
         offlineHost.innerHTML = offlineLijst.length
           ? offlineLijst.map(x => `<div class="tfs-offline-item" title="Offline"><span class="tfs-bullet"></span>${escapeHtml(x.name)}</div>`).join('')
-          : '<div class="tfs-offline-leeg">Niemand offline</div>';
+          : '';
+        // v126: enkel zichtbaar als er iemand offline is; zo krijgen CODE en RUN alle ruimte.
+        qs('tfs-offline-block')?.classList.toggle('hidden', offlineLijst.length === 0);
         const lab = qs('tfs-offline-label');
         if (lab) lab.textContent = `Offline (${offlineLijst.length})`;
       }
@@ -2528,6 +2533,16 @@ window.heropenLeerling = async function(code, studentId, studentName) {
             onclick="window._tfsResetDone('${s.id}')">✓ ${escapeHtml(s.name)}</button>`).join('');
       }
 
+      // v128: blauwe "Code naar klas"-balk — leerlingen die hun werkblad in de klascode zetten.
+      const kopieLeerlingen = students.filter(s => s.codeNaarKlasAt);
+      const kopieBar = qs('tfs-copy-bar');
+      if (kopieBar) {
+        kopieBar.classList.toggle('hidden', kopieLeerlingen.length === 0);
+        qs('tfs-copy-pills').innerHTML = kopieLeerlingen.map(s =>
+          `<button type="button" class="tfs-status-pill" title="Melding van ${escapeHtml(s.name)} wissen"
+            onclick="window._tfsResetCopy('${s.id}')">⇪ ${escapeHtml(s.name)} → klas</button>`).join('');
+      }
+
       // Gele "Hand"-balk.
       const handLeerlingen = students.filter(s => s.handRaised);
       const handBar = qs('tfs-hand-bar');
@@ -2548,6 +2563,7 @@ window.heropenLeerling = async function(code, studentId, studentName) {
     window._tfsToggleField = (studentId, field) => socket.emit('teacher_toggle_student', { studentId, field });
     window._tfsResetDone = (studentId) => socket.emit('teacher_reset_done', { studentId });
     window._tfsLowerHand = (studentId) => socket.emit('teacher_lower_hand', { studentId });
+    window._tfsResetCopy = (studentId) => socket.emit('teacher_reset_copy', { studentId });
 
     function enterFullscreen() {
       if (_tfsActive) return;
@@ -2559,6 +2575,11 @@ window.heropenLeerling = async function(code, studentId, studentName) {
       qs('tfs-slot-opdracht')?.appendChild(qs('opdracht-compose'));
       qs('tfs-slot-voorbeeld')?.appendChild(qs('code-compose'));
       qs('teacher-fullscreen-overlay')?.classList.remove('hidden');
+      { // v126: eerder gekozen breedte binnen de grenzen houden + in/uitklapstand toepassen
+        const ov = qs('teacher-fullscreen-overlay'); const nu = ov?.style.getPropertyValue('--tfs-sidebar-w');
+        ov?.style.setProperty('--tfs-sidebar-w', tfsClampSidebar(nu ? parseFloat(nu) : window.innerWidth * 0.42) + 'px');
+        tfsUiToepassen();
+      }
       // Monaco moet expliciet weten dat zijn container van grootte veranderde.
       setTimeout(() => editorStore.teacher?.layout(), 30);
       tfsRender();
@@ -2590,6 +2611,7 @@ window.heropenLeerling = async function(code, studentId, studentName) {
       if (!_tfsCurrentIsPersonal) socket.emit('teacher_toggle_class_workspace');
     });
     qs('tfs-done-reset-all-btn')?.addEventListener('click', () => socket.emit('teacher_reset_all_done'));
+    qs('tfs-copy-reset-all-btn')?.addEventListener('click', () => socket.emit('teacher_reset_copy', {}));
     qs('tfs-hand-reset-all-btn')?.addEventListener('click', () => socket.emit('teacher_lower_all_hands'));
 
     // Sprint 66.2: timerblok — eigen knoppen/invoerveld, dezelfde socket-events als
@@ -2603,13 +2625,30 @@ window.heropenLeerling = async function(code, studentId, studentName) {
     socket.on('timer_update', ({ remainingMs, running }) => {
       const display = qs('tfs-timer-display');
       if (!display) return;
-      if (!running || remainingMs <= 0) { display.textContent = '—'; display.style.color = 'var(--text)'; return; }
+      const pill = qs('tfs-timer-pill');
+      if (!running || remainingMs <= 0) { display.textContent = '—'; display.style.color = 'var(--text)'; if (pill) pill.classList.add('hidden'); return; }
       const m = Math.floor(remainingMs / 60000);
       const s = Math.floor((remainingMs % 60000) / 1000);
       display.textContent = `${m}:${String(s).padStart(2, '0')}`;
+      // v126: bij een ingeklapt timerblok blijft een pil met de aflopende tijd zichtbaar.
+      if (pill) { pill.classList.toggle('hidden', !qs('tfs-top-controls')?.classList.contains('tfs-timer-c')); const t = qs('tfs-timer-pill-tekst'); if (t) t.textContent = display.textContent; }
       display.style.color = remainingMs < 60000 ? 'var(--accent)' : 'var(--text)';
     });
 
+    // v126: grenzen voor de breedte van de zijkolom — het codeveld mag nooit smaller dan TFS_MIN_CODE worden,
+    // en de lijsten rechts nooit smaller dan TFS_MIN_SIDE.
+    const TFS_MIN_CODE = 480, TFS_MIN_SIDE = 320;
+    function tfsClampSidebar(gewenst) {
+      const overlay = qs('teacher-fullscreen-overlay');
+      const totaal = (overlay?.clientWidth || window.innerWidth) - 32 - 6;   // padding + scheidingslijn
+      const max = Math.max(TFS_MIN_SIDE, totaal - TFS_MIN_CODE);
+      return Math.min(max, Math.max(TFS_MIN_SIDE, gewenst));
+    }
+    function tfsHuidigeZijbreedte() {
+      const overlay = qs('teacher-fullscreen-overlay');
+      const sidebar = overlay?.querySelector('.tfs-sidebar');
+      return sidebar ? sidebar.getBoundingClientRect().width : window.innerWidth * 0.42;
+    }
     // Sprint 66.2: sleepbare scheidingslijn tussen editor en zijkolom.
     (function setupTfsDivider() {
       const divider = qs('tfs-divider');
@@ -2623,8 +2662,9 @@ window.heropenLeerling = async function(code, studentId, studentName) {
       });
       document.addEventListener('mousemove', (e) => {
         if (!slepen) return;
-        // Breedte van de zijkolom = afstand van de muis tot de rechterrand van het venster.
-        const nieuweBreedte = Math.min(Math.round(window.innerWidth * 0.75), Math.max(320, window.innerWidth - e.clientX - 18));
+        // Breedte van de zijkolom = afstand van de muis tot de rechterrand van het venster, begrensd
+        // zodat het codeveld niet smaller kan dan het minimum (de balk stopt dan gewoon).
+        const nieuweBreedte = tfsClampSidebar(window.innerWidth - e.clientX - 16);
         overlay.style.setProperty('--tfs-sidebar-w', nieuweBreedte + 'px');
       });
       document.addEventListener('mouseup', () => {
@@ -2633,7 +2673,58 @@ window.heropenLeerling = async function(code, studentId, studentName) {
         divider.classList.remove('tfs-dragging');
         setTimeout(() => editorStore.teacher?.layout(), 30);
       });
+      // Bij een kleiner wordend venster een eerder ingestelde breedte weer binnen de grenzen brengen.
+      window.addEventListener('resize', () => {
+        if (!_tfsActive) return;
+        const nu = overlay.style.getPropertyValue('--tfs-sidebar-w');
+        if (nu) overlay.style.setProperty('--tfs-sidebar-w', tfsClampSidebar(parseFloat(nu)) + 'px');
+        tfsUiToepassen();
+      });
     })();
+
+    // v126: in- en uitklappen in volledig scherm (opdracht, voorbeelden, timerblok). De keuze wordt onthouden;
+    // het timerblok start op kleine schermen ingeklapt zolang je nog niets koos.
+    const TFS_UI_KEY = 'pcf-tfs-ui';
+    let _tfsUi = { opd: false, voor: false, timer: null };
+    try { const b = JSON.parse(localStorage.getItem(TFS_UI_KEY) || 'null'); if (b && typeof b === 'object') _tfsUi = { ..._tfsUi, ...b }; } catch { /* geen opslag */ }
+    const tfsUiBewaren = () => { try { localStorage.setItem(TFS_UI_KEY, JSON.stringify(_tfsUi)); } catch { /* stil */ } };
+    const tfsTimerIngeklapt = () => (_tfsUi.timer === null ? (window.innerHeight < 800 || window.innerWidth < 1400) : Boolean(_tfsUi.timer));
+    function tfsTellingen() {
+      const o = qs('tfs-count-opdracht'), v = qs('tfs-count-voorbeeld');
+      try {
+        if (o) o.textContent = `(${_announcementDrafts.filter(t => !(window.rtLeeg ? window.rtLeeg(t) : !String(t || '').trim())).length})`;
+        if (v) v.textContent = `(${_codeDrafts.filter(t => String(t || '').trim()).length})`;
+      } catch { /* drafts nog niet geladen */ }
+    }
+    window._tfsTellingen = tfsTellingen;
+    function tfsUiToepassen() {
+      qs('tfs-slot-opdracht')?.classList.toggle('tfs-collapsed', Boolean(_tfsUi.opd));
+      qs('tfs-slot-voorbeeld')?.classList.toggle('tfs-collapsed', Boolean(_tfsUi.voor));
+      const links = document.querySelector('.tfs-top-left');
+      links?.classList.toggle('tfs-opd-c', Boolean(_tfsUi.opd));
+      links?.classList.toggle('tfs-voor-c', Boolean(_tfsUi.voor));
+      const timerC = tfsTimerIngeklapt();
+      qs('tfs-top-controls')?.classList.toggle('tfs-timer-c', timerC);
+      document.querySelectorAll('[data-tfs-collapse]').forEach(b => b.setAttribute('aria-expanded', String(!_tfsUi[b.dataset.tfsCollapse === 'opdracht' ? 'opd' : 'voor'])));
+      qs('tfs-top-toggle')?.setAttribute('aria-expanded', String(!(_tfsUi.opd && _tfsUi.voor)));
+      qs('tfs-timer-toggle')?.setAttribute('aria-expanded', String(!timerC));
+      const pill = qs('tfs-timer-pill');
+      if (pill) pill.classList.toggle('hidden', !(timerC && qs('tfs-timer-display')?.textContent.trim() !== '—' && qs('tfs-timer-display')?.textContent.trim() !== ''));
+      tfsTellingen();
+      setTimeout(() => editorStore.teacher?.layout(), 30);
+    }
+    document.querySelectorAll('[data-tfs-collapse]').forEach(b => b.addEventListener('click', () => {
+      const k = b.dataset.tfsCollapse === 'opdracht' ? 'opd' : 'voor';
+      _tfsUi[k] = !_tfsUi[k]; tfsUiBewaren(); tfsUiToepassen();
+    }));
+    qs('tfs-top-toggle')?.addEventListener('click', () => {
+      const beideIn = _tfsUi.opd && _tfsUi.voor;
+      _tfsUi.opd = !beideIn; _tfsUi.voor = !beideIn; tfsUiBewaren(); tfsUiToepassen();
+    });
+    qs('tfs-timer-toggle')?.addEventListener('click', () => { _tfsUi.timer = !tfsTimerIngeklapt(); tfsUiBewaren(); tfsUiToepassen(); });
+    qs('tfs-timer-pill')?.addEventListener('click', () => { _tfsUi.timer = false; tfsUiBewaren(); tfsUiToepassen(); });
+    // De hoogte van het codeveld volgt automatisch mee als er iets in- of uitklapt.
+    if (window.ResizeObserver && qs('tfs-editor-slot')) new ResizeObserver(() => { if (_tfsActive) editorStore.teacher?.layout(); }).observe(qs('tfs-editor-slot'));
 
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape' && _tfsActive) exitFullscreen();
@@ -2928,6 +3019,7 @@ window.heropenLeerling = async function(code, studentId, studentName) {
       }
       document.querySelectorAll('[data-drafts-status]').forEach(el => { el.textContent = tekst; el.className = 'drafts-status ' + klasse; });
       document.querySelectorAll('[data-drafts-load]').forEach(el => el.classList.toggle('hidden', !laadZichtbaar));
+      if (window._tfsTellingen) window._tfsTellingen();
     }
     function draftsToepassen(drafts) {
       _announcementDrafts = (drafts.opdrachten && drafts.opdrachten.length ? drafts.opdrachten : ['']).map(rtSan);
@@ -3198,6 +3290,55 @@ window.heropenLeerling = async function(code, studentId, studentName) {
     codeNavRender();
     draftsStatusRender();
 
+    // ── v126: cursus tonen aan de leerlingen ──────────────────────────────────────────────
+    (function setupCursusBediening() {
+      const BASIS = 'https://cursus.pycodeflow.org/';
+      const PAGINAS = [['Startpagina van de cursus', ''], ['Uitleg', 'uitleg-kaders.html'], ['Stroomdiagram-builder', 'stroomdiagram-builder.html'],
+        ['H1 Stroomdiagrammen', 'h1-stroomdiagrammen.html'], ['H2 Print en input', 'h2-print-input.html'], ['H3 Variabelen', 'h3-variabelen.html'],
+        ['H4 Datatypes', 'h4-datatypes.html'], ['H5 Expressies', 'h5-expressies.html'], ['H6 Beslissingen', 'h6-beslissingen.html'],
+        ['H7 Herhaling', 'h7-herhaling.html'], ['H8 Foutmeldingen', 'h8-foutmeldingen.html'], ['H9 Debuggen', 'h9-debuggen.html'],
+        ['H10 Lijsten', 'h10-lijsten.html'], ['H11 Dictionaries', 'h11-dictionaries.html'], ['H12 Math', 'h12-math.html'], ['H13 Random', 'h13-random.html'],
+        ['H14 Bestanden lezen/schrijven', 'h14-bestanden-lezen-schrijven.html'], ['H15 CSV', 'h15-csv.html'],
+        ['H16 Klassen en objecten', 'h16-klassen-objecten.html'], ['H17 Methodes', 'h17-methodes.html'],
+        ['H18 Functies definiëren', 'h18-functies-definieren.html'], ['H19 Parameters en scope', 'h19-parameters-scope.html'],
+        ['H20 Eigen bibliotheken', 'h20-eigen-bibliotheken.html'], ['H21 Databases en SQL', 'h21-databases-sql.html'],
+        ['H22 SQLite in Python', 'h22-sqlite-python.html'], ['H23 Van idee naar plan', 'h23-van-idee-naar-plan.html'],
+        ['H24 Bouwen in stappen', 'h24-bouwen-in-stappen.html'], ['H25 Afwerken en verdedigen', 'h25-afwerken-verdedigen.html'],
+        ['Woordenlijst', 'woordenlijst.html']];
+      const keuze = qs('cursus-keuze'), vink = qs('cursus-vink'), eigen = qs('cursus-eigen-url'), tfsVink = qs('tfs-cursus-vink');
+      if (!keuze || !vink) return;
+      keuze.innerHTML = PAGINAS.map(([naam, pad]) => `<option value="${BASIS + pad}">${naam}</option>`).join('') + '<option value="__eigen">Andere link…</option>';
+      let _laatst = { enabled: false, url: BASIS };
+      const gekozenUrl = () => (keuze.value === '__eigen' ? eigen.value.trim() : keuze.value);
+      function verstuur(aan) {
+        const url = gekozenUrl();
+        if (aan && !/^https:\/\//i.test(url)) { if (window.pyAlert) pyAlert('Geef een geldige https-link in.', 'warn'); vink.checked = tfsVink.checked = false; return; }
+        socket.emit('teacher_set_cursus', { enabled: aan, url: url || undefined }, (r) => {
+          if (r && r.ok) { _laatst = r.cursus; if (window.pyToast) pyToast(aan ? 'Leerlingen zien nu de cursus.' : 'Cursus verborgen voor de leerlingen.', 'success'); }
+          else if (window.pyAlert) pyAlert('Cursus instellen mislukt: ' + ((r && r.error) || 'onbekende fout'), 'error');
+        });
+      }
+      vink.addEventListener('change', () => { if (tfsVink) tfsVink.checked = vink.checked; verstuur(vink.checked); });
+      tfsVink?.addEventListener('change', () => { vink.checked = tfsVink.checked; verstuur(tfsVink.checked); });
+      keuze.addEventListener('change', () => {
+        eigen.classList.toggle('hidden', keuze.value !== '__eigen');
+        if (keuze.value !== '__eigen' && vink.checked) verstuur(true);   // andere pagina kiezen terwijl het aan staat: leerlingen volgen
+      });
+      eigen.addEventListener('change', () => { if (vink.checked) verstuur(true); });
+      // Stand van de server in de bediening zetten (ook na herladen of op een andere laptop).
+      window.cursusSync = function (c) {
+        if (!c) return;
+        _laatst = c;
+        vink.checked = Boolean(c.enabled); if (tfsVink) tfsVink.checked = Boolean(c.enabled);
+        const bekend = PAGINAS.some(([, pad]) => BASIS + pad === c.url);
+        if (document.activeElement !== keuze && document.activeElement !== eigen) {
+          keuze.value = bekend ? c.url : '__eigen';
+          eigen.classList.toggle('hidden', bekend);
+          if (!bekend) eigen.value = c.url || '';
+        }
+      };
+    })();
+
     qs('teacher-send-input-btn')?.addEventListener('click', () => {
       socket.emit('runtime_input', { value: qs('teacher-runtime-input').value });
       disableInput('teacher');
@@ -3256,6 +3397,7 @@ window.heropenLeerling = async function(code, studentId, studentName) {
       // moment effectief bij de leerlingen zichtbaar staat.
       updateAnnouncement('teacher', data.announcement || '');
       if (window.draftsSync) window.draftsSync(data.drafts);
+      if (window.cursusSync) window.cursusSync(data.cursus);
       if (window.announcementReeksSync) window.announcementReeksSync(data);
 
       setStatusBox(qs('teacher-status-box'), data.statusText, data.statusType);
@@ -3333,7 +3475,27 @@ function updateStudentRunAvailability(data = studentWorkspaceState) {
     btn.disabled = runDisabled;
   }
   updateStudentActionButtonsAvailability(data);
+  updateStudentCopyToClassButton(data);
 }
+
+// v128: "Naar klas" — kopieert de code van het zichtbare werkblad naar de klascode. Alleen
+// zichtbaar in klasmodus; actief enkel als de leerling bewerkrecht op de klascode heeft én zijn
+// werkblad bekijkt. De server controleert het recht opnieuw.
+function updateStudentCopyToClassButton(data = studentWorkspaceState) {
+  const btn = qs('student-copy-class-btn');
+  if (!btn) return;
+  const klas = data.mode === 'class';
+  btn.classList.toggle('hidden', !klas);
+  if (!klas) return;
+  const heeftRecht = data.classCanEdit !== false;
+  const opWerkblad = getStudentVisibleWorkspace(data) === 'personal';
+  btn.disabled = !(heeftRecht && opWerkblad);
+  btn.title = !heeftRecht
+    ? 'Enkel beschikbaar als de leerkracht jou codeerrechten geeft op de klascode'
+    : (opWerkblad ? 'Zet de code van je werkblad in de klascode (overschrijft de klascode)'
+                  : 'Open je werkblad om je code naar de klas te zetten');
+}
+window.updateStudentCopyToClassButton = updateStudentCopyToClassButton;
 
 // Sprint (bugfix): "Klaar" en "Hand opsteken" horen enkel te kunnen op het EIGEN werkblad —
 // niet terwijl de klascode actief staat (dan werkt iedereen samen op hetzelfde gedeelde
@@ -3467,6 +3629,12 @@ async function applyStudentEditorFromState() {
       socket.emit('student_reconnect', { code, studentId });
     });
 
+    qs('student-copy-class-btn')?.addEventListener('click', () => {
+      const btn = qs('student-copy-class-btn');
+      if (!btn || btn.disabled) return;
+      btn.disabled = true;
+      socket.emit('student_copy_to_class', {}, () => updateStudentCopyToClassButton(studentWorkspaceState));
+    });
     qs('student-run-btn')?.addEventListener('click', () => {
       saveStudentLocalDraft();
       qs('student-output-panel').textContent = '';
@@ -3562,6 +3730,35 @@ async function applyStudentEditorFromState() {
     });
 
 
+// v126: cursus-zijpaneel van de leerling. Aan/uit en de pagina komen van de leerkracht; open en dicht
+// beslist de leerling zelf. Bij een wijziging door de leerkracht (aangezet of andere pagina) klapt het open.
+let _cursusHuidig = { enabled: false, url: '' };
+function studentCursusToepassen(c, uitLeerkrachtWijziging) {
+  const btn = qs('cursus-toggle-btn'), panel = qs('cursus-panel'), iframe = qs('cursus-iframe'), closeBtn = qs('cursus-close-btn');
+  if (!btn || !panel || !iframe) return;
+  const nieuw = { enabled: Boolean(c && c.enabled), url: (c && c.url) || '' };
+  const gewijzigd = nieuw.enabled !== _cursusHuidig.enabled || nieuw.url !== _cursusHuidig.url;
+  _cursusHuidig = nieuw;
+  const zetOpen = (open) => {
+    panel.classList.toggle('open', open);
+    panel.setAttribute('aria-hidden', String(!open));
+    btn.setAttribute('aria-expanded', String(open));
+  };
+  if (!btn._gekoppeld) {
+    btn._gekoppeld = true;
+    btn.addEventListener('click', () => zetOpen(!panel.classList.contains('open')));
+    closeBtn?.addEventListener('click', () => zetOpen(false));
+  }
+  if (!nieuw.enabled || !/^https:\/\//i.test(nieuw.url)) {
+    btn.classList.add('hidden'); zetOpen(false);
+    if (iframe.getAttribute('src')) iframe.removeAttribute('src');
+    return;
+  }
+  btn.classList.remove('hidden');
+  if (iframe.getAttribute('src') !== nieuw.url) iframe.src = nieuw.url;   // via DOM-property: geen injectie
+  if (gewijzigd && uitLeerkrachtWijziging) zetOpen(true);
+}
+
 async function applyStudentState(data) {
   saveStudentLocalDraft();
   const studentName = data?.student?.name || getLS('studentName', '') || '-';
@@ -3622,6 +3819,7 @@ async function applyStudentState(data) {
     setTab('student', studentVisiblePanel || 'code');
   }
   updateAnnouncement('student', data.announcement || '');
+  studentCursusToepassen(data.cursus, false);
   updateStudentOpdrachtNav(data);
   updateStudentRunAvailability(studentWorkspaceState);
   updateTeacherOnlineOverlay(data.teacherOnline);
@@ -3768,6 +3966,7 @@ function updateTeacherOnlineOverlay(teacherOnline) {
     socket.on('announcement_update', ({ text }) => {
       updateAnnouncement('student', text || '');
     });
+    socket.on('cursus_update', (c) => studentCursusToepassen(c, true));
     socket.on('timer_update', ({ remainingMs, running, totalMs }) => {
       const display = qs('student-timer-display');
       if (!display) return;
@@ -4179,7 +4378,7 @@ window.getLS                 = getLS;
 // (pyToast / pyConfirm / pyPrompt / pyAlert staan in popups.js — vóór app.js geladen)
 
 // Bugfix (13a): pop-up met vinkjes bij het aanmaken van een gewone sessie — welke klas(sen)
-// mogen deze sessie zien? "Alle klassen" (default aangevinkt) schakelt de losse vinkjes uit.
+// mogen deze sessie zien? "Alle klassen" (default aangevinkt) is een hoofdschakelaar (v126).
 // Geeft een Promise<string[]|null> terug: een array van gekozen classId's, null voor "alle
 // klassen" (of wanneer de leerkracht geen klassen heeft), of resolve(undefined) bij Annuleren.
 window.pyClassPicker = function(classes) {
@@ -4191,7 +4390,7 @@ window.pyClassPicker = function(classes) {
     overlay.id = 'py-modal-overlay';
     var rijen = classes.map(function (c) {
       return '<label style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;">' +
-        '<input type="checkbox" class="py-klas-vink" value="' + c.id + '" checked disabled/>' +
+        '<input type="checkbox" class="py-klas-vink" value="' + c.id + '" checked/>' +
         '<span>' + (c.name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span></label>';
     }).join('');
     overlay.innerHTML =
@@ -4218,8 +4417,16 @@ window.pyClassPicker = function(classes) {
     document.addEventListener('keydown', onKey);
     var alleVink = document.getElementById('py-klas-alle');
     var vinkjes = Array.prototype.slice.call(overlay.querySelectorAll('.py-klas-vink'));
+    // v126: "Alle klassen" is een hoofdschakelaar. Aanvinken zet alle klassen aan, UITvinken zet ze
+    // allemaal uit (dan vink je enkel aan wat je wil). Het vinkje volgt de losse keuzes: het staat
+    // aan precies wanneer alle klassen aan staan.
     alleVink.addEventListener('change', function () {
-      vinkjes.forEach(function (v) { v.disabled = alleVink.checked; if (alleVink.checked) v.checked = true; });
+      vinkjes.forEach(function (v) { v.checked = alleVink.checked; });
+    });
+    vinkjes.forEach(function (v) {
+      v.addEventListener('change', function () {
+        alleVink.checked = vinkjes.every(function (x) { return x.checked; });
+      });
     });
     document.getElementById('py-modal-cancel').addEventListener('click', function () { close(undefined); });
     document.getElementById('py-modal-confirm').addEventListener('click', function () {
