@@ -4,8 +4,8 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets verbeteren</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.140"/>
-  <link rel="stylesheet" href="/flowchart-widget.css?v=v2026.2.51.140"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.142"/>
+  <link rel="stylesheet" href="/flowchart-widget.css?v=v2026.2.51.142"/>
   <style>
     .review-layout { display:grid; grid-template-columns:280px 1fr; gap:20px; }
     @media(max-width:900px){ .review-layout { grid-template-columns:1fr; } }
@@ -23,6 +23,27 @@
     .q-tab.scored { border-color:#6ee7b7; }
     .similarity-warning { background:#fef3c7; border:1px solid #d97706;
       border-radius:8px; padding:8px 12px; font-size:0.85rem; color:#92400e; margin-bottom:12px; }
+    .sim-hint { font-size:0.78rem; color:#a16207; white-space:nowrap; }
+    .sim-hint::before { content:"▸ toon antwoord"; }
+    .sim-kaart[open] > summary .sim-hint::before { content:"▾ verberg antwoord"; }
+    .sim-kaart > summary { list-style:none; } .sim-kaart > summary::-webkit-details-marker { display:none; }
+    .sim-body { margin-top:10px; background:#fffdf5; border-radius:8px; padding:10px; color:var(--text,#1f2937); font-size:0.88rem; }
+    .sim-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
+    .sim-seg { display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+    .sim-seg button { border:0; padding:3px 10px; background:#fff; color:var(--muted,#6b7280); cursor:pointer; font:inherit; }
+    .sim-seg button.on { background:#1f7a4d; color:#fff; font-weight:700; }
+    .sim-cols { display:flex; gap:10px; flex-wrap:wrap; } .sim-col { flex:1; min-width:240px; }
+    .sim-naam { font-weight:700; font-size:0.82rem; margin-bottom:3px; }
+    .sim-tag { display:inline-block; background:#e0e7ff; color:#3730a3; border-radius:6px; padding:1px 7px; font-size:0.7rem; margin-left:4px; font-weight:400; }
+    .sim-pre { margin:0; background:#fff; border:1px solid var(--border); border-radius:8px; padding:6px 0; font:0.82rem/1.55 ui-monospace,Consolas,monospace; max-height:320px; overflow:auto; }
+    .sim-l { display:block; padding:0 10px 0 8px; white-space:pre; }
+    .sim-l i { display:inline-block; width:24px; color:#9ca3af; font-style:normal; user-select:none; }
+    .sim-gelijk { background:#d1fae5; box-shadow:inset 3px 0 0 #10b981; }
+    .sim-verschillend { background:#fee2e2; box-shadow:inset 3px 0 0 #ef4444; }
+    .sim-leg { font-size:0.78rem; color:var(--muted,#6b7280); margin-top:8px; display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
+    .sim-sw { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-2px; margin-right:4px; }
+    .sim-sw-gelijk { background:#d1fae5; box-shadow:inset 3px 0 0 #10b981; } .sim-sw-verschillend { background:#fee2e2; box-shadow:inset 3px 0 0 #ef4444; }
+    .sim-meer { margin-top:10px; font-size:0.82rem; } .sim-meer > summary { cursor:pointer; color:#1d4ed8; }
     .run-history-list { display:flex; flex-direction:column; gap:4px; margin-top:8px; }
     .run-history-item { padding:6px 10px; border-radius:6px; background:var(--surface-soft);
       font-size:0.78rem; cursor:pointer; font-family:Consolas,monospace; }
@@ -71,6 +92,7 @@
   <a href="/sjablonen.html">📚 Bibliotheek</a>
   <a href="/quiz-archive.html" class="active">📦 Archief</a>
   <a href="/teacher-toegang.html">🔓 Toegang</a>
+  <a href="/free-editor.html?leerkracht=1" target="_blank" rel="noopener" title="Vrij oefenen met de code-editor (opent in een nieuw tabblad)">🐍 Vrij oefenen</a>
   <div class="subnav-sep"></div>
   <a href="/admin.html">👤 Beheer</a>
   <a href="/monitoring.html">⚙️ Systeem</a>
@@ -243,13 +265,14 @@
 <!-- Sprint 43.10: UMD-libs vóór Monaco's AMD-loader (zie quiz-student.html) -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="/vendor/marked/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.140"></script>
+<script src="/code-highlight.js?v=v2026.2.51.142"></script>
 <script src="/vendor/dompurify/purify.min.js"></script>
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/flowchart-widget.js?v=v2026.2.51.140"></script>
-<script src="/popups.js?v=v2026.2.51.140"></script>
-<script src="/app.js?v=v2026.2.51.140"></script>
-<script src="/quiz-review.js?v=v2026.2.51.140"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.140"></script></body>
+<script src="/flowchart-widget.js?v=v2026.2.51.142"></script>
+<script src="/popups.js?v=v2026.2.51.142"></script>
+<script src="/app.js?v=v2026.2.51.142"></script>
+<script src="/regelvergelijking.js?v=v2026.2.51.142"></script>
+<script src="/quiz-review.js?v=v2026.2.51.142"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.142"></script></body>
 </html>

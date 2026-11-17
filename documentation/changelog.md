@@ -1,3 +1,17 @@
+## v2026.2.51.142 — Gelijkenisbanner uitklapbaar met regelvergelijking
+
+- In het nakijkscherm klap je de gele banner van de andere leerling open (enkel bij **open- en codevragen**, ook tekstonderdelen van samengestelde vragen). Het antwoord van die leerling komt onder de banner, naast het antwoord van de leerling die je nakijkt, met regelnummers.
+- **Markeer: gelijk / verschillend**: gelijke regels (woordelijk, spaties genegeerd) in groen, of de regels die de ander niet heeft in rood. Blanco en triviale regels (`else:`, `print(`, losse `}`, `pass`, …) tellen niet mee. Onderaan staat "X van Y regels gelijk".
+- De extra's uit v138 (alle overeenkomsten, totaalbeeld, knop "Open …") zitten achter **Meer details** en laden pas als je dat opent.
+- Bij meerkeuze en enkelvoudige keuze is er geen uitklapblok: gewone banner met knop "Open …".
+- Nieuw bestand `public/regelvergelijking.js`. Tests: `tests/v142.test.js`. Versie: **2026.2.51.142**.
+
+## v2026.2.51.141 — 🐍 Vrij oefenen in het leerkrachtmenu
+
+- Nieuwe tab **🐍 Vrij oefenen** in het leerkrachtmenu (naast Toegang, op alle leerkrachtpagina's). Opent de code-editor in een **nieuw tabblad**, onder je eigen naam met klas "Leerkracht". Je hoeft niet meer via een leerlingaccount of als gast.
+- Voor leerkrachten gelden de leerlingenschakelaars en IP-blokkades voor vrij oefenen niet, en je verschijnt niet in de leerlingenstatistiek van vrij oefenen. De knop bovenaan brengt je terug naar het sessieoverzicht. Alleen een echt ingelogde leerkracht kan zich zo aanmelden.
+- Tests: `tests/v141.test.js`. Versie: **2026.2.51.141**.
+
 ## v2026.2.51.140 — ▶ Uitvoeren werkt weer bij het nakijken
 
 - **Fix**: de knop **▶ Uitvoeren** in het nakijkscherm deed niets. Het scherm stuurde zijn aanvraag langs de route van leerlingen in de vrije editor, en die negeerde een leerkracht stilzwijgend. Nu een eigen route voor ingelogde leerkrachten, met dezelfde limieten (3 s tussen runs, max. 32 KB, per netwerk) en met ondersteuning voor `input()`.

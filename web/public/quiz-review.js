@@ -954,26 +954,71 @@ function antwoordTekstVan(studentId, questionId) {
   return String(a.code || '');
 }
 
+// v142: enkel OPEN- en CODE-antwoorden (ook tekstonderdelen van samengestelde vragen) zijn uitklapbaar.
+// Meerkeuze/enkelvoudige keuze krijgt een gewone banner met alleen de knop "Open …".
+function simIsTekst(questionId) {
+  const [vraagId, deelId] = String(questionId).split(':');
+  const q = _questions.find(x => x.id === vraagId);
+  if (!q) return true;
+  const t = q.question_type || 'code';
+  if (t === 'open' || t === 'code') return true;
+  if (t === 'composite' && deelId) {
+    const a = _answers.find(x => x.question_id === vraagId && x.part_answers);
+    try { const pa = typeof a.part_answers === 'string' ? JSON.parse(a.part_answers) : a.part_answers; return !Array.isArray(pa[deelId]); } catch { return true; }
+  }
+  return false;
+}
+
 function simKaartHtml(w, ans) {
   const ikId = _currentStudent.id;
   const ander = w.student1.id === ikId ? w.student2 : w.student1;
   const sleutel = (w.questionId + '_' + ander.id).replace(/[^A-Za-z0-9_-]/g, '');
+  if (!simIsTekst(w.questionId)) {
+    return `<div class="similarity-warning" style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+      <span>⚠️ Verdachte gelijkenis met <strong>${esc(ander.name)}</strong> — ${w.similarity}% overeenkomst</span>
+      <button type="button" class="btn btn-soft" onclick="gaNaarLeerling('${escJs(ander.id)}', '${escJs(simBasisId(w.questionId))}')">👤 Open ${esc(ander.name)}</button></div>`;
+  }
   return `<details class="similarity-warning sim-kaart" ontoggle="if(this.open) laadSimDetail('${escJs(ander.id)}', '${escJs(w.questionId)}', '${sleutel}')">
-    <summary style="cursor:pointer;">⚠️ Verdachte gelijkenis met <strong>${esc(ander.name)}</strong> — ${w.similarity}% overeenkomst
-      <span class="muted" style="font-size:0.8rem;">· klik voor details</span></summary>
-    <div id="sim-detail-${sleutel}" style="margin-top:8px;font-size:0.88rem;"><span class="muted">Bezig met laden…</span></div>
+    <summary style="cursor:pointer;display:flex;justify-content:space-between;gap:10px;align-items:center;">
+      <span>⚠️ Verdachte gelijkenis met <strong>${esc(ander.name)}</strong> — ${w.similarity}% overeenkomst</span>
+      <span class="sim-hint"></span></summary>
+    <div id="sim-detail-${sleutel}" class="sim-body"><span class="muted">Bezig met laden…</span></div>
   </details>`;
+}
+
+function simKolomHtml(naam, label, regels, modus) {
+  const doel = modus === 'verschillend' ? 'verschillend' : 'gelijk';
+  const body = regels.length
+    ? regels.map((r, i) => `<span class="sim-l${r.status === doel ? ' sim-' + doel : ''}"><i>${i + 1}</i>${esc(r.tekst) || ' '}</span>`).join('')
+    : '<span class="sim-l"><i></i><span class="muted">(geen antwoord)</span></span>';
+  return `<div class="sim-col"><div class="sim-naam">${esc(naam)} <span class="sim-tag">${label}</span></div><pre class="sim-pre">${body}</pre></div>`;
+}
+
+function simVergelijkHtml(anderId, questionId, modus) {
+  const v = Regelvergelijking.vergelijkRegels(antwoordTekstVan(_currentStudent.id, questionId), antwoordTekstVan(anderId, questionId));
+  const ander = _students.find(s => s.id === anderId) || { name: '?' };
+  const doel = modus === 'verschillend' ? 'verschillend' : 'gelijk';
+  const legende = doel === 'gelijk' ? 'gelijke regel bij beide leerlingen' : 'regel die de andere leerling niet heeft';
+  return `<div class="sim-cols">${simKolomHtml(ander.name, 'andere leerling', v.rechts, modus)}${simKolomHtml(_currentStudent.name, 'deze leerling', v.links, modus)}</div>
+    <div class="sim-leg"><span><span class="sim-sw sim-sw-${doel}"></span>${legende}</span>
+      <span>${v.aantalGelijk} van ${v.totaal} regels gelijk</span>
+      <span class="muted">Blanco en triviale regels (zoals <code>else:</code>) tellen niet mee.</span></div>`;
+}
+
+function zetSimModus(sleutel, anderId, questionId, modus) {
+  const kaart = document.getElementById('sim-detail-' + sleutel);
+  if (!kaart) return;
+  kaart.dataset.modus = modus;
+  kaart.querySelectorAll('.sim-seg button').forEach(b => b.classList.toggle('on', b.dataset.modus === modus));
+  kaart.querySelector('.sim-vergelijk').innerHTML = simVergelijkHtml(anderId, questionId, modus);
 }
 
 async function laadSimDetail(anderId, questionId, sleutel) {
   const el = document.getElementById('sim-detail-' + sleutel);
-  if (!el) return;
+  if (!el || el.dataset.klaar) return;
+  el.dataset.klaar = '1';
   const ikId = _currentStudent.id;
   const ander = _students.find(s => s.id === anderId) || { name: '?' };
-  const kolom = (naam, tekst) => `<div style="flex:1;min-width:240px;">
-      <div style="font-weight:700;margin-bottom:2px;">${esc(naam)}</div>
-      <pre style="margin:0;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;white-space:pre-wrap;word-break:break-word;max-height:240px;overflow:auto;font-size:0.82rem;">${esc(tekst || '(geen antwoord)')}</pre></div>`;
-  // alle overeenkomsten met deze leerling (uit de lijst per vraag)
   const samen = _simWarnings.filter(w => (w.student1.id === ikId && w.student2.id === anderId) || (w.student2.id === ikId && w.student1.id === anderId));
   const lijst = samen.map(w => {
     const basis = simBasisId(w.questionId);
@@ -981,14 +1026,25 @@ async function laadSimDetail(anderId, questionId, sleutel) {
     const link = idx >= 0 ? `<a href="#" onclick="selectQuestion(${idx});return false;">${esc(w.questionText)}</a>` : esc(w.questionText);
     return `<li>${link} — <strong>${w.similarity}%</strong></li>`;
   }).join('');
-  el.innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
-      ${kolom(_currentStudent.name, antwoordTekstVan(ikId, questionId))}${kolom(ander.name, antwoordTekstVan(anderId, questionId))}</div>
-    <div style="font-weight:700;">Alle overeenkomsten tussen ${esc(_currentStudent.name)} en ${esc(ander.name)} (${samen.length})</div>
-    <ul style="margin:4px 0 6px 18px;padding:0;">${lijst}</ul>
-    <div id="sim-rapport-${sleutel}" class="muted">Overige signalen (foute keuzes, timing, placeholders) laden…</div>
-    <div style="margin-top:8px;"><button type="button" class="btn btn-soft" onclick="gaNaarLeerling('${escJs(anderId)}', '${escJs(simBasisId(questionId))}')">👤 Open ${esc(ander.name)}</button></div>`;
-  // het volledige paar uit het gelijkenisrapport (eenmaal opgehaald)
+  const arg = `'${escJs(sleutel)}', '${escJs(anderId)}', '${escJs(questionId)}'`;
+  el.dataset.modus = 'gelijk';
+  el.innerHTML = `<div class="sim-bar"><span>Markeer:</span>
+      <span class="sim-seg"><button type="button" class="on" data-modus="gelijk" onclick="zetSimModus(${arg}, 'gelijk')">gelijk</button><button type="button" data-modus="verschillend" onclick="zetSimModus(${arg}, 'verschillend')">verschillend</button></span></div>
+    <div class="sim-vergelijk">${simVergelijkHtml(anderId, questionId, 'gelijk')}</div>
+    <details class="sim-meer" ontoggle="if(this.open) laadSimMeer('${escJs(anderId)}', '${escJs(sleutel)}')">
+      <summary>Meer details: alle overeenkomsten met ${esc(ander.name)}, totaalbeeld en doorklikken</summary>
+      <div style="font-weight:700;margin-top:6px;">Alle overeenkomsten tussen ${esc(_currentStudent.name)} en ${esc(ander.name)} (${samen.length})</div>
+      <ul style="margin:4px 0 6px 18px;padding:0;">${lijst}</ul>
+      <div id="sim-rapport-${sleutel}" class="muted">Overige signalen (foute keuzes, timing, placeholders) laden…</div>
+      <div style="margin-top:8px;"><button type="button" class="btn btn-soft" onclick="gaNaarLeerling('${escJs(anderId)}', '${escJs(simBasisId(questionId))}')">👤 Open ${esc(ander.name)}</button></div>
+    </details>`;
+}
+
+async function laadSimMeer(anderId, sleutel) {
   const rEl = document.getElementById('sim-rapport-' + sleutel);
+  if (!rEl || rEl.dataset.klaar) return;
+  rEl.dataset.klaar = '1';
+  const ikId = _currentStudent.id;
   try {
     if (!_rapportCache) { const r = await fetch(`/api/quiz/${sessionCode}/gelijkenisrapport`); if (r.ok) _rapportCache = await r.json(); }
     const paar = _rapportCache && _rapportCache.paren.find(p => (p.leerling1.id === ikId && p.leerling2.id === anderId) || (p.leerling2.id === ikId && p.leerling1.id === anderId));
@@ -1007,6 +1063,8 @@ async function gaNaarLeerling(studentId, questionId) {
   if (idx >= 0) selectQuestion(idx);
 }
 window.laadSimDetail = laadSimDetail;
+window.laadSimMeer = laadSimMeer;
+window.zetSimModus = zetSimModus;
 window.gaNaarLeerling = gaNaarLeerling;
 
 async function loadSimilarityWarnings() {
