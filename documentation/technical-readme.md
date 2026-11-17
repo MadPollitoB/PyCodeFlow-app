@@ -1,7 +1,7 @@
 # PyCodeFlow — Technische documentatie
 
 > Interne werking, architectuur, API-referentie en ontwikkelaarsinformatie.
-> Versie: v2026.2.42.0
+> Versie: v2026.2.51.142 (bijgewerkt voor v124–v142; zie ook `changelog.md`)
 
 ---
 
@@ -374,3 +374,58 @@ wijzigt, moet die tests groen houden — anders lekken de juiste antwoorden tijd
 
 `getMyResult()` gebruikt een **LEFT JOIN** van `quiz_question_snapshots` naar `quiz_answers`,
 zodat overgeslagen vragen zichtbaar blijven (score `null`) in plaats van te ontbreken.
+
+---
+
+## Toetsmodule — wijzigingen v124–v142
+
+### Pure modules (`web/lib/`)
+
+| Module | Doel |
+|---|---|
+| `scoring.js` | Single = alles of niets. Meerkeuze **klassiek** (pro-rata) of **gedeeld**: `score = punten × max(0, 1 − (1,5×gemist + 3×fout)/n)`, afgerond op halve punten; alle opties aanduiden = 0. `normaliseerScore` laat enkel veelvouden van 0,5 toe. |
+| `vragenpool.js` | `pool_json` = `{ "<groepNr>": N | {n, mix:{makkelijk,gemiddeld,moeilijk}} }`. `trekVragen` (crypto-uniform, per niveau bij een mix), `controleerGelijkePunten`, `telUniekeToetsen` (BigInt, elementaire symmetrische polynomen), `puntenBereik`. |
+| `placeholders.js` | `variables_json` (array van variabelen + optioneel laatste element `{voorwaarde}`). `berekenWaarden(variabelen, seed, voorwaarde)` = deterministisch (rejection sampling, seed `toetscode+leerling+vraag`); rekenen zonder `eval`. `controleerCombinaties` blokkeert delen door nul, geen geldige combinatie en dubbele opties. |
+| `gelijkenis.js` | `eenhedenUit`, `bouwRapport`: tekst- en structuurgelijkenis (Levenshtein op tokens), gedeelde foute keuzes (met zeldzaamheidsgrens), placeholders, timing, incidentcontext. |
+| `moeilijkheid.js` | Richtwaarden: makkelijk 70–100, gemiddeld 45–85, moeilijk 20–65; min. 5 leerlingen; setafwijking 5 procentpunt. |
+| `klasbord.js` | `bouwBordLeerlingen(leerlingen, totaal, tijd)`, `eindTijdVan`; geen vraagnummer meer. |
+| `public/regelvergelijking.js` | Client én tests: `vergelijkRegels(a, b)` → regels met status `gelijk` / `verschillend` / `triviaal`. |
+
+### Database (alle migraties idempotent)
+
+| Kolom | Tabel | Sinds |
+|---|---|---|
+| `pool_json` | `assignment_bank` | v134 |
+| `mc_scoring` (`gedeeld`/`klassiek`) | `assignment_bank` | v133 |
+| `cursus_links` (JSON) | `assignment_bank` | v132 |
+| `copy_paste_blocked`, `fullscreen_required` | `assignment_bank` | v113 |
+| `variables_json` | `question_bank`, `quiz_question_snapshots` | v135 |
+| `difficulty` | `quiz_question_snapshots` | v137 |
+| `max_points`, `points`, `score` → `NUMERIC(6,1)` | bank, snapshots, answers | v133 |
+| `quiz_incidents` (sessie, leerling, type, detail, tijd) | — | v122 |
+
+### Endpoints (nieuw)
+
+| Route | Doel |
+|---|---|
+| `POST /api/quiz/pool-telling` | Aantal unieke toetsen (per groep en totaal) vóór het bevestigen |
+| `GET /api/quiz/:code/gelijkenisrapport[?drempel=80&format=csv]` | Rapport per leerlingenpaar |
+| `GET /api/quiz/:code/similarity` | Waarschuwingen per vraag (zelfde berekening, oude vorm) |
+| `GET /api/quiz/:code/moeilijkheidsrapport` | Moeilijkheid per vraag en per leerlingenset |
+| `POST /api/quiz/bank/import-json` | JSON-import van vragen (max. 1 MB) |
+| `POST /api/quiz/:code/release`, `/review-mode` | Scores vrijgeven / nazicht openen (ook via het overzicht) |
+| `GET /api/quiz-sessions/:code/incidenten` | Incidentenlogboek |
+
+### Socket.IO (nieuw)
+
+- `review_run_request` / `review_runtime_input`: ▶ Uitvoeren in het nakijkscherm, **enkel leerkracht**; hergebruikt `runnerStart`, `runnerInput`, `RUN_RATE_LIMIT_MS` en `checkIpRateLimit`.
+- `student_join_free { name, className, leerkracht }`: leerkracht oefent vrij; `alsLeerkracht = leerkracht === true && socketIsTeacherAuthorized(socket) && !ingelogd`.
+- `student_copy_to_class`, `teacher_reset_copy` (v128); `teacher_set_cursus`, `cursus_update` (v126); `teacher_save_drafts`, `teacher_rebind`, `teacher_ping`, `teacher_cleanup_offline` (v124/v125); `quiz_incident` (type ∈ `INCIDENT_TYPES`, max. 30 per minuut per socket).
+
+### Versie
+
+`VERSION` en `web/VERSION` zijn de bron; elke `?v=` in `public/*.html|js` moet gelijk zijn (afgedwongen door een automatische test). Verhoog altijd alles samen.
+
+### Test-tips
+
+`DATABASE_URL=postgres://user:pw@127.0.0.1:5432/pycodeflow_test node --test tests/*.test.js`. Ligt de databank stil dan slaan 14 tests over (en logt de server "database niet bereikbaar"): eerst `service postgresql start`. Livetests (`tests/live/*.js`) vragen een draaiende server en runner; POST's hebben `origin: BASE` nodig (CSRF).

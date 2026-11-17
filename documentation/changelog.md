@@ -5,6 +5,7 @@
 - De extra's uit v138 (alle overeenkomsten, totaalbeeld, knop "Open …") zitten achter **Meer details** en laden pas als je dat opent.
 - Bij meerkeuze en enkelvoudige keuze is er geen uitklapblok: gewone banner met knop "Open …".
 - Nieuw bestand `public/regelvergelijking.js`. Tests: `tests/v142.test.js`. Versie: **2026.2.51.142**.
+- Documentatie bijgewerkt tot v142: sprintlog (afgewerkte sprints 117–135, nieuwe openstaande punten 136–144), gebruikershandleiding (toetsen en taken), technische documentatie, testboek (sectie 88), projectstructuur en installatiegids (Ollama).
 
 ## v2026.2.51.141 — 🐍 Vrij oefenen in het leerkrachtmenu
 

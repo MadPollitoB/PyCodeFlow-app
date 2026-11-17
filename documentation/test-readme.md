@@ -1,6 +1,6 @@
 # PyCodeFlow — Volledig Testboek
 
-> **Versie:** v2026.2.50.0 · **Bijgewerkt:** 12 augustus 2026 (sprint 50 bugfixes verwerkt)
+> **Versie:** v2026.2.51.142 · **Bijgewerkt:** 17 november 2026 (sectie 88 voegt de handmatige tests voor v124–v142 toe)
 > Volledig stappenplan voor alle functies, pagina's, layouts en PDF-exports.
 > Voer tests uit op: `https://app.pycodeflow.org` (productie) of `http://localhost:3000` (lokaal)
 
@@ -2893,3 +2893,48 @@ en herstart. Daarna:
       samengestelde vraag toont elk onderdeel apart, code-onderdeel als codeblok.
 - [ ] **CSV-import**: importeer de voorbeeldregel uit de CSV-tab (composite) → 1 vraag met
       2 onderdelen en de juiste punten (som) verschijnt in de bank.
+
+## 88. v124–v142 — Handmatige tests voor de recente functies
+
+> Automatisch: `node --test tests/*.test.js` (692 tests bij v142) en de livetests in `web/tests/live/`.
+> Hieronder de dingen die je zelf op het scherm controleert.
+
+### 88.1 Meerkeuze "gedeeld juist" en halve punten (v133)
+1. Maak een toets met een meerkeuzevraag met 3 juiste opties (A, B, D) en 2 punten, regel **Gedeeld juist**.
+2. Laat een testleerling achtereenvolgens ABD, AB, A en ABC aanduiden (herhaal met meerdere leerlingen).
+3. ✅ Verwacht: 2 / 1 / 0 / 0. Alle opties aanduiden geeft 0. Punten tonen een komma (1,5).
+4. ✅ Een bestaande toets staat nog op *Klassiek*; die verandert niet.
+
+### 88.2 Vragenpool (v134 + v137)
+1. Stap 2 van de wizard: zet in groep 1 "trek 3 uit 5". Alle vragen in de groep krijgen evenveel punten, anders volgt een rode melding met knop *Zet alle op X punt*.
+2. ✅ Bevestigingsscherm: "elke leerling krijgt 3 van 5", het aantal unieke toetsen en een waarschuwing bij < 30 mogelijkheden of minder toetsen dan leerlingen.
+3. Optioneel ⚖️ niveaumix (bv. 2 makkelijk + 1 moeilijk): een ongeldige mix wordt niet bewaard.
+4. ✅ Leerlingen krijgen elk een andere set; herladen of herverbinden verandert niets. Nakijken, PDF's en CSV tonen per leerling de eigen vragen en het eigen maximum.
+5. ✅ Een toets **zonder** pool: iedereen krijgt dezelfde vragen.
+
+### 88.3 Placeholders (v135 + v137)
+1. Vragenbank → vraag: vink **🎲 Placeholders gebruiken** aan; schrijf `{{a}}` en `{{b}}` in de tekst; geef bereiken en eventueel de voorwaarde `a > b`.
+2. ✅ Er verschijnt automatisch een rij per placeholder; knop *Controleer + voorbeeld voor 3 leerlingen* toont het aantal mogelijkheden.
+3. ✅ Delen door nul, geen geldige combinatie of twee gelijke antwoordopties worden geblokkeerd; niet-gehele uitkomsten geven een waarschuwing.
+4. ✅ Zonder het vinkje blijft `{{…}}` gewone tekst (met een melding).
+
+### 88.4 Gelijkenisrapport, banner en moeilijkheid (v136–v138, v142)
+1. Nakijkscherm → **🔍 Gelijkenisrapport**: paren op risico, drempel 50–100 %, CSV-export.
+2. Bij een open-/codevraag met gele banner: klik op de banner → het antwoord van de andere leerling verschijnt naast het eigen antwoord, met regelnummers. ✅ Schakelaar *gelijk/verschillend* kleurt groen/rood; `else:`, lege regels en losse `}` tellen niet mee.
+3. ✅ Bij meerkeuze/enkelvoudig is er géén uitklapblok, enkel de knop "Open …".
+4. ✅ *Meer details* toont alle overeenkomsten met die leerling en het totaalbeeld; **👤 Open X** gaat naar die leerling.
+5. **📊 Moeilijkheid**: per vraag gemiddelde en slaagpercentage (vanaf 5 leerlingen); per leerling de verwachte versus werkelijke score.
+
+### 88.5 Klasbord (v137)
+1. Open het klasbord: elke tegel toont **naam + resterende tijd**, geen "vraag x/y".
+2. ✅ Klik op de sessiecode → grote popup; sluiten met klik of Esc.
+3. ⚠️ Bekend: een pauze stopt de timers op het bord nog niet (staat in de sprintlog).
+
+### 88.6 Overige (v124–v132, v140–v141)
+- **Dupliceren** (v131): kopie neemt groepen, anti-spiek, cursus, klasbord en beveiliging mee; resultaten beginnen leeg.
+- **Cursus-links per vraag** (v132): tabs enkel bij gekoppelde vragen; geen link = geen knop.
+- **JSON-import** (v129): geldig bestand importeert; duplicaat op exacte vraagtekst wordt overgeslagen; fouten per vraag.
+- **Overzicht** (v130): knoppen *Scores vrijgeven/intrekken* en *Nazicht openen/sluiten* wisselen meteen.
+- **▶ Uitvoeren bij nakijken** (v140): code draait, `input()` werkt, een tweede run binnen 3 s krijgt "wacht even".
+- **🐍 Vrij oefenen** (v141): opent in een nieuw tabblad onder je eigen naam; terugknop naar het sessieoverzicht.
+- **Inlogblokkade** (v124): na te veel mislukte pogingen blokkeert enkel dat account (niet het hele netwerk); ontgrendelen via *Toegang*.

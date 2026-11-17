@@ -191,6 +191,35 @@ In het sessieoverzicht: vink "Toon gesloten sessies" aan om gesloten sessies te 
 
 ---
 
+### Vrij oefenen als leerkracht
+
+Klik in het menu op **🐍 Vrij oefenen**: de editor opent in een nieuw tabblad, onder je eigen naam (klas "Leerkracht"). Je hoeft niet meer via een leerlingaccount. Je verschijnt niet in de statistiek van leerlingen; de knop bovenaan brengt je terug naar het sessieoverzicht.
+
+### Toetsen en taken
+
+**Vragenbank.** Vragen aanmaken of importeren (CSV of JSON, tab *Import*). Per vraag: titel, onderwerp, niveau (makkelijk/gemiddeld/moeilijk), punten (stappen van 0,5), vraagtype (code, open, enkelvoudige of meerkeuze, samengesteld). Een vraag die al bestaat (zelfde tekst) wordt bij import overgeslagen.
+
+**Aanmaken (wizard, ook voor aanpassen en dupliceren).** Dupliceren neemt alle instellingen en groepen mee; resultaten beginnen leeg.
+
+| Onderdeel | Wat het doet |
+|---|---|
+| **Gedeeld juist / Klassiek** | Score bij meerkeuze met meerdere juiste opties. *Gedeeld juist*: punten × (1 − (1,5 × gemist + 3 × fout) ÷ aantal juiste), afgerond op halve punten; alles aanduiden = 0. Nieuwe toetsen starten op *gedeeld*, bestaande blijven *klassiek*. |
+| **Groepen en vragenpool** | Splits de vragen in groepen (✂️). Bovenaan een groep: *trek N uit M*. Elke leerling krijgt een eigen willekeurige selectie, die bij herladen gelijk blijft. Alle vragen in zo'n groep moeten **evenveel punten** waard zijn (knop *Zet alle op X punt*). Met ⚖️ kies je een niveaumix, bv. 2 makkelijk + 1 moeilijk. Het bevestigingsscherm toont hoeveel unieke toetsen mogelijk zijn. Zonder pool krijgt iedereen dezelfde vragen. |
+| **🎲 Placeholders** | Vink per vraag aan; `{{a}}` in tekst, opties en modelantwoord krijgt per leerling een andere, vaste waarde. Per placeholder geef je het toegelaten bereik of de lijst, plus een eventuele voorwaarde (`a > b`). Onmogelijke situaties (delen door nul, geen geldige combinatie, gelijke opties) worden geblokkeerd. Zonder vinkje is `{{…}}` gewone tekst. |
+| **Cursus-links** | Per link een titel, een https-adres en de vragen waarbij hij hoort (🔗 Vragen koppelen). De leerling ziet per vraag enkel de gekoppelde links. |
+| **Beveiliging** | Anti-spiek bij tabwissel (drempel en respijt), volledig scherm verplicht, kopiëren/plakken blokkeren, 1 kans per vraag, zelfevaluatie, klasbord. Alles per toets instelbaar. |
+
+**Klasbord (beamerscherm).** Elke tegel toont naam en resterende tijd (geen vraagnummer, om leerlingen niet zenuwachtig te maken). Klik op de sessiecode voor een grote popup.
+
+**Overzicht.** Op elke kaart wissel je **Scores vrijgeven/intrekken** en **Nazicht openen/sluiten** met één klik.
+
+**Nakijken.** Per leerling en vraag score en commentaar; ▶ Uitvoeren draait de code van de leerling (3 seconden tussen runs, `input()` werkt).
+- **🔍 Gelijkenisrapport**: per paar leerlingen een risico (hoog/middel/laag) op basis van gelijke tekst of code (ook na hernoemen van variabelen), dezelfde foute meerkeuzekeuze, identieke antwoorden ondanks andere placeholder-waarden en timing. Drempel 50–100 %, export als CSV. Het is een **signaal, geen bewijs**.
+- **Gele banner bij een vraag.** Klik op de banner (enkel bij open- en codevragen): het antwoord van de andere leerling komt naast dat van de leerling die je nakijkt. Met *Markeer: gelijk / verschillend* kleur je gelijke regels groen of afwijkende rood; blanco en triviale regels (`else:`, losse `}`) tellen niet. *Meer details* toont alle overeenkomsten met die leerling en een knop **👤 Open X**.
+- **📊 Moeilijkheid**: gemiddelde en slaagpercentage per vraag, en per leerling de verwachte versus werkelijke score van zijn set (vanaf 5 leerlingen).
+
+**Toegang.** Bij te veel mislukte inlogpogingen wordt enkel dat account tijdelijk geblokkeerd. Op de pagina *Toegang* ontgrendel je een netwerk of leerling.
+
 ## Leerling
 
 ### Joinen
@@ -244,6 +273,18 @@ Klik "✋ Hand opsteken" om de leerkracht te verwittigen dat je hulp nodig hebt.
 ### Klaar melden
 
 Klik "✓ Klaar" als je klaar bent met de opdracht. De leerkracht ziet dit.
+
+### Toets of taak maken
+
+- Je krijgt je eigen vragen; bij sommige toetsen zijn de getallen in een vraag voor jou anders dan voor een klasgenoot. Bij herladen blijft alles gelijk.
+- Staat **kopiëren/plakken geblokkeerd**, dan werkt Ctrl+C/V, rechtsklik en slepen niet. Pogingen worden geregistreerd.
+- Bij **volledig scherm** moet je in volledig scherm blijven; bij **tabwissel** kan de toets automatisch ingediend worden (let op de waarschuwing).
+- Bij meerkeuze met meerdere juiste opties: kies enkel wat je zeker weet. Een fout aangeduide optie kost meer dan een gemiste, en alles aanduiden geeft 0.
+- Is er een **cursuslink** bij de vraag, dan staat die in het zijpaneel (tabs als er meerdere zijn).
+
+### Werkblad naar de klas kopiëren
+
+In klasmodus kopieert **⇪ Naar klas** (naast Run) je werkblad naar de gedeelde klascode, als je daar bewerkrecht op hebt. De leerkracht ziet "… heeft zijn code naar de klas gezet".
 
 ### Code-history
 

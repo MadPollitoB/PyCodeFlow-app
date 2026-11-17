@@ -430,3 +430,22 @@ ls -la /volume3/docker/pycodeflow/pgdata/
 ---
 
 *PyCodeFlow · Atheneum Hoboken*
+
+---
+
+## Optioneel: lokale AI met Ollama (sinds v127)
+
+Het AI-nakijken gebruikt een Ollama-server. Die staat **niet** meer in `docker-compose.yml` maar in een eigen bestand, `docker-compose.ollama.yml` (project `pycodeflow-ollama`, container `pycodeflow-ollama-1`).
+
+| Instelling (`.env`) | Betekenis |
+|---|---|
+| `OLLAMA_LOKAAL` | `true` = Ollama draait op deze machine mee (vraagt `pycodeflow.sh` éénmalig); `false` = een andere machine |
+| `OLLAMA_URL` | bv. `http://host.docker.internal:11434` (lokaal) of `http://<ip>:11434` (andere machine) |
+| `OLLAMA_MODEL` | standaard `qwen3.5:9b` (haal het binnen met `ollama pull qwen3.5:9b`) |
+| `OLLAMA_THINK` | `false` (standaard) = sneller, korte antwoorden |
+| `OLLAMA_BIND`, `OLLAMA_PORT` | op welk adres/poort Ollama luistert (standaard `0.0.0.0:11434`); beperk `OLLAMA_BIND` tot je Tailscale-ip als je dat wil |
+| `OLLAMA_MEM_LIMIT`, `OLLAMA_CPUS`, `OLLAMA_KEEP_ALIVE` | resources (standaard 12g geheugen) |
+
+> ⚠️ Ollama heeft geen login. Zet de poort **nooit** open naar het internet.
+
+Oude installaties met `OLLAMA_URL=http://ollama:11434` worden bij de volgende update automatisch omgezet. Het oude standaardmodel (`qwen2.5-coder:7b`) wordt bij optie 5 van `pycodeflow.sh` na bevestiging vervangen; eigen "-custom"-modellen blijven ongemoeid.

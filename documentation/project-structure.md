@@ -16,6 +16,7 @@
 ├── .gitignore                     ← Wat niet in git mag
 ├── docker-compose.yml             ← Basis Docker configuratie
 ├── docker-compose.prod.yml        ← Productie-overrides (poorten, volumes)
+├── docker-compose.ollama.yml      ← Optioneel: lokale Ollama (v127), eigen project `pycodeflow-ollama`
 │
 ├── scripts/                       ← ALLE scripts (Sprint 51: weg uit de hoofdmap)
 │   ├── app/
@@ -70,6 +71,24 @@
 │   ├── db/
 │   │   └── database.js            ← PostgreSQL module (alle DB-methodes)
 │   │
+│   ├── lib/                       ← Pure logica (geen Express/DB), 1-op-1 getest
+│   │   ├── scoring.js             ← Scoreregels (single, klassiek/gedeeld meerkeuze, halve punten)
+│   │   ├── vragenpool.js          ← Pool "trek N uit M", niveaumix, telling unieke toetsen (v134/v137)
+│   │   ├── placeholders.js        ← {{variabelen}}, voorwaarde, combinatiecontrole (v135/v137)
+│   │   ├── gelijkenis.js          ← Gelijkenisrapport per leerlingenpaar (v136)
+│   │   ├── moeilijkheid.js        ← Moeilijkheidsrapport per vraag en per set (v137)
+│   │   ├── klasbord.js            ← Klasbord (beamerscherm) met resterende tijd (v99/v137)
+│   │   ├── overzicht-status.js    ← Status-gedreven toets-/taakoverzicht
+│   │   ├── auth.js, auth-limiet.js, intern-token.js ← Login, blokkades, intern token
+│   │   ├── review-token.js, review-result.js ← Nakijk-modus voor leerlingen
+│   │   ├── ai-grading.js          ← Lokale AI (Ollama) voor nakijken
+│   │   ├── training*.js           ← Trainingscenter (dagvraag, groei, hulp, kwaliteit, routes)
+│   │   └── validation.js, logger.js
+│   │
+│   ├── tests/                     ← `node --test tests/*.test.js` (692 tests bij v142)
+│   │   ├── v126…v142.test.js      ← Per release: de regels uit changelog.md
+│   │   └── live/                  ← Tests tegen een draaiende server + databank
+│   │
 │   ├── scripts/
 │   │   ├── manage-teacher.js      ← CLI: leerkracht aanmaken/verwijderen
 │   │   └── migrate-sqlite-to-pg.js ← Eenmalig: SQLite → PostgreSQL migratie
@@ -94,7 +113,11 @@
 │       ├── quiz-bank.html         ← Vragenbank beheren
 │       ├── quiz-teacher.html      ← Toets/taak aanmaken én aanpassen (wizard; ?edit=CODE)
 │       ├── quiz-student.html      ← Leerling quizscherm
-│       ├── quiz-review.html       ← Verbetermodule + PDF export
+│       ├── quiz-review.html       ← Verbetermodule + PDF export (+ quiz-review.js)
+│       ├── regelvergelijking.js   ← Regel-voor-regel vergelijking van twee antwoorden (v142)
+│       ├── toets-bord.html/.js/.css ← Klasbord (beamerscherm) met namen en resterende tijd
+│       ├── toets-overzicht.html, taak-overzicht.html ← Status-gedreven overzichten
+│       ├── teacher-toegang.html   ← Toegang: netwerk/leerling ontgrendelen (v124)
 │       └── quiz-archive.html      ← Archief + statistieken per jaar/klas
 │
 ├── runner/                        ← Python code-uitvoerder

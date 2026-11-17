@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.110**
+**Huidige versie: v2026.2.51.142**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -86,6 +86,19 @@
 | **56** | 🟠 P8 | UX/SEC | **"Mijn klassen"** — eigen scherm voor élke leerkracht met zijn gekoppelde klassen: startcode (bord-formaat, open/dicht, ↻), wachtende leerlingen bovenaan met ✓ aanvaarden, blokkeren/deblokkeren, 🔑 reset en leerling toevoegen. Leerlingacties nu klas-gescoped (`magLeerlingBeheren`): leerkracht enkel eigen klasleerlingen, beheerder school-breed. Herstelt de klastoegang die sprint 55 achter Beheer zette. *✅ AFGEROND.* | ~1 dag |
 | **55** | 🟠 P8 | SEC/UX | **Beheer-RBAC + groepering + zoek** — Beheer enkel admin/super-admin (admin gescoped op zíjn scholen), Systeem enkel super-admin; nav-links per rol verborgen (`nav-rechten.js`) én server-side afgedwongen (`requireBeheer`/`requireSysteem` op pagina's + API's). Leerkrachten/klassen/leerlingen gegroepeerd per school (leerlingen per school→klas) met zoekvelden per tab. Rollen: super-admin alles; admin enkel teacher↔admin binnen gedeelde school (bootstrap geschrapt → eerste super-admin via CLI). Pure regels `magBeheerZien`/`magSysteemZien`/`magRolToekennen`. *✅ AFGEROND.* | ~1.5 dag |
 | **54** | 🟢 P4 | DX | **Testdatabase-seeder** — `web/scripts/seed-testdb.js` (seed/wipe/status, idempotent, alles TESTDATA-gemarkeerd, wachtwoord = gebruikersnaam) + menu-optie **21** in `pycodeflow.sh` (met SEED/WIS-bevestiging, nooit op prod). 2 scholen · 4 leerkrachten (incl. superadmin) · 3 klassen met actieve startcodes · 6 leerlingen (actief/pending/geblokkeerd/zonder account) · vragenbank privé/school/publiek + 1 hidden · 3 sjablonen · les + toets + taak · ingevulde antwoorden/scores. **Bewezen tegen echte PostgreSQL: seed→status→seed (idempotent)→wipe→her-seed + isolatie-spot-check.** *✅ AFGEROND.* | ~1.5 dag |
+| **136a** | 🔴 P10 | SEC | **Spiek/fraude — vraag en inhoud registreren.** Bij een geblokkeerd plakken/kopiëren/knippen/slepen krijgt het incident (`quiz_incidents.detail`) het vraagnummer, de lengte en de geprobeerde tekst (max. 500 tekens, uit het paste-event). Dedupe per vraag i.p.v. enkel per type. Tekst enkel tijdens de toets bewaard en enkel zichtbaar voor de leerkracht. *Let op: het klembord wordt bij focus gewist, dus de geprobeerde tekst is vaak leeg.* | ~0.5 dag |
+| **136b** | 🔴 P10 | FEAT | **Spiek/fraude — blok "Spiek-/fraudepogingen" onderaan het nakijken** per leerling, gegroepeerd per vraag en type (bv. "Plakken vraag 3: 2×" met uitklapbare geprobeerde tekst en tijdstip; tabwissel, volledig scherm verlaten, …), met risicokleur en link naar het gelijkenisrapport. | ~1 dag |
+| **136c** | 🔴 P10 | FEAT | **Spiek/fraude — gelijkenisrapport** toont "plakken vraag X: N×" i.p.v. een los getal (`lib/gelijkenis.js`, incidentcontext per vraag) en koppelt aan 136b. | ~0.25 dag |
+| **136d** | 🔴 P10 | SEC | **Spiek/fraude — "code in één keer verschenen".** Een grote sprong in aantal tekens in één invoer zonder paste-event (omweg via tools die tekst intypen) wordt als incident gelogd, met vraag en lengte. | ~0.5 dag |
+| **136e** | 🔴 P10 | SEC | **Spiek/fraude — extra signalen (te bevestigen).** Antwoord dat in seconden verschijnt zonder toetsaanslagen; PrintScreen/print-toetsen; F12/ontwikkelaarstools; plots veel kleiner venster (split-screen); antwoord dat verandert vlak na terugkeer van een tabwissel. | ~1 dag |
+| **137** | 🟠 P8 | FEAT | **Herbereken-knop voor oude toetsen.** Na de nieuwe meerkeuzeregel (v133, "gedeeld": `punten × max(0, 1 − (1,5×gemist + 3×fout)/n)`, afgerond op halve punten) blijven bestaande toetsen op de oude score staan. Knop per toets (met voorbeeld vóór/na en bevestiging) die de scores herberekent. | ~0.5 dag |
+| **138** | 🟠 P8 | FEAT | **Export/back-up van de vragenbank.** Eén bestand met alle vragen (incl. placeholders, voorwaarden, moeilijkheid, groepen) om te bewaren of naar een andere installatie te importeren; sluit aan op de bestaande JSON-import. | ~1 dag |
+| **139** | 🟠 P8 | SEC | **2FA voor leerkrachten** (tweestapsverificatie bij het inloggen, herstelcodes, door de beheerder af te dwingen). | ~2 dagen |
+| **140** | 🟡 P6 | UX | **Moeilijkheidsrapport — richtwaarden bevestigen.** De verwachte slaagpercentages per niveau (makkelijk 70–100, gemiddeld 45–85, moeilijk 20–65; minimum 5 leerlingen; setafwijking 5) zijn mijn eigen keuze en staan in `lib/moeilijkheid.js`. Jij beslist of ze kloppen en maakt ze eventueel per toets of school instelbaar. | ~0.25 dag |
+| **141** | 🟡 P6 | UX | **Gelijkenisdrempels toetsen aan echte data.** De drempels van het gelijkenisrapport (`lib/gelijkenis.js`, bv. zeldzaamheidsgrens bij gedeelde foute keuzes, risico hoog/middel/laag) zijn nog niet getest op echte toetsresultaten. Na een echte toets: valse positieven/negatieven nalopen en bijstellen. | ~0.5 dag |
+| **142** | 🟡 P6 | BUG | **Klasbord — pauze stopt de timers niet.** Als je de toets pauzeert, blijven de aftellingen per leerling op het volledig-schermbord doorlopen. De pauze moet de eindtijd mee opschuiven (`lib/klasbord.js` `eindTijdVan`). | ~0.25 dag |
+| **143** | 🟡 P6 | FEAT | **Niveaumix ook voor toetsen van vóór v137.** Een niveaumix (makkelijk/gemiddeld/moeilijk per poolgroep) werkt enkel voor toetsen die vanaf v137 zijn aangemaakt, omdat de moeilijkheid dan in de vraagsnapshot wordt bewaard. Oudere toetsen aanvullen vanuit de vragenbank. | ~0.5 dag |
+| **144** | 🟡 P6 | UX | **Oude pooltoetsen met ongelijke punten.** Zulke toetsen kunnen niet meer met een pool bewaard worden tot de punten in een groep gelijk zijn (v137-regel). Helpertje: toon welke groepen afwijken en bied "zet alle op X punt" ook bij het bewerken van een bestaande toets aan. | ~0.25 dag |
 
 > **Sprint 42 is gesplitst:** Deel C (branding/schoollogo) is afgerond in v2026.2.42.0 (zie afgewerkte sprints); het restant (startpagina + leerling/leerkracht-ingang) leeft nu als **sprint 45**.
 
@@ -296,6 +309,25 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 165 | **114** | **Vragen aanpassen in het Trainingscenter.** Kleinere scrollbare popups, visuele checklist-editor (geen JSON meer), "🔒 Aanpassen" als eigen kopie bij algemene vragen. v2026.2.51.117 |
 | 166 | **115** | **Geen browserpopups meer.** Alle alert/confirm/prompt vervangen door de eigen popups (popups.js), met een bewakingstest. v2026.2.51.118 |
 | 167 | **116** | **Bewerkpopup boven de titelbalk.** z-index van de popups in Trainingscenter en Mijn klassen. v2026.2.51.123 |
+| 168 | **117** | **Inlogblokkade per leerling + schoon sessieblad.** Teller per (IP + account), leerkrachten nooit geblokkeerd; Toegang-pagina (netwerk/leerling ontgrendelen) met audit-log; menu 23 in `pycodeflow.sh`; sessieblad met één blok per leerling, samenvoegen van dubbels, offline-groep + opruimen. v2026.2.51.124 |
+| 169 | **118** | **Opmaak in opdrachten, bewaren bij de sessie, nieuw volledig scherm, verbindingsherstel.** Veilige rijke tekst (`rijke-tekst.js`), concepten bewaren (`teacher_save_drafts`), nieuw volledig scherm met CODE-/RUN-lijsten en offline-blok, `teacher_rebind` + hartslag. v2026.2.51.125 |
+| 170 | **119** | **Volledig scherm inklapbaar, klassenkiezer, cursus in de sessie.** Inklapbare blokken, "Alle klassen" uitvinken, cursus-paneel in klas- en individuele sessies (`teacher_set_cursus`). v2026.2.51.126 |
+| 171 | **120** | **Ollama in eigen compose, model Qwen3.5-9B, thinking als parameter.** `docker-compose.ollama.yml`, `OLLAMA_LOKAAL`/`OLLAMA_URL`/`OLLAMA_THINK` in `.env`, automatische migratie van oude installaties. v2026.2.51.127 |
+| 172 | **121** | **Leerling kopieert werkblad naar de klascode** (knop "⇪ Naar klas") met melding en badge bij de leerkracht (`student_copy_to_class`). v2026.2.51.128 |
+| 173 | **122** | **JSON-import van vragen** (met titel, keuzeobjecten en samengestelde vragen), `POST /api/quiz/bank/import-json`. v2026.2.51.129 |
+| 174 | **123** | **Snel scores en nazicht vrijgeven/intrekken** vanuit het toets-/taakoverzicht. v2026.2.51.130 |
+| 175 | **124** | **Dupliceren kopieert alles** (groepen, anti-spiek, cursus, klasbord, …) en het bevestigingsscherm toont de instellingen. v2026.2.51.131 |
+| 176 | **125** | **Cursus-links per vraag** (tabs, koppeling per vraag of groep, `assignment_bank.cursus_links`). v2026.2.51.132 |
+| 177 | **126** | **Meerkeuze "gedeeld juist" + halve punten overal.** Score = punten × max(0, 1 − (1,5×gemist + 3×fout)/n), afgerond op halve punten; `mc_scoring` per toets; kolommen `NUMERIC(6,1)`. v2026.2.51.133 |
+| 178 | **127** | **Vragenpool: trek N uit M per groep** (`assignment_bank.pool_json`, `lib/vragenpool.js`), eigen vragen per leerling in nakijken, PDF's, exports en klasbord. v2026.2.51.134 |
+| 179 | **128** | **Placeholders per leerling** (`variables_json`, `lib/placeholders.js`, deterministische waarden, veilige rekenmodule). v2026.2.51.135 |
+| 180 | **129** | **Gelijkenisrapport** per leerlingenpaar (`lib/gelijkenis.js`; tekst + structuur, gedeelde foute keuzes, placeholders, timing, incidenten), CSV-export. v2026.2.51.136 |
+| 181 | **130** | **Klasbord met tijd en sessiecode-popup, pool met gelijke punten + niveaumix + telling unieke toetsen, placeholders met vinkje/voorwaarde/combinatiecontrole, moeilijkheidsrapport** (`lib/moeilijkheid.js`, `lib/klasbord.js`). v2026.2.51.137 |
+| 182 | **131** | **Gelijkenismelding uitklapbaar** (antwoorden naast elkaar, alle overeenkomsten, totaalbeeld, knop "Open X"). v2026.2.51.138 |
+| 183 | **132** | **Versienummer gelijkgetrokken** (`VERSION`, `web/VERSION` en alle `?v=`-verwijzingen). v2026.2.51.139 |
+| 184 | **133** | **▶ Uitvoeren werkt weer bij het nakijken** (`review_run_request` / `review_runtime_input`, enkel leerkracht, met limieten). v2026.2.51.140 |
+| 185 | **134** | **🐍 Vrij oefenen in het leerkrachtmenu** (nieuw tabblad, onder eigen naam, buiten de leerlingenregels). v2026.2.51.141 |
+| 186 | **135** | **Gelijkenisbanner uitklapbaar met regelvergelijking** (alleen open/code; markeer gelijk/verschillend; `public/regelvergelijking.js`; extra's achter "Meer details"). v2026.2.51.142 |
 
 > **Nummering:** Sprint 50 is qua nummer ouder dan 51-58 maar werd later uitgevoerd
 > (bugfix-sprint). Het staat daarom onderaan de uitvoeringsvolgorde.
