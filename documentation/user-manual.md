@@ -305,6 +305,9 @@ Klik "✓ Klaar" als je klaar bent met de opdracht. De leerkracht ziet dit.
 6. **▶ Uitproberen** (naast *Opslaan*): speel de quiz proef in een splitscreen — links wat jij/de beamer ziet, rechts wat een leerling op de gsm ziet. Je speelt rechts mee, drie bots doen ook mee, niets wordt bewaard. *▶ Vanaf hier* bij een vraag start bij die vraag.
 7. Niet mogelijk tijdens een toets, taak, examensessie of individuele werkfase. Resultaten vind je later onder *Gespeelde spellen*.
 
+### Wissen bij oefeningen, codevoorbeelden en links
+**Wissen** haalt de getoonde oefening, het getoonde voorbeeld of de getoonde link uit de lijst: bij 3 oefeningen wordt 1/3 dus 1/2. Het laatste item blijft als leeg veld staan. Klik daarna op **Bewaar** om de kortere lijst ook bij de sessie te bewaren.
+
 ### Toets of taak maken
 
 - Je krijgt je eigen vragen; bij sommige toetsen zijn de getallen in een vraag voor jou anders dan voor een klasgenoot. Bij herladen blijft alles gelijk.

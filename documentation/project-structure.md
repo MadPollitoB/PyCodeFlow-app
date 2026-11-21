@@ -91,7 +91,7 @@
 │   │   ├── training*.js           ← Trainingscenter (dagvraag, groei, hulp, kwaliteit, routes)
 │   │   └── validation.js, logger.js
 │   │
-│   ├── tests/                     ← `node --test tests/*.test.js` (773 tests bij v152)
+│   ├── tests/                     ← `node --test tests/*.test.js` (778 tests bij v154)
 │   │   ├── v126…v142.test.js      ← Per release: de regels uit changelog.md
 │   │   └── live/                  ← Tests tegen een draaiende server + databank
 │   │

@@ -1,6 +1,6 @@
 # PyCodeFlow — Volledig Testboek
 
-> **Versie:** v2026.2.51.152 · **Bijgewerkt:** 20 november 2026 (sectie 88–96: handmatige tests voor v124–v150)
+> **Versie:** v2026.2.51.154 · **Bijgewerkt:** 20 november 2026 (sectie 88–96: handmatige tests voor v124–v150)
 > Volledig stappenplan voor alle functies, pagina's, layouts en PDF-exports.
 > Voer tests uit op: `https://app.pycodeflow.org` (productie) of `http://localhost:3000` (lokaal)
 
@@ -2896,7 +2896,7 @@ en herstart. Daarna:
 
 ## 88. v124–v142 — Handmatige tests voor de recente functies
 
-> Automatisch: `node --test tests/*.test.js` (773 tests bij v152) en de livetests in `web/tests/live/`.
+> Automatisch: `node --test tests/*.test.js` (778 tests bij v154) en de livetests in `web/tests/live/`.
 > Hieronder de dingen die je zelf op het scherm controleert.
 
 ### 88.1 Meerkeuze "gedeeld juist" en halve punten (v133)
@@ -3071,3 +3071,11 @@ Gebruik een afgesloten toets met minstens één leerling die al volledig verbete
 2. Klik **▶ Uitproberen**. ✅ Splitscreen: links beamer, rechts gsm; je kan rechts antwoorden, links *Start*, *Toon antwoord*, *Volgende vraag*; de bots antwoorden mee.
 3. Klik bij vraag 3 op **▶ Vanaf hier**. ✅ De proef start bij vraag 3. Esc of *Sluiten* sluit; niets staat onder *Gespeelde spellen*.
 4. Probeer met een vraag zonder juist antwoord. ✅ Melding in plaats van de popup.
+
+
+## 99. v153 — Wissen verwijdert de plaats (handmatig)
+1. Maak 3 oefeningen (+ Nieuwe oefening) en klik bij 2 / 3 op **Wissen**. ✅ Teller wordt 2 / 2, de inhoud van de volgende (of vorige) oefening verschijnt.
+2. Doe hetzelfde bij de codevoorbeelden (12 → 11). ✅
+3. Wis tot er 1 overblijft. ✅ Blijft 1 / 1 met leeg veld. Klik *Bewaar* en herlaad: ✅ de kortere lijst komt terug.
+
+4. (v154) Doe hetzelfde bij **links**. ✅ 3 / 3 wordt 2 / 2; de laatste blijft 1 / 1 met leeg veld.

@@ -8,7 +8,7 @@
 > Daarna volgen de roadmap (multi-tenant), het domeinmodel, en de gedetailleerde
 > beschrijvingen per sprint als naslag.
 
-**Huidige versie: v2026.2.51.152**
+**Huidige versie: v2026.2.51.154**
 
 > **Nummering-afspraak:** sprintnummers zijn **vast** zodra ze bestaan — ze worden niet meer hernummerd. Komt er tussentijds iets belangrijks bij dat vóór een bestaande sprint moet, dan krijgt het een **decimaal subnummer** (bv. **44.1** schuift tussen 44 en 45). Zo blijft de volgorde leesbaar zonder alles te verschuiven.
 
@@ -333,6 +333,8 @@ Oudste eerst. Versienummer = de versie waarin de sprint werd afgerond.
 | 194 | **143** | **Bugfix heropenen/startknop (v150).** Bulk-heropenen en "Heropenen" per leerling geven echte werktijd (tot de gekozen tijd, geen 1 minuut meer); `/startinfo?name=` laat een heropende leerling starten op een gestopte toets. |
 | 195 | **144** | **PyBlitz (v151).** Live quiz in een klassessie (enkel klasmodus): bibliotheek/editor met JSON- en Excel-import, tekst/code/foutmelding/afbeelding, spelmodus voor de leerkracht, popup voor leerlingen, gasten via QR + token, bewaarde resultaten. |
 | 196 | **145** | **PyBlitz-uitbreiding (v152).** Antwoorden met meerdere regels/code; knop ▶ Uitproberen met splitscreen-proef (beamer links, gsm rechts, bots, niets bewaard); enkel de proefpagina mag in een iframe. |
+| 197 | **146** | **Wissen verwijdert de plaats (v153).** Wissen bij een oefening of codevoorbeeld haalt het item uit de lijst (1/3 → 1/2); het laatste blijft als leeg veld. |
+| 198 | **147** | **Wissen bij links (v154).** Zelfde gedrag als bij oefeningen en voorbeelden: de plaats verdwijnt (1/3 → 1/2). |
 
 > **Nummering:** Sprint 50 is qua nummer ouder dan 51-58 maar werd later uitgevoerd
 > (bugfix-sprint). Het staat daarom onderaan de uitvoeringsvolgorde.

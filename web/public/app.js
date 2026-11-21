@@ -3317,8 +3317,15 @@ window.heropenLeerling = function(code, studentId, studentName) {
     qs('teacher-announcement-clear-btn')?.addEventListener('click', async () => {
       const n = _reeksServer.items.length;
       if (!n) {
-        opdrZet('');
-        _announcementDrafts[_announcementDraftIdx] = '';
+        // v153: bij meerdere oefeningen verdwijnt de plaats zelf (1/3 → 1/2); enkel de laatste blijft als leeg veld staan.
+        if (_announcementDrafts.length > 1) {
+          _announcementDrafts.splice(_announcementDraftIdx, 1);
+          _announcementDraftIdx = Math.min(_announcementDraftIdx, _announcementDrafts.length - 1);
+          opdrZet(_announcementDrafts[_announcementDraftIdx]);
+        } else {
+          opdrZet('');
+          _announcementDrafts[_announcementDraftIdx] = '';
+        }
         socket.emit('teacher_send_announcement', { text: '' });
         announcementNavRender(); lokaalBewaren(); draftsStatusRender();
         return;
@@ -3398,7 +3405,13 @@ window.heropenLeerling = function(code, studentId, studentName) {
       qs('code-draft-input')?.focus();
     });
     qs('code-clear-btn')?.addEventListener('click', () => {
-      _codeDrafts[_codeDraftIdx] = '';
+      // v153: bij meerdere voorbeelden verdwijnt de plaats zelf (1/12 → 1/11); enkel het laatste blijft als leeg veld staan.
+      if (_codeDrafts.length > 1) {
+        _codeDrafts.splice(_codeDraftIdx, 1);
+        _codeDraftIdx = Math.min(_codeDraftIdx, _codeDrafts.length - 1);
+      } else {
+        _codeDrafts[_codeDraftIdx] = '';
+      }
       lokaalBewaren(); codeNavRender(); draftsStatusRender();
       qs('code-draft-input')?.focus();
     });
@@ -3455,7 +3468,11 @@ window.heropenLeerling = function(code, studentId, studentName) {
       qs('link-nav-prev-btn').addEventListener('click', () => { if (_linkDraftIdx > 0) { _linkDraftIdx--; render(); } });
       qs('link-nav-next-btn').addEventListener('click', () => { if (_linkDraftIdx < _linkDrafts.length - 1) { _linkDraftIdx++; render(); } });
       qs('link-nav-add-btn').addEventListener('click', () => { _linkDrafts.push({ titel: '', url: '' }); _linkDraftIdx = _linkDrafts.length - 1; lokaalBewaren(); render(); draftsStatusRender(); urlEl.focus(); });
-      qs('link-clear-btn').addEventListener('click', () => { _linkDrafts[_linkDraftIdx] = { titel: '', url: '' }; lokaalBewaren(); render(); draftsStatusRender(); urlEl.focus(); });
+      qs('link-clear-btn').addEventListener('click', () => {
+        // v154: bij meerdere links verdwijnt de plaats zelf (1/3 → 1/2); de laatste blijft als leeg veld staan.
+        if (_linkDrafts.length > 1) { _linkDrafts.splice(_linkDraftIdx, 1); _linkDraftIdx = Math.min(_linkDraftIdx, _linkDrafts.length - 1); }
+        else _linkDrafts[_linkDraftIdx] = { titel: '', url: '' };
+        lokaalBewaren(); render(); draftsStatusRender(); urlEl.focus(); });
       qs('link-open-btn').addEventListener('click', () => {
         if (!geldig(urlEl.value)) { if (window.pyAlert) pyAlert('Vul eerst een geldige link in (https://…).', 'warn'); return; }
         window.open(norm(urlEl.value), '_blank', 'noopener,noreferrer');

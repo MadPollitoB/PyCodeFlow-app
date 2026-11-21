@@ -1,8 +1,20 @@
+## v2026.2.51.154 — Wissen bij links verwijdert ook de plaats
+
+- Aanvulling op v153: ook bij **links** haalt **Wissen** de link uit de lijst (1/3 wordt 1/2); de laatste blijft als leeg veld staan. Oefeningen, codevoorbeelden en links werken nu hetzelfde.
+- Tests: `tests/v154.test.js`. Versie: **2026.2.51.154**.
+
+## v2026.2.51.153 — Wissen verwijdert ook de plaats (1/3 → 1/2)
+
+- **Oefeningen en codevoorbeelden:** de knop **Wissen** maakte enkel het veld leeg, waardoor een lege plaats in de lijst bleef staan (en bij *Bewaar* ook in de database). Nu verdwijnt de plaats zelf: 1/3 wordt 1/2, 1/12 wordt 1/11. Enkel wanneer er nog één oefening/voorbeeld overblijft, blijft die als leeg veld staan. Is er al een reeks verstuurd, dan blijft de bestaande werking (bevestiging, ook de antwoorden van de leerlingen verdwijnen) ongewijzigd.
+- Klik daarna op **Bewaar** om de kleinere lijst ook bij de sessie te bewaren (de status toont "Wijzigingen nog niet bewaard").
+- Tests: `tests/v153.test.js`. Versie: **2026.2.51.153**.
+
 ## v2026.2.51.152 — PyBlitz: antwoorden met code + "Uitproberen" (splitscreen)
 
 - **Antwoorden mogen uit meerdere regels of stukjes code bestaan** (max. 6 regels). In de editor is elk antwoord een tekstvak met een vinkje **code**; een antwoord met meerdere regels wordt automatisch als code getoond (vaste breedte, inspringing blijft). Werkt ook in JSON (`{"text": "for i in range(3):\n    print(i)", "code": true}`), Excel (meerdere regels in een cel) en op beamer, popup en gsm.
 - **▶ Uitproberen** naast Opslaan: een scherm-vullende popup met links wat de **leerkracht/beamer** toont en rechts wat de **leerling op de gsm** ziet. Je speelt rechts zelf mee; drie bots (Lena, Mo, Sarah) beantwoorden de vragen. Alles gebeurt in de browser met dezelfde spelmotor als de server: er worden geen spelers, sessies of resultaten bewaard. **▶ Vanaf hier** bij een vraag (of de keuzelijst "Vanaf vraag n") start de proef bij die vraag; Esc sluit.
 - Technisch: `/pyblitz-engine.js` levert `lib/pyblitz.js` + `lib/pyblitz-spel.js` aan de browser; de proefpagina `/pyblitz-proef.html` is de enige pagina die in een iframe van de eigen site mag (CSP `frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`); alle andere pagina's blijven geblokkeerd. Berichten tussen popup en iframes controleren de afzender.
+- **Jouw gekozen antwoord is duidelijk herkenbaar:** na het versturen krijgt het een wit/geel kader met het label "✓ jouw antwoord", de andere antwoorden worden gedimd (ook in de uitslag blijft je keuze omkaderd). Tekst in de proefpagina is standaard wit.
 - Tests: `tests/v152.test.js`, `tests/live/v152-live.js`. Versie: **2026.2.51.152**.
 
 ## v2026.2.51.151 — PyBlitz: live quiz in je klassessie

@@ -13,7 +13,7 @@
   // stijl
   if (!document.getElementById('pb-css')) {
     const l = document.createElement('link'); l.id = 'pb-css'; l.rel = 'stylesheet';
-    l.href = '/pyblitz.css?v=' + (window.__pcfVersion || '2026.2.51.152'); document.head.appendChild(l);
+    l.href = '/pyblitz.css?v=' + (window.__pcfVersion || '2026.2.51.154'); document.head.appendChild(l);
   }
 
   let overlay = null, ui = null, gameId = null, laatsteSync = 0;
