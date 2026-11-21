@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>PyBlitz — meedoen</title>
+  <link rel="stylesheet" href="/pyblitz.css?v=v2026.2.51.152"/>
+  <link rel="icon" href="/assets/favicon.png" type="image/png">
+</head>
+<body class="pb-play-body">
+<main class="pb-play-kaart" id="pb-join">
+  <h1>⚡ PyBlitz</h1>
+  <p>Doe mee met de quiz van je leerkracht. Vul de code in die op het scherm staat.</p>
+  <div id="pb-fout" class="pb-play-fout" role="alert" hidden></div>
+  <form id="pb-form" autocomplete="off">
+    <label for="pb-pin">Code</label>
+    <input id="pb-pin" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" required/>
+    <label for="pb-naam" style="margin-top:12px;display:block">Jouw naam</label>
+    <input id="pb-naam" maxlength="20" autocomplete="nickname" required/>
+    <button class="pb-btn pb-btn-groot" type="submit" style="margin-top:16px;width:100%">Meedoen</button>
+  </form>
+</main>
+<div id="pb-spel" class="pb-play-spel" hidden><div class="pb-root" id="pb-root"></div></div>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/pyblitz-ui.js?v=v2026.2.51.152"></script>
+<script src="/play.js?v=v2026.2.51.152"></script>
+</body>
+</html>

@@ -13,6 +13,7 @@
     // melding die daarop wachtte) merkbaar rapper hersteld is.
     ? io({ reconnectionDelay: 200, reconnectionDelayMax: 1200 })
     : { on: () => {}, emit: () => {}, off: () => {}, connected: false };
+  window.__pcfSocket = socket;   // v151: PyBlitz-overlay gebruikt dezelfde websocket
   const page = location.pathname.split('/').pop() || 'index.html';
 
   // Bugfix (sprint 62.2): "mijn-klassen.html mist een footer" — en potentieel andere
@@ -1614,13 +1615,11 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
         // Sprint 86: én enkel als de toets/taak ZELF nog niet afgelopen is (niet gestopt,
         // deadline nog niet verstreken) — anders kan de leerling er sowieso niet meer in
         // (quiz_start weigert dat altijd), en zou de knop iets beloven dat niet meer kan.
-        const heropenKnop = (st.submittedAt && d.kanHeropenen)
-          ? `<button class="btn btn-muted small" style="font-size:0.78rem;padding:2px 8px;"
-               onclick="heropenLeerling('${code}','${st.id}','${escapeHtml(st.name).replace(/'/g, "\\'")}')"
-               title="Zet deze toets/taak terug open zodat de leerling verder kan werken">↺ Heropenen</button>`
-          : st.submittedAt && !d.kanHeropenen
-            ? `<span class="muted" style="font-size:0.78rem;" title="${d.stoppedAt ? 'Deze toets/taak is gestopt' : 'De deadline is al verstreken'} — heropenen kan dan niet meer (de leerling kan er sowieso niet meer in)">—</span>`
-            : '<span class="muted" style="font-size:0.78rem;">—</span>';
+        // v143: één knop, in élke toestand (gestopt, deadline voorbij, automatisch ingediend, uit het scherm
+        // gegaan, verwijderd, offline). De eigen eindtijd van de leerling blijft ongewijzigd.
+        const heropenKnop = `<button class="btn btn-muted small" style="font-size:0.78rem;padding:2px 8px;"
+               onclick="herstelLeerling('${code}','${st.id}','${escapeHtml(st.name).replace(/'/g, "\\'")}')"
+               title="Zet deze leerling terug in de toets, met zijn eigen eindtijd">🔓 Toegang herstellen</button>`;
         // Sprint 89: "hoeveel vragen al beantwoord?" was hier voorheen nergens te zien —
         // enkel de globale status (op tijd/te laat/...), niet HOEVER een leerling al staat.
         // Deze chip toont dat altijd (X/Y), en opent bij klikken hetzelfde soort overzicht
@@ -1663,13 +1662,10 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
              </tr></thead><tbody>${d.students.map(rij).join('')}</tbody></table></div>
            <p class="muted" style="font-size:0.78rem;margin:6px 0 0;">
              Gewettigd afwezig en 🕓 bezig tellen niet mee voor het klasgemiddelde. 🚫 auto-ingediend
-             (tabwissel) telt wél mee — gebruik "Heropenen" als je die leerling een nieuwe kans wil geven.
+             (tabwissel) telt wél mee — gebruik "Toegang herstellen" als je die leerling terug in de toets wil laten.
              🟢 = nu live verbonden. Klik op de voortgang (bv. "7/10") voor een overzicht per
-             vraag. "Heropenen" zet een per ongeluk of automatisch ingediende
-             toets/taak terug open voor die leerling (bestaande antwoorden blijven staan).
-             ${!d.kanHeropenen ? `Deze toets/taak is zelf ${d.stoppedAt ? 'gestopt' : 'al voorbij (deadline verstreken)'} —
-             heropenen kan dan niet meer, want de leerling kan er sowieso niet meer in. Verleng eerst de
-             deadline via "Bewerken" als je dat toch nog wil.` : ''}</p>`
+             vraag. "Toegang herstellen" werkt altijd, ook als de ${'toets/taak'} gestopt of verlopen is: de leerling krijgt zijn
+             eigen eindtijd (start + duur) terug, bewust bevestigde vragen blijven dicht en tabwissels blijven gelogd.</p>`
         : '<span class="muted" style="font-size:0.85rem;">Geen leerlingen in deze klas voor dit schooljaar.</span>';
 
       const extras = (d.extras && d.extras.length)
@@ -1703,6 +1699,7 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       { id: 'gelezen_1x', tekst: 'Ik heb de leerstof 1 keer gelezen.' },
       { id: 'gelezen_meermaals', tekst: 'Ik heb de leerstof meerdere keren gelezen.' },
       { id: 'grondig_geleerd', tekst: 'Ik heb de leerstof grondig geleerd.' },
+      { id: 'nvt', tekst: 'Niet van toepassing.' },
     ] },
     { id: 'verwerking', titel: 'Verwerking van de leerstof', items: [
       { id: 'samenvatting', tekst: 'Ik heb een samenvatting gemaakt.' },
@@ -1710,17 +1707,20 @@ socket.on('connect',      () => updateConnectionStatus('connected'));
       { id: 'begrippenlijst', tekst: 'Ik heb een begrippenlijst geleerd.' },
       { id: 'extra_uitleg', tekst: 'Ik heb extra uitleg gevraagd (aan de leerkracht of een klasgenoot).' },
       { id: 'ondervraagd', tekst: 'Iemand heeft mij ondervraagd.' },
+      { id: 'nvt', tekst: 'Niet van toepassing.' },
     ] },
     { id: 'oefenen', titel: 'Oefenen', items: [
       { id: 'oefeningen_gemaakt', tekst: 'Ik heb oefeningen gemaakt.' },
       { id: 'oefeningen_herhaald', tekst: 'Ik heb oefeningen opnieuw gemaakt / herhaald.' },
       { id: 'extra_oefeningen', tekst: 'Ik heb extra oefeningen gemaakt (online of in het boek).' },
       { id: 'geen_oefeningen', tekst: 'Ik heb geen oefeningen gemaakt.' },
+      { id: 'nvt', tekst: 'Niet van toepassing.' },
     ] },
     { id: 'planning', titel: 'Planning', items: [
       { id: 'op_tijd', tekst: 'Ik ben op tijd begonnen met leren (enkele dagen op voorhand).' },
       { id: 'laat', tekst: 'Ik ben laat begonnen (de dag ervoor).' },
       { id: 'zelfde_dag', tekst: 'Ik ben pas op de dag zelf begonnen.' },
+      { id: 'nvt', tekst: 'Niet van toepassing.' },
     ] },
     { id: 'aandachtspunten', titel: 'Aandachtspunten', items: [
       { id: 'niet_voldoende', tekst: 'Ik heb niet (voldoende) geleerd.' },
@@ -1860,6 +1860,15 @@ const INCIDENT_LABELS = {
   tweede_scherm: ['🖥️ 2e scherm', 'Tweede scherm aangesloten tijdens de toets'],
   tweede_scherm_start: ['🖥️ 2e scherm bij start', 'Probeerde te starten met een tweede scherm (toets opende niet)'],
   fullscreen_uit: ['⛶ volledig scherm uit', 'Verliet het volledige scherm'], tabwissel: ['🔀 tabwissel', 'Wisselde van tabblad of venster'],
+  weg_van_toets: ['🚪 weg uit toets', 'Was weg uit de toets (tabblad, venster of programma)'],
+  toegang_hersteld: ['🔓 toegang hersteld', 'De leerkracht herstelde de toegang'],
+  startbevestiging: ['✅ start bevestigd', 'Bevestigde bij de start dat andere tabbladen gesloten zijn'],
+  dubbel_tabblad: ['🗂️ dubbel tabblad', 'Toets in twee tabbladen geopend'],
+  grote_invoer: ['⚡ grote invoer', 'Veel tekst in één keer verschenen (zonder plakken)'],
+  weinig_toetsen: ['⌨️ weinig toetsen', 'Antwoord verscheen met opvallend weinig toetsaanslagen'],
+  sneltoets: ['⌘ sneltoets', 'Verdachte sneltoets (print, bron, ontwikkelaarstools)'],
+  venster_kleiner: ['🪟 venster kleiner', 'Venster werd plots kleiner (split-screen?)'],
+  wijziging_na_terugkeer: ['↩️ wijziging na terugkeer', 'Antwoord veranderde sterk vlak na terugkeer uit een ander venster'],
 };
 function incidentChips(inc) {
   const keys = Object.keys(inc || {});
@@ -1870,25 +1879,118 @@ function incidentChips(inc) {
   }).join('');
 }
 
-window.heropenLeerling = async function(code, studentId, studentName) {
-    const ok = await pyConfirm({
-      title: 'Heropenen?',
-      body: `De toets/taak van "${studentName}" terug openzetten? De leerling kan dan verder ` +
-            `werken en later opnieuw indienen. Bestaande antwoorden blijven behouden.`,
-      confirmLabel: 'Heropenen',
+// v143: Toegang herstellen. Toont eerst wat de leerling nog heeft (eigen eindtijd, hoe lang hij weg is),
+// met een optioneel veld voor extra minuten (standaard 0). De eindtijd wordt nooit herberekend.
+function fmtDuurKort(sec) {
+  if (sec == null) return '—';
+  const m = Math.floor(sec / 60), s = sec % 60;
+  if (m >= 60) return Math.floor(m / 60) + ' u ' + String(m % 60).padStart(2, '0') + ' min';
+  return m + ' min ' + String(s).padStart(2, '0') + ' s';
+}
+window.herstelLeerling = async function(code, studentId, studentName, opties) {
+  // v149: ook aanroepbaar vanuit het verbeterscherm: opties = { bron:'nazicht', verbeterd:{score,max}|null, naAfloop:fn }
+  opties = opties || {};
+  let info;
+  try {
+    const r = await fetch('/api/quiz-sessions/' + code + '/roster/' + encodeURIComponent(studentId) + '/herstel-info?name=' + encodeURIComponent(studentName));
+    info = await r.json();
+    if (!r.ok) throw new Error(info.error || r.status);
+  } catch (e) { await pyAlert('Kon de gegevens niet laden: ' + e.message, 'error'); return; }
+  const uur = (t) => new Date(t).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' });
+  const rijen = [];
+  if (info.heeftTimer) {
+    rijen.push(info.tijdOp
+      ? `<li><strong>⏱ Zijn tijd is op</strong> (eindtijd was ${uur(info.eigenEind)}). Zonder extra minuten sluit de toets meteen weer af.</li>`
+      : `<li><strong>⏱ Hij heeft nog ${fmtDuurKort(info.resterendSec)}</strong> (eindtijd ${uur(info.eigenEind)}${info.modus === 'beide' ? ', de kortste van zijn duur en de deadline' : ''}). Die tijd loopt gewoon door: de tijd dat hij weg was wordt niet teruggegeven.</li>`);
+  } else if (info.modus === 'deadline') {
+    const dl = info.accessUntil ? new Date(info.accessUntil).toLocaleString('nl-BE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+    rijen.push('<li>Deze toets/taak heeft geen teller, enkel een deadline' + (dl ? ' (' + dl + ')' : '') + (info.terugval ? ': de deadline is voorbij, hij krijgt een kort venster van minstens 15 minuten.' : ': hij kan weer verder tot dan en wordt dan automatisch ingediend.') + '</li>');
+  } else {
+    rijen.push('<li>Deze toets/taak heeft geen teller en geen deadline' + (info.terugval ? ': hij krijgt een kort venster van minstens 15 minuten.' : '.') + '</li>');
+  }
+  if (info.ingediendOp) rijen.push(`<li>Ingediend om ${uur(info.ingediendOp)} (${fmtDuurKort(info.weggeSec)} geleden${info.ingediendDoor ? ', door: ' + escapeHtml(info.ingediendDoor) : ''}).</li>`);
+  else if (info.toestand.ingediend) rijen.push('<li>Staat in de sessie als ingediend.</li>');
+  const st = [];
+  if (info.toestand.gestopt) st.push('toets gestopt'); if (info.toestand.deadlineVoorbij) st.push('deadline voorbij');
+  if (info.toestand.verwijderd) st.push('verwijderd uit de sessie'); if (!info.toestand.online) st.push('offline');
+  if (st.length) rijen.push('<li>Toestand: ' + st.join(', ') + '. Dat is geen probleem, herstellen werkt toch.</li>');
+  if (info.noBack && info.bevestigd) rijen.push(`<li>${info.bevestigd} vraag/vragen bewust bevestigd: die blijven dicht. Hij gaat verder op de eerste niet-bevestigde vraag.</li>`);
+  if (info.tabwissels) rijen.push(`<li>${info.tabwissels} tabwissel(s) blijven geregistreerd (voor je eigen strafpunten).</li>`);
+  // v149: één simpele vraag — "hoeveel tijd krijgt hij vanaf nu?" (0 = zijn eigen eindtijd behouden)
+  const eigenMogelijk = !!(info.heeftTimer && !info.tijdOp);
+  let minuten = (opties.bron === 'nazicht' || !eigenMogelijk) ? 10 : 0;   // 0 = eigen eindtijd
+  const presets = [5, 10, 15, 30];
+  const chipHtml = (m, label) => '<button type="button" class="herstel-chip btn btn-muted small" data-min="' + m + '">' + label + '</button>';
+  const verbeterdHtml = opties.verbeterd
+    ? '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:9px 12px;margin-bottom:12px;font-size:0.88rem;text-align:left;">✅ <strong>Al verbeterd (' +
+      opties.verbeterd.score + '/' + opties.verbeterd.max + ').</strong> Je scores en opmerkingen blijven bewaard; enkel vragen die hij wijzigt gaan terug naar “Te verbeteren”.</div>'
+    : '';
+  const p = pyConfirm({
+    title: '🔓 Toegang herstellen: ' + escapeHtml(studentName),
+    body: verbeterdHtml +
+          '<div style="font-weight:700;margin:2px 0 8px;">Hoeveel tijd krijgt hij vanaf nu?</div>' +
+          '<div style="display:flex;gap:6px;align-items:center;justify-content:center;flex-wrap:wrap;">' +
+          (eigenMogelijk ? chipHtml(0, 'Eigen eindtijd (' + fmtDuurKort(info.resterendSec) + ')') : '') +
+          presets.map(m => chipHtml(m, m + ' min')).join('') +
+          '<input id="herstel-extra" type="number" min="1" max="600" placeholder="min" style="width:70px;padding:6px;"/></div>' +
+          '<div id="herstel-voorbeeld" style="margin-top:12px;background:#eef2ff;border-radius:10px;padding:9px 12px;font-size:0.9rem;text-align:left;">…</div>' +
+          '<details style="margin-top:10px;text-align:left;font-size:0.85rem;color:var(--muted);"><summary style="cursor:pointer;">Details</summary>' +
+          '<ul style="margin:6px 0 0;padding-left:18px;">' + rijen.map(x => x.replace('<li>', '<li style="margin-bottom:4px;">')).join('') + '</ul></details>',
+    confirmLabel: 'Toegang herstellen', cancelLabel: 'Annuleren',
+  });
+  const voorbeeld = document.getElementById('herstel-voorbeeld');
+  const inp = document.getElementById('herstel-extra');
+  const chips = Array.prototype.slice.call(document.querySelectorAll('.herstel-chip'));
+  const confirmKnop = document.getElementById('py-modal-confirm');
+  let teller = 0;
+  const toonVoorbeeld = async () => {
+    chips.forEach(c => {
+      const aan = Number(c.dataset.min) === minuten && !(inp && inp.value && !presets.concat([0]).includes(minuten));
+      c.style.background = aan ? 'var(--primary,#2f9e5f)' : ''; c.style.color = aan ? '#fff' : '';
     });
-    if (!ok) return;
+    if (confirmKnop) confirmKnop.textContent = minuten > 0 ? 'Toegang herstellen voor ' + minuten + ' min' : 'Toegang herstellen';
+    const mijn = ++teller;
     try {
-      const fetcher = window.apiFetch || fetch;
-      const r = await fetcher('/api/quiz-sessions/' + code + '/roster/' + studentId + '/reopen', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentName }),
-      });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
-      toggleQuizRoster(code); toggleQuizRoster(code);
-    } catch (e) {
-      await pyAlert('Kon de toets/taak niet heropenen: ' + e.message, 'error');
-    }
+      const r = await fetch('/api/quiz-sessions/' + code + '/roster/' + encodeURIComponent(studentId) + '/herstel-info?name=' + encodeURIComponent(studentName) +
+        '&extra=' + minuten + '&modus=' + (minuten > 0 ? 'vanafNu' : 'eind'));
+      const d = await r.json(); if (mijn !== teller || !voorbeeld) return;
+      const eind = d.eigenEind || d.individueelTot;
+      const nu = Date.now();
+      voorbeeld.innerHTML = eind
+        ? '⏱ Hij kan verder tot <strong>' + uur(eind) + '</strong> (nog ' + fmtDuurKort(Math.max(0, Math.round((eind - nu) / 1000))) + '). Daarna wordt zijn werk automatisch opnieuw ingediend; er wordt nooit een 0 gegeven, wat hij heeft blijft staan.'
+        : 'Hij kan weer verder zonder tijdslimiet.';
+      const langer = minuten > 0 && d.eigenEind && d.eigenEind > nu + minuten * 60000 + 30000;
+      if (langer) {
+        voorbeeld.style.background = '#fffbeb';
+        voorbeeld.innerHTML = '⚠ Zijn <strong>eigen eindtijd valt later</strong> (<strong>' + uur(d.eigenEind) + '</strong>, nog ' + fmtDuurKort(Math.max(0, Math.round((d.eigenEind - nu) / 1000))) +
+          '). Korter dan zijn eigen tijd kan niet: hij behoudt die. Daarna wordt zijn werk automatisch opnieuw ingediend (nooit een 0).';
+        if (confirmKnop) confirmKnop.textContent = 'Toegang herstellen';
+      } else voorbeeld.style.background = '';
+    } catch (e) { if (voorbeeld) voorbeeld.textContent = ''; }
+  };
+  chips.forEach(c => c.addEventListener('click', () => { minuten = Number(c.dataset.min); if (inp) inp.value = ''; toonVoorbeeld(); }));
+  if (inp) inp.addEventListener('input', () => { const n = Math.max(0, Math.min(600, parseInt(inp.value) || 0)); if (n > 0) { minuten = n; toonVoorbeeld(); } });
+  toonVoorbeeld();
+  if (!(await p)) return;
+  const extraModus = minuten > 0 ? 'vanafNu' : 'eind';
+  try {
+    const fetcher = window.apiFetch || fetch;
+    const r = await fetcher('/api/quiz-sessions/' + code + '/roster/' + encodeURIComponent(studentId) + '/herstel', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studentName, extraMinuten: minuten, extraModus, bron: opties.bron || 'monitoring' }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || r.status);
+    pyToast('Toegang hersteld voor ' + studentName + (d.plan && d.plan.eigenEind ? ' · tot ' + uur(d.plan.eigenEind) : (d.plan && d.plan.individueelTot ? ' · tot ' + uur(d.plan.individueelTot) : '')) + '.', 'success');
+    if (typeof opties.naAfloop === 'function') await opties.naAfloop();
+    else if (typeof toggleQuizRoster === 'function') { toggleQuizRoster(code); toggleQuizRoster(code); }
+  } catch (e) { await pyAlert('Herstellen mislukt: ' + e.message, 'error'); }
+};
+
+window.heropenLeerling = function(code, studentId, studentName) {
+    // v150: "Heropenen" gaf bij een toets met timer telkens maar 1 minuut (zijn eigen timer was al om).
+    // Het gebruikt nu hetzelfde venster als "Toegang herstellen": jij kiest hoeveel tijd hij vanaf nu krijgt.
+    return window.herstelLeerling(code, studentId, studentName, { bron: 'heropenen' });
   };
 
   window.duplicateQuiz = async function(code) {
@@ -2156,6 +2258,7 @@ window.heropenLeerling = async function(code, studentId, studentName) {
         if (code !== undefined) setLS('free_code', code);
       }, 5000);
     })();
+    let _vrijAlsLeerkracht = false;   // v141: ook nodig bij herverbinden
     // Sprint 74: de identiteit komt bij voorkeur van de SERVER (de leerling-sessie), niet
     // uit localStorage. Anders stond een ingelogde leerling hier als "Gast Gast", omdat
     // het keuzescherm de naam onder een andere sleutel bewaarde. localStorage blijft de
@@ -2165,7 +2268,24 @@ window.heropenLeerling = async function(code, studentId, studentName) {
       let className = getLS('freeStudentClass', '');
       let ingelogd = false;
 
-      try {
+      // v141: geopend vanuit het leerkrachtmenu (?leerkracht=1) → onder de naam van de leerkracht
+      let alsLeerkracht = false;
+      if (new URLSearchParams(location.search).get('leerkracht') === '1') {
+        try {
+          const rl = await fetch('/api/me');
+          if (rl.ok) {
+            const l = await rl.json();
+            name = l.displayName || l.username || 'Leerkracht'; className = 'Leerkracht'; alsLeerkracht = true; _vrijAlsLeerkracht = true;
+            // de leerlingenknoppen bovenaan vervangen door een weg terug naar de leerkrachtkant
+            const terug = document.querySelector('.top-actions a[href="/student-thuis.html"]');
+            if (terug) { terug.href = '/teacher-sessions.html'; terug.textContent = '← Sessieoverzicht'; }
+            const stop = document.querySelector('.top-actions a[href="/index.html"]');
+            if (stop) stop.remove();
+          }
+        } catch (e) { /* geen leerkrachtsessie: dan gewoon als gast */ }
+      }
+
+      if (!alsLeerkracht) try {
         const r = await fetch('/api/student/me');
         if (r.ok) {
           const me = await r.json();
@@ -2185,11 +2305,10 @@ window.heropenLeerling = async function(code, studentId, studentName) {
         else classBadge.textContent = 'Gast';
       }
 
-      setLS('freeStudentName', name);
-      setLS('freeStudentClass', className);
+      if (!alsLeerkracht) { setLS('freeStudentName', name); setLS('freeStudentClass', className); }   // leerkrachtnaam niet in de leerlingen-terugval bewaren
 
       // Herverbinden of nieuw joinen
-      socket.emit('student_join_free', { name, className });
+      socket.emit('student_join_free', { name, className, leerkracht: alsLeerkracht });
     })();
 
     // Sprint 51-fix: bij een oneindige lus bleef de "Run"-knop op sommige apparaten
@@ -2213,7 +2332,7 @@ window.heropenLeerling = async function(code, studentId, studentName) {
       _freeHadDisconnected = false;
       const name = getLS('freeStudentName', '') || 'Gast';
       const className = getLS('freeStudentClass', '');
-      socket.emit('student_join_free', { name, className });
+      socket.emit('student_join_free', _vrijAlsLeerkracht ? { leerkracht: true } : { name, className });
       // Reset ook de lokale UI-status defensief, voor het geval het server-antwoord
       // uitblijft of vertraagd is.
       _freeRunActive = false;
@@ -2574,6 +2693,7 @@ window.heropenLeerling = async function(code, studentId, studentName) {
       qs('tfs-editor-slot')?.appendChild(document.querySelector('.workspace .editor-shell'));
       qs('tfs-slot-opdracht')?.appendChild(qs('opdracht-compose'));
       qs('tfs-slot-voorbeeld')?.appendChild(qs('code-compose'));
+      qs('tfs-slot-link')?.appendChild(qs('link-compose'));
       qs('teacher-fullscreen-overlay')?.classList.remove('hidden');
       { // v126: eerder gekozen breedte binnen de grenzen houden + in/uitklapstand toepassen
         const ov = qs('teacher-fullscreen-overlay'); const nu = ov?.style.getPropertyValue('--tfs-sidebar-w');
@@ -2596,6 +2716,8 @@ window.heropenLeerling = async function(code, studentId, studentName) {
       if (opdracht) qs('tfs-anchor-announcement')?.insertAdjacentElement('afterend', opdracht);
       const voorbeeld = qs('code-compose');
       if (voorbeeld) qs('tfs-anchor-code')?.insertAdjacentElement('afterend', voorbeeld);
+      const linkKaart = qs('link-compose');
+      if (linkKaart) qs('tfs-anchor-link')?.insertAdjacentElement('afterend', linkKaart);
       qs('teacher-fullscreen-overlay')?.classList.add('hidden');
       setTimeout(() => editorStore.teacher?.layout(), 30);
       if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
@@ -2685,7 +2807,7 @@ window.heropenLeerling = async function(code, studentId, studentName) {
     // v126: in- en uitklappen in volledig scherm (opdracht, voorbeelden, timerblok). De keuze wordt onthouden;
     // het timerblok start op kleine schermen ingeklapt zolang je nog niets koos.
     const TFS_UI_KEY = 'pcf-tfs-ui';
-    let _tfsUi = { opd: false, voor: false, timer: null };
+    let _tfsUi = { opd: false, voor: false, link: false, timer: null };
     try { const b = JSON.parse(localStorage.getItem(TFS_UI_KEY) || 'null'); if (b && typeof b === 'object') _tfsUi = { ..._tfsUi, ...b }; } catch { /* geen opslag */ }
     const tfsUiBewaren = () => { try { localStorage.setItem(TFS_UI_KEY, JSON.stringify(_tfsUi)); } catch { /* stil */ } };
     const tfsTimerIngeklapt = () => (_tfsUi.timer === null ? (window.innerHeight < 800 || window.innerWidth < 1400) : Boolean(_tfsUi.timer));
@@ -2700,13 +2822,15 @@ window.heropenLeerling = async function(code, studentId, studentName) {
     function tfsUiToepassen() {
       qs('tfs-slot-opdracht')?.classList.toggle('tfs-collapsed', Boolean(_tfsUi.opd));
       qs('tfs-slot-voorbeeld')?.classList.toggle('tfs-collapsed', Boolean(_tfsUi.voor));
+      qs('tfs-slot-link')?.classList.toggle('tfs-collapsed', Boolean(_tfsUi.link));
       const links = document.querySelector('.tfs-top-left');
       links?.classList.toggle('tfs-opd-c', Boolean(_tfsUi.opd));
       links?.classList.toggle('tfs-voor-c', Boolean(_tfsUi.voor));
+      links?.classList.toggle('tfs-link-c', Boolean(_tfsUi.link));
       const timerC = tfsTimerIngeklapt();
       qs('tfs-top-controls')?.classList.toggle('tfs-timer-c', timerC);
-      document.querySelectorAll('[data-tfs-collapse]').forEach(b => b.setAttribute('aria-expanded', String(!_tfsUi[b.dataset.tfsCollapse === 'opdracht' ? 'opd' : 'voor'])));
-      qs('tfs-top-toggle')?.setAttribute('aria-expanded', String(!(_tfsUi.opd && _tfsUi.voor)));
+      document.querySelectorAll('[data-tfs-collapse]').forEach(b => b.setAttribute('aria-expanded', String(!_tfsUi[b.dataset.tfsCollapse === 'opdracht' ? 'opd' : b.dataset.tfsCollapse === 'link' ? 'link' : 'voor'])));
+      qs('tfs-top-toggle')?.setAttribute('aria-expanded', String(!(_tfsUi.opd && _tfsUi.voor && _tfsUi.link)));
       qs('tfs-timer-toggle')?.setAttribute('aria-expanded', String(!timerC));
       const pill = qs('tfs-timer-pill');
       if (pill) pill.classList.toggle('hidden', !(timerC && qs('tfs-timer-display')?.textContent.trim() !== '—' && qs('tfs-timer-display')?.textContent.trim() !== ''));
@@ -2714,12 +2838,12 @@ window.heropenLeerling = async function(code, studentId, studentName) {
       setTimeout(() => editorStore.teacher?.layout(), 30);
     }
     document.querySelectorAll('[data-tfs-collapse]').forEach(b => b.addEventListener('click', () => {
-      const k = b.dataset.tfsCollapse === 'opdracht' ? 'opd' : 'voor';
+      const k = b.dataset.tfsCollapse === 'opdracht' ? 'opd' : b.dataset.tfsCollapse === 'link' ? 'link' : 'voor';
       _tfsUi[k] = !_tfsUi[k]; tfsUiBewaren(); tfsUiToepassen();
     }));
     qs('tfs-top-toggle')?.addEventListener('click', () => {
-      const beideIn = _tfsUi.opd && _tfsUi.voor;
-      _tfsUi.opd = !beideIn; _tfsUi.voor = !beideIn; tfsUiBewaren(); tfsUiToepassen();
+      const beideIn = _tfsUi.opd && _tfsUi.voor && _tfsUi.link;
+      _tfsUi.opd = !beideIn; _tfsUi.voor = !beideIn; _tfsUi.link = !beideIn; tfsUiBewaren(); tfsUiToepassen();
     });
     qs('tfs-timer-toggle')?.addEventListener('click', () => { _tfsUi.timer = !tfsTimerIngeklapt(); tfsUiBewaren(); tfsUiToepassen(); });
     qs('tfs-timer-pill')?.addEventListener('click', () => { _tfsUi.timer = false; tfsUiBewaren(); tfsUiToepassen(); });
@@ -2980,6 +3104,8 @@ window.heropenLeerling = async function(code, studentId, studentName) {
     let _announcementDraftIdx = 0;
     let _codeDrafts = [''];
     let _codeDraftIdx = 0;
+    let _linkDrafts = [{ titel: '', url: '' }];   // v147
+    let _linkDraftIdx = 0;
     // v112: serverstand van een verstuurde reeks (leeg = geen reeks actief).
     let _reeksServer = { items: [], idx: 0 };
     let _serverDrafts = null;     // wat bij de sessie bewaard staat (of null)
@@ -2989,12 +3115,13 @@ window.heropenLeerling = async function(code, studentId, studentName) {
     function lokaalBewaren() {
       clearTimeout(_lokaalTimer);
       _lokaalTimer = setTimeout(() => {
-        try { localStorage.setItem(draftSleutel(), JSON.stringify({ o: _announcementDrafts, v: _codeDrafts })); } catch { /* stil */ }
+        try { localStorage.setItem(draftSleutel(), JSON.stringify({ o: _announcementDrafts, v: _codeDrafts, l: _linkDrafts })); } catch { /* stil */ }
       }, 400);
     }
     try {
       const b = JSON.parse(localStorage.getItem(draftSleutel()) || 'null');
       if (b && Array.isArray(b.o) && b.o.length) _announcementDrafts = b.o.map(t => rtSan(t));
+      if (b && Array.isArray(b.l) && b.l.length) _linkDrafts = b.l.map(l => ({ titel: String((l && l.titel) || ''), url: String((l && l.url) || '') }));
       if (b && Array.isArray(b.v) && b.v.length) _codeDrafts = b.v.map(t => String(t || ''));
       else {
         // oude, gedeelde opslag van v123 eenmalig overnemen
@@ -3003,9 +3130,10 @@ window.heropenLeerling = async function(code, studentId, studentName) {
       }
     } catch { /* geen opslag beschikbaar: gewoon leeg starten */ }
 
-    const lokaleStand = () => JSON.stringify({ o: _announcementDrafts.map(rtSan), v: _codeDrafts });
-    const heeftInhoud = () => _announcementDrafts.some(t => !rtIsLeeg(t)) || _codeDrafts.some(t => String(t || '').trim());
-    const serverStand = () => _serverDrafts ? JSON.stringify({ o: (_serverDrafts.opdrachten || []).map(rtSan), v: _serverDrafts.voorbeelden || [] }) : null;
+    const linksSchoon = (l) => (Array.isArray(l) && l.length ? l : [{ titel: '', url: '' }]).map(x => ({ titel: String((x && x.titel) || '').trim(), url: String((x && x.url) || '').trim() }));
+    const lokaleStand = () => JSON.stringify({ o: _announcementDrafts.map(rtSan), v: _codeDrafts, l: linksSchoon(_linkDrafts) });
+    const heeftInhoud = () => _announcementDrafts.some(t => !rtIsLeeg(t)) || _codeDrafts.some(t => String(t || '').trim()) || _linkDrafts.some(l => (l.url || '').trim() || (l.titel || '').trim());
+    const serverStand = () => _serverDrafts ? JSON.stringify({ o: (_serverDrafts.opdrachten || []).map(rtSan), v: _serverDrafts.voorbeelden || [], l: linksSchoon(_serverDrafts.links) }) : null;
     function draftsStatusRender() {
       const srv = serverStand();
       let tekst = '', klasse = '', laadZichtbaar = false;
@@ -3024,9 +3152,10 @@ window.heropenLeerling = async function(code, studentId, studentName) {
     function draftsToepassen(drafts) {
       _announcementDrafts = (drafts.opdrachten && drafts.opdrachten.length ? drafts.opdrachten : ['']).map(rtSan);
       _codeDrafts = (drafts.voorbeelden && drafts.voorbeelden.length ? drafts.voorbeelden : ['']).map(t => String(t || ''));
-      _announcementDraftIdx = 0; _codeDraftIdx = 0;
+      _linkDrafts = linksSchoon(drafts.links).map(l => ({ ...l }));
+      _announcementDraftIdx = 0; _codeDraftIdx = 0; _linkDraftIdx = 0;
       opdrZet(_announcementDrafts[0]);
-      announcementNavRender(); codeNavRender(); lokaalBewaren();
+      announcementNavRender(); codeNavRender(); if (window._linkNavRender) window._linkNavRender(); lokaalBewaren();
     }
     // Wordt bij elke sessiedata aangeroepen: de EERSTE keer vult dit een leeg schrijfblok met wat
     // bij de sessie bewaard staat; nadien overschrijft het nooit iets zonder dat jij het vraagt.
@@ -3040,7 +3169,7 @@ window.heropenLeerling = async function(code, studentId, studentName) {
     };
     document.querySelectorAll('[data-drafts-save]').forEach(btn => btn.addEventListener('click', () => {
       _announcementDrafts[_announcementDraftIdx] = opdrKrijg();
-      const payload = { opdrachten: _announcementDrafts.map(rtSan), voorbeelden: _codeDrafts };
+      const payload = { opdrachten: _announcementDrafts.map(rtSan), voorbeelden: _codeDrafts, links: linksSchoon(_linkDrafts) };
       let klaar = false;
       const stop = setTimeout(() => { if (!klaar && window.pyAlert) pyAlert('Bewaren duurde te lang — controleer de verbinding en probeer opnieuw.', 'warn'); }, 8000);
       socket.emit('teacher_save_drafts', payload, (r) => {
@@ -3048,7 +3177,7 @@ window.heropenLeerling = async function(code, studentId, studentName) {
         if (r && r.ok) {
           _serverDrafts = { ...payload, savedAt: r.savedAt };
           draftsStatusRender();
-          if (window.pyToast) pyToast('Opdrachten en voorbeelden bewaard bij de sessie.', 'success');
+          if (window.pyToast) pyToast('Opdrachten, voorbeelden en links bewaard bij de sessie.', 'success');
         } else if (window.pyAlert) pyAlert('Bewaren mislukt: ' + ((r && r.error) || 'onbekende fout'), 'error');
       });
     }));
@@ -3290,6 +3419,57 @@ window.heropenLeerling = async function(code, studentId, studentName) {
     codeNavRender();
     draftsStatusRender();
 
+    // ── v147: link voor de leerlingen ─────────────────────────────────────────────────────
+    (function setupLinkBlok() {
+      const titelEl = qs('link-titel-input'), urlEl = qs('link-url-input');
+      if (!urlEl) return;
+      let actief = null;   // wat de leerlingen nu zien (uit de sessiestand)
+      const norm = (u) => { u = String(u || '').trim(); return u && !/^[a-z][a-z0-9+.-]*:/i.test(u) ? 'https://' + u.replace(/^\/+/, '') : u; };
+      const geldig = (u) => { try { return /^https?:$/.test(new URL(norm(u)).protocol) && /\./.test(new URL(norm(u)).hostname); } catch { return false; } };
+      function status() {
+        const el = qs('link-status'); if (!el) return;
+        el.textContent = '';
+        if (!actief) { el.classList.add('hidden'); return; }
+        el.classList.remove('hidden');
+        el.append('Bij de leerlingen zichtbaar: ');
+        const b = document.createElement('b'); b.textContent = actief.titel; el.appendChild(b); el.append(' · ');
+        const a = document.createElement('a'); a.textContent = '🗑 bij leerlingen verwijderen';
+        a.addEventListener('click', () => socket.emit('teacher_clear_link', {}, (r) => { if (r && !r.ok && window.pyAlert) pyAlert(r.error || 'Verwijderen mislukt.', 'error'); }));
+        el.appendChild(a);
+      }
+      function render() {
+        const l = _linkDrafts[_linkDraftIdx] || { titel: '', url: '' };
+        if (titelEl.value !== l.titel) titelEl.value = l.titel;
+        if (urlEl.value !== l.url) urlEl.value = l.url;
+        qs('link-nav-pos').textContent = `${_linkDraftIdx + 1} / ${_linkDrafts.length}`;
+        qs('link-nav-prev-btn').disabled = _linkDraftIdx === 0;
+        qs('link-nav-next-btn').disabled = _linkDraftIdx >= _linkDrafts.length - 1;
+        const n = _linkDrafts.filter(x => (x.url || '').trim()).length;
+        const c = qs('tfs-count-link'); if (c) c.textContent = `(${n})`;
+        status();
+      }
+      window._linkNavRender = () => { render(); draftsStatusRender(); };
+      window.linkSync = (link) => { actief = link || null; status(); };
+      const wijzig = () => { _linkDrafts[_linkDraftIdx] = { titel: titelEl.value, url: urlEl.value }; lokaalBewaren(); render(); draftsStatusRender(); };
+      titelEl.addEventListener('input', wijzig); urlEl.addEventListener('input', wijzig);
+      qs('link-nav-prev-btn').addEventListener('click', () => { if (_linkDraftIdx > 0) { _linkDraftIdx--; render(); } });
+      qs('link-nav-next-btn').addEventListener('click', () => { if (_linkDraftIdx < _linkDrafts.length - 1) { _linkDraftIdx++; render(); } });
+      qs('link-nav-add-btn').addEventListener('click', () => { _linkDrafts.push({ titel: '', url: '' }); _linkDraftIdx = _linkDrafts.length - 1; lokaalBewaren(); render(); draftsStatusRender(); urlEl.focus(); });
+      qs('link-clear-btn').addEventListener('click', () => { _linkDrafts[_linkDraftIdx] = { titel: '', url: '' }; lokaalBewaren(); render(); draftsStatusRender(); urlEl.focus(); });
+      qs('link-open-btn').addEventListener('click', () => {
+        if (!geldig(urlEl.value)) { if (window.pyAlert) pyAlert('Vul eerst een geldige link in (https://…).', 'warn'); return; }
+        window.open(norm(urlEl.value), '_blank', 'noopener,noreferrer');
+      });
+      qs('link-send-btn').addEventListener('click', () => {
+        if (!geldig(urlEl.value)) { if (window.pyAlert) pyAlert('Vul eerst een geldige link in (https://…).', 'warn'); return; }
+        socket.emit('teacher_send_link', { titel: titelEl.value, url: urlEl.value }, (r) => {
+          if (r && r.ok) { if (window.pyToast) pyToast('Link staat bij de leerlingen.', 'success'); }
+          else if (window.pyAlert) pyAlert((r && r.error) || 'Versturen mislukt.', 'error');
+        });
+      });
+      render();
+    })();
+
     // ── v126: cursus tonen aan de leerlingen ──────────────────────────────────────────────
     (function setupCursusBediening() {
       const BASIS = 'https://cursus.pycodeflow.org/';
@@ -3398,6 +3578,7 @@ window.heropenLeerling = async function(code, studentId, studentName) {
       updateAnnouncement('teacher', data.announcement || '');
       if (window.draftsSync) window.draftsSync(data.drafts);
       if (window.cursusSync) window.cursusSync(data.cursus);
+      if (window.linkSync) window.linkSync(data.link);
       if (window.announcementReeksSync) window.announcementReeksSync(data);
 
       setStatusBox(qs('teacher-status-box'), data.statusText, data.statusType);
@@ -3730,6 +3911,53 @@ async function applyStudentEditorFromState() {
     });
 
 
+// v147: link van de leerkracht. Popup met titel + knop; verdwijnt na een klik of als de leerkracht de link wist.
+// Sluit je de popup zonder te openen, dan blijft een knop staan zodat je de link niet kwijt bent.
+let _linkHuidig = null, _linkPopupGetoond = null;
+function linkGeklikt(id) { try { return sessionStorage.getItem('pcf-link-geklikt') === id; } catch { return false; } }
+function linkPopupSluit() { document.getElementById('student-link-overlay')?.remove(); }
+function linkOpenEnWeg(link) {
+  try { sessionStorage.setItem('pcf-link-geklikt', link.id); } catch { /* stil */ }
+  window.open(link.url, '_blank', 'noopener,noreferrer');
+  linkPopupSluit();
+  studentLinkToepassen(_linkHuidig);
+}
+function studentLinkToepassen(link) {
+  const kaart = qs('student-link-card'), chip = qs('student-link-chip');
+  const geldig = link && typeof link.url === 'string' && /^https?:\/\//i.test(link.url) && link.id;
+  _linkHuidig = geldig ? link : null;
+  if (!_linkHuidig || linkGeklikt(_linkHuidig.id)) {
+    linkPopupSluit(); _linkPopupGetoond = null;
+    kaart?.classList.add('hidden');
+    return;
+  }
+  const open = !!document.getElementById('student-link-overlay');
+  if (_linkPopupGetoond !== _linkHuidig.id) {
+    _linkPopupGetoond = _linkHuidig.id;
+    linkPopupSluit();
+    const ov = document.createElement('div');
+    ov.id = 'student-link-overlay'; ov.className = 'link-overlay';
+    const box = document.createElement('div'); box.className = 'link-overlay-box'; box.setAttribute('role', 'dialog');
+    const kop = document.createElement('div'); kop.className = 'link-overlay-kop'; kop.textContent = '🔗 Link van je leerkracht';
+    const t = document.createElement('div'); t.className = 'link-popup-titel'; t.textContent = _linkHuidig.titel || _linkHuidig.domein || _linkHuidig.url;
+    const d = document.createElement('div'); d.className = 'link-popup-domein'; d.textContent = 'Opent in een nieuw tabblad: ' + (_linkHuidig.domein || '');
+    const acties = document.createElement('div'); acties.className = 'link-overlay-acties';
+    const later = document.createElement('button'); later.type = 'button'; later.className = 'btn btn-muted small'; later.textContent = 'Later';
+    later.addEventListener('click', () => { linkPopupSluit(); studentLinkToepassen(_linkHuidig); });
+    const go = document.createElement('button'); go.type = 'button'; go.className = 'btn btn-primary small'; go.textContent = 'Link openen ↗';
+    go.addEventListener('click', () => linkOpenEnWeg(_linkHuidig));
+    acties.append(later, go); box.append(kop, t, d, acties); ov.appendChild(box);
+    document.body.appendChild(ov); go.focus();
+  }
+  if (chip && kaart) {
+    chip.textContent = '';
+    chip.append((_linkHuidig.titel || _linkHuidig.domein) + ' ↗ ');
+    const sm = document.createElement('small'); sm.textContent = _linkHuidig.domein || ''; chip.appendChild(sm);
+    chip.onclick = () => linkOpenEnWeg(_linkHuidig);
+    kaart.classList.toggle('hidden', !!document.getElementById('student-link-overlay'));
+  }
+}
+
 // v126: cursus-zijpaneel van de leerling. Aan/uit en de pagina komen van de leerkracht; open en dicht
 // beslist de leerling zelf. Bij een wijziging door de leerkracht (aangezet of andere pagina) klapt het open.
 let _cursusHuidig = { enabled: false, url: '' };
@@ -3820,6 +4048,7 @@ async function applyStudentState(data) {
   }
   updateAnnouncement('student', data.announcement || '');
   studentCursusToepassen(data.cursus, false);
+  studentLinkToepassen(data.link || null);
   updateStudentOpdrachtNav(data);
   updateStudentRunAvailability(studentWorkspaceState);
   updateTeacherOnlineOverlay(data.teacherOnline);
@@ -3967,6 +4196,7 @@ function updateTeacherOnlineOverlay(teacherOnline) {
       updateAnnouncement('student', text || '');
     });
     socket.on('cursus_update', (c) => studentCursusToepassen(c, true));
+    socket.on('link_update', (d) => studentLinkToepassen(d && d.link));
     socket.on('timer_update', ({ remainingMs, running, totalMs }) => {
       const display = qs('student-timer-display');
       if (!display) return;
@@ -4471,7 +4701,7 @@ window.pyHeropenPicker = function (opties) {
             '<input type="checkbox" id="py-heropen-alle"/><span>Alles selecteren</span></label>' +
           '<div id="py-heropen-lijst" style="max-height:260px;overflow-y:auto;">' + rijen + '</div>' +
           '<p class="muted" style="font-size:0.78rem;margin-top:8px;">Enkel de hier aangevinkte leerlingen krijgen opnieuw toegang, tot het ' +
-            'hierboven gekozen tijdstip — ook al is deze toets/taak zelf al gestopt of voorbij. Voor iedereen ' +
+            'hierboven gekozen tijdstip (zo lang kunnen ze werken, ook als hun eigen timer al om was) — ook al is deze toets/taak zelf al gestopt of voorbij. Voor iedereen ' +
             'die niet aangevinkt is, verandert er niets.</p>' +
         '</div>' +
         '<div id="py-modal-actions">' +

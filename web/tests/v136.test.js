@@ -95,7 +95,7 @@ test('timing: kort na elkaar ingediend geeft extra punt; incidenten als context'
   const rijen = [rij('1', 'q1', { code: code1, submitted_at: 5000000 }), rij('2', 'q1', { code: code1, submitted_at: 5030000 })];
   const rap = g.bouwRapport(g.eenhedenUit(rijen), [{ studentId: '1', type: 'paste', at: 1 }, { studentId: '1', type: 'tab_switch', at: 2 }]);
   assert.strictEqual(rap.paren[0].tijdsverschilIndienenSec, 30);
-  assert.deepStrictEqual(rap.paren[0].context['1'], { plakken: 1, tabwissel: 1, andere: 0 });
+  assert.deepStrictEqual(rap.paren[0].context['1'], { plakken: 1, tabwissel: 1, andere: 0, plakkenPerVraag: { '?': 1 } });   // v144: per vraag
 });
 
 test('samengestelde vraag: tekstonderdelen apart vergeleken', () => {

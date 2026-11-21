@@ -362,6 +362,8 @@ const ENQUETE_CATEGORIEEN = [
       { id: 'gelezen_1x', tekst: 'Ik heb de leerstof 1 keer gelezen.' },
       { id: 'gelezen_meermaals', tekst: 'Ik heb de leerstof meerdere keren gelezen.' },
       { id: 'grondig_geleerd', tekst: 'Ik heb de leerstof grondig geleerd.' },
+      // v143: een uitweg voor wie dit onderdeel niet gedaan heeft — exclusief, zoals 'geen aandachtspunten'.
+      { id: 'nvt', tekst: 'Niet van toepassing.', exclusief: true },
     ],
   },
   {
@@ -373,6 +375,8 @@ const ENQUETE_CATEGORIEEN = [
       { id: 'begrippenlijst', tekst: 'Ik heb een begrippenlijst geleerd.' },
       { id: 'extra_uitleg', tekst: 'Ik heb extra uitleg gevraagd (aan de leerkracht of een klasgenoot).' },
       { id: 'ondervraagd', tekst: 'Iemand heeft mij ondervraagd.' },
+      // v143: een uitweg voor wie dit onderdeel niet gedaan heeft — exclusief, zoals 'geen aandachtspunten'.
+      { id: 'nvt', tekst: 'Niet van toepassing.', exclusief: true },
     ],
   },
   {
@@ -383,6 +387,8 @@ const ENQUETE_CATEGORIEEN = [
       { id: 'oefeningen_herhaald', tekst: 'Ik heb oefeningen opnieuw gemaakt / herhaald.' },
       { id: 'extra_oefeningen', tekst: 'Ik heb extra oefeningen gemaakt (online of in het boek).' },
       { id: 'geen_oefeningen', tekst: 'Ik heb geen oefeningen gemaakt.' },
+      // v143: een uitweg voor wie dit onderdeel niet gedaan heeft — exclusief, zoals 'geen aandachtspunten'.
+      { id: 'nvt', tekst: 'Niet van toepassing.', exclusief: true },
     ],
   },
   {
@@ -392,6 +398,8 @@ const ENQUETE_CATEGORIEEN = [
       { id: 'op_tijd', tekst: 'Ik ben op tijd begonnen met leren (enkele dagen op voorhand).' },
       { id: 'laat', tekst: 'Ik ben laat begonnen (de dag ervoor).' },
       { id: 'zelfde_dag', tekst: 'Ik ben pas op de dag zelf begonnen.' },
+      // v143: een uitweg voor wie dit onderdeel niet gedaan heeft — exclusief, zoals 'geen aandachtspunten'.
+      { id: 'nvt', tekst: 'Niet van toepassing.', exclusief: true },
     ],
   },
   {
@@ -448,6 +456,17 @@ function valideerZelfevaluatie({ stemming, antwoorden } = {}) {
   return { ok: true, fout: null };
 }
 
+
+// v143: nieuwe deadline tijdens een lopende toets/taak: een getal, in de toekomst en na de start.
+function valideerNieuweDeadline({ nieuw, nu = Date.now(), accessFrom = null } = {}) {
+  if (!Number.isFinite(nieuw) || nieuw <= 0) return { ok: false, fout: 'Kies een geldig uur.' };
+  if (nieuw <= nu) return { ok: false, fout: 'De nieuwe deadline moet in de toekomst liggen.' };
+  if (accessFrom != null && accessFrom !== '' && nieuw <= Number(accessFrom)) {
+    return { ok: false, fout: 'De deadline moet ná de startdatum liggen.' };
+  }
+  return { ok: true, fout: null };
+}
+
 // v133: scores en punten mogen halve punten zijn. Geeft een getal (veelvoud van 0,5, tussen 0 en max)
 // of null als de invoer leeg/ongeldig is. Accepteert ook een komma ("1,5") en geeft nooit een
 // niet-veelvoud van 0,5 terug (1,3 wordt niet stil 1,5: dat is dan ongeldig → null).
@@ -492,6 +511,7 @@ module.exports = {
   bepaalInleverStatus,
   teltMeeVoorGemiddelde,
   magHeropenen,
+  valideerNieuweDeadline,
   effectieveDeadline,
   INLEVER_STATUSSEN,
   normaliseerDomein,

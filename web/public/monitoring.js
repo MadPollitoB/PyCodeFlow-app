@@ -33,20 +33,33 @@
     txt.textContent = text;
   }
 
+  // v146: standaard enkel wat echt iets doet (lopend of met leerlingen online); de rest achter een schakelaar.
+  let _alleSessies = [];
+  let _toonAfgerond = false;
+  const STATUS_KLEUR = { lopend: 'badge-success', actief: 'badge-success', geblokkeerd: 'badge-warn', gepland: 'badge-info' };
   function renderSessions(sessions) {
+    _alleSessies = sessions || [];
     const tbody = document.getElementById('session-tbody');
-    if (!sessions.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="empty-table">Geen actieve sessies.</td></tr>';
+    const lopend = _alleSessies.filter(s => s.lopend !== false);
+    const lijst = _toonAfgerond ? _alleSessies : lopend;
+    const teller = document.getElementById('session-teller');
+    if (teller) {
+      teller.innerHTML = `${lopend.length} lopend van ${_alleSessies.length} in het geheugen · ` +
+        `<label style="cursor:pointer;"><input type="checkbox" id="toon-afgerond" ${_toonAfgerond ? 'checked' : ''}/> toon ook gestopt/afgerond/rustig</label>`;
+      const cb = document.getElementById('toon-afgerond');
+      if (cb) cb.onchange = () => { _toonAfgerond = cb.checked; renderSessions(_alleSessies); };
+    }
+    if (!lijst.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-table">Geen lopende sessies.</td></tr>';
       return;
     }
-    tbody.innerHTML = sessions.map(s => {
+    tbody.innerHTML = lijst.map(s => {
       const runRatio = s.total > 0 ? s.running / s.total : 0;
       const pct = Math.round(runRatio * 100);
       const fillClass = pct >= 80 ? 'danger' : pct >= 50 ? 'warn' : '';
-      const statusBadge = s.blocked
-        ? '<span class="badge badge-warn">geblokkeerd</span>'
-        : '<span class="badge badge-success">actief</span>';
-      return `<tr>
+      const status = s.status || (s.blocked ? 'geblokkeerd' : 'actief');
+      const statusBadge = `<span class="badge ${STATUS_KLEUR[status] || 'badge-muted'}">${s.statusLabel || status}</span>`;
+      return `<tr style="${s.lopend === false ? 'opacity:0.65;' : ''}">
         <td><strong>${s.name}</strong><br/><span class="muted" style="font-size:0.8rem;">${s.code}</span></td>
         <td>${s.mode === 'exam' ? 'Examen' : s.mode === 'quiz' ? 'Toets' : s.mode === 'task' ? 'Taak' : 'Klas'}</td>
         <td>${s.online} / ${s.total}</td>

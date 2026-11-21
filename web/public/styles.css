@@ -644,13 +644,17 @@ body.compact-page { min-height: auto; }
 /* Zelfde kolommen als .tfs-main: links (opdracht + voorbeelden) = breedte codeveld, rechts (timer) = breedte lijsten. */
 .tfs-top { display: grid; grid-template-columns: minmax(0, 1fr) 6px var(--tfs-sidebar-w, 42vw); gap: 0; align-items: start;
   margin-bottom: 12px; }
-.tfs-top-left { grid-column: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; min-height: 0; padding-right: 12px; align-items: start; }
+.tfs-top-left { grid-column: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, .8fr); gap: 12px; min-height: 0; padding-right: 12px; align-items: start; }
 /* v126: uitgeklapt krijgt het blok een hoogte (past zich aan het scherm aan); ingeklapt enkel de titelrij. */
 .tfs-top-left .tfs-top-slot:not(.tfs-collapsed) { height: clamp(210px, 36vh, 380px); }
 .tfs-top-slot > .announcement-compose { overflow: auto; }
-.tfs-top-left.tfs-opd-c { grid-template-columns: minmax(200px, max-content) minmax(0, 1fr); }
-.tfs-top-left.tfs-voor-c { grid-template-columns: minmax(0, 1fr) minmax(200px, max-content); }
-.tfs-top-left.tfs-opd-c.tfs-voor-c { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.tfs-top-left.tfs-opd-c { grid-template-columns: minmax(150px, max-content) minmax(0, 1fr) minmax(0, .8fr); }
+.tfs-top-left.tfs-voor-c { grid-template-columns: minmax(0, 1fr) minmax(150px, max-content) minmax(0, .8fr); }
+.tfs-top-left.tfs-link-c { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(150px, max-content); }
+.tfs-top-left.tfs-opd-c.tfs-voor-c { grid-template-columns: minmax(150px, max-content) minmax(150px, max-content) minmax(0, 1fr); }
+.tfs-top-left.tfs-opd-c.tfs-link-c { grid-template-columns: minmax(150px, max-content) minmax(0, 1fr) minmax(150px, max-content); }
+.tfs-top-left.tfs-voor-c.tfs-link-c { grid-template-columns: minmax(0, 1fr) minmax(150px, max-content) minmax(150px, max-content); }
+.tfs-top-left.tfs-opd-c.tfs-voor-c.tfs-link-c { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .tfs-top-slot { min-width: 0; min-height: 0; display: flex; }
 .tfs-top-slot.tfs-collapsed { height: auto; align-self: start; }
 .tfs-top-slot > .announcement-compose { flex: 1; min-height: 0; display: flex; flex-direction: column;
@@ -821,3 +825,23 @@ body.compact-page { min-height: auto; }
 .tfs-status-bar-hand { background:#fff4d6; }
 .tfs-status-pills { display:flex; flex-wrap:wrap; gap:6px; flex:1; min-width:0; }
 .tfs-status-pill { border:1px solid rgba(0,0,0,.18); background:#fff; border-radius:999px; padding:3px 10px; font-size:.85rem; font-weight:600; cursor:pointer; }
+.badge-info { background:#e0f2fe; color:#075985; }
+.badge-muted { background:#f1f5f9; color:#475569; }
+
+/* v147: link voor leerlingen (leerkracht) + popup/chip (leerling) */
+.link-titel, .link-url { padding: 8px 10px; border: 1px solid var(--border, #d7dce5); border-radius: 8px; font: inherit; background: var(--card, #fff); color: inherit; min-width: 0; box-sizing: border-box; }
+.link-titel { width: 100%; }
+.link-rij { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.link-rij .link-url { flex: 1; }
+.link-status { font-size: .82rem; color: var(--muted, #64748b); margin-top: 8px; }
+.link-status b { color: #166534; }
+.link-status a { cursor: pointer; }
+.tfs-top-slot .link-rij { flex-wrap: wrap; }
+.link-chip { display: inline-flex; align-items: center; gap: 6px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 999px; padding: 5px 12px; font-size: .9rem; color: #3730a3; font-weight: 600; cursor: pointer; font-family: inherit; }
+.link-chip small { font-weight: 400; opacity: .75; }
+.link-popup-titel { font-size: 1.1rem; font-weight: 700; margin-bottom: 6px; word-break: break-word; }
+.link-popup-domein { font-size: .85rem; color: var(--muted, #64748b); }
+.link-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, .55); z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.link-overlay-box { background: var(--card, #fff); color: inherit; border-radius: 14px; padding: 22px 24px; max-width: 440px; width: 100%; box-shadow: 0 20px 50px rgba(0,0,0,.35); }
+.link-overlay-kop { font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted, #64748b); margin-bottom: 10px; font-weight: 700; }
+.link-overlay-acties { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }

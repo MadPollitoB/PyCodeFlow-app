@@ -4,7 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Nieuwe toets/taak aanmaken</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.142"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.152"/>
   <style>
     .wizard-steps { display:flex; gap:0; margin-bottom:28px; }
     .wizard-step { flex:1; padding:12px; text-align:center; background:var(--surface-soft);
@@ -105,6 +105,7 @@
   <a href="/mijn-klassen.html">👥 Mijn klassen</a>
     <a href="/klasmatrix.html">📊 Klasoverzicht</a>
     <a href="/training-overzicht.html">🎯 Trainingen</a>
+      <a href="/pyblitz.html">⚡ PyBlitz</a>
   <a href="/sjablonen.html">📚 Bibliotheek</a>
   <a href="/quiz-archive.html">📦 Archief</a>
   <a href="/teacher-toegang.html">🔓 Toegang</a>
@@ -301,7 +302,14 @@
           <input type="checkbox" id="quiz-fullscreen-required" checked/>
           Volledig scherm verplicht (enkel te verlaten door in te dienen)
         </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:0.85rem;margin-top:10px;flex-wrap:wrap;">
+          📷 Schermbeeld in het live-overzicht om de
+          <input type="number" id="quiz-live-screenshot-sec" min="0" max="300" step="5" value="30" style="width:80px;"/>
+          seconden <span class="muted">(0 = uit)</span>
+        </label>
         <p style="font-size:0.76rem;color:var(--muted);margin:6px 0 0;">
+          Enkel terwijl jij het live-overzicht open hebt maakt de leerlingpagina een klein beeld van de toets (nooit van andere programma's);
+          een nieuw beeld vervangt het vorige en wordt nergens bewaard.<br>
           Zonder volledig scherm is de leerling geblokkeerd tot hij terugkeert. Op toestellen die geen
           volledig scherm ondersteunen (bv. een iPhone) geldt dit niet.
         </p>
@@ -422,10 +430,10 @@
 </div>
 </div><!-- /wizard-root -->
 
-<script src="/popups.js?v=v2026.2.51.142"></script>
-<script src="/app.js?v=v2026.2.51.142"></script>
+<script src="/popups.js?v=v2026.2.51.152"></script>
+<script src="/app.js?v=v2026.2.51.152"></script>
 <script src="/vendor/marked/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.142"></script>
-<script src="/quiz-teacher.js?v=v2026.2.51.142"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.142"></script></body>
+<script src="/code-highlight.js?v=v2026.2.51.152"></script>
+<script src="/quiz-teacher.js?v=v2026.2.51.152"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.152"></script></body>
 </html>

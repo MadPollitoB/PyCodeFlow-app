@@ -732,6 +732,7 @@ function renderConfirm() {
     ['Anti-spiek', tabAan ? `✅ Aan <span class="muted">(drempel ${tabDrempel}, respijt ${tabGrace} s)</span>` : '❌ Uit'],
     ['Volledig scherm', vink(aan('quiz-fullscreen-required', true)) + ' <span class="muted">(verplicht)</span>'],
     ['Kopiëren/plakken', aan('quiz-copypaste-blocked', true) ? '🚫 Geblokkeerd' : '✅ Toegestaan'],
+    ['Schermbeeld live-overzicht', liveBeeldSec() === 0 ? '❌ Uit' : `📷 Om de ${liveBeeldSec()} s <span class="muted">(enkel terwijl het overzicht open is)</span>`],
     ['Meerkeuze (meerdere juist)', (document.getElementById('quiz-mc-scoring')?.value === 'klassiek') ? 'Klassiek <span class="muted">(pro rata, één fout = 0)</span>' : 'Gedeeld juist <span class="muted">(halve punten, gemist/fout kost punten)</span>'],
     ['Min. 1 run per vraag', vink(aan('quiz-min-runs', false))],
     ['Vraag verbergen op scherm', vink(aan('quiz-hide-question', false))],
@@ -911,6 +912,8 @@ async function createQuiz() {
                       klasbordEnabled,
                       // v113: beveiliging (toets én taak)
                       copyPasteBlocked, fullscreenRequired,
+                      // v145: interval schermbeeld in het live-overzicht (0 = uit)
+                      liveScreenshotSec: liveBeeldSec(),
                       // v134: vragenpool { groepNr: N }
                       pool: poolVoorPayload(),
                       // v133: meerkeuze-berekening
@@ -1142,6 +1145,7 @@ async function loadForEdit() {
     setChk('quiz-copypaste-blocked', m.copyPasteBlocked !== false);
     { const mc = document.getElementById('quiz-mc-scoring'); if (mc) mc.value = m.mcScoring === 'gedeeld' ? 'gedeeld' : 'klassiek'; }   // v133
     setChk('quiz-fullscreen-required', m.fullscreenRequired !== false);
+    setVal('quiz-live-screenshot-sec', m.liveScreenshotSec !== undefined && m.liveScreenshotSec !== null ? m.liveScreenshotSec : 30);   // v145
     // Sprint 51s: wacht tot de schooljaar-dropdown zijn opties heeft, en voeg het opgeslagen
     // jaar toe als het er nog niet bij staat (bv. een ouder/gearchiveerd jaar) — zo blijft
     // zichtbaar wat er nu echt geconfigureerd staat, ook al is dat een mismatch met de klas.
@@ -1372,3 +1376,12 @@ window.openStudentPicker = async function () {
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   if (searchEl) searchEl.focus();
 };
+
+// v145: interval (s) van het schermbeeld in het live-overzicht; leeg = standaard 30, 0 = uit, 1–4 → 5, max 300.
+function liveBeeldSec() {
+  const raw = document.getElementById('quiz-live-screenshot-sec')?.value;
+  if (raw === undefined || raw === '' || raw === null) return 30;
+  const n = Math.round(Number(raw));
+  if (!Number.isFinite(n)) return 30;
+  return n <= 0 ? 0 : Math.max(5, Math.min(300, n));
+}

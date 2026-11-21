@@ -114,6 +114,7 @@
       case 'bewerken':   return '<a class="' + cls + '" href="/quiz-teacher.html?type=' + TYPE + '&edit=' + c + '">Bewerken</a>';
       case 'verbeteren': return '<a class="' + cls + '" href="/quiz-review.html?code=' + c + '">Verbeteren</a>';
       case 'scores':     return '<a class="' + cls + '" href="/quiz-review.html?code=' + c + '">Scores</a>';
+      case 'deadline':   return '<button class="btn btn-muted small" ' + js('deadlineAanpassen(' + q + ',' + qn + ')') + ' title="Het uur van de deadline aanpassen terwijl de ' + LABEL + ' loopt">Deadline aanpassen</button>';
       case 'heropenen':  return '<button class="btn btn-muted small" ' + js('heropenToetsVoorLeerlingen(' + q + ',' + qn + ')') + '>' + (TYPE === 'taak' ? 'Taak' : 'Toets') + ' heropenen</button>';
       case 'heropening_terug': return '<button class="btn btn-muted small" ' + js('heropeningTerugdraaien(' + q + ',' + qn + ')') + ' title="Zet een heropening voor bepaalde leerlingen terug dicht">Heropening terugdraaien</button>';
       case 'dupliceren': return '<button class="btn btn-muted small" ' + js('duplicateQuiz(' + q + ')') + '>Dupliceren</button>';
@@ -256,6 +257,26 @@
     });
     pollAiGradeJobs();
   }
+
+  // v143: deadline (het uur) aanpassen tijdens een lopende toets/taak.
+  window.deadlineAanpassen = async function (code, naam) {
+    try {
+      var r = await fetch('/api/quiz/' + encodeURIComponent(code) + '/deadline-info');
+      var d = await r.json();
+      if (!r.ok) throw new Error(d.error || r.status);
+      var tijd = await window.pyDeadlinePicker({ naam: naam, huidig: d.accessUntil, bezig: d.bezig });
+      if (!tijd) return;
+      var fetcher = window.apiFetch || fetch;
+      var resp = await fetcher('/api/quiz/' + encodeURIComponent(code) + '/deadline', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessUntil: tijd }),
+      });
+      var data = await resp.json().catch(function () { return {}; });
+      if (!resp.ok) throw new Error(data.error || resp.status);
+      if (window.pyToast) pyToast('Deadline aangepast naar ' + new Date(tijd).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) + '.', 'success');
+      if (window.reloadAssignments) window.reloadAssignments();
+    } catch (e) { if (window.pyAlert) pyAlert('Deadline aanpassen mislukt: ' + e.message, 'error'); }
+  };
 
   // v102: archiveren / uit archief halen (uit archief → Afgerond, niet direct heropenen).
   window.archiveerToets = async function (code, archiveren) {

@@ -1,3 +1,122 @@
+## v2026.2.51.152 — PyBlitz: antwoorden met code + "Uitproberen" (splitscreen)
+
+- **Antwoorden mogen uit meerdere regels of stukjes code bestaan** (max. 6 regels). In de editor is elk antwoord een tekstvak met een vinkje **code**; een antwoord met meerdere regels wordt automatisch als code getoond (vaste breedte, inspringing blijft). Werkt ook in JSON (`{"text": "for i in range(3):\n    print(i)", "code": true}`), Excel (meerdere regels in een cel) en op beamer, popup en gsm.
+- **▶ Uitproberen** naast Opslaan: een scherm-vullende popup met links wat de **leerkracht/beamer** toont en rechts wat de **leerling op de gsm** ziet. Je speelt rechts zelf mee; drie bots (Lena, Mo, Sarah) beantwoorden de vragen. Alles gebeurt in de browser met dezelfde spelmotor als de server: er worden geen spelers, sessies of resultaten bewaard. **▶ Vanaf hier** bij een vraag (of de keuzelijst "Vanaf vraag n") start de proef bij die vraag; Esc sluit.
+- Technisch: `/pyblitz-engine.js` levert `lib/pyblitz.js` + `lib/pyblitz-spel.js` aan de browser; de proefpagina `/pyblitz-proef.html` is de enige pagina die in een iframe van de eigen site mag (CSP `frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`); alle andere pagina's blijven geblokkeerd. Berichten tussen popup en iframes controleren de afzender.
+- Tests: `tests/v152.test.js`, `tests/live/v152-live.js`. Versie: **2026.2.51.152**.
+
+## v2026.2.51.151 — PyBlitz: live quiz in je klassessie
+
+- **Nieuw: ⚡ PyBlitz.** Een live quiz zoals Kahoot, ingebouwd in de sessie. Klaarzetten doe je in het nieuwe menu **⚡ PyBlitz**: handmatig, of via een **JSON- of Excelbestand** (sjabloon downloadbaar, voorbeeld vóór het bewaren) en met **export naar JSON**. Een vraag is **tekst**, een **Python-codeveld**, een **foutmelding-veld** of een **afbeelding** (of een combinatie), met 2–4 opties of juist/onjuist, eigen tijd (5–120 s), punten (standaard/dubbel/geen) en een uitleg.
+- **Starten kan enkel in klasmodus** (gedeelde werkruimte van een gewone sessie), nooit tijdens een toets, taak, examensessie of individuele werkfase. Knop **⚡ PyBlitz** in de sessie: is er al een PyBlitz gekoppeld, dan opent die meteen; anders kies je uit een lijst (▾ = andere kiezen). Bij jou opent de **spelmodus (beamer)** met code, QR en deelnemers; bij elke leerling een **popup** over bijna het hele scherm (10 px marge) via de bestaande websocket.
+- **Verloop:** lobby → vraag met timer → uitslag (verdeling per optie, uitleg, top 5 met stijgers/dalers) → … → **eindresultaat** met podium. Punten: 1000 → 500 naargelang de snelheid, ×2 bij dubbel, reeksbonus tot +200. Als jij het eindresultaat **sluit, sluiten alle popups** bij leerlingen en gasten. De server bewaart de score; het juiste antwoord wordt pas na de vraag verstuurd.
+- **Gasten (gsm):** scannen de QR of gaan naar `/play`, typen code + naam en krijgen een **token** (bewaard op hun toestel). Wie het token niet heeft, kan niet onder die naam binnenkomen (zelfde fout als S1 in het securityrapport, hier meteen vermeden). Een gast mag **de naam van een klaslid niet gebruiken**; een naam die al in gebruik is krijgt een **nummer** ("Noor 2").
+- Resultaten van gespeelde spellen blijven bewaard (bibliotheek → *Gespeelde spellen*). QR-code via een lokaal meegeleverde bibliotheek (`public/vendor/qrcode-generator.js`, MIT) — geen externe diensten.
+- Tests: `tests/v151.test.js`, `tests/live/v151-live.js` (+ browsercontrole met 3 schermen). Nieuwe tabellen: `pyblitz_sets`, `pyblitz_images`, `pyblitz_games` (aangemaakt bij het opstarten). Versie: **2026.2.51.151**.
+
+## v2026.2.51.150 — Bugfix: heropenen gaf maar 1 minuut + startknop bleef grijs bij heropende leerling
+
+- **Heropenen gaf telkens 1 minuut.** Oorzaak: "↻ Toets heropenen" (meerdere leerlingen, "open tot") zette enkel een toegangsvenster, maar gaf geen extra tijd; omdat zijn eigen timer (start + duur) al om was, kreeg hij de minimale 1 minuut en werd meteen weer ingediend. Nu rekent het zoals "Toegang herstellen": zijn eindtijd wordt de gekozen "open tot"-tijd (extra seconden worden bewaard, ook voor een leerling die live online is). De knop **"Heropenen" per leerling** (monitoring) had hetzelfde probleem en opent nu het venster "Hoeveel tijd krijgt hij vanaf nu?" van v149.
+- **Startknop kwam niet vrij na het vinkje.** Oorzaak: het startscherm las `stopped` van de hele toets; was die gestopt, dan bleef de knop grijs, ook voor een leerling die je net heropend had. `/startinfo?name=` kent nu de individuele toegang: voor een heropende leerling is `stopped=false` en `heropendTot` gevuld; de regel toont "Heropend door je leerkracht: je kan verder werken tot hh:mm". Voor iedereen anders blijft een gestopte toets dicht.
+- Tests: `tests/v150.test.js`, `tests/live/v150-live.js`. Versie: **2026.2.51.150**.
+
+## v2026.2.51.149 — Toegang herstellen vanuit het verbeterscherm ("nog X minuten vanaf nu")
+
+- **Nieuwe knop "🔓 Toegang herstellen"** in de kop van het verbeterpaneel (naast PDF), voor de geselecteerde leerling, **ook als je al volledig verbeterd hebt**. Het hergebruikt het bestaande herstelmechanisme (`POST …/roster/:id/herstel`): momentopname, scores en opmerkingen blijven staan; enkel vragen die de leerling wijzigt, gaan bij de nieuwe inzending terug naar *Te verbeteren*; niets op 0.
+- **Nieuw venster, één simpele vraag: "Hoeveel tijd krijgt hij vanaf nu?"** met knoppen *Eigen eindtijd (nog X)* · 5 · 10 · 15 · 30 min en een eigen aantal. Een **live voorbeeld** toont tot hoe laat hij kan verder werken. De oude keuzelijst "vanaf nu / bovenop zijn einde" is verdwenen; het venster is hetzelfde in het monitoringscherm en in het verbeterscherm. Details staan ingeklapt.
+- **Exact het aantal minuten dat je kiest**: zonder timer en deadline gaf "vanaf nu" nog het veiligheidsvenster van 15 min; nu is dat exact het gekozen aantal (zonder keuze blijft 15 min). Heeft de leerling nog **meer eigen tijd** dan je kiest, dan behoudt hij die (korter kan niet) en zegt het voorbeeld dat duidelijk.
+- Een open heropening toont **🔓 heropend tot hh:mm** in de leerlingenlijst en in de kop van het paneel (leest `GET …/reopen-open`); de pagina ververst elke 15 s en laadt de antwoorden opnieuw zodra de leerling opnieuw indiende of de tijd om is.
+- `herstel-info` geeft nu ook `individueelTot` terug; het logboek (`toegang_hersteld`) noteert `bron` (`verbeterscherm`/`monitoring`) en `modus`.
+- Tests: `tests/v149.test.js`, `tests/live/v149-live.js`; `v146.test.js` aangepast (keuzelijst → voorbeeld). Versie: **2026.2.51.149**.
+
+## v2026.2.51.148 — Bugfix: keuzevragen verloren of ongescoord bij automatisch indienen
+
+**Oorzaak (drie samenhangende fouten):**
+1. **Timer loopt af:** het automatisch indienen schreef de antwoorden opnieuw weg zonder de gekozen opties, waardoor `selected_choices` in de databank op **leeg** werd gezet (code- en open antwoorden bleven wel staan). Dit trof enkel enkel-/meerkeuzevragen en keuze-onderdelen van samengestelde vragen.
+2. **Geen automatische score bij automatisch indienen:** meerkeuze werd enkel gescoord wanneer de leerling zelf op *Indienen* klikte. Bij timer, deadline, tabwissel/volledig scherm verlaten, stopknop of verlopen heropening bleef de score leeg en leek de keuzevraag "niet meegenomen".
+3. **Laatste keuze nooit bewaard:** een aangeklikte keuze werd pas bewaard bij het verlaten van de vraag (code/open hebben wel een autosave na 0,8 s). Bij een afgedwongen indiening (tabwissel) sloot de server eerst af en weigerde daarna de laatste opslag van de leerling (`already_submitted`).
+
+**Herstel:**
+- Een aangeklikte keuze wordt **meteen bevestigd bewaard** (zelfde betrouwbare keten met herproberen als bij de andere vraagtypes).
+- Elk afgedwongen indienpad doet nu `rondForceInzendingAf`: indienen **en** `autoScoreInzending` (keuzevragen + keuze-onderdelen van samengestelde vragen, met de meerkeuzeregel van de toets).
+- De timer-indiening schrijft keuzes, onderdelen en stroomdiagram mee weg en wacht tot dat klaar is vóór het indienen.
+- Na een door de server afgedwongen indiening mag het **laatste antwoord nog 20 seconden binnenkomen** (dan wordt opnieuw ingediend en gescoord).
+- **Bestaande toetsen:** de ruwe back-up van elk opgeslagen antwoord (`backupAnswerToDisk`, sprint 93) bevat de gekozen opties nog; getroffen toetsen kunnen daaruit hersteld worden.
+- Tests: `tests/v148.test.js`, `tests/live/v148-live.js` (duurt ± 70 s door een echte timer). Versie: **2026.2.51.148**.
+
+**Uitgebreid in v148 — startscherm met spelregels en verplicht akkoord (toets én taak):**
+- Het startscherm toont nu **zelf** de regels (niet meer pas in een popup na de klik), afhankelijk van het type en de instellingen van de toets/taak. Badge, titel (naam van de toets/taak) en knop volgen het type: **TOETS / TAAK**, "🚀 START TOETS / START TAAK" (voorheen stond overal "Toets").
+- Regels: **tijd** (nog X minuten = de kortste van de duur en de tijd tot de deadline; alleen deadline: "automatisch ingediend op …, nog X"; anders "geen tijdslimiet"), **volledig scherm / tabwissel** met het aantal seconden om terug te keren (anders automatisch ingediend), **kopiëren/knippen/plakken** niet toegestaan, **terugbladeren** (één kans per vraag of vrij), **info** (aantal vragen, willekeurige volgorde, minimum aantal keer uitvoeren, meerkeuze waarbij een fout antwoord punten kost), **cursus** is te openen in de toets/taak als ze gelinkt is, en **wat de leerkracht ziet** (inclusief het schermbeeld-interval als het live-beeld aanstaat).
+- Rode waarschuwing "andere tabbladen, vensters of programma's open laten staan wordt als fraude beschouwd; je leerkracht kan je werk met 0 beoordelen" (enkel als tabwissel-detectie of volledig scherm van toepassing is). Er is **nooit een automatische 0**: het systeem logt, de leerkracht beslist.
+- **Verplicht vinkje** ("gelezen, akkoord en alles gesloten"); zolang het niet aangevinkt is, is de startknop grijs en niet klikbaar. Het akkoord wordt gelogd (`startbevestiging`) bij toets én taak. De aparte bevestigingspopup is vervallen.
+- `GET /api/quiz/:code/startinfo` kreeg `name`, `randomize`, `minRunsPerQ`, `mcScoring`, `heeftMeerkeuze`, `heeftCodevragen`, `liveScreenshotSec`, `heeftCursus`.
+
+## v2026.2.51.147 — Link naar de leerlingen
+
+- **Nieuw blok "🔗 Link voor leerlingen"** in de leerkrachtenpagina, onder *Opdracht voor leerlingen* en *Codevoorbeeld voor het codeveld* (en als derde blok bovenaan in volledig scherm, ook in te klappen).
+  - Velden: **titel** (leeg = naam van de website) en **URL** (zonder `https://` mag; dat wordt aangevuld).
+  - **↗ Open** opent de link bij jou in een nieuw tabblad. **Naar leerlingen** toont bij alle leerlingen een popup met de titel, de website en een knop **Link openen ↗** (nooit automatisch geopend).
+  - **Meerdere links** met ◀ Vorige / Volgende ▶ / + Nieuwe link, zoals de andere twee blokken. **💾 Bewaar** bewaart ze samen met opdrachten en voorbeelden bij de sessie (ook op een andere laptop; **↻ Laad bewaarde** haalt ze terug). Oudere sessies zonder links werken ongewijzigd.
+- **De popup verdwijnt** zodra de leerling de link opent, of zodra jij de link wist (🗑 *bij leerlingen verwijderen*), of bij een nieuwe link (die vervangt de vorige). Sluit een leerling de popup met *Later*, dan blijft op zijn pagina een knop "🔗 Link van de leerkracht" staan tot hij ze opent of jij ze wist. Wie later binnenkomt of de pagina herlaadt, krijgt de actieve link ook (zolang hij ze niet opende).
+- **Enkel in klasmodus** (gedeelde code), niet in de individuele werkfase, en niet bij toetsen of taken. Wissel je naar *Individueel*, dan verdwijnt een actieve link bij de leerlingen. De actieve link wordt niet bewaard na de les.
+- Alleen http(s)-links (max. 2000 tekens, titel max. 80); `javascript:`, `data:`, `file:` e.d. worden geweigerd (client en server). De link opent met `noopener,noreferrer`; de titel wordt als gewone tekst getoond.
+- Nieuwe module `lib/link.js`; socket-events `teacher_send_link`, `teacher_clear_link`, `link_update`; `teacher_save_drafts` kreeg `links`; `student_state` en `teacher_session_data` kregen `link`.
+- Tests: `tests/v147.test.js`, `tests/live/v147-live.js`. Versie: **2026.2.51.147**.
+
+## v2026.2.51.146 — Eén timerregel (duur + deadline) en echte sessiestatus
+
+- **Eén rekenregel voor tijd** (`berekenTimer` in `lib/herstel.js`), overal gelijk: scherm van de leerling, live-overzicht, herstel-popup en nakijken.
+
+  | Instelling | Gedrag |
+  |---|---|
+  | Geen duur, geen deadline | geen teller, geen automatisch indienen |
+  | Alleen een deadline | **geen teller**; de leerling ziet "Wordt automatisch ingediend op dd/mm/jjjj om uu:mm" (ook op het live-kaartje) |
+  | Alleen een duur | teller = start + duur (onderbrekingen geven geen tijd terug; strafpunten geef je zelf bij het rapport) |
+  | Duur én deadline | teller = **de kortste** van start + duur en de deadline: start je 20 min na het begin bij een toets van 60 min met een vaste deadline, dan zie je 40 min |
+
+  Voorheen telde de deadline niet mee voor de teller: de leerling zag 60 minuten maar werd bij de deadline toch ingediend.
+- **De deadline aanpassen tijdens de toets** herrekent meteen de teller van iedereen die bezig is (later zetten: de teller springt mee omhoog als de deadline de beperkende factor was; vervroegen: iedereen krijgt het kortere einde). Wie geen teller heeft, krijgt de nieuwe indientijd te zien, en alle leerlingen krijgen een korte melding.
+- **Extra tijd per leerling** (Toegang herstellen) mag de deadline overschrijden: zijn deadline schuift mee en het automatisch indienen op de deadline slaat hem over tot zijn eigen einde. Nieuw in de popup: de extra minuten tellen **bovenop zijn eindtijd** of **vanaf nu** ("hij heeft dan nog X minuten", handig als zijn tijd al om is; verkort nooit zijn tijd). Standaard: vanaf nu als zijn tijd op is, anders bovenop zijn eindtijd.
+- **Startscherm** meldt de uiterste indientijd ("start je later, dan heb je minder tijd").
+- **Monitoringpagina, Lopende sessies**: de kolom Status toont voortaan de echte status (lopend, gepland, deadline voorbij, gestopt, gearchiveerd, geblokkeerd; bij klassen actief of rustig) in plaats van altijd "actief". Standaard zie je enkel wat lopend is of waar iemand online is, met een schakelaar "toon ook gestopt/afgerond/rustig" en een teller ("3 lopend van 21 in het geheugen"). `/api/monitoring` geeft nog steeds alle sessies terug (met extra velden `status`, `statusLabel`, `lopend`). Sessies worden bewust niet uit het geheugen gehaald: een leerling met herstelde toegang moet nog kunnen starten.
+- Nieuwe module `lib/sessie-status.js`; nieuw socket-event `quiz_tijd_wijziging`; `quiz_state` kreeg `timerModus` en `indienOp`; `/startinfo` kreeg `accessUntil`.
+- Tests: `tests/v146.test.js`, `tests/live/v146-live.js` (737 unit-tests geslaagd). Versie: **2026.2.51.146**.
+
+## v2026.2.51.145 — Live mini-kaartjes met schermbeeld
+
+- **Live-overzicht voor toetsen en taken** (knop *Live*, `teacher-grid.html`): in plaats van zwarte vakjes zie je nu per leerling een kaartje met een **klein schermbeeld van de toetspagina**, de huidige vraag (bv. "Vraag 3/10 · 2/10 beantwoord"), het **begin van zijn antwoord**, de **laatste activiteit** ("12 s geleden"), de **resterende tijd**, het aantal **tabwissels** en een rode badge **"🚪 weg uit de toets"** zodra hij het venster verlaat. Sorteren op naam, status (wie weg is bovenaan) of klas. Kaartjes worden niet meer volledig herbouwd bij elke update, dus het beeld flikkert niet.
+- **Schermbeeld per toets instelbaar** (🛡️ Beveiliging in het aanmaak- en bewerkscherm): "om de **30** seconden", **0 = uit**, minimum 5, maximum 300. Wordt meegenomen bij bewerken, dupliceren en staat in het bevestigingsscherm. Nieuwe kolom `assignment_bank.live_screenshot_sec` (standaard 30).
+- **Zuinig en privacyvriendelijk**: een leerlingpagina maakt enkel een beeld **zolang een leerkracht het live-overzicht open heeft** (de server zegt "aan"/"uit"; sluit het overzicht of valt het weg, dan stopt alles binnen ± 12 s). Het is enkel **de toetspagina zelf** (nooit andere tabbladen of programma's), een JPEG van ~320 px breed (meestal 5–25 kB), nooit vaker dan om de 2 s, en niet als het tabblad verborgen is. Per leerling bestaat er **één beeld in het geheugen** dat telkens het vorige vervangt; er wordt niets op schijf of in de databank bewaard en het beeld verdwijnt bij indienen, stoppen of sluiten van het overzicht.
+- Het beeld wordt gemaakt met `html2canvas` 1.4.1 (lokaal meegeleverd via `/vendor/html2canvas`, geen CDN). Lukt dat niet (oude browser, fout), dan krijg je een eenvoudige terugval met het vraagnummer en het begin van de code.
+- **Nieuwe afhankelijkheid** `html2canvas` in `web/package.json`: draai bij het updaten `docker compose build web` (de Dockerfile doet `npm install`) of `npm install` in `web/`.
+- Nieuwe module `lib/live-beeld.js`; socket-events `quiz_live_data`, `quiz_screenshot`, `quiz_screenshot_update`, `quiz_screenshot_aan/uit`, `teacher_grid_stop`.
+- Tests: `tests/v145.test.js`, `tests/live/v145-live.js`. Versie: **2026.2.51.145**.
+
+## v2026.2.51.144 — Fraude en inzicht
+
+- **Plakpogingen met inhoud.** Geblokkeerd plakken, kopiëren, knippen en slepen wordt gelogd met de **vraag**, de **lengte** en de **tekst die de leerling probeerde te plakken** (max. 500 tekens; op het scherm gebeurt er niets). Ook Ctrl+V / Shift+Insert: de toets wordt niet meer blind geblokkeerd maar de plak gebeurt in een onzichtbaar veld, zodat de tekst gelezen kan worden. Dezelfde poging binnen 3 s telt één keer.
+- **Diagnose bij "weg van de toets"** (nieuw bestand `public/tabdiagnose.js`): bij elke tabwissel of elk verlaten van het venster wordt gelogd wat er vlak ervoor gebeurde: de laatste **systeemtoetsen** (Meta = zoek-/startknop op een Chromebook, Alt, Ctrl, Tab, F-toetsen; nooit letters of cijfers), **langs welke rand de muis het venster verliet** (onder = taakbalk, rechtsonder = vak met klok en bestanden, boven = tabbladen) en welke gebeurtenis het eerst kwam (blur of visibilitychange). Dit staat leesbaar in het logboek ("zoek-/startknop (Meta) ingedrukt", "de muis ging naar rechtsonder", of "onbekende oorzaak"). Het weggaan wordt **meteen** gelogd (ook als de leerling daardoor automatisch indient) en bij de terugkeer nog eens met de duur. ChromeOS handelt sommige toetsen zelf af; dan blijft de oorzaak onbekend.
+- **Nieuwe signalen** (enkel loggen, nooit blokkeren): *Code in één keer verschenen* (≥ 60 tekens in één wijziging zonder plakpoging, met het ingevoegde stuk), *Weinig toetsaanslagen* (≥ 150 toegevoegde tekens met minder dan 1 toets per 8 tekens), *Verdachte sneltoets* (PrintScreen, F12, Ctrl+Shift+I/J/C, Ctrl+U/P/S; Ctrl+P/S/U worden ook geblokkeerd), *Venster plots kleiner* (≥ 30 % minder oppervlak: split-screen), *Grote wijziging kort na terugkeer* (≥ 40 tekens binnen 20 s na terugkeer).
+- **Blok "🚨 Spiek-/fraudepogingen"** onderaan het nakijken van elke leerling: gegroepeerd per vraag en soort ("Plakken — vraag 3: 2×"), uitklapbaar met tijdstip en gegevens, met risicokleur (rood/oranje/grijs). In de leerlingenlijst staat een 🚨 bij wie iets te zien heeft. Nieuwe route `GET /api/quiz-sessions/:code/fraude`; nieuwe module `lib/fraude.js`.
+- **Gelijkenisrapport**: toont nu "plakken vraag X: N×" in plaats van enkel een totaal.
+- **Nakijkscherm**: chip *Zelf ingediend* of *Automatisch afgesloten* (tijd om, deadline, tabwissel) of *Afgesloten door de leerkracht*.
+- In het overzicht telt elke wissel één keer (de "terug"-regel wordt niet dubbel geteld).
+- Tests: `tests/v144.test.js`, `tests/live/v144-live.js`. Versie: **2026.2.51.144**.
+
+## v2026.2.51.143 — Tijdens de toets: toegang herstellen, vergrendelscherm, startvoorwaarden, deadline, enquête
+
+- **🔓 Toegang herstellen** (per leerling, in de Voortgang-lijst), **altijd mogelijk**: ook als de toets gestopt of de deadline voorbij is, de leerling automatisch is ingediend, uit het scherm ging zonder antwoorden, uit de sessie verwijderd is of offline staat. De knop vervangt "↺ Heropenen" (die enkel werkte onder voorwaarden). Eerst toont een popup wat de leerling nog heeft: eigen eindtijd en resterende tijd, hoe lang geleden hij indiende, de toestand en het aantal tabwissels.
+- **De eindtijd wordt nooit herberekend**: die blijft start + duur. Start je om 14u met 60 minuten en wordt hij na 30 minuten hersteld na 5 minuten weg, dan heeft hij nog 25 minuten (eindtijd 15u). Optioneel veld **extra minuten** (standaard 0). Is zijn tijd al op, dan meldt de popup dat en sluit de toets zonder extra minuten meteen weer af.
+- **Tabwissels en incidenten blijven bestaan** (teller niet op 0; logboek-regel "toegang hersteld" met wie, eindtijd en extra minuten), zodat je achteraf zelf strafpunten kunt toekennen.
+- **Bewust bevestigde vragen** (bij *1 kans per vraag*: "Ja, volgende vraag", ook leeg) worden op de server bewaard (`quiz_answers.confirmed_at`) en blijven dicht na heropenen. De leerling komt **automatisch op de eerste niet-bevestigde vraag** (10 vragen, 7 bevestigd → vraag 8). Mag de leerling terugbladeren, dan is niets alleen-lezen en komt hij op de eerste onbeantwoorde vraag, of waar hij gebleven was. Dit geldt voor **elke vorm van heropenen** (ook ↻ Toets heropenen).
+- **Start van een leerling schuift niet meer op** na een serverherstart of verwijdering uit de sessie (eerste bezoek aan een vraag uit de databank). Voorheen begon zijn tijd dan opnieuw.
+- **Vergrendelscherm bij terugkeer** (toets met volledig scherm of tabwissel-detectie): zodra de leerling terugkomt uit een ander tabblad, venster of programma verbergt een scherm de toets tot hij op "Doorgaan" klikt (en terug in volledig scherm gaat). De afwezigheid wordt gemeten en gelogd (`weg_van_toets`).
+- **Startscherm met voorwaarden**: bij een toets kan de leerling pas starten na het aanvinken van "Ik heb alle andere tabbladen, vensters en programma's gesloten" (gelogd als `startbevestiging`). Zonder volledig scherm blijft de toets geblokkeerd (bestaand scherm). Opent dezelfde toets in een tweede tabblad, dan meldt dat tabblad het en wordt het gelogd (`dubbel_tabblad`).
+- **Deadline aanpassen tijdens een lopende toets of taak**: nieuwe knop *Deadline aanpassen* bij lopende toetsen/taken in het overzicht (los van "Bewerken", dat vergrendeld blijft). Snelknoppen +10/+30/+60 min; waarschuwing bij vervroegen; het automatisch indienen bij de deadline gebruikt meteen de nieuwe waarde; vastgelegd in het logboek.
+- **Enquête**: vier onderdelen (Voorbereiding, Verwerking, Oefenen, Planning) krijgen **"Niet van toepassing"** (uitsluitend, telt als geldig antwoord). Aandachtspunten had al "Ik had geen aandachtspunten".
+- Databank (additief): `quiz_answers.confirmed_at`, `quiz_individual_access.extra_seconds`. Nieuwe routes: `GET …/roster/:studentId/herstel-info`, `POST …/roster/:studentId/herstel`, `GET/PUT /api/quiz/:code/deadline-info|deadline`. Nieuwe module `lib/herstel.js`; `pyConfirm` kreeg een `vinkje`-optie; `pyDeadlinePicker`.
+- Tests: `tests/v143.test.js` (703 geslaagd), `tests/live/v143-live.js`. Versie: **2026.2.51.143**.
+
 ## v2026.2.51.142 — Gelijkenisbanner uitklapbaar met regelvergelijking
 
 - In het nakijkscherm klap je de gele banner van de andere leerling open (enkel bij **open- en codevragen**, ook tekstonderdelen van samengestelde vragen). Het antwoord van die leerling komt onder de banner, naast het antwoord van de leerling die je nakijkt, met regelnummers.

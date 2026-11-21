@@ -675,7 +675,7 @@ test('96 ENQUETE_CATEGORIEEN: "geen_aandachtspunten" staat helemaal onderaan en 
   // Geen enkel ander item in deze (of een andere) categorie mag per ongeluk ook exclusief zijn.
   for (const c of v.ENQUETE_CATEGORIEEN) {
     for (const it of c.items) {
-      if (it.id !== 'geen_aandachtspunten') assert.notStrictEqual(it.exclusief, true);
+      if (it.id !== 'geen_aandachtspunten' && it.id !== 'nvt') assert.notStrictEqual(it.exclusief, true);   // v143: 'nvt' (Niet van toepassing) is bewust ook exclusief
     }
   }
 });

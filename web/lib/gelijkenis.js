@@ -261,8 +261,14 @@ function bouwRapport(eenheden, incidenten = [], opties = {}) {
   const incPer = {};
   for (const i of incidenten || []) {
     if (!i.studentId) continue;
-    const o = incPer[i.studentId] || (incPer[i.studentId] = { plakken: 0, tabwissel: 0, andere: 0 });
-    if (/past|plak|paste/i.test(i.type)) o.plakken++;
+    const o = incPer[i.studentId] || (incPer[i.studentId] = { plakken: 0, tabwissel: 0, andere: 0, plakkenPerVraag: {} });
+    if (/past|plak|paste/i.test(i.type)) {
+      o.plakken++;
+      // v144: per vraag, zodat het rapport "plakken vraag X: N×" kan tonen
+      let q = '?';
+      try { const d = i.detail && String(i.detail).trim()[0] === '{' ? JSON.parse(i.detail) : null; if (d && d.q != null) q = String(d.q); } catch { /* ruwe tekst */ }
+      o.plakkenPerVraag[q] = (o.plakkenPerVraag[q] || 0) + 1;
+    }
     else if (/tab|focus|blur|visib/i.test(i.type)) o.tabwissel++;
     else o.andere++;
   }

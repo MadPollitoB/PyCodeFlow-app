@@ -1,6 +1,6 @@
 /* PyCodeFlow – gedeelde popups (toast, bevestigen, invoer, melding).
  * Dit zijn de ENIGE dialogen van het programma: gebruik nooit alert(), confirm() of prompt() van de browser.
- *   await pyConfirm({ title, body, confirmLabel, cancelLabel, danger })  → true/false
+ *   await pyConfirm({ title, body, confirmLabel, cancelLabel, danger, vinkje })  → true/false   (vinkje: tekst; bevestigen kan pas na aanvinken)
  *   await pyPrompt({ title, body, defaultValue, confirmLabel })          → tekst of null
  *   await pyAlert(tekst, 'error'|'warn'|'success'|'info')
  *   pyToast(tekst, type, duurMs)
@@ -109,10 +109,15 @@ window.pyConfirm = function(opties) {
 
     var overlay = document.createElement('div');
     overlay.id  = 'py-modal-overlay';
+    // v143: optioneel een vinkje dat eerst aangevinkt moet zijn voor de bevestigknop werkt.
+    var vinkjeHtml = opties.vinkje
+      ? '<label id="py-modal-vinkje" style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;text-align:left;font-weight:600;cursor:pointer;">' +
+        '<input type="checkbox" id="py-modal-vinkje-box" style="margin-top:3px;"/><span>' + opties.vinkje + '</span></label>'
+      : '';
     overlay.innerHTML =
       '<div id="py-modal-box">' +
         '<div id="py-modal-title">' + title + '</div>' +
-        '<div id="py-modal-body">'  + body  + '</div>' +
+        '<div id="py-modal-body">'  + body  + vinkjeHtml + '</div>' +
         '<div id="py-modal-actions">' +
           '<button id="py-modal-cancel" class="btn btn-muted small">' + cancelLabel + '</button>' +
           '<button id="py-modal-confirm" class="btn ' + (danger ? 'btn-danger' : 'btn-primary') + ' small">' + confirmLabel + '</button>' +
@@ -127,7 +132,7 @@ window.pyConfirm = function(opties) {
 
     function onKey(e) {
       if (e.key === 'Escape') close(false);
-      if (e.key === 'Enter' && document.activeElement === document.getElementById('py-modal-confirm')) close(true);
+      if (e.key === 'Enter' && document.activeElement === document.getElementById('py-modal-confirm') && !document.getElementById('py-modal-confirm').disabled) close(true);
     }
 
     overlay.addEventListener('click', function(e) { if (e.target === overlay) close(false); });
@@ -137,7 +142,12 @@ window.pyConfirm = function(opties) {
     var cancelBtn  = document.getElementById('py-modal-cancel');
     var confirmBtn = document.getElementById('py-modal-confirm');
     cancelBtn.addEventListener('click',  function() { close(false); });
-    confirmBtn.addEventListener('click', function() { close(true);  });
+    confirmBtn.addEventListener('click', function() { if (!confirmBtn.disabled) close(true); });
+    var vinkBox = document.getElementById('py-modal-vinkje-box');
+    if (vinkBox) {
+      confirmBtn.disabled = true;
+      vinkBox.addEventListener('change', function() { confirmBtn.disabled = !vinkBox.checked; });
+    }
     cancelBtn.focus();
   });
 };
@@ -230,3 +240,48 @@ window.pyAlert = function(message, type) {
   });
 };
 
+// v143: deadline (het uur) van een lopende toets/taak aanpassen. Resolve = nieuw tijdstip (ms) of null.
+window.pyDeadlinePicker = function (o) {
+  o = o || {};
+  return new Promise(function (resolve) {
+    var oud = document.getElementById('py-modal-overlay'); if (oud && oud.parentNode) oud.parentNode.removeChild(oud);
+    function lokaal(ms) {
+      var d = new Date(ms); var p2 = function (n) { return String(n).padStart(2, '0'); };
+      return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + 'T' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+    }
+    var basis = o.huidig && o.huidig > Date.now() ? o.huidig : Date.now();
+    var overlay = document.createElement('div'); overlay.id = 'py-modal-overlay';
+    overlay.innerHTML =
+      '<div id="py-modal-box"><div id="py-modal-title">⏰ Deadline aanpassen</div><div id="py-modal-body">' +
+      '<p style="margin:0 0 8px;"><strong>' + (o.naam || '') + '</strong><br/>Nu: ' +
+      (o.huidig ? new Date(o.huidig).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) : 'geen deadline') +
+      ' · ' + (o.bezig || 0) + ' leerling(en) nog bezig</p>' +
+      '<input id="py-dl-input" type="datetime-local" value="' + lokaal(basis) + '" style="width:100%;padding:8px;"/>' +
+      '<div style="display:flex;gap:6px;margin-top:8px;justify-content:center;">' +
+      '<button type="button" class="btn btn-soft small" data-plus="10">+10 min</button>' +
+      '<button type="button" class="btn btn-soft small" data-plus="30">+30 min</button>' +
+      '<button type="button" class="btn btn-soft small" data-plus="60">+1 u</button></div>' +
+      '<p id="py-dl-waarschuwing" class="muted" style="margin:8px 0 0;font-size:0.82rem;"></p></div>' +
+      '<div id="py-modal-actions"><button id="py-dl-cancel" class="btn btn-muted small">Annuleren</button>' +
+      '<button id="py-dl-ok" class="btn btn-primary small">Opslaan</button></div></div>';
+    document.body.appendChild(overlay);
+    var inp = document.getElementById('py-dl-input'), w = document.getElementById('py-dl-waarschuwing');
+    function waarde() { var t = new Date(inp.value).getTime(); return isNaN(t) ? null : t; }
+    function toonWaarschuwing() {
+      var t = waarde();
+      if (!t) { w.textContent = 'Kies een geldig uur.'; return; }
+      if (t <= Date.now()) { w.textContent = 'De deadline moet in de toekomst liggen.'; return; }
+      w.textContent = o.huidig && t < o.huidig
+        ? '⚠️ Je vervroegt de deadline: wie dan nog bezig is, wordt automatisch ingediend.'
+        : 'Een leerling blijft ook gebonden aan zijn eigen tijd (start + duur).';
+    }
+    inp.addEventListener('input', toonWaarschuwing); toonWaarschuwing();
+    overlay.querySelectorAll('[data-plus]').forEach(function (b) {
+      b.addEventListener('click', function () { var t = (waarde() || basis) + parseInt(b.getAttribute('data-plus')) * 60000; inp.value = lokaal(t); toonWaarschuwing(); });
+    });
+    function sluit(r) { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); resolve(r); }
+    document.getElementById('py-dl-cancel').addEventListener('click', function () { sluit(null); });
+    document.getElementById('py-dl-ok').addEventListener('click', function () { var t = waarde(); if (!t || t <= Date.now()) return; sluit(t); });
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) sluit(null); });
+  });
+};

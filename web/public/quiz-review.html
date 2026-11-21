@@ -4,8 +4,8 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets verbeteren</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.142"/>
-  <link rel="stylesheet" href="/flowchart-widget.css?v=v2026.2.51.142"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.152"/>
+  <link rel="stylesheet" href="/flowchart-widget.css?v=v2026.2.51.152"/>
   <style>
     .review-layout { display:grid; grid-template-columns:280px 1fr; gap:20px; }
     @media(max-width:900px){ .review-layout { grid-template-columns:1fr; } }
@@ -15,6 +15,7 @@
     .student-row:hover { border-color:var(--primary); }
     .student-row.active { background:var(--primary); color:#fff; border-color:var(--primary); }
     .student-row .score-chip { font-size:0.75rem; font-weight:700; float:right; }
+    .chip-heropend { background:#ede9fe; color:#5b21b6; border-radius:999px; padding:3px 10px; font-size:0.78rem; font-weight:700; }
     .q-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px; }
     .q-tab { padding:6px 14px; border-radius:8px; border:1.5px solid var(--border);
       cursor:pointer; font-size:0.85rem; font-weight:700; }
@@ -89,6 +90,7 @@
   <a href="/mijn-klassen.html">👥 Mijn klassen</a>
     <a href="/klasmatrix.html">📊 Klasoverzicht</a>
     <a href="/training-overzicht.html">🎯 Trainingen</a>
+      <a href="/pyblitz.html">⚡ PyBlitz</a>
   <a href="/sjablonen.html">📚 Bibliotheek</a>
   <a href="/quiz-archive.html" class="active">📦 Archief</a>
   <a href="/teacher-toegang.html">🔓 Toegang</a>
@@ -265,14 +267,14 @@
 <!-- Sprint 43.10: UMD-libs vóór Monaco's AMD-loader (zie quiz-student.html) -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="/vendor/marked/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.142"></script>
+<script src="/code-highlight.js?v=v2026.2.51.152"></script>
 <script src="/vendor/dompurify/purify.min.js"></script>
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/flowchart-widget.js?v=v2026.2.51.142"></script>
-<script src="/popups.js?v=v2026.2.51.142"></script>
-<script src="/app.js?v=v2026.2.51.142"></script>
-<script src="/regelvergelijking.js?v=v2026.2.51.142"></script>
-<script src="/quiz-review.js?v=v2026.2.51.142"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.142"></script></body>
+<script src="/flowchart-widget.js?v=v2026.2.51.152"></script>
+<script src="/popups.js?v=v2026.2.51.152"></script>
+<script src="/app.js?v=v2026.2.51.152"></script>
+<script src="/regelvergelijking.js?v=v2026.2.51.152"></script>
+<script src="/quiz-review.js?v=v2026.2.51.152"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.152"></script></body>
 </html>

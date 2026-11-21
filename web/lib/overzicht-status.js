@@ -43,6 +43,7 @@ function knoppenVoorStatus(status, r) {
         const more = [];
         if (kb) more.push('live'); // live blijft bereikbaar als klasbord hoofdknop is
         more.push('voortgang');
+        more.push('deadline'); // v143: deadline (het uur) aanpassen tijdens de toets
         if (r.individualOpen) more.push('heropening_terug'); // v121: heropening per leerling terugdraaien
         more.push('stoppen', 'dupliceren', 'verwijderen');
         return { primary: kb ? 'klasbord' : 'live', more };

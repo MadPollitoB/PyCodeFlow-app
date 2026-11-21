@@ -4,8 +4,8 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>PyCodeFlow — Toets</title>
-  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.142"/>
-  <link rel="stylesheet" href="/flowchart-widget.css?v=v2026.2.51.142"/>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.152"/>
+  <link rel="stylesheet" href="/flowchart-widget.css?v=v2026.2.51.152"/>
   <style>
     /* v132: tabs in het cursus-paneel */
     .cursus-linktab{font:inherit;font-size:.82rem;font-weight:700;padding:5px 12px;border-radius:999px;border:1.5px solid var(--border,#e2e8f0);background:var(--surface,#fff);color:var(--text,#1f2937);cursor:pointer}
@@ -55,6 +55,7 @@
       display:none; align-items:center; justify-content:center; z-index:10001;
       color:#fff; text-align:center; flex-direction:column; gap:16px; padding:20px; }
     .fullscreen-overlay.visible { display:flex; }
+    #terugkeer-overlay, #dubbel-overlay { z-index:100000; }
     .fullscreen-overlay h2 { margin:0; font-size:1.5rem; }
     .fullscreen-overlay p { margin:0; max-width:480px; opacity:0.95; }
     /* Startscherm */
@@ -64,6 +65,22 @@
       border-radius:20px; padding:40px; max-width:500px; width:100%; text-align:center;
       box-shadow:var(--shadow); }
     .start-card h2 { font-size:1.6rem; margin:0 0 8px; }
+    .start-card-breed { max-width:640px; text-align:left; padding:30px 34px; }
+    .badge-type { display:inline-block; font-size:.75rem; font-weight:800; padding:3px 10px; border-radius:999px; background:#e0e7ff; color:#3730a3; margin:2px 0 6px; }
+    .badge-type.taak { background:#dcfce7; color:#166534; }
+    .regels-kop { font-weight:800; font-size:.8rem; letter-spacing:.06em; text-transform:uppercase; color:#64748b; margin:4px 0 8px; }
+    .regel { display:flex; gap:12px; padding:10px 12px; border-radius:10px; margin-bottom:8px; font-size:.92rem; line-height:1.45; border:1px solid #e5e7eb; background:#fafafa; }
+    .regel .i { font-size:1.25rem; line-height:1.2; flex-shrink:0; width:26px; text-align:center; }
+    .regel.streng { background:#fef2f2; border-color:#fecaca; }
+    .regel.let { background:#fffbeb; border-color:#fde68a; }
+    .regel.info { background:#f0f9ff; border-color:#bae6fd; }
+    .fraude { background:#7f1d1d; color:#fff; border-radius:12px; padding:14px 16px; margin:12px 0; font-size:.95rem; line-height:1.5; display:flex; gap:12px; }
+    .fraude.hidden { display:none; }
+    .fraude .i { font-size:1.5rem; }
+    .akkoord { display:flex; gap:12px; align-items:flex-start; border:2px solid #cbd5e1; border-radius:12px; padding:14px 16px; margin:16px 0 14px; font-weight:600; cursor:pointer; font-size:.93rem; line-height:1.45; }
+    .akkoord.aan { border-color:#16a34a; background:#f0fdf4; }
+    .akkoord input { width:20px; height:20px; margin-top:2px; flex-shrink:0; }
+    .startknop:disabled { background:#cbd5e1 !important; color:#94a3b8 !important; cursor:not-allowed; border-color:#cbd5e1 !important; }
     /* Indienpagina */
     .submit-screen { display:none; }
     .submit-screen.visible { display:block; }
@@ -125,22 +142,22 @@
 <div id="review-screen" style="display:none;padding:20px;"></div>
 
 <div class="start-screen" id="start-screen">
-  <div class="start-card">
-    <div style="font-size:3rem;margin-bottom:12px;">📝</div>
-    <h2 id="start-session-name">Toets laden...</h2>
-    <p class="muted" id="start-info" style="margin:8px 0 24px;"></p>
-    <div style="background:var(--surface-soft);border-radius:12px;padding:14px 16px;margin-bottom:24px;text-align:left;">
+  <div class="start-card start-card-breed">
+    <div style="font-size:3rem;text-align:center;" id="start-ico">📝</div>
+    <div style="text-align:center;"><span class="badge-type" id="start-type-badge">TOETS</span></div>
+    <h2 id="start-session-name" style="text-align:center;">Laden...</h2>
+    <p class="muted" id="start-info" style="margin:8px 0 16px;text-align:center;"></p>
+    <div style="background:var(--surface-soft);border-radius:12px;padding:14px 16px;margin-bottom:16px;text-align:left;">
       <strong>Jouw naam:</strong> <span id="start-student-name">—</span><br/>
       <strong>Klas:</strong> <span id="start-student-class">—</span>
     </div>
-    <div style="background:#fef3c7;border-radius:10px;padding:12px 14px;margin-bottom:24px;font-size:0.88rem;color:#92400e;">
-      ⏱ Jouw timer start pas als je op de knop hieronder klikt.
-    </div>
-    <button class="btn btn-primary" style="width:100%;font-size:1.1rem;padding:16px;"
+    <div class="regels-kop">Lees dit voor je start</div>
+    <div id="start-regels-lijst"><div class="regel info"><div class="i">⏳</div><div>Regels laden…</div></div></div>
+    <div class="fraude hidden" id="start-fraude"><div class="i">🚨</div><div><b>Andere tabbladen, vensters of programma's open laten staan wordt als fraude beschouwd.</b> Elke poging wordt gelogd en je leerkracht kan je werk daarom met <b>0</b> beoordelen. Sluit alles vóór je start.</div></div>
+    <label class="akkoord" id="start-akkoord-label"><input type="checkbox" id="start-akkoord"/><span>Ik heb de regels hierboven gelezen en ga akkoord. Ik heb alle andere tabbladen, vensters en programma's gesloten.</span></label>
+    <button class="btn btn-primary startknop" id="start-knop" style="width:100%;font-size:1.1rem;padding:16px;" disabled
       onclick="startQuiz()">🚀 START TOETS</button>
-    <p class="muted" id="start-regels" style="font-size:0.82rem;margin-top:12px;">
-      Je kan op elk moment opslaan en terugkeren naar vorige vragen.
-    </p>
+    <p class="muted" id="start-hint" style="font-size:0.82rem;margin-top:10px;text-align:center;">Vink eerst het vakje aan om te kunnen starten.</p>
   </div>
 </div>
 
@@ -168,6 +185,21 @@
   <button class="btn btn-primary" onclick="vraagVolledigScherm()" style="font-size:1.1rem;padding:12px 28px;">
     ↩️ Terug naar volledig scherm
   </button>
+</div>
+
+<!-- v143: vergrendelscherm bij terugkeer in het tabblad -->
+<div class="fullscreen-overlay" id="terugkeer-overlay" role="alertdialog" aria-labelledby="terugkeer-titel">
+  <h2 id="terugkeer-titel">⚠️ Je hebt de toets verlaten</h2>
+  <p>Je was <strong id="terugkeer-duur"></strong> weg uit de toets. Dit is gelogd en je leerkracht kan het zien. Je tijd is gewoon doorgelopen.</p>
+  <button class="btn btn-primary" onclick="sluitTerugkeerOverlay()" style="font-size:1.1rem;padding:12px 28px;">
+    ↩️ Doorgaan met de toets
+  </button>
+</div>
+
+<!-- v143: dezelfde toets al open in een ander tabblad -->
+<div class="fullscreen-overlay" id="dubbel-overlay" role="alertdialog" aria-labelledby="dubbel-titel">
+  <h2 id="dubbel-titel">Deze toets is al open in een ander tabblad</h2>
+  <p>Werk verder in dat tabblad en sluit dit tabblad. Dit is gelogd.</p>
 </div>
 
 <!-- Quiz scherm -->
@@ -357,14 +389,15 @@
      ("Can only have one anonymous define call" + "io is not defined"). -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="/vendor/marked/marked.min.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.142"></script>
+<script src="/code-highlight.js?v=v2026.2.51.152"></script>
 <script src="/vendor/dompurify/purify.min.js"></script>
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/flowchart-widget.js?v=v2026.2.51.142"></script>
-<script src="/popups.js?v=v2026.2.51.142"></script>
-<script src="/app.js?v=v2026.2.51.142"></script>
-<script src="/schud.js?v=v2026.2.51.142"></script>
-<script src="/quiz-student.js?v=v2026.2.51.142"></script>
-<script src="/privacy.js?v=v2026.2.51.142"></script></body>
+<script src="/flowchart-widget.js?v=v2026.2.51.152"></script>
+<script src="/tabdiagnose.js?v=v2026.2.51.152"></script>
+<script src="/popups.js?v=v2026.2.51.152"></script>
+<script src="/app.js?v=v2026.2.51.152"></script>
+<script src="/schud.js?v=v2026.2.51.152"></script>
+<script src="/quiz-student.js?v=v2026.2.51.152"></script>
+<script src="/privacy.js?v=v2026.2.51.152"></script></body>
 </html>

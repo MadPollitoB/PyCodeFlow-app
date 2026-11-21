@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Sessie actief</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.142"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.152"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 <style>
   .runner-health-bar-track {
@@ -164,6 +164,7 @@
        Nu staat dit ALTIJD op een eigen regel, in beide modi identiek. -->
   <div class="top-actions session-actions-row" style="margin-top:10px;">
     <a href="/teacher-sessions.html" class="btn btn-muted">Sessieoverzicht</a>
+    <span class="pyblitz-knoppen"><button class="btn btn-primary" id="pyblitz-btn" title="Start een PyBlitz (live quiz) voor de klas">⚡ PyBlitz</button><button class="btn btn-muted small" id="pyblitz-wissel-btn" title="Andere PyBlitz kiezen" aria-label="Andere PyBlitz kiezen">▾</button></span>
     <button class="btn btn-muted" id="teacher-toggle-workspace-btn" title="Wissel tussen gedeelde klascode en individuele werkfase per leerling">Start individuele werkfase</button>
     <!-- v126: cursus tonen aan de leerlingen (zijpaneel bij de leerling), in klasmodus én individueel. -->
     <span class="cursus-control" id="cursus-control">
@@ -241,6 +242,36 @@
         <button class="btn btn-primary" id="code-send-btn" title="Zet het zichtbare voorbeeld in het codeveld (de leerlingen zien het mee)">Naar codeveld</button>
         <button class="btn btn-muted" id="code-clear-btn" title="Wis de tekst van dit voorbeeld">Wissen</button>
         <button class="btn btn-soft" id="drafts-save-btn-2" data-drafts-save title="Bewaar alle opdrachten en codevoorbeelden bij deze sessie">💾 Bewaar</button>
+        <button class="btn btn-muted small hidden" data-drafts-load title="Haal de bij de sessie bewaarde versie op (vervangt wat je nu hebt)">↻ Laad bewaarde</button>
+        <span class="drafts-status" data-drafts-status></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- v147: link voor de leerlingen — URL + titel, reeks met Vorige/Volgende. "Open" opent de link bij jou;
+       "Naar leerlingen" toont bij hen een popup (enkel klasmodus). Bewaren via 💾 Bewaar (samen met de rest). -->
+  <div id="tfs-anchor-link" style="display:none;"></div>
+  <div class="card announcement-compose" id="link-compose" style="margin-top:20px;">
+    <div class="announcement-compose-grid">
+      <div class="compose-main">
+        <div class="compose-head"><label class="announcement-label" for="link-url-input">🔗 Link voor leerlingen</label><span class="tfs-count" id="tfs-count-link"></span><button type="button" class="tfs-arrow" data-tfs-collapse="link" title="Inklappen / uitklappen" aria-expanded="true">▾</button></div>
+        <input type="text" id="link-titel-input" class="link-titel" maxlength="80" placeholder="Titel die de leerlingen zien (leeg = website-naam)" autocomplete="off"/>
+        <div class="link-rij">
+          <input type="url" id="link-url-input" class="link-url" maxlength="2000" placeholder="https://…" spellcheck="false" autocomplete="off"/>
+          <button type="button" class="btn btn-soft" id="link-open-btn" title="Opent de link bij jou in een nieuw tabblad">↗ Open</button>
+          <button type="button" class="btn btn-primary" id="link-send-btn" title="Toont bij alle leerlingen een popup met een knop om de link te openen (enkel klasmodus)">Naar leerlingen</button>
+        </div>
+        <div class="announcement-nav">
+          <button type="button" class="btn btn-muted small" id="link-nav-prev-btn" title="Vorige link">◀ Vorige</button>
+          <span id="link-nav-pos">1 / 1</span>
+          <button type="button" class="btn btn-muted small" id="link-nav-next-btn" title="Volgende link">Volgende ▶</button>
+          <button type="button" class="btn btn-soft small" id="link-nav-add-btn" title="Nieuwe, lege link toevoegen">+ Nieuwe link</button>
+        </div>
+        <div class="link-status hidden" id="link-status"></div>
+      </div>
+      <div class="announcement-actions">
+        <button class="btn btn-muted" id="link-clear-btn" title="Wis deze link uit het veld">Wissen</button>
+        <button class="btn btn-soft" id="drafts-save-btn-3" data-drafts-save title="Bewaar alle opdrachten, voorbeelden en links bij deze sessie">💾 Bewaar</button>
         <button class="btn btn-muted small hidden" data-drafts-load title="Haal de bij de sessie bewaarde versie op (vervangt wat je nu hebt)">↻ Laad bewaarde</button>
         <span class="drafts-status" data-drafts-status></span>
       </div>
@@ -483,6 +514,7 @@
     <div class="tfs-top-left">
       <div id="tfs-slot-opdracht" class="tfs-top-slot"></div>
       <div id="tfs-slot-voorbeeld" class="tfs-top-slot"></div>
+      <div id="tfs-slot-link" class="tfs-top-slot"></div>
     </div>
     <div class="tfs-top-controls" id="tfs-top-controls">
       <div class="tfs-topbar">
@@ -493,7 +525,7 @@
         <button class="btn btn-muted small" id="tfs-exit-btn" title="Terug naar normale weergave (Esc)">✕ Esc</button>
         <!-- v126: één pijl voor opdracht + voorbeelden samen; één pijl voor het timerblok. -->
         <label class="tfs-cursus" title="Cursus tonen voor de leerlingen"><input type="checkbox" id="tfs-cursus-vink"/> 📄 Cursus</label>
-        <button class="btn btn-soft small" id="tfs-top-toggle" title="Opdracht en voorbeelden samen in- of uitklappen" aria-expanded="true">▾ Opdracht/voorbeelden</button>
+        <button class="btn btn-soft small" id="tfs-top-toggle" title="Opdracht en voorbeelden samen in- of uitklappen" aria-expanded="true">▾ Opdracht/voorbeelden/link</button>
         <button class="btn btn-soft small" id="tfs-timer-toggle" title="Timerblok in- of uitklappen" aria-expanded="true">▾ Timer</button>
         <button type="button" class="tfs-timer-pill hidden" id="tfs-timer-pill" title="Timer loopt — klik om het timerblok uit te klappen">⏱ <span id="tfs-timer-pill-tekst">—</span></button>
       </div>
@@ -554,8 +586,8 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="/monaco-env.js"></script>
 <script src="/monaco/min/vs/loader.js"></script>
-<script src="/code-highlight.js?v=v2026.2.51.142"></script>
-<script src="/rijke-tekst.js?v=v2026.2.51.142"></script>
-<script src="/popups.js?v=v2026.2.51.142"></script>
-<script src="/app.js?v=v2026.2.51.142"></script>
-<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.142"></script></body></html>
+<script src="/code-highlight.js?v=v2026.2.51.152"></script>
+<script src="/rijke-tekst.js?v=v2026.2.51.152"></script>
+<script src="/popups.js?v=v2026.2.51.152"></script>
+<script src="/app.js?v=v2026.2.51.152"></script><script src="/vendor/qrcode-generator.js?v=v2026.2.51.152"></script><script src="/pyblitz-ui.js?v=v2026.2.51.152"></script><script src="/pyblitz-overlay.js?v=v2026.2.51.152"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.152"></script></body></html>

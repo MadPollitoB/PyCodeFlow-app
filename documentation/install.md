@@ -347,6 +347,8 @@ cp outputs/styles.css web/public/styles.css
 docker compose restart web
 ```
 
+> **v145:** `web/package.json` kreeg een nieuwe afhankelijkheid (`html2canvas`, voor het schermbeeld in het live-overzicht). Bouw de webcontainer daarom opnieuw (`docker compose build web && docker compose up -d web`); een gewone `restart` is dan niet genoeg.
+
 ### server.js of database.js gewijzigd
 
 ```bash

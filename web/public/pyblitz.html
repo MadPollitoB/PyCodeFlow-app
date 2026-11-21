@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>PyCodeFlow — PyBlitz</title>
+  <link rel="stylesheet" href="/styles.css?v=v2026.2.51.152"/>
+  <link rel="stylesheet" href="/pyblitz.css?v=v2026.2.51.152"/>
+  <link rel="icon" href="/assets/favicon.png" type="image/png">
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="logo-group">
+      <img src="/assets/pycodeflow-logo.png" class="logo-small" alt=""/>
+      <span>PyCodeFlow</span>
+      <span class="badge" style="margin-left:8px;">PyBlitz</span>
+    </div>
+    <div class="top-actions">
+      <a href="/teacher-sessions.html" class="btn btn-muted small">← Sessies</a>
+      <a href="/admin.html" class="btn btn-muted small">👤 Beheer</a>
+      
+    </div>
+  </div>
+</div>
+
+<div class="subnav"><div class="subnav-inner">
+  <a href="/quiz-bank.html">📋 Vragenbank</a>
+  <a href="/toets-overzicht.html">🧪 Toets overzicht</a>
+  <a href="/taak-overzicht.html">📝 Taak overzicht</a>
+  <a href="/mijn-klassen.html">👥 Mijn klassen</a>
+    <a href="/klasmatrix.html">📊 Klasoverzicht</a>
+    <a href="/training-overzicht.html">🎯 Trainingen</a>
+      <a href="/pyblitz.html" class="active">⚡ PyBlitz</a>
+  <a href="/sjablonen.html">📚 Bibliotheek</a>
+  <a href="/quiz-archive.html">📦 Archief</a>
+  <a href="/teacher-toegang.html">🔓 Toegang</a>
+  <a href="/free-editor.html?leerkracht=1" target="_blank" rel="noopener" title="Vrij oefenen met de code-editor (opent in een nieuw tabblad)">🐍 Vrij oefenen</a>
+  <div class="subnav-sep"></div>
+  <a href="/admin.html">👤 Beheer</a>
+  <a href="/monitoring.html">⚙️ Systeem</a>
+</div></div>
+
+<div class="screen" style="max-width:1100px;margin:0 auto;padding:28px 20px;">
+  <h1 style="margin:0 0 6px;">⚡ PyBlitz</h1>
+  <p class="muted" style="margin:0 0 20px;">Live quizzen voor je klas. Maak ze hier klaar; starten doe je in een klassessie met de knop <b>⚡ PyBlitz</b>.</p>
+  <div id="pbl-melding" role="status" aria-live="polite"></div>
+  <div id="pbl-lijst-scherm">
+    <div class="pbl-rij" style="margin-bottom:16px;">
+      <button class="btn btn-primary" id="pbl-nieuw">+ Nieuwe PyBlitz</button>
+      <label class="btn btn-soft" for="pbl-import-bestand" style="cursor:pointer;">⬆ Importeren (JSON of Excel)</label>
+      <input type="file" id="pbl-import-bestand" accept=".json,.xlsx" class="hidden"/>
+      <a class="btn btn-muted" href="/api/pyblitz/sjabloon.xlsx">Excel-sjabloon</a>
+      <button class="btn btn-muted" id="pbl-historiek-knop">Gespeelde spellen</button>
+    </div>
+    <div id="pbl-raster" class="pbl-raster"></div>
+  </div>
+  <div id="pbl-editor-scherm" class="hidden"></div>
+  <div id="pbl-historiek-scherm" class="hidden"></div>
+</div>
+
+<script src="/popups.js?v=v2026.2.51.152"></script>
+<script src="/pyblitz-bibliotheek.js?v=v2026.2.51.152"></script>
+<script src="/pyblitz-proef.js?v=v2026.2.51.152"></script>
+<script src="/nav-rechten.js"></script><script src="/privacy.js?v=v2026.2.51.152"></script></body>
+</html>

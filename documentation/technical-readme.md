@@ -1,7 +1,7 @@
 # PyCodeFlow — Technische documentatie
 
 > Interne werking, architectuur, API-referentie en ontwikkelaarsinformatie.
-> Versie: v2026.2.51.142 (bijgewerkt voor v124–v142; zie ook `changelog.md`)
+> Versie: v2026.2.51.152 (bijgewerkt voor v124–v152; zie ook `changelog.md`)
 
 ---
 
@@ -67,6 +67,7 @@ Browser (leerling / leerkracht)
 | Database | PostgreSQL via `pg` Pool | PG 16 |
 | PDF export | pdfkit | ^0.15 |
 | Markdown | marked.js | 9.1.6 (CDN — preview in vragenbank) |
+| Schermbeeld (live-overzicht) | html2canvas | 1.4.1 (lokaal via `/vendor/html2canvas`, v145) |
 | Tunnel | Cloudflare Tunnel (cloudflared) | latest |
 | Deployment | Docker Compose | — |
 
@@ -389,6 +390,11 @@ zodat overgeslagen vragen zichtbaar blijven (score `null`) in plaats van te ontb
 | `gelijkenis.js` | `eenhedenUit`, `bouwRapport`: tekst- en structuurgelijkenis (Levenshtein op tokens), gedeelde foute keuzes (met zeldzaamheidsgrens), placeholders, timing, incidentcontext. |
 | `moeilijkheid.js` | Richtwaarden: makkelijk 70–100, gemiddeld 45–85, moeilijk 20–65; min. 5 leerlingen; setafwijking 5 procentpunt. |
 | `klasbord.js` | `bouwBordLeerlingen(leerlingen, totaal, tijd)`, `eindTijdVan`; geen vraagnummer meer. |
+| `link.js` | v147: `normaliseerLink(titel,url)` (enkel http/https, schema aanvullen, max 2000/80 tekens, titel standaard = domein), `normaliseerLinks(lijst)` voor `drafts.links`. |
+| `sessie-status.js` | v146: `sessieStatus` (lopend/gepland/deadline voorbij/gestopt/gearchiveerd/geblokkeerd; klas: actief/rustig) voor de monitoringpagina. |
+| `live-beeld.js` | v145: `normaliseerInterval` (30 / 0 = uit / 5–300), `isGeldigBeeld` (JPEG-data-URL ≤ 150 000 tekens), `antwoordSnippet`, `bouwLiveKaarten`. |
+| `fraude.js` | v144: `groepeerFraude` (incidenten → groepen per soort en vraag met risico), `samenvatting`, `risicoVan`, `plakTellingen`; negeert info-/leerkrachtacties. |
+| `herstel.js` | v146: `berekenTimer({start,timerSeconds,noTimer,deadline,extraSeconds})` → `{modus: geen\|deadline\|duur\|beide, heeftTeller, eindAt, totaalSec}`, eindAt = min(start+duur, deadline) + extra (alleen deadline: deadline + extra). `berekenHerstel` (gebruikt `berekenTimer`; `extraModus` `eind`\|`vanafNu`) (eigen eindtijd = start + duur [+ extra], nooit herberekend; toegangsvenster minstens 1 min), `bepaalHervatIndex` (eerste niet-bevestigde vraag bij *1 kans per vraag*, anders eerste onbeantwoorde). |
 | `public/regelvergelijking.js` | Client én tests: `vergelijkRegels(a, b)` → regels met status `gelijk` / `verschillend` / `triviaal`. |
 
 ### Database (alle migraties idempotent)
@@ -402,7 +408,10 @@ zodat overgeslagen vragen zichtbaar blijven (score `null`) in plaats van te ontb
 | `variables_json` | `question_bank`, `quiz_question_snapshots` | v135 |
 | `difficulty` | `quiz_question_snapshots` | v137 |
 | `max_points`, `points`, `score` → `NUMERIC(6,1)` | bank, snapshots, answers | v133 |
-| `quiz_incidents` (sessie, leerling, type, detail, tijd) | — | v122 |
+| `quiz_incidents` (sessie, leerling, type, detail [max. 1500 tekens], tijd) | — | v122 |
+| `confirmed_at` | `quiz_answers` | v143 |
+| `live_screenshot_sec` (INTEGER, standaard 30) | `assignment_bank` | v145 |
+| `extra_seconds` | `quiz_individual_access` | v143 |
 
 ### Endpoints (nieuw)
 
@@ -415,11 +424,18 @@ zodat overgeslagen vragen zichtbaar blijven (score `null`) in plaats van te ontb
 | `POST /api/quiz/bank/import-json` | JSON-import van vragen (max. 1 MB) |
 | `POST /api/quiz/:code/release`, `/review-mode` | Scores vrijgeven / nazicht openen (ook via het overzicht) |
 | `GET /api/quiz-sessions/:code/incidenten` | Incidentenlogboek |
+| `GET /api/quiz-sessions/:code/fraude` | v144: spiek-/fraudepogingen per leerling, gegroepeerd (blok onderaan het nakijken) |
+| `GET/POST /api/quiz-sessions/:code/roster/:studentId/herstel-info` · `…/herstel` | Toegang herstellen (v143): individuele toegang + extra seconden, ingediend-vlag weg, leerling terug in het geheugen, logboek. Werkt in elke toestand. |
+| `GET /api/quiz/:code/deadline-info` · `PUT /api/quiz/:code/deadline` | Deadline aanpassen tijdens een lopende toets (v143); zet `_deadlineHandled` terug zodat het automatisch indienen de nieuwe waarde gebruikt |
 
 ### Socket.IO (nieuw)
 
 - `review_run_request` / `review_runtime_input`: ▶ Uitvoeren in het nakijkscherm, **enkel leerkracht**; hergebruikt `runnerStart`, `runnerInput`, `RUN_RATE_LIMIT_MS` en `checkIpRateLimit`.
 - `student_join_free { name, className, leerkracht }`: leerkracht oefent vrij; `alsLeerkracht = leerkracht === true && socketIsTeacherAuthorized(socket) && !ingelogd`.
+- `quiz_save_answer` kent sinds v143 `bevestigd: true` (bewust bevestigd bij 1 kans per vraag); `quiz_state` stuurt `bevestigdeVragen`, `currentQuestion` (hervat-index na heropenen) en `timerSeconds` incl. extra minuten.
+- `quiz_incident` (v144): `detail` is een JSON-string, bv. `{"q":"<vraagId>","len":12,"tekst":"…"}`; `weg_van_toets` heeft `fase` (`weg`/`terug`), `secs`, `oorzaak`, `ev`, `rand`, `toetsen`. Nieuwe types: grote_invoer, weinig_toetsen, sneltoets, venster_kleiner, wijziging_na_terugkeer. Rem per type is optioneel uit (`geenRem`); de server blijft op 30 meldingen/minuut. `public/tabdiagnose.js` (UMD) levert `systeemToetsLabel`, `randVan`, `bouwOordeel`, `maakDiagnose`.
+- **Live-overzicht (v145)**: de leerkracht-socket stuurt `teacher_grid_observe` (elke 3 s) en bij sluiten `teacher_grid_stop`; de server houdt `session._gridObs` (socketId → laatst gezien, 12 s time-out, opruiming elke 5 s). Wordt de eerste observer toegevoegd, dan krijgt elke online, niet-ingediende leerling `quiz_screenshot_aan {intervalSec}` (ook bij later verbinden via `quiz_start`); is de laatste weg, dan `quiz_screenshot_uit` en wordt `student._beeld` gewist. De leerling stuurt `quiz_screenshot {img}` (JPEG-data-URL, ≤ 150 000 tekens, ≥ 2 s tussen beelden, genegeerd zonder observer); de server bewaart enkel het nieuwste beeld per leerling (`student._beeld`, geheugen) en stuurt `quiz_screenshot_update {studentId, img, at}` naar de observers. `quiz_live_data {kaarten, intervalSec, nu}` bevat de mini-kaartjes (zie `bouwLiveKaarten`). Leerlingvelden in het geheugen: `_quizTotaal`, `_quizEndAt`, `_laatsteActiviteitAt`, `_antwoordSnippet`.
+- **Timer (v146)**: `timerVoorLeerling(meta, student)` in `server.js` is de enige plek die de eindtijd berekent (quiz_start, `herberekenTijden` na een deadline-wijziging, herstel). `quiz_state` stuurt `timerSeconds` (= effectieve duur), `timerModus`, `indienOp`; `quiz_tijd_wijziging` stuurt de nieuwe waarden bij een gewijzigde deadline. De deadline-job dient leerlingen met `quizExtraSeconds` pas in op `deadline + extra`.
 - `student_copy_to_class`, `teacher_reset_copy` (v128); `teacher_set_cursus`, `cursus_update` (v126); `teacher_save_drafts`, `teacher_rebind`, `teacher_ping`, `teacher_cleanup_offline` (v124/v125); `quiz_incident` (type ∈ `INCIDENT_TYPES`, max. 30 per minuut per socket).
 
 ### Versie
@@ -429,3 +445,19 @@ zodat overgeslagen vragen zichtbaar blijven (score `null`) in plaats van te ontb
 ### Test-tips
 
 `DATABASE_URL=postgres://user:pw@127.0.0.1:5432/pycodeflow_test node --test tests/*.test.js`. Ligt de databank stil dan slaan 14 tests over (en logt de server "database niet bereikbaar"): eerst `service postgresql start`. Livetests (`tests/live/*.js`) vragen een draaiende server en runner; POST's hebben `origin: BASE` nodig (CSRF).
+
+- **Link naar leerlingen (v147)**: `session.link = {id,titel,url,domein,at}` (enkel in het geheugen, niet bewaard na de les). Sockets: `teacher_send_link` (alleen `mode==='class'` en `classWorkspaceMode==='shared'`), `teacher_clear_link`, broadcast `link_update {link|null}`. `student_state.link` is `null` in de individuele werkfase; wisselen naar individueel wist de link. De voorbereide reeks staat in `session.drafts.links` (`[{titel,url}]`, via `teacher_save_drafts` → `config._drafts`, achterwaarts compatibel). Client: `studentLinkToepassen` (popup + knop; "geklikt" per link-id in `sessionStorage`), teacher-blok `setupLinkBlok` in `app.js`; fullscreen-slot `#tfs-slot-link`.
+
+- **Afgedwongen indienen (v148)**: elk pad (timer, deadline, heropening verlopen, stopknop, tabwissel) gebruikt `rondForceInzendingAf(code, studentId, reden, naam)` = `submitQuizAnswers` + `autoScoreInzending` (leest uit de databank, scoort single/multiple en keuze-onderdelen van composite met `lib/scoring.js`). Bij het afdwingen krijgt de leerling `_forcedAt`/`_forcedReden`; `quiz_save_answer` aanvaardt nog 20 s daarna een opslag (daarna opnieuw indienen + scoren). Client: `onChoiceChange` roept meteen `saveCurrentAnswer()` aan.
+- **Startscherm (v148)**: `quiz-student.js › renderStartRegels / updateStartKnop / startTijdTekst` bouwen de regels uit `GET /startinfo`; `startQuiz()` start enkel als `#start-akkoord` aangevinkt is en logt `startbevestiging {vinkje, soort}`. De tijd wordt elke 30 s herberekend.
+- **Herstellen vanuit nazicht (v149)**: `quiz-review.js › herstelVanuitNazicht` roept `window.herstelLeerling(code, id, naam, { bron:'nazicht', verbeterd, naAfloop })` (app.js; hetzelfde venster als monitoring: presets 5/10/15/30, live voorbeeld via `herstel-info?extra=&modus=`). Met minuten > 0 wordt `extraModus='vanafNu'` verstuurd; `lib/herstel.js › berekenHerstel` geeft dan zonder timer/deadline exact dat aantal minuten (niet de 15 min terugval). Korter dan de eigen eindtijd kan niet (extra seconden zijn ≥ 0). Heropeningen: `laadHeropeningen()` leest `GET /reopen-open`, polling elke 15 s → `herlaadAntwoorden()`.
+- **Heropenen (v150)**: `reopen-bulk` berekent per leerling via `bouwHerstelPlan(code,id,naam,minutenTotUntil,'vanafNu')` de extra seconden (opgeslagen in `quiz_individual_access.extra_seconds`; ook `live.quizExtraSeconds`). `GET /startinfo?name=` geeft `heropendTot` en `stopped=false` bij geldige individuele toegang; `quiz-student.js › haalStartInfo` stuurt de naam mee. `heropenLeerling` delegeert naar `herstelLeerling`.
+
+## PyBlitz (v151)
+- **Logica** (puur, getest): `lib/pyblitz.js` (vraagnormalisatie, punten, rangschikking, gastnamen, pincodes, import JSON/Excel-rijen, export) en `lib/pyblitz-spel.js` (spelmotor lobby→vraag→uitslag→eind→gesloten; server-autoritatief, injecteerbare klok/timers, `toestand(spelerId|null)` bouwt de payload per ontvanger; het juiste antwoord zit pas na de vraag in de payload).
+- **Routes + sockets**: `lib/pyblitz-routes.js`. REST (leerkracht, CSRF): `/api/pyblitz/sets[/:id]`, `/export`, `/import` (JSON of xlsx base64, eigen 3 MB parser), `/sjabloon.xlsx`, `/image` (magic-bytes via `herkenAfbeelding`, max 600 kB; `GET /image/:id` publiek, onraadbaar id), `/games[/:id]`. Publiek: `POST /api/pyblitz/join` (pin + naam → token; rate-limit per IP, max 150 gasten; klasnamen via `dbModule.pyblitzKlasNamen`; nummer bij bezette naam). Pagina's: `/pyblitz.html` (requireTeacherAuth), `/play`.
+- **Sockets** (`attach(socket)` in `io.on('connection')`): leerkracht `teacher_pyblitz_status|koppel|open|sync|begin|volgende|sluitvraag|pauze|hervat|sluit`; deelnemer `pyblitz_sync` (klasleerling), `pyblitz_guest_connect {token}`, `pyblitz_answer`, `pyblitz_guest_leave`; server → `pyblitz_state` (per ontvanger) en `pyblitz_closed` (room `pb:<gameId>`). `open` weigert wanneer `session.mode!=='class'` of de werkruimte niet `shared` is. Spellen leven in het geheugen (registry per id/pin/sessie), worden na 45 min inactiviteit gestopt; resultaat (`onEinde`) gaat naar `pyblitz_games`. Koppeling set↔sessie: `session.pyblitz` → `config._pyblitz` (persistSession).
+- **DB**: `pyblitz_sets`, `pyblitz_images` (BYTEA), `pyblitz_games` (results JSONB) in `initSchema`.
+- **Front-end**: `public/pyblitz-ui.js` (gedeelde weergave host/leerling/gast, enkel textContent; QR = `vendor/qrcode-generator.js`), `pyblitz-overlay.js` (popup/spelmodus in teacher-app en student-app via `window.__pcfSocket`), `pyblitz-bibliotheek.js` + `pyblitz.html` (bibliotheek/editor), `play.html` + `play.js` (gast; token in sessionStorage), `pyblitz.css`.
+
+- **PyBlitz v152**: opties `{text, code}` (meerdere regels → `code=true`, max `OPTIE_REGELS_MAX`=6). **Proef** (`public/pyblitz-proef.js`): popup met 2 iframes op `/pyblitz-proef.html?rol=host|speler` (script `pyblitz-proef-frame.js`, hergebruikt `pyblitz-ui.js`); parent en iframes praten via `postMessage` (origin-check). De spelmotor draait in de browser via `GET /pyblitz-engine.js` (server verpakt `lib/pyblitz.js` + `lib/pyblitz-spel.js` in een wrapper; één bron van waarheid). Bots: kans 50–75 % juist, antwoordtijd 2–11 s. In `server.js` krijgt enkel `/pyblitz-proef.html` `frame-ancestors 'self'` + `X-Frame-Options: SAMEORIGIN`.

@@ -2,7 +2,7 @@
 <html lang="nl"><head>
 <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>PyCodeFlow — Leerling</title>
-<link rel="stylesheet" href="/styles.css?v=v2026.2.51.142"/>
+<link rel="stylesheet" href="/styles.css?v=v2026.2.51.152"/>
 <link rel="icon" href="assets/favicon.png" type="image/png">
 </head><body>
 <!-- Sprint 60: blokkerende melding wanneer de leerkracht niet (meer) ingelogd is op
@@ -52,6 +52,12 @@
     <div id="student-announcement-text" class="announcement-text"></div>
   </div>
 
+  <!-- v147: link van de leerkracht — komt als popup; wie die sluit zonder te openen houdt deze knop. -->
+  <div id="student-link-card" class="card announcement-card hidden" style="margin-top:20px;">
+    <div class="announcement-title">🔗 Link van de leerkracht</div>
+    <div style="margin-top:6px;"><button type="button" class="link-chip" id="student-link-chip"></button></div>
+  </div>
+
   <div class="card editor-shell" style="margin-top:20px;">
     <div class="tabs">
       <button class="tab-btn active" id="student-shared-tab-btn" data-tab="shared" data-owner="student">Klascode</button>
@@ -92,7 +98,7 @@
   </div>
 </div>
 </div><script src="/socket.io/socket.io.js"></script><script src="/monaco-env.js"></script>
-<script src="/monaco/min/vs/loader.js"></script><script src="/code-highlight.js?v=v2026.2.51.142"></script>
-<script src="/rijke-tekst.js?v=v2026.2.51.142"></script>
-<script src="/popups.js?v=v2026.2.51.142"></script>
-<script src="/app.js?v=v2026.2.51.142"></script><script src="/privacy.js?v=v2026.2.51.142"></script></body></html>
+<script src="/monaco/min/vs/loader.js"></script><script src="/code-highlight.js?v=v2026.2.51.152"></script>
+<script src="/rijke-tekst.js?v=v2026.2.51.152"></script>
+<script src="/popups.js?v=v2026.2.51.152"></script>
+<script src="/app.js?v=v2026.2.51.152"></script><script src="/vendor/qrcode-generator.js?v=v2026.2.51.152"></script><script src="/pyblitz-ui.js?v=v2026.2.51.152"></script><script src="/pyblitz-overlay.js?v=v2026.2.51.152"></script><script src="/privacy.js?v=v2026.2.51.152"></script></body></html>

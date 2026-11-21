@@ -25,6 +25,7 @@ let _scores = {};        // { answerId: { score, comment } }
 let _currentStudent = null;
 let _currentQIdx = 0;
 let _templates = [];
+let _fraude = {};        // v144: studentId → { risico, totaal, groepen } (spiek-/fraudepogingen)
 let _simWarnings = [];
 let _editMode = false;   // "Aanpassen & testen" modus
 let _reviewMode = false; // 37d: staat nakijken open voor leerlingen?
@@ -52,6 +53,73 @@ function renderMarkdown(text) {
 }
 
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// v149: heropende leerlingen (toegang hersteld, nog niet opnieuw ingediend) — voor de chip en de knop.
+let _heropend = {};          // sleutel: id of naam (lowercase) -> { tot, gewijzigd }
+let _heropendPoll = null;
+function heropendVoor(s) {
+  if (!s) return null;
+  return _heropend['id:' + s.id] || _heropend['naam:' + String(s.name || '').trim().toLowerCase()] || null;
+}
+function uurTijd(t) { return new Date(t).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' }); }
+function heropendChip(s) {
+  const h = heropendVoor(s);
+  if (!h) return '';
+  return `<span class="chip-heropend" title="Toegang hersteld: de leerling kan nog werken. Wacht tot hij opnieuw indient of de tijd om is.">🔓 heropend${h.tot ? ' tot ' + uurTijd(h.tot) : ''}${h.gewijzigd ? ' · ✎ gewijzigd' : ''}</span>`;
+}
+async function laadHeropeningen() {
+  try {
+    const r = await fetch(`/api/quiz-sessions/${sessionCode}/reopen-open`);
+    if (!r.ok) return false;
+    const lijst = (await r.json()).students || [];
+    const nieuw = {};
+    for (const h of lijst) {
+      const w = { tot: h.tot, gewijzigd: !!h.gewijzigd };
+      if (h.id) nieuw['id:' + h.id] = w;
+      if (h.name) nieuw['naam:' + String(h.name).trim().toLowerCase()] = w;
+    }
+    const wasOpen = Object.keys(_heropend).length > 0;
+    _heropend = nieuw;
+    return wasOpen;
+  } catch { return false; }
+}
+// Haalt de antwoorden opnieuw op (na een nieuwe inzending), zonder de gekozen leerling/vraag kwijt te raken.
+async function herlaadAntwoorden() {
+  try {
+    const ar = await fetch(`/api/quiz/${sessionCode}/answers`);
+    if (!ar.ok) return;
+    _answers = await ar.json();
+    renderStudentList();
+    if (_currentStudent && !_editMode) renderReviewPanel();
+  } catch { /* volgende ronde opnieuw */ }
+}
+function startHeropendPoll() {
+  if (_heropendPoll) return;
+  _heropendPoll = setInterval(async () => {
+    if (document.hidden) return;
+    const voor = JSON.stringify(_heropend);
+    const wasOpen = await laadHeropeningen();
+    if (JSON.stringify(_heropend) === voor) return;
+    // er is iets veranderd (iemand diende opnieuw in, of tijd om): antwoorden verversen
+    await herlaadAntwoorden();
+    if (!Object.keys(_heropend).length && wasOpen) { clearInterval(_heropendPoll); _heropendPoll = null; }
+  }, 15000);
+}
+// "🔓 Toegang herstellen" vanuit het verbeterscherm — hergebruikt het venster van het monitoringscherm.
+window.herstelVanuitNazicht = async function (studentId) {
+  const s = _students.find(x => x.id === studentId) || _testAccounts.find(x => x.id === studentId);
+  if (!s) return;
+  const eigen = _answers.filter(a => a.student_id === s.id);
+  const vragen = vragenVoor(s.id);
+  const alleScores = eigen.length > 0 && vragen.length > 0 && vragen.every(q => { const a = eigen.find(x => x.question_id === q.id); return a && a.score !== null && a.score !== undefined; });
+  const verbeterd = alleScores
+    ? { score: fmtP(eigen.reduce((t, a) => t + (a.score || 0), 0)), max: fmtP(vragen.reduce((t, q) => t + (q.points || 0), 0)) }
+    : null;
+  await window.herstelLeerling(sessionCode, s.id, s.name, {
+    bron: 'nazicht', verbeterd,
+    naAfloop: async () => { await laadHeropeningen(); renderStudentList(); if (_currentStudent) renderReviewPanel(); startHeropendPoll(); },
+  });
+};
 
 async function init() {
   // Laad meta
@@ -93,6 +161,7 @@ async function init() {
   _testAccounts = alleLeerlingen.filter(s => s.isTestAccount);
 
   renderStudentList();
+  laadHeropeningen().then(() => { renderStudentList(); if (Object.keys(_heropend).length) startHeropendPoll(); });
 
   // Statistieken (testaccounts tellen bewust niet mee)
   const total = _students.length;
@@ -103,6 +172,13 @@ async function init() {
     `<div class="chip">👤 ${total} leerlingen</div>
      <div class="chip">✏️ ${scored}/${total} volledig verbeterd</div>
      <div class="chip">❓ ${_questionsAlle.length} vragen${_toewijzing ? ' <span class="muted">(vragenpool: elke leerling een eigen selectie)</span>' : ''}</div>`;
+
+  // v144: spiek-/fraudepogingen
+  try {
+    const fr = await fetch(`/api/quiz-sessions/${sessionCode}/fraude`);
+    if (fr.ok) _fraude = (await fr.json()).perLeerling || {};
+  } catch { _fraude = {}; }
+  renderStudentList();
 
   // Gelijkenis
   loadSimilarityWarnings();
@@ -136,9 +212,9 @@ function renderStudentList() {
         ? `<span style="color:var(--error-fg,#b91c1c);">❌ niet deelgenomen</span>`
         : `${scored}/${total} ✓ ${scored === total ? `· ${fmtP(totalScore)}/${fmtP(maxScore)}pt` : ''}`;
     return `<div class="student-row ${isActive ? 'active' : ''}" onclick="selectStudent('${s.id}')">
-      <div><strong>${esc(s.name)}</strong></div>
+      <div><strong>${esc(s.name)}</strong>${_fraude[s.id] ? ` <span title="Spiek-/fraudepogingen: ${_fraude[s.id].totaal}">🚨</span>` : ''}</div>
       <div style="font-size:0.78rem;color:${isActive?'rgba(255,255,255,0.7)':'var(--muted)'};">${esc(s.class || '')}</div>
-      <div class="score-chip">${scoreChip}</div>
+      <div class="score-chip">${heropendVoor(s) ? '🔓 heropend' : scoreChip}</div>
     </div>`;
   }
   document.getElementById('student-list').innerHTML = _students.map(bouwRij).join('');
@@ -206,6 +282,21 @@ function renderProgressChart(studentAnswers) {
 }
 
 // v111: heeft deze leerling niets ingediend? (nooit gestart/aangevuld, of enkel lege antwoorden)
+// v143/v144: wie sloot de toets af? Zelf ingediend, of automatisch (tijd, deadline, tabwissel, leerkracht)?
+const AFSLUITING = {
+  student: ['✅ Zelf ingediend', '#dcfce7', '#166534'],
+  timer: ['⏱️ Automatisch afgesloten: tijd om', '#fef3c7', '#92400e'],
+  deadline: ['⏱️ Automatisch afgesloten: deadline', '#fef3c7', '#92400e'],
+  tab_switch: ['🚪 Automatisch afgesloten: tabwissel', '#fee2e2', '#991b1b'],
+  teacher: ['🛑 Afgesloten door de leerkracht', '#e0f2fe', '#075985'],
+};
+function afsluitingChip(antwoorden) {
+  const v = antwoorden.map(a => a.submitted_by).find(x => AFSLUITING[x]);
+  if (!v) return '';
+  const [t, bg, fg] = AFSLUITING[v];
+  return `<span style="background:${bg};color:${fg};border-radius:999px;padding:2px 10px;font-size:0.8rem;">${t}</span>`;
+}
+
 function heeftNietsIngediend(antwoorden) {
   if (!antwoorden.length) return true;
   return antwoorden.every(a => a.submitted_by === 'geen_deelname' || a.submitted_by === 'niet_beantwoord' ||
@@ -251,9 +342,12 @@ function renderReviewPanel() {
       <h3 style="margin:0;">${esc(_currentStudent.name)}</h3>
       <span class="muted">${esc(_currentStudent.class || '')}</span>
       ${afwezigBlok(studentAnswers)}
+      ${afsluitingChip(studentAnswers)}
+      ${heropendChip(_currentStudent)}
       <span style="margin-left:auto;font-weight:700;">Totaal: ${fmtP(totalScore)}/${fmtP(maxScore)} pt</span>
       <button class="btn btn-muted small" onclick="exportStudent('${_currentStudent.id}',false)">🖨️ PDF</button>
       <button class="btn btn-muted small" onclick="exportStudent('${_currentStudent.id}',true)">🖨️ PDF + scores</button>
+      <button class="btn btn-muted small" onclick="herstelVanuitNazicht('${_currentStudent.id}')" title="Zet deze leerling terug in de toets/taak, ook als je al verbeterd hebt">🔓 Toegang herstellen</button>
     </div>
     <div class="q-tabs" id="q-tabs">
       ${_questions.map((q, i) => {
@@ -265,6 +359,7 @@ function renderReviewPanel() {
     </div>
     ${renderProgressChart(studentAnswers)}
     <div id="q-detail"></div>
+    <div id="fraude-blok">${fraudeBlokHtml(_currentStudent.id)}</div>
     <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
       <strong>Algemeen commentaar</strong>
       <textarea id="general-comment" rows="3" style="width:100%;margin-top:8px;padding:8px;
@@ -276,6 +371,31 @@ function renderReviewPanel() {
 
   selectQuestion(_currentQIdx);
 }
+
+// v144: blok "Spiek-/fraudepogingen" onderaan het nakijken van een leerling.
+const FRAUDE_KLEUR = { hoog: '#fee2e2', middel: '#fef3c7', laag: '#f1f5f9' };
+const FRAUDE_ICOON = { hoog: '🔴', middel: '🟠', laag: '⚪' };
+function fraudeVraagTekst(qid) {
+  if (qid == null) return 'vóór of buiten een vraag';
+  const i = _questions.findIndex(v => String(v.id) === String(qid) || simBasisId(qid) === String(v.id));
+  return i >= 0 ? 'vraag ' + (i + 1) : 'onbekende vraag';
+}
+function fraudeBlokHtml(studentId) {
+  const f = _fraude[studentId];
+  if (!f || !f.totaal) return `<div class="muted" style="margin-top:16px;font-size:0.85rem;">✅ Geen spiek- of fraudepogingen geregistreerd.</div>`;
+  const tijd = (t) => new Date(t).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const groepen = f.groepen.map(g => {
+    const items = g.items.map(it => `<li><span class="muted">${tijd(it.at)}</span> ${esc(it.tekst)}</li>`).join('');
+    return `<details style="margin-top:6px;"><summary style="cursor:pointer;">${FRAUDE_ICOON[g.risico]} <strong>${esc(g.label)}</strong> — ${esc(fraudeVraagTekst(g.vraag))}: ${g.aantal}×</summary>
+      <ul style="margin:4px 0 4px 20px;padding:0;font-size:0.84rem;word-break:break-word;white-space:pre-wrap;">${items}</ul></details>`;
+  }).join('');
+  return `<div style="margin-top:20px;background:${FRAUDE_KLEUR[f.risico]};border-radius:10px;padding:10px 14px;">
+    <strong>🚨 Spiek-/fraudepogingen</strong> <span class="muted">(${f.totaal} gebeurtenis${f.totaal === 1 ? '' : 'sen'})</span>
+    ${groepen}
+    <div class="muted" style="font-size:0.78rem;margin-top:6px;">Een geblokkeerde plakpoging wordt niet in het antwoord opgenomen; de tekst die de leerling wilde plakken staat hier. Geef eventuele strafpunten zelf bij het rapport.</div>
+  </div>`;
+}
+window.fraudeBlokHtml = fraudeBlokHtml;
 
 async function selectQuestion(idx) {
   _currentQIdx = idx;
@@ -922,7 +1042,13 @@ function renderGelijkenisRapport(rap) {
   return rap.paren.map(p => {
     const ctx = [p.leerling1, p.leerling2].map(l => {
       const c = p.context && p.context[l.id];
-      return c ? `${esc(l.naam)}: ${c.plakken} plak, ${c.tabwissel} tabwissel` : '';
+      if (!c) return '';
+      // v144: "plakken vraag X: N×" i.p.v. enkel het totaal
+      const perVraag = Object.entries(c.plakkenPerVraag || {}).map(([q, n]) => {
+        const i = _questionsAlle.findIndex(v => String(v.id) === String(q) || simBasisId(q) === String(v.id));
+        return `plakken ${i >= 0 ? 'vraag ' + (i + 1) : 'vóór/buiten een vraag'}: ${n}×`;
+      }).join(', ');
+      return `${esc(l.naam)}: ${perVraag || c.plakken + ' plak'}, ${c.tabwissel} tabwissel`;
     }).filter(Boolean).join(' · ');
     const items = p.items.slice(0, 12).map(gelijkenisItemHtml).join('');
     const tijd = p.tijdsverschilIndienenSec != null ? `ingediend met ${p.tijdsverschilIndienenSec}s verschil` : '';

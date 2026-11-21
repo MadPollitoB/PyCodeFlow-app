@@ -882,6 +882,8 @@ async function initSchema() {
       -- volledig scherm verplicht (leerling kan het enkel verlaten door in te dienen).
       BEGIN ALTER TABLE assignment_bank ADD COLUMN fullscreen_required BOOLEAN NOT NULL DEFAULT true; EXCEPTION WHEN duplicate_column THEN NULL; END;
       BEGIN ALTER TABLE assignment_bank ADD COLUMN copy_paste_blocked BOOLEAN NOT NULL DEFAULT true; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- v145: om de hoeveel seconden een schermafbeelding in het live-overzicht (0 = uit)
+      BEGIN ALTER TABLE assignment_bank ADD COLUMN live_screenshot_sec INTEGER NOT NULL DEFAULT 30; EXCEPTION WHEN duplicate_column THEN NULL; END;
       -- v132: cursus-links per vraag: JSON-lijst [{id, title, url, questionIds:[bank-id, ...]}].
       -- Vervangt de ene toets-brede cursus_url (blijft als kolom bestaan maar wordt niet meer gebruikt).
       BEGIN ALTER TABLE assignment_bank ADD COLUMN cursus_links TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
@@ -969,6 +971,8 @@ async function initSchema() {
     DO $$
     BEGIN
       BEGIN ALTER TABLE quiz_answers ADD COLUMN submitted_by TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END;
+      -- v143: bewust bevestigd ("Ja, volgende vraag" bij 1 kans per vraag). Blijft staan na heropenen.
+      BEGIN ALTER TABLE quiz_answers ADD COLUMN confirmed_at BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END;
     END $$;
     DO $$ BEGIN
       BEGIN ALTER TABLE quiz_answers ADD COLUMN selected_choices TEXT NOT NULL DEFAULT '[]'; EXCEPTION WHEN duplicate_column THEN NULL; END;
@@ -1023,6 +1027,9 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_quiz_individual_access_session
       ON quiz_individual_access(session_code);
+    -- v143: extra minuten die de leerkracht bij "Toegang herstellen" gaf (de eigen eindtijd blijft verder gelijk).
+    DO $$ BEGIN ALTER TABLE quiz_individual_access ADD COLUMN extra_seconds INTEGER NOT NULL DEFAULT 0;
+      EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 
     -- v121: momentopname bij heropenen. Per (sessie, leerling) bewaren we de volledige
     -- antwoordrijen (incl. scores en opmerkingen) zoals ze waren, zodat een heropening
@@ -1326,11 +1333,122 @@ async function initSchema() {
       END IF;
     END $$;
   `);
+  // v151: PyBlitz (live quiz). Volledig additief: eigen tabellen, niets bestaands wordt aangeraakt.
+  await query(`
+    CREATE TABLE IF NOT EXISTS pyblitz_sets (
+      id          TEXT PRIMARY KEY,
+      owner_id    TEXT NOT NULL,
+      school_id   TEXT,
+      name        TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      questions   JSONB NOT NULL DEFAULT '[]'::jsonb,
+      created_at  BIGINT NOT NULL,
+      updated_at  BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_pyblitz_sets_owner ON pyblitz_sets(owner_id);
+    CREATE TABLE IF NOT EXISTS pyblitz_images (
+      id         TEXT PRIMARY KEY,
+      owner_id   TEXT NOT NULL,
+      mime       TEXT NOT NULL,
+      data       BYTEA NOT NULL,
+      created_at BIGINT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS pyblitz_games (
+      id             TEXT PRIMARY KEY,
+      set_id         TEXT,
+      set_name       TEXT NOT NULL,
+      owner_id       TEXT NOT NULL,
+      session_code   TEXT,
+      started_at     BIGINT NOT NULL,
+      ended_at       BIGINT,
+      reason         TEXT,
+      player_count   INTEGER NOT NULL DEFAULT 0,
+      question_count INTEGER NOT NULL DEFAULT 0,
+      results        JSONB NOT NULL DEFAULT '{}'::jsonb
+    );
+    CREATE INDEX IF NOT EXISTS idx_pyblitz_games_owner ON pyblitz_games(owner_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_pyblitz_games_set ON pyblitz_games(set_id);
+  `);
   console.log('[db] Schema geïnitialiseerd (PostgreSQL)');
 }
 
 // ── Public API (async) ─────────────────────────────────────────────────────────
 module.exports = {
+
+  // ── v151: PyBlitz ─────────────────────────────────────────────────────────
+  async pyblitzListSets(ownerId) {
+    const r = await query(
+      `SELECT s.id, s.name, s.description, jsonb_array_length(s.questions) AS question_count, s.updated_at,
+              (SELECT COUNT(*) FROM pyblitz_games g WHERE g.set_id = s.id) AS plays,
+              (SELECT MAX(g.started_at) FROM pyblitz_games g WHERE g.set_id = s.id) AS last_played,
+              (SELECT g.player_count FROM pyblitz_games g WHERE g.set_id = s.id ORDER BY g.started_at DESC LIMIT 1) AS last_players
+         FROM pyblitz_sets s WHERE s.owner_id = $1 ORDER BY s.updated_at DESC`, [ownerId]);
+    return r.rows.map(x => ({ id: x.id, name: x.name, description: x.description, questionCount: Number(x.question_count),
+      updatedAt: Number(x.updated_at), plays: Number(x.plays), lastPlayed: x.last_played != null ? Number(x.last_played) : null,
+      lastPlayers: x.last_players != null ? Number(x.last_players) : null }));
+  },
+  async pyblitzGetSet(id, ownerId) {
+    const r = await query(`SELECT * FROM pyblitz_sets WHERE id = $1 AND ($2::text IS NULL OR owner_id = $2)`, [id, ownerId || null]);
+    const x = r.rows[0]; if (!x) return null;
+    return { id: x.id, ownerId: x.owner_id, name: x.name, description: x.description, questions: x.questions || [],
+      createdAt: Number(x.created_at), updatedAt: Number(x.updated_at) };
+  },
+  async pyblitzSaveSet({ id, ownerId, schoolId = null, name, description = '', questions = [] }) {
+    const t = Date.now();
+    await query(
+      `INSERT INTO pyblitz_sets (id, owner_id, school_id, name, description, questions, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$7)
+       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description,
+         questions = EXCLUDED.questions, updated_at = EXCLUDED.updated_at
+         WHERE pyblitz_sets.owner_id = EXCLUDED.owner_id`,
+      [id, ownerId, schoolId, name, description, JSON.stringify(questions), t]);
+    return t;
+  },
+  async pyblitzDeleteSet(id, ownerId) {
+    const r = await query(`DELETE FROM pyblitz_sets WHERE id = $1 AND owner_id = $2`, [id, ownerId]);
+    return r.rowCount > 0;
+  },
+  async pyblitzSaveImage({ id, ownerId, mime, data }) {
+    await query(`INSERT INTO pyblitz_images (id, owner_id, mime, data, created_at) VALUES ($1,$2,$3,$4,$5)`, [id, ownerId, mime, data, Date.now()]);
+  },
+  async pyblitzGetImage(id) {
+    const r = await query(`SELECT mime, data FROM pyblitz_images WHERE id = $1`, [id]);
+    return r.rows[0] || null;
+  },
+  async pyblitzSaveGame({ id, setId, setName, ownerId, sessionCode, startedAt, endedAt, reason, playerCount, questionCount, results }) {
+    await query(
+      `INSERT INTO pyblitz_games (id, set_id, set_name, owner_id, session_code, started_at, ended_at, reason, player_count, question_count, results)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)
+       ON CONFLICT (id) DO UPDATE SET ended_at = EXCLUDED.ended_at, reason = EXCLUDED.reason, player_count = EXCLUDED.player_count, results = EXCLUDED.results`,
+      [id, setId, setName, ownerId, sessionCode, startedAt, endedAt, reason, playerCount, questionCount, JSON.stringify(results || {})]);
+  },
+  async pyblitzListGames(ownerId, setId = null) {
+    const r = await query(
+      `SELECT id, set_id, set_name, session_code, started_at, ended_at, reason, player_count, question_count
+         FROM pyblitz_games WHERE owner_id = $1 AND ($2::text IS NULL OR set_id = $2) ORDER BY started_at DESC LIMIT 100`, [ownerId, setId]);
+    return r.rows.map(x => ({ id: x.id, setId: x.set_id, setName: x.set_name, sessionCode: x.session_code, startedAt: Number(x.started_at),
+      endedAt: x.ended_at != null ? Number(x.ended_at) : null, reason: x.reason, playerCount: x.player_count, questionCount: x.question_count }));
+  },
+  async pyblitzGetGame(id, ownerId) {
+    const r = await query(`SELECT * FROM pyblitz_games WHERE id = $1 AND owner_id = $2`, [id, ownerId]);
+    const x = r.rows[0]; if (!x) return null;
+    return { id: x.id, setId: x.set_id, setName: x.set_name, sessionCode: x.session_code, startedAt: Number(x.started_at),
+      endedAt: x.ended_at != null ? Number(x.ended_at) : null, reason: x.reason, playerCount: x.player_count, questionCount: x.question_count, results: x.results || {} };
+  },
+
+  // Namen van alle actieve leerlingen in de gegeven klassen, of (zonder klassen) in de klassen van de gegeven leerlingen.
+  async pyblitzKlasNamen(sessionCode, studentIds = []) {
+    let klassen = await this.getSessionClasses(sessionCode);
+    if (!klassen.length && studentIds.length) {
+      const r = await query(`SELECT DISTINCT class_id FROM class_memberships WHERE student_id = ANY($1::text[]) AND status = 'active'`, [studentIds]);
+      klassen = r.rows.map(x => x.class_id);
+    }
+    if (!klassen.length) return [];
+    const r = await query(
+      `SELECT DISTINCT s.name FROM class_memberships m JOIN students s ON s.id = m.student_id
+        WHERE m.status = 'active' AND m.class_id = ANY($1::text[])`, [klassen]);
+    return r.rows.map(x => x.name).filter(Boolean);
+  },
 
   // 27l: query direct exporteren zodat server.js DB viewer endpoints hem kunnen gebruiken
   query,
@@ -1600,7 +1718,7 @@ module.exports = {
       session.announcement  || '',
       session.classWorkspaceMode || 'shared',
       JSON.stringify(students),
-      JSON.stringify({ ...(session.config || {}), _opdrachten: Array.isArray(session.opdrachten) ? session.opdrachten : [], _opdrachtIdx: session.opdrachtIdx || 0, ...(session.drafts ? { _drafts: session.drafts } : (session.config && session.config._drafts ? { _drafts: session.config._drafts } : {})), ...(session.cursus ? { _cursus: session.cursus } : (session.config && session.config._cursus ? { _cursus: session.config._cursus } : {})) }),
+      JSON.stringify({ ...(session.config || {}), _opdrachten: Array.isArray(session.opdrachten) ? session.opdrachten : [], _opdrachtIdx: session.opdrachtIdx || 0, ...(session.drafts ? { _drafts: session.drafts } : (session.config && session.config._drafts ? { _drafts: session.config._drafts } : {})), ...(session.cursus ? { _cursus: session.cursus } : (session.config && session.config._cursus ? { _cursus: session.config._cursus } : {})), ...(session.pyblitz ? { _pyblitz: session.pyblitz } : (session.config && session.config._pyblitz ? { _pyblitz: session.config._pyblitz } : {})) }),
       session.teacherId || null,
       // Sprint 48c2: school_id wordt (net als teacher_id) bij aanmaak gezet en NIET in de
       // ON CONFLICT UPDATE herzien — de tenant van een sessie ligt vast.
@@ -3859,7 +3977,7 @@ module.exports = {
                              noTimer, minRunsPerQ, hideQuestionOnScreen, isTeacherPreview,
                              schoolYear, targetClass, accessFrom, accessUntil, autoSubmitLate,
                              type, noBack, tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds,
-                             cursusUrl, cursusLinks, selfEvalEnabled, klasbordEnabled, fullscreenRequired, copyPasteBlocked, mcScoring, poolJson }) {
+                             cursusUrl, cursusLinks, selfEvalEnabled, klasbordEnabled, fullscreenRequired, copyPasteBlocked, mcScoring, poolJson, liveScreenshotSec }) {
     const now = Date.now();
     // noTimer = true → geen tijdslimiet (taak)
     // timerSeconds = null + noTimer = false → gebruik standaard 2700s
@@ -3918,6 +4036,9 @@ module.exports = {
          typeof poolJson === 'string' ? poolJson : JSON.stringify(poolJson || {}),   // v134
          now]
       );
+      // v145: interval van de schermafbeeldingen in het live-overzicht (standaard 30 s, 0 = uit)
+      await client.query(`UPDATE assignment_bank SET live_screenshot_sec = $2 WHERE session_code = $1`,
+        [sessionCode, require('./../lib/live-beeld').normaliseerInterval(liveScreenshotSec)]);
       for (const q of questions) {
         await client.query(
           `INSERT INTO quiz_question_snapshots
@@ -4070,7 +4191,7 @@ module.exports = {
                                 minRunsPerQ, hideQuestionOnScreen, schoolYear, targetClass,
                                 accessFrom, accessUntil, autoSubmitLate, noBack,
                                 tabSwitchEnabled, tabSwitchThreshold, tabSwitchGraceSeconds,
-                                cursusUrl, cursusLinks, selfEvalEnabled, klasbordEnabled, fullscreenRequired, copyPasteBlocked, mcScoring, poolJson }) {
+                                cursusUrl, cursusLinks, selfEvalEnabled, klasbordEnabled, fullscreenRequired, copyPasteBlocked, mcScoring, poolJson, liveScreenshotSec }) {
     const effectiveTimer = noTimer ? null : (timerSeconds || 2700);
     // Sprint 83/90: server.js heeft deze velden al door validationLib.bepaalTabWisselInstellingen()
     // / bepaalZelfevaluatieInstelling() gehaald (type staat hier vast en verandert niet bij een
@@ -4090,7 +4211,8 @@ module.exports = {
            cursus_links = $16, cursus_url = NULL, self_eval_enabled = $17, klasbord_enabled = $18,
            fullscreen_required = $19, copy_paste_blocked = $20,
            mc_scoring = COALESCE($21, mc_scoring),
-           pool_json = COALESCE($22, pool_json)
+           pool_json = COALESCE($22, pool_json),
+           live_screenshot_sec = COALESCE($23, live_screenshot_sec)
          WHERE session_code = $1`,
         [sessionCode, randomize, effectiveTimer, noTimer || false, minRunsPerQ,
          hideQuestionOnScreen, schoolYear || '', targetClass || '',
@@ -4100,7 +4222,8 @@ module.exports = {
          selfEvalEnabled === true, klasbordEnabled === true,
          fullscreenRequired !== false, copyPasteBlocked !== false,
          (mcScoring === 'gedeeld' || mcScoring === 'klassiek') ? mcScoring : null,
-         poolJson === undefined ? null : (typeof poolJson === 'string' ? poolJson : JSON.stringify(poolJson || {}))]
+         poolJson === undefined ? null : (typeof poolJson === 'string' ? poolJson : JSON.stringify(poolJson || {})),
+         liveScreenshotSec === undefined ? null : require('./../lib/live-beeld').normaliseerInterval(liveScreenshotSec)]
       );
       // Vraag-snapshots volledig vervangen (volgorde + punten kunnen gewijzigd zijn).
       await client.query(`DELETE FROM quiz_question_snapshots WHERE session_code = $1`, [sessionCode]);
@@ -4557,14 +4680,14 @@ module.exports = {
   async saveQuizAnswer({ sessionCode, studentId, studentName, studentClass,
                           questionId, personalOrder, code, runCount,
                           firstVisitAt, firstRunAt, selectedChoices = '[]', partAnswers,
-                          answerFlowchartJson }) {
+                          answerFlowchartJson, bevestigd = false }) {
     const now = Date.now();
     await query(
       `INSERT INTO quiz_answers
          (id, session_code, student_id, student_name, student_class,
           question_id, personal_order, code, run_count,
-          first_visit_at, first_run_at, saved_at, selected_choices, part_answers, answer_flowchart_json)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+          first_visit_at, first_run_at, saved_at, selected_choices, part_answers, answer_flowchart_json, confirmed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        ON CONFLICT (session_code, student_id, question_id) DO UPDATE SET
          code             = EXCLUDED.code,
          run_count        = EXCLUDED.run_count,
@@ -4573,10 +4696,11 @@ module.exports = {
          answer_flowchart_json = COALESCE(EXCLUDED.answer_flowchart_json, quiz_answers.answer_flowchart_json),
          first_run_at     = COALESCE(quiz_answers.first_run_at, EXCLUDED.first_run_at),
          first_visit_at   = COALESCE(quiz_answers.first_visit_at, EXCLUDED.first_visit_at),
+         confirmed_at     = COALESCE(quiz_answers.confirmed_at, EXCLUDED.confirmed_at),
          saved_at         = EXCLUDED.saved_at`,
       [crypto.randomUUID(), sessionCode, studentId, studentName, studentClass,
        questionId, personalOrder, code, runCount, firstVisitAt, firstRunAt, now,
-       selectedChoices, partAnswers || '{}', answerFlowchartJson || '']
+       selectedChoices, partAnswers || '{}', answerFlowchartJson || '', bevestigd === true ? now : null]
     );
   },
 
@@ -4869,7 +4993,7 @@ module.exports = {
       `INSERT INTO quiz_incidents (session_code, student_id, student_name, type, detail, created_at)
        VALUES ($1,$2,$3,$4,$5,$6)`,
       [sessionCode, studentId || null, String(studentName || '').slice(0, 80), String(type).slice(0, 40),
-       String(detail || '').slice(0, 200), Date.now()]);
+       String(detail || '').slice(0, 1500), Date.now()]);
   },
   async getIncidenten(sessionCode) {
     const r = await query(
@@ -5017,7 +5141,7 @@ module.exports = {
   // zelf al gestopt is of de gewone deadline al verstreken is (dat is net de hele
   // bedoeling: het is de uitzondering op die regel, voor een met naam gekozen leerling).
   // Een latere oproep voor dezelfde leerling vervangt gewoon de vorige override.
-  async setIndividualAccess(sessionCode, studentId, studentName, accessUntil) {
+  async setIndividualAccess(sessionCode, studentId, studentName, accessUntil, extraSeconds = 0) {
     await query(
       `DELETE FROM quiz_individual_access
         WHERE session_code = $1
@@ -5025,9 +5149,9 @@ module.exports = {
       [sessionCode, studentId || null, studentName || null]
     );
     await query(
-      `INSERT INTO quiz_individual_access (session_code, student_id, student_name, access_until, created_at)
-       VALUES ($1,$2,$3,$4,$5)`,
-      [sessionCode, studentId || null, studentName || null, accessUntil, Date.now()]
+      `INSERT INTO quiz_individual_access (session_code, student_id, student_name, access_until, created_at, extra_seconds)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [sessionCode, studentId || null, studentName || null, accessUntil, Date.now(), Math.max(0, parseInt(extraSeconds) || 0)]
     );
   },
 
@@ -5042,6 +5166,41 @@ module.exports = {
       [sessionCode, studentId || null, studentName || null]
     );
     return r.rows[0]?.access_until != null ? Number(r.rows[0].access_until) : null;
+  },
+
+  // v143: extra seconden (door "Toegang herstellen") voor één leerling; 0 als er geen zijn.
+  async getIndividualExtraSeconds(sessionCode, studentId, studentName) {
+    const r = await query(
+      `SELECT extra_seconds FROM quiz_individual_access
+        WHERE session_code = $1
+          AND (student_id = $2 OR ($3::text IS NOT NULL AND LOWER(TRIM(student_name)) = LOWER(TRIM($3))))
+        ORDER BY created_at DESC LIMIT 1`,
+      [sessionCode, studentId || null, studentName || null]);
+    return Number(r.rows[0]?.extra_seconds) || 0;
+  },
+
+  // v143: gegevens voor "Toegang herstellen": eerste bezoek (= start, als het geheugen leeg is),
+  // laatste opslag, laatste indiening en door wie, en het aantal bewust bevestigde vragen.
+  async getHerstelGegevens(sessionCode, studentId, studentName) {
+    const r = await query(
+      `SELECT MIN(first_visit_at) AS eerste, MAX(saved_at) AS laatste_opslag,
+              MAX(submitted_at) AS ingediend_op,
+              (ARRAY_AGG(submitted_by ORDER BY submitted_at DESC NULLS LAST))[1] AS ingediend_door,
+              COUNT(*) AS rijen, COUNT(confirmed_at) AS bevestigd
+         FROM quiz_answers
+        WHERE session_code = $1
+          AND (student_id = $2 OR ($3::text IS NOT NULL AND LOWER(TRIM(student_name)) = LOWER(TRIM($3))))`,
+      [sessionCode, studentId || null, studentName || null]);
+    const x = r.rows[0] || {};
+    const n = (v) => (v == null ? null : Number(v));
+    return { eerste: n(x.eerste), laatsteOpslag: n(x.laatste_opslag), ingediendOp: n(x.ingediend_op),
+             ingediendDoor: x.ingediend_door || null, rijen: Number(x.rijen) || 0, bevestigd: Number(x.bevestigd) || 0 };
+  },
+
+  // v143: deadline van een lopende toets/taak aanpassen (enkel access_until).
+  async updateAssignmentDeadline(sessionCode, accessUntil) {
+    const r = await query(`UPDATE assignment_bank SET access_until = $2 WHERE session_code = $1`, [sessionCode, accessUntil]);
+    return r.rowCount > 0;
   },
 
   // Sprint 95: alle individuele overrides van een sessie in één keer (voor de Voortgang-

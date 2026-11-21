@@ -7,6 +7,7 @@ let _state = null;        // volledige quiz state van server
 let _stemFlowchartWidget = null;   // Sprint 63: weergave-widget bij de vraagstelling
 let _answerFlowchartWidget = null; // Sprint 63: bewerkbare widget bij antwoordtype 'stroomdiagram'
 let _currentIdx = 0;      // huidige vraag index (in persoonlijke volgorde)
+let _bevestigdeVragen = new Set();   // v143: bewust bevestigde vragen (1 kans per vraag) — blijven dicht, ook na heropenen
 let _afgesloten = false;  // Sprint 70: toets automatisch of door de leerkracht afgesloten
 let _answers = {};        // { questionId: { code, runCount, firstVisitAt, firstRunAt } }
 let _visited = new Set(); // bezochte vraag IDs
@@ -421,7 +422,6 @@ document.getElementById('start-student-name').textContent = urlName || '(naam on
 document.getElementById('start-student-class').textContent = urlClass || '(geen klas)';
 if (!urlName) {
   document.getElementById('start-session-name').textContent = 'Naam ontbreekt';
-  document.querySelector('.start-card button').disabled = true;
 }
 
 // Sprint 46: laadstatus + time-out zodat het startscherm nooit stil blijft hangen
@@ -430,8 +430,8 @@ let _startTimeout = null;
 function _showStartError(msg) {
   const info = document.getElementById('start-info');
   if (info) { info.textContent = msg; info.style.color = '#991b1b'; info.style.fontWeight = '700'; }
-  const btn = document.querySelector('.start-card button');
-  if (btn) { btn.disabled = false; btn.textContent = '🚀 START TOETS'; }
+  _startBezig = false;
+  updateStartKnop();
 }
 function _clearStartTimeout() { if (_startTimeout) { clearTimeout(_startTimeout); _startTimeout = null; } }
 
@@ -442,28 +442,91 @@ function _clearStartTimeout() { if (_startTimeout) { clearTimeout(_startTimeout)
 let _startInfo = null;
 async function haalStartInfo() {
   try {
-    const r = await fetch('/api/quiz/' + encodeURIComponent(urlCode) + '/startinfo');
+    const r = await fetch('/api/quiz/' + encodeURIComponent(urlCode) + '/startinfo' + (urlName ? '?name=' + encodeURIComponent(urlName) : ''));
     if (r.ok) _startInfo = await r.json();
   } catch (e) { /* stil: de popup toont dan de algemene tekst */ }
-  // Startscherm bijwerken: de vaste regel over terugbladeren klopt niet altijd meer.
-  const uitleg = document.getElementById('start-regels');
-  if (uitleg && _startInfo) {
-    uitleg.textContent = _startInfo.noBack
-      ? 'Let op: je kan niet terugkeren naar een vorige vraag.'
-      : 'Je kan op elk moment opslaan en terugkeren naar vorige vragen.';
-  }
+  renderStartRegels();
 }
 haalStartInfo();
+
+// ── v148: spelregels + verplicht akkoord op het startscherm zelf ───────────────────────────
+// Voorheen stonden de regels pas in een popup na de klik, en het vinkje enkel bij een toets.
+let _startBezig = false;
+function startSoort() { return _startInfo?.type === 'taak' ? 'taak' : 'toets'; }
+function updateStartKnop() {
+  const knop = document.getElementById('start-knop'), vink = document.getElementById('start-akkoord');
+  const lab = document.getElementById('start-akkoord-label'), hint = document.getElementById('start-hint');
+  if (!knop) return;
+  const ok = !!(vink && vink.checked) && !!urlName && !_startBezig && !(_startInfo && _startInfo.stopped);
+  knop.disabled = !ok;
+  if (!_startBezig) knop.textContent = '🚀 START ' + startSoort().toUpperCase();
+  if (lab) lab.classList.toggle('aan', !!(vink && vink.checked));
+  if (hint) hint.textContent = (vink && vink.checked) ? 'Jouw tijd start zodra je klikt.' : 'Vink eerst het vakje aan om te kunnen starten.';
+}
+// Beschikbare tijd vanaf nu: de kortste van de duur en de tijd tot de deadline (zelfde regel als de teller).
+function startTijdTekst() {
+  const i = _startInfo; if (!i) return null;
+  const nu = Date.now();
+  const totDl = i.accessUntil ? Math.max(0, Math.floor((Number(i.accessUntil) - nu) / 1000)) : null;
+  const duur = (!i.noTimer && i.timerSeconds) ? Number(i.timerSeconds) : null;
+  const fmt = (sec) => { const m = Math.max(1, Math.round(sec / 60)); return m >= 120 ? `${Math.floor(m / 60)} u ${m % 60 ? (m % 60) + ' min' : ''}`.trim() : `${m} minuten`; };
+  if (duur != null) {
+    const nuTijd = totDl != null ? Math.min(duur, totDl) : duur;
+    return `<b>Tijd:</b> nog <b>${fmt(nuTijd)}</b>${totDl != null && totDl < duur ? ` (deadline ${formatIndienOp(i.accessUntil)})` : ''}. De tijd start zodra je klikt.`;
+  }
+  if (totDl != null) return `<b>Deadline:</b> je werk wordt automatisch ingediend op <b>${formatIndienOp(i.accessUntil)}</b> (nog ${fmt(totDl)}). Er is geen timer.`;
+  return '<b>Tijd:</b> er is geen tijdslimiet.';
+}
+function renderStartRegels() {
+  const i = _startInfo, soort = startSoort();
+  const badge = document.getElementById('start-type-badge');
+  if (badge) { badge.textContent = soort.toUpperCase(); badge.classList.toggle('taak', soort === 'taak'); }
+  const ico = document.getElementById('start-ico'); if (ico) ico.textContent = soort === 'taak' ? '📋' : '📝';
+  document.title = 'PyCodeFlow — ' + (soort === 'taak' ? 'Taak' : 'Toets');
+  const naam = document.getElementById('start-session-name');
+  if (naam && urlName) naam.textContent = (i && i.name) || (soort === 'taak' ? 'Taak' : 'Toets');
+  const lijst = document.getElementById('start-regels-lijst'); if (!lijst) return;
+  if (!i) { lijst.innerHTML = '<div class="regel let"><div class="i">⚠️</div><div>De regels konden niet geladen worden. Ververs de pagina.</div></div>'; return; }
+  const r = [];   // [klasse, icoon, html]
+  r.push(['let', '⏱', (i.heropendTot && Number(i.heropendTot) > Date.now())
+    ? `<b>Heropend door je leerkracht:</b> je kan verder werken tot <b>${formatIndienOp(i.heropendTot)}</b>. Je vorige antwoorden staan nog klaar.`
+    : startTijdTekst()]);
+  const volledig = i.fullscreenRequired !== false && fullscreenMogelijk();
+  if (i.tabSwitchEnabled) {
+    const sec = typeof i.tabSwitchGraceSeconds === 'number' ? i.tabSwitchGraceSeconds : 5;
+    const wat = volledig ? 'Volledig scherm is verplicht. ' : '';
+    r.push(['streng', '🖥️', `<b>${wat}Verlaat je het volledig scherm of wissel je van tabblad of venster</b>, dan ${sec > 0 ? `heb je <b>${sec} seconden</b> om terug te keren, anders wordt` : 'wordt'} je ${soort} <b>automatisch ingediend</b>${sec > 0 ? '' : ' (je krijgt geen respijt)'}.`]);
+  } else if (volledig) {
+    r.push(['streng', '🖥️', `<b>Volledig scherm is verplicht.</b> Je kan dat scherm enkel verlaten door in te dienen.`]);
+  }
+  if (i.copyPasteBlocked !== false) r.push(['streng', '🚫', '<b>Kopiëren, knippen en plakken is niet toegestaan.</b> Pogingen worden gelogd.']);
+  r.push(['let', '↩', i.noBack ? '<b>Eén kans per vraag:</b> ga je naar de volgende vraag, dan kan je niet meer terug.' : 'Je kan tussen de vragen heen en weer bladeren en je antwoorden aanpassen.']);
+  const info = [];
+  if (i.questionCount) info.push(`<b>${i.questionCount} vragen</b>${i.randomize === false ? '' : ', in een willekeurige volgorde'}`);
+  if (i.heeftCodevragen && i.minRunsPerQ > 0) info.push(`bij codevragen moet je je code minstens <b>${i.minRunsPerQ} keer uitvoeren</b>`);
+  if (i.heeftMeerkeuze && i.mcScoring === 'gedeeld') info.push('bij meerkeuze met meerdere juiste antwoorden <b>kost een fout aangeduid antwoord punten</b>');
+  if (info.length) r.push(['info', '📋', info.join('; ').replace(/^./, c => c) + '.']);
+  if (i.heeftCursus) r.push(['info', '📚', 'De <b>cursus</b> kan je zelf openen in de ' + soort + ' (cursus-paneel), omdat die bij de vragen gelinkt is.']);
+  r.push(['info', '👁', '<b>Wat je leerkracht ziet:</b> je voortgang, je antwoorden, tabwissels en gelogde pogingen' + (i.liveScreenshotSec > 0 ? `, en om de ${i.liveScreenshotSec} seconden een klein schermbeeld van deze ${soort}pagina (nooit van andere programma's)` : '') + '. Je antwoorden worden automatisch bewaard.']);
+  lijst.innerHTML = r.map(([k, ic, t]) => `<div class="regel ${k}"><div class="i">${ic}</div><div>${t}</div></div>`).join('');
+  document.getElementById('start-fraude')?.classList.toggle('hidden', !(i.tabSwitchEnabled || volledig));
+  updateStartKnop();
+}
+document.getElementById('start-akkoord')?.addEventListener('change', updateStartKnop);
+setInterval(() => { if (_startInfo && document.getElementById('start-screen')?.style.display !== 'none' && !_startBezig) { const l = document.getElementById('start-regels-lijst'); if (l && l.firstElementChild && !document.getElementById('start-akkoord')?.matches(':focus')) renderStartRegels(); } }, 30000);
+updateStartKnop();
 
 // ── v122: anti-fraude ───────────────────────────────────────────────────────
 // Logboek: elke poging gaat (met een korte rem per type) naar de server, zodat de leerkracht
 // achteraf per leerling ziet wat er gebeurde. Werkt ook vóór de start.
 const _incidentLaatst = {};
-function meldIncident(type, detail) {
+function meldIncident(type, detail, opties) {
   try {
     const nu = Date.now();
-    if (_incidentLaatst[type] && nu - _incidentLaatst[type] < 1500) return;
-    _incidentLaatst[type] = nu;
+    if (!(opties && opties.geenRem)) {
+      if (_incidentLaatst[type] && nu - _incidentLaatst[type] < 1500) return;
+      _incidentLaatst[type] = nu;
+    }
     socket.emit('quiz_incident', { code: urlCode, name: urlName, type, detail: detail || '' });
   } catch (e) { /* loggen mag de toets nooit storen */ }
 }
@@ -524,54 +587,15 @@ async function startQuiz() {
     await window.pyAlert(`Er is een tweede scherm aangesloten. Koppel het los en probeer opnieuw: de ${soort} gaat niet open zolang er een tweede scherm is. Dit is gelogd.`, 'warn');
     return;
   }
-  const regels = [];
-  // Sprint 83: anti-spiek — enkel bij een toets, en vooraan in de lijst (belangrijk genoeg
-  // om als eerste te zien, vóór terugbladeren/timer/aantal vragen).
-  if (_startInfo?.fullscreenRequired !== false && fullscreenMogelijk()) {
-    regels.push(`🖥️ Deze ${soort} wordt in <strong>volledig scherm</strong> getoond. Je kan dat scherm <strong>enkel verlaten door in te dienen</strong>; tot dan is de ${soort} geblokkeerd.`);
-  }
-  if (_startInfo?.copyPasteBlocked !== false) {
-    regels.push('🚫 <strong>Kopiëren en plakken is uitgeschakeld.</strong>');
-  }
-  {
-    if (_startInfo?.tabSwitchEnabled) {
-      const d = _startInfo.tabSwitchThreshold || 1;
-      const wanneer = d > 1 ? `${d} keer` : 'de eerste keer';
-      // Sprint 94: het respijt is instelbaar per toets — 0 sec betekent geen respijt.
-      const respijtSec = typeof _startInfo.tabSwitchGraceSeconds === 'number' ? _startInfo.tabSwitchGraceSeconds : 5;
-      const respijtZin = respijtSec > 0
-        ? ` Je krijgt daarbij telkens ${respijtSec} seconden om onmiddellijk terug te keren — lukt dat, dan telt het niet mee.`
-        : '';
-      regels.push(`⚠️ <strong>Wissel je van tabblad, venster of verlaat je het volledig scherm, dan wordt je ${soort} automatisch ingediend</strong> (na ${wanneer}).${respijtZin} Zorg dat je niets anders open hebt staan.`);
-    }
-  }
-  if (_startInfo?.noBack) {
-    regels.push('⚠️ <strong>Je krijgt één kans per vraag.</strong> Ga je naar de volgende vraag, dan kan je <strong>niet meer terug</strong>.');
-  } else {
-    regels.push('Je kan tussen de vragen heen en weer bladeren en je antwoorden aanpassen.');
-  }
-  if (_startInfo && !_startInfo.noTimer && _startInfo.timerSeconds) {
-    regels.push(`Je hebt <strong>${Math.round(_startInfo.timerSeconds / 60)} minuten</strong>. De tijd start zodra je op Starten klikt en loopt door, ook als je de pagina sluit.`);
-  }
-  if (_startInfo?.questionCount) {
-    regels.push(`Deze ${soort} bevat <strong>${_startInfo.questionCount} vragen</strong>.`);
-  }
-  regels.push('Je antwoorden worden automatisch bewaard.');
-
-  const bevestigd = await window.pyConfirm({
-    title: (_startInfo?.noBack ? '⚠️ Let op — ' : '') + soort.charAt(0).toUpperCase() + soort.slice(1) + ' starten',
-    body: '<ul style="text-align:left;margin:0;padding-left:18px;">'
-        + regels.map(r => '<li style="margin-bottom:6px;">' + r + '</li>').join('')
-        + '</ul>',
-    confirmLabel: 'Starten',
-    cancelLabel: 'Nog even wachten',
-  });
-  if (!bevestigd) return;
+  // v148: de regels en het verplichte akkoord staan op het startscherm zelf; de knop is pas actief na het vinkje.
+  if (!document.getElementById('start-akkoord')?.checked) { updateStartKnop(); return; }
+  meldIncident('startbevestiging', JSON.stringify({ vinkje: true, soort }));   // gelogd, bij toets én taak
   _doeStart();
 }
 
 function _doeStart() {
-  const btn = document.querySelector('.start-card button');
+  _startBezig = true;
+  const btn = document.getElementById('start-knop');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Bezig met laden…'; }
   const info = document.getElementById('start-info');
   if (info) { info.textContent = 'Bezig met laden…'; info.style.color = ''; info.style.fontWeight = ''; }
@@ -584,6 +608,265 @@ function _doeStart() {
   if (_startInfo?.fullscreenRequired !== false) vraagVolledigScherm();
   socket.emit('quiz_start', { code: urlCode, name: urlName, className: urlClass });
 }
+
+// ── v143: vergrendelscherm bij terugkeer ────────────────────────────────────────
+// Een webpagina kan een leerling niet terughalen uit een ander tabblad of programma. Wat wél kan:
+// zodra hij terugkomt, blijft de toets verborgen tot hij bewust op "Doorgaan" klikt (en terug in volledig
+// scherm gaat). De afwezigheid wordt gemeten en gelogd.
+let _terugkeerAan = false;
+let _wegSinds = null;
+function formatWegDuur(sec) {
+  if (sec < 60) return sec + ' s';
+  return Math.floor(sec / 60) + ' min ' + String(sec % 60).padStart(2, '0') + ' s';
+}
+function toonTerugkeerOverlay(sec) {
+  const el = document.getElementById('terugkeer-overlay');
+  if (!el) return;
+  const t = document.getElementById('terugkeer-duur');
+  if (t) t.textContent = formatWegDuur(sec);
+  el.classList.add('visible');
+}
+function sluitTerugkeerOverlay() {
+  const el = document.getElementById('terugkeer-overlay');
+  if (el) el.classList.remove('visible');
+  if (_fullscreenRequired) vraagVolledigScherm();
+}
+let _diagnose = null;
+let _terugkeerTijd = 0;     // v144: tijdstip van de laatste terugkeer (voor "wijziging kort na terugkeer")
+let _wegDiag = null;
+function zetTerugkeerVergrendelingAan() {
+  if (_terugkeerAan) return;
+  _terugkeerAan = true;
+  // v144: wat gebeurde er vlak vóór het weggaan? (systeemtoetsen, muisrand, gebeurtenis) — zie tabdiagnose.js
+  try { if (window.TabDiagnose) _diagnose = window.TabDiagnose.maakDiagnose(window); } catch (e) { _diagnose = null; }
+  const weg = (gebeurtenis) => {
+    if (_afgesloten || !_state) return;
+    if (_wegSinds) return;
+    _wegSinds = Date.now();
+    _wegDiag = null;
+    try { _wegDiag = _diagnose ? _diagnose.snapshot(gebeurtenis) : null; } catch (e) { _wegDiag = null; }
+    // Meteen melden: wordt de leerling bij deze wissel automatisch ingediend, dan komt er geen terugkeer meer.
+    meldIncident('weg_van_toets', JSON.stringify(Object.assign({ q: _currentQuestionId || null, fase: 'weg' }, _wegDiag || {})), { geenRem: true });
+  };
+  const terug = () => {
+    if (_afgesloten || !_state || !_wegSinds) return;
+    const sec = Math.round((Date.now() - _wegSinds) / 1000);
+    _wegSinds = null;
+    if (sec < 1) return;
+    _terugkeerTijd = Date.now();
+    toonTerugkeerOverlay(sec);
+    meldIncident('weg_van_toets', JSON.stringify(Object.assign({ q: _currentQuestionId || null, fase: 'terug', secs: sec }, _wegDiag || {})), { geenRem: true });
+  };
+  document.addEventListener('visibilitychange', () => { if (document.hidden) weg('visibilitychange'); else terug(); });
+  window.addEventListener('blur', () => {
+    // een klik in het cursus-zijpaneel (iframe) haalt de focus ook weg van het venster
+    setTimeout(() => {
+      const a = document.activeElement;
+      if (a && a.tagName === 'IFRAME') return;
+      if (!document.hasFocus()) weg('blur');
+    }, 0);
+  });
+  window.addEventListener('focus', terug);
+}
+
+
+// ── v144: extra fraudesignalen ───────────────────────────────────────────────────
+// Alles hieronder logt enkel (nooit blokkeren of de leerling storen); de leerkracht beoordeelt achteraf.
+const GROTE_INVOER_MIN = 60;       // tekens in één wijziging zonder plakpoging
+const NA_TERUGKEER_MIN = 40;       // tekens, binnen 20 s na terugkeer
+const WEINIG_TOETSEN_MIN = 150;    // toegevoegde tekens in één vraag vooraleer "weinig toetsaanslagen" telt
+let _vraagBasis = { qid: null, len: 0, keys: 0 };
+let _vorigeEditorTekst = null;
+
+function antwoordLengte() {
+  let n = (getCurrentCode() || '').length;
+  const ta = document.getElementById('quiz-open-answer');
+  if (ta && ta.offsetParent !== null) n += (ta.value || '').length;
+  return n;
+}
+function startVraagBewaking(qid) {
+  _vraagBasis = { qid, len: 0, keys: 0 };
+  _vorigeEditorTekst = null;
+  // pas nadat de editor zijn inhoud kreeg
+  setTimeout(() => {
+    if (_currentQuestionId !== qid) return;
+    _vraagBasis.len = antwoordLengte();
+    _vorigeEditorTekst = getCurrentCode() || '';
+  }, 400);
+}
+// Het stuk tekst dat erbij kwam (gemeenschappelijk begin en einde weglaten).
+function ingevoegdStuk(oud, nieuw) {
+  let i = 0;
+  const max = Math.min(oud.length, nieuw.length);
+  while (i < max && oud[i] === nieuw[i]) i++;
+  let j = 0;
+  while (j < max - i && oud[oud.length - 1 - j] === nieuw[nieuw.length - 1 - j]) j++;
+  return nieuw.slice(i, nieuw.length - j);
+}
+function verwerkInvoerWijziging(oud, nieuw) {
+  if (!_state || _afgesloten || oud == null) return;
+  const delta = nieuw.length - oud.length;
+  if (delta < NA_TERUGKEER_MIN) return;
+  if (Date.now() - _laatstePlakPoging < 2000) return;       // al gelogd als plakpoging
+  const stuk = ingevoegdStuk(oud, nieuw);
+  const basis = { q: _currentQuestionId || null, delta, tekst: stuk.slice(0, 300) };
+  if (_terugkeerTijd && Date.now() - _terugkeerTijd < 20000) {
+    meldIncident('wijziging_na_terugkeer', JSON.stringify(Object.assign({ secs: Math.round((Date.now() - _terugkeerTijd) / 1000) }, basis)), { geenRem: true });
+  }
+  if (delta >= GROTE_INVOER_MIN) meldIncident('grote_invoer', JSON.stringify(basis), { geenRem: true });
+}
+function controleerWeinigToetsen() {
+  try {
+    if (!_state || _afgesloten || !_vraagBasis.qid || _vraagBasis.qid !== _currentQuestionId) return;
+    const delta = antwoordLengte() - _vraagBasis.len;
+    if (delta >= WEINIG_TOETSEN_MIN && _vraagBasis.keys * 8 < delta) {
+      meldIncident('weinig_toetsen', JSON.stringify({ q: _currentQuestionId, len: delta, keys: _vraagBasis.keys }), { geenRem: true });
+    }
+    _vraagBasis.len = antwoordLengte();   // enkel het nieuwe stuk telt voor de volgende controle
+    _vraagBasis.keys = 0;
+  } catch (e) { /* loggen mag nooit storen */ }
+}
+
+const SNELTOETS_REGELS = [
+  [(e) => e.key === 'PrintScreen', 'PrintScreen'],
+  [(e) => e.key === 'F12', 'F12'],
+  [(e, k) => (e.ctrlKey || e.metaKey) && e.shiftKey && k === 'i', 'Ctrl+Shift+I'],
+  [(e, k) => (e.ctrlKey || e.metaKey) && e.shiftKey && k === 'j', 'Ctrl+Shift+J'],
+  [(e, k) => (e.ctrlKey || e.metaKey) && e.shiftKey && k === 'c', 'Ctrl+Shift+C'],
+  [(e, k) => (e.ctrlKey || e.metaKey) && !e.shiftKey && k === 'u', 'Ctrl+U'],
+  [(e, k) => (e.ctrlKey || e.metaKey) && !e.shiftKey && k === 'p', 'Ctrl+P'],
+  [(e, k) => (e.ctrlKey || e.metaKey) && !e.shiftKey && k === 's', 'Ctrl+S'],
+];
+let _extraBewakingAan = false;
+function zetExtraFraudeBewakingAan() {
+  if (_extraBewakingAan) return;
+  _extraBewakingAan = true;
+  // typen tellen (enkel aantallen, nooit welke toets)
+  document.addEventListener('keydown', (e) => {
+    if (!_state || _afgesloten) return;
+    const k = (e.key || '').toLowerCase();
+    if (e.key && (e.key.length === 1 || k === 'enter' || k === 'backspace' || k === 'delete' || k === 'tab') && !(e.ctrlKey || e.metaKey)) _vraagBasis.keys++;
+    for (const [test, naam] of SNELTOETS_REGELS) {
+      if (test(e, k)) {
+        if (/^Ctrl\+[PSU]$/.test(naam)) e.preventDefault();
+        meldIncident('sneltoets', JSON.stringify({ q: _currentQuestionId || null, toets: naam }), { geenRem: true });
+        break;
+      }
+    }
+  }, true);
+  // gewone tekstvelden (open antwoord, samengestelde onderdelen)
+  document.addEventListener('input', (e) => {
+    const t = e.target;
+    if (!t || t.tagName !== 'TEXTAREA' || (t.closest && t.closest('.monaco-editor'))) return;
+    const oud = t._pcfVorige;
+    t._pcfVorige = t.value;
+    if (oud != null) verwerkInvoerWijziging(oud, t.value);
+  }, true);
+  // venster plots veel kleiner (split-screen, verkleind venster naast een ander programma)
+  let basisW = window.innerWidth, basisH = window.innerHeight, gemeld = false;
+  window.addEventListener('resize', () => {
+    if (!_state || _afgesloten) return;
+    const w = window.innerWidth, h = window.innerHeight;
+    if (w * h > basisW * basisH) { basisW = w; basisH = h; gemeld = false; return; }
+    if (!gemeld && w * h < basisW * basisH * 0.7) {
+      gemeld = true;
+      meldIncident('venster_kleiner', JSON.stringify({ q: _currentQuestionId || null, w, h, basisW, basisH }), { geenRem: true });
+    } else if (w * h >= basisW * basisH * 0.9) gemeld = false;
+  });
+}
+
+
+// ── v145: schermafbeelding voor het live-overzicht van de leerkracht ──────────────
+// De server zegt "aan" zolang de leerkracht het live-overzicht open heeft en "uit" zodra het sluit.
+// Er wordt enkel een klein JPEG-beeld (~320 px breed) van DEZE toetspagina gemaakt, nooit van iets anders.
+let _beeldTimer = null;
+let _beeldBezig = false;
+let _h2cLaden = null;
+const BEELD_BREEDTE = 320;
+function laadHtml2canvas() {
+  if (window.html2canvas) return Promise.resolve(true);
+  if (_h2cLaden) return _h2cLaden;
+  _h2cLaden = new Promise((res) => {
+    // De Monaco-lader (AMD) staat al op de pagina: zonder dit zou html2canvas zich als AMD-module
+    // aanmelden i.p.v. als window.html2canvas. Daarom 'define' even wegzetten tijdens het laden.
+    const oudDefine = window.define;
+    const herstel = () => { try { window.define = oudDefine; } catch (e) { /* niets */ } };
+    try { window.define = undefined; } catch (e) { /* niets */ }
+    const sc = document.createElement('script');
+    sc.src = '/vendor/html2canvas/html2canvas.min.js';
+    sc.onload = () => { herstel(); res(!!window.html2canvas); };
+    sc.onerror = () => { herstel(); res(false); };
+    document.head.appendChild(sc);
+  });
+  return _h2cLaden;
+}
+// Terugval als de beeldbibliotheek niet laadt of faalt: een eenvoudig "scherm" met vraag en begin van de code.
+function maakTerugvalBeeld() {
+  const cv = document.createElement('canvas');
+  cv.width = BEELD_BREEDTE; cv.height = 200;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#0f172a'; g.fillRect(0, 0, cv.width, cv.height);
+  g.fillStyle = '#93c5fd'; g.font = 'bold 12px sans-serif';
+  const totaal = (_state && _state.questions && _state.questions.length) || '?';
+  g.fillText(`Vraag ${_currentIdx + 1} van ${totaal}`, 8, 16);
+  g.fillStyle = '#e2e8f0'; g.font = '10px monospace';
+  const tekst = (getCurrentCode() || (document.getElementById('quiz-open-answer') || {}).value || '').split('\n').slice(0, 14);
+  tekst.forEach((r, i) => g.fillText(r.slice(0, 52), 8, 34 + i * 12));
+  return cv;
+}
+async function maakLiveBeeld() {
+  if (_beeldBezig || !_state || _afgesloten || document.hidden) return;
+  _beeldBezig = true;
+  try {
+    let cv = null;
+    if (await laadHtml2canvas()) {
+      try {
+        cv = await window.html2canvas(document.body, {
+          scale: BEELD_BREEDTE / Math.max(320, window.innerWidth),
+          width: window.innerWidth, height: window.innerHeight,
+          x: window.scrollX, y: window.scrollY, scrollX: 0, scrollY: 0,
+          logging: false, useCORS: false, backgroundColor: '#ffffff',
+          ignoreElements: (el) => el && el.tagName === 'IFRAME',
+        });
+      } catch (e) { cv = null; }
+    }
+    if (!cv) cv = maakTerugvalBeeld();
+    let img = cv.toDataURL('image/jpeg', 0.5);
+    if (img.length > 140000) img = cv.toDataURL('image/jpeg', 0.3);
+    if (img.length <= 150000) socket.emit('quiz_screenshot', { img });
+  } catch (e) { /* een beeld mag de toets nooit storen */ }
+  finally { _beeldBezig = false; }
+}
+function stopLiveBeeld() { clearInterval(_beeldTimer); _beeldTimer = null; }
+socket.on('quiz_screenshot_aan', ({ intervalSec } = {}) => {
+  stopLiveBeeld();
+  const sec = Math.max(5, Math.min(300, Number(intervalSec) || 30));
+  setTimeout(maakLiveBeeld, 1500);
+  _beeldTimer = setInterval(maakLiveBeeld, sec * 1000);
+});
+socket.on('quiz_screenshot_uit', stopLiveBeeld);
+
+// ── v143: dezelfde toets in twee tabbladen ───────────────────────────────────────
+// De server weigert een tweede verbinding al; dit merkt het vóór het starten, op onze eigen site.
+function zetDubbelTabbladBewakingAan() {
+  try {
+    if (typeof BroadcastChannel === 'undefined' || !urlCode || !urlName) return;
+    const kanaal = new BroadcastChannel('pcf-toets-' + String(urlCode).toUpperCase() + '-' + String(urlName).trim().toLowerCase());
+    kanaal.onmessage = (e) => {
+      const m = e.data || {};
+      if (m.type === 'hallo' && _state && !_afgesloten) kanaal.postMessage({ type: 'bezet' });
+      if (m.type === 'bezet' && !_state && !_dubbelGemeld) {
+        _dubbelGemeld = true;
+        const el = document.getElementById('dubbel-overlay');
+        if (el) el.classList.add('visible');
+        meldIncident('dubbel_tabblad', JSON.stringify({ fase: 'voor_start' }));
+      }
+    };
+    kanaal.postMessage({ type: 'hallo' });
+  } catch (e) { /* niet ondersteund: de server blijft dit controleren */ }
+}
+let _dubbelGemeld = false;
+zetDubbelTabbladBewakingAan();
 
 // ── Sprint 83: anti-spiek — volledig scherm, tabwissel-detectie, cursus-paneel ──
 function fullscreenMogelijk() {
@@ -613,6 +896,59 @@ function zetFullscreenVergrendelingAan() {
 // v113: kopiëren/plakken/knippen/slepen en het rechtsklikmenu uit, ook in de code-editor
 // (capture-fase, vóór de editor het event te zien krijgt).
 let _kopieerBlokAan = false;
+
+// v144: wat probeerde de leerling te plakken/kopiëren? Het geblokkeerde stuk tekst wordt (max. 500 tekens)
+// samen met de vraag en de lengte in het logboek gezet; dezelfde poging binnen 3 s telt één keer.
+const _blokkadeLaatst = {};
+let _laatstePlakPoging = 0;
+function huidigeSelectieTekst(e) {
+  try {
+    const t = e && e.target;
+    if (t && typeof t.value === 'string' && Number.isFinite(t.selectionStart) && t.selectionEnd > t.selectionStart) {
+      return t.value.slice(t.selectionStart, t.selectionEnd);
+    }
+    return (window.getSelection && window.getSelection().toString()) || '';
+  } catch (err) { return ''; }
+}
+function meldBlokkade(type, tekst, via) {
+  if (!_state || _afgesloten) return;
+  const t = String(tekst == null ? '' : tekst);
+  if (type === 'plakken' || type === 'slepen') _laatstePlakPoging = Date.now();
+  const sleutel = type + '|' + (_currentQuestionId || '') + '|' + t.slice(0, 80);
+  const nu = Date.now();
+  if (_blokkadeLaatst[sleutel] && nu - _blokkadeLaatst[sleutel] < 3000) return;
+  _blokkadeLaatst[sleutel] = nu;
+  const d = { q: _currentQuestionId || null, len: t.length };
+  if (t) d.tekst = t.slice(0, 500);
+  if (via) d.via = via;
+  meldIncident(type, JSON.stringify(d), { geenRem: true });
+}
+
+// Ctrl+V / Shift+Insert: de toets zelf blokkeren geeft geen paste-event, dus ook geen tekst. Daarom wordt de
+// focus heel even naar een onzichtbaar tekstveld verplaatst: de browser plakt daar, wij lezen de tekst
+// en blokkeren. Komt er toch geen paste-event, dan wordt de poging zonder tekst gelogd.
+let _plakProbe = null;
+function sluitPlakProbe(tekstGelezen) {
+  const pr = _plakProbe;
+  if (!pr) return;
+  _plakProbe = null;
+  clearTimeout(pr.timer);
+  try { pr.ta.remove(); } catch (err) { /* al weg */ }
+  try { if (pr.prev && pr.prev.focus) pr.prev.focus(); } catch (err) { /* focus herstellen mag falen */ }
+  if (!tekstGelezen) meldBlokkade('plakken', '', 'toets');
+}
+function startPlakProbe() {
+  if (_plakProbe) return;
+  const prev = document.activeElement;
+  const ta = document.createElement('textarea');
+  ta.setAttribute('aria-hidden', 'true');
+  ta.tabIndex = -1;
+  ta.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;';
+  document.body.appendChild(ta);
+  ta.focus();
+  _plakProbe = { ta, prev, timer: setTimeout(() => sluitPlakProbe(false), 400) };
+}
+
 function zetKopieerBlokAan() {
   const kopieerKnop = document.getElementById('quiz-copy-code-btn');
   if (kopieerKnop) kopieerKnop.style.display = _copyPasteBlocked ? 'none' : '';
@@ -622,7 +958,16 @@ function zetKopieerBlokAan() {
   const stop = (e) => {
     if (!_copyPasteBlocked) return;
     e.preventDefault(); e.stopPropagation();
-    if (incidentVoor[e.type] && _state && !_afgesloten) meldIncident(incidentVoor[e.type]);
+    const type = incidentVoor[e.type];
+    if (!type || !_state || _afgesloten) { if (e.type === 'paste') sluitPlakProbe(true); return; }
+    let tekst = '';
+    try {
+      if (e.type === 'paste') tekst = (e.clipboardData && e.clipboardData.getData('text/plain')) || '';
+      else if (e.type === 'drop') tekst = (e.dataTransfer && e.dataTransfer.getData('text/plain')) || '';
+      else tekst = huidigeSelectieTekst(e);
+    } catch (err) { tekst = ''; }
+    meldBlokkade(type, tekst);
+    if (e.type === 'paste') sluitPlakProbe(true);
   };
   for (const ev of ['copy', 'cut', 'paste', 'drop', 'dragstart', 'contextmenu']) {
     document.addEventListener(ev, stop, true);
@@ -632,7 +977,9 @@ function zetKopieerBlokAan() {
     if (!_copyPasteBlocked) return;
     if (/^insertFrom(Paste|Drop|Yank)/.test(e.inputType || '')) {
       e.preventDefault(); e.stopPropagation();
-      if (_state && !_afgesloten) meldIncident(/Drop/.test(e.inputType) ? 'slepen' : 'plakken');
+      let tekst = '';
+      try { tekst = (e.dataTransfer && e.dataTransfer.getData('text/plain')) || e.data || ''; } catch (err) { /* geen tekst */ }
+      meldBlokkade(/Drop/.test(e.inputType) ? 'slepen' : 'plakken', tekst);
     }
   }, true);
   // Het klembord leeg bij terugkeer in het venster.
@@ -644,9 +991,17 @@ function zetKopieerBlokAan() {
     if (!_copyPasteBlocked) return;
     const k = (e.key || '').toLowerCase();
     const ctrl = e.ctrlKey || e.metaKey;
-    if ((ctrl && ['c', 'v', 'x', 'insert'].includes(k)) || (e.shiftKey && (k === 'insert' || k === 'delete'))) {
-      e.preventDefault(); e.stopPropagation();
-      if (_state && !_afgesloten) meldIncident(k === 'c' || (ctrl && k === 'insert') ? 'kopieren' : (k === 'x' || (e.shiftKey && k === 'delete')) ? 'knippen' : 'plakken');
+    const isPlak = (ctrl && k === 'v') || (e.shiftKey && k === 'insert');
+    const isKopie = (ctrl && (k === 'c' || k === 'insert')) || false;
+    const isKnip = (ctrl && k === 'x') || (e.shiftKey && k === 'delete');
+    if (isPlak) {
+      // geen preventDefault: het paste-event moet nog gebeuren (in het onzichtbare veld), daar blokkeren we het.
+      e.stopPropagation();
+      if (_state && !_afgesloten) startPlakProbe(); else e.preventDefault();
+    } else if (isKopie || isKnip) {
+      // het copy/cut-event volgt en wordt hierboven geblokkeerd (met de geselecteerde tekst).
+      e.stopPropagation();
+      if (!_state || _afgesloten) e.preventDefault();
     }
   }, true);
 }
@@ -896,11 +1251,7 @@ socket.on('quiz_state', async (state) => {
 
   // Verberg timer bij taken zonder tijdslimiet
   const timerEl = document.getElementById('quiz-timer');
-  if (_noTimer && timerEl) {
-    timerEl.textContent = '∞';
-    timerEl.title = 'Geen tijdslimiet';
-    timerEl.style.opacity = '0.5';
-  }
+  toonGeenTeller(state.timerModus, state.indienOp);
 
   // Sprint 83: anti-spiek — pas ná een echte (geauthenticeerde) join, niet al bij de
   // publieke /startinfo. Enkel actief zolang de toets nog loopt (niet al ingediend —
@@ -919,6 +1270,8 @@ socket.on('quiz_state', async (state) => {
   if (_copyPasteBlocked) wisKlembord();   // v122
   if (_fullscreenRequired) zetTweedeSchermBewakingAan();   // v122
   if (_tabSwitchEnabled) zetTabWisselDetectieAan();
+  if (_isToets && (_fullscreenRequired || _tabSwitchEnabled)) zetTerugkeerVergrendelingAan();   // v143
+  zetExtraFraudeBewakingAan();   // v144
   setupCursusPaneel(state.cursusLinks || []);
   // v99: klasbord — hand opsteken (toets altijd, taak met vinkje) + tab-verlaten-signaal (toets)
   zetHandKnopOp(state.klasbordActief === true, state.handUp === true);
@@ -932,7 +1285,8 @@ socket.on('quiz_state', async (state) => {
   const hervatIdx = Number.isInteger(state.currentQuestion)
     ? Math.max(0, Math.min(state.currentQuestion, (state.questions?.length || 1) - 1))
     : 0;
-  goToQuestion(hervatIdx);
+  _bevestigdeVragen = new Set(state.bevestigdeVragen || []);   // v143
+  goToQuestion(hervatIdx, { hervat: true });
   // Sprint 91: alle antwoorden die nog op een bevestiging stonden te wachten (bv. omdat de
   // vorige socket wegviel vóór de ack aankwam) meteen opnieuw aanbieden aan deze — mogelijk
   // pas herstelde — verbinding.
@@ -1154,6 +1508,8 @@ function onChoiceChange(input, type) {
     }
     renderChoices(_currentChoices, type, _selectedChoices);
   }
+  // v148: een aangeklikte keuze meteen bewaren (bevestigd + herproberen), niet pas bij het verlaten van de vraag.
+  saveCurrentAnswer();
 }
 
 function updateOpenCount() {
@@ -1329,7 +1685,7 @@ function renderHiddenAiTrap(valTekst) {
 let _navigatieBezig = false; // Sprint 91: voorkomt een tweede, overlappende navigatiepoging
                               // terwijl de eerste nog op een opslagbevestiging wacht.
 
-async function goToQuestion(idx) {
+async function goToQuestion(idx, opties = {}) {
   const questions = _state?.questions || [];
   if (idx < 0 || idx >= questions.length) return;
 
@@ -1341,7 +1697,10 @@ async function goToQuestion(idx) {
   // over te slaan (en dus, door de terugspring-blokkade hierboven, definitief te verliezen).
   // De enige toegestane stap is exact +1, en die loopt altijd via de "Volgende"-knop
   // (navigate()), die zijn eigen bevestigingsvenster al toont.
-  if (_state?.noBack && (idx < _currentIdx || idx > _currentIdx + 1)) return;
+  // v143: bij het hervatten (opstart of na heropenen) mag de leerling meteen op de juiste vraag landen,
+  // bv. vraag 8 nadat 1 t.e.m. 7 bewust bevestigd waren. Bewust bevestigde vragen blijven dicht.
+  if (!opties.hervat && _state?.noBack && (idx < _currentIdx || idx > _currentIdx + 1)) return;
+  if (!opties.hervat && _state?.noBack && _bevestigdeVragen.has(questions[idx].id)) return;
   if (_navigatieBezig) return;
 
   // 🔴 Sprint 91 (kritieke bugfix): hier verliet de leerling voorheen de vraag ONMIDDELLIJK,
@@ -1351,16 +1710,22 @@ async function goToQuestion(idx) {
   // expliciet op een bevestigde opslag (met automatisch herproberen, zie saveCurrentAnswer())
   // vóór we ook maar naar de volgende vraag overstappen.
   if (_currentQuestionId) {
+    controleerWeinigToetsen();   // v144
     const code = getCurrentCode();
     _navigatieBezig = true;
-    const bevestigd = await saveCurrentAnswer(code);
+    // v143: bij 1 kans per vraag is vooruitgaan een bewuste bevestiging van de vraag die je verlaat.
+    const bevestigVraag = _state?.noBack === true && !opties.hervat && idx > _currentIdx;
+    const bevestigdId = _currentQuestionId;
+    const bevestigd = await saveCurrentAnswer(code, { bevestig: bevestigVraag });
     _navigatieBezig = false;
+    if (bevestigd && bevestigVraag && bevestigdId) _bevestigdeVragen.add(bevestigdId);
     if (!bevestigd) return; // blijft op de huidige vraag staan — de opslag probeert intussen op de achtergrond door
   }
 
   _currentIdx = idx;
   const q = questions[idx];
   _currentQuestionId = q.id;
+  startVraagBewaking(q.id);   // v144
   updateCursusVoorVraag(q.id);   // v132: cursus-links horen per vraag
 
   // Markeer als bezocht
@@ -1546,7 +1911,7 @@ function updateSaveStatusUI() {
   }
 }
 
-function saveCurrentAnswer(code) {
+function saveCurrentAnswer(code, opt) {
   if (!_currentQuestionId) return Promise.resolve(true);
   // Sprint 70: na een geforceerde inlevering mag er niets meer bijkomen. De ene
   // opslag die de afsluiting zelf doet, gebeurt vóór deze vlag wordt gezet.
@@ -1570,6 +1935,7 @@ function saveCurrentAnswer(code) {
     partAnswers: ans.partAnswers || undefined,
     answerFlowchartJson: ans.answerFlowchartJson !== undefined ? ans.answerFlowchartJson : undefined,
   };
+  if (opt && opt.bevestig === true) payload.bevestigd = true;   // v143
   return reliableSaveAnswer(_currentQuestionId, payload);
 }
 
@@ -1686,6 +2052,13 @@ function scheduleAnswerAutosave() {
 // '...ApplyingRemote'-vlag, vóór de per-owner-tak hieronder ooit bereikt wordt.
 window.onQuizEditorChange = function () {
   if (!_currentQuestionId || _afgesloten) return;
+  // v144: grote wijziging zonder plakpoging / kort na terugkeer
+  try {
+    const nu = getCurrentCode() || '';
+    const oud = _vorigeEditorTekst;
+    _vorigeEditorTekst = nu;
+    if (oud != null) verwerkInvoerWijziging(oud, nu);
+  } catch (e) { /* loggen mag nooit storen */ }
   scheduleAnswerAutosave();
 };
 
@@ -1905,6 +2278,7 @@ const ZELFEVAL_CATEGORIEEN = [
     { id: 'gelezen_1x', tekst: 'Ik heb de leerstof 1 keer gelezen.' },
     { id: 'gelezen_meermaals', tekst: 'Ik heb de leerstof meerdere keren gelezen.' },
     { id: 'grondig_geleerd', tekst: 'Ik heb de leerstof grondig geleerd.' },
+    { id: 'nvt', tekst: 'Niet van toepassing.', exclusief: true },
   ] },
   { id: 'verwerking', titel: 'Verwerking van de leerstof', items: [
     { id: 'samenvatting', tekst: 'Ik heb een samenvatting gemaakt.' },
@@ -1912,17 +2286,20 @@ const ZELFEVAL_CATEGORIEEN = [
     { id: 'begrippenlijst', tekst: 'Ik heb een begrippenlijst geleerd.' },
     { id: 'extra_uitleg', tekst: 'Ik heb extra uitleg gevraagd (aan de leerkracht of een klasgenoot).' },
     { id: 'ondervraagd', tekst: 'Iemand heeft mij ondervraagd.' },
+    { id: 'nvt', tekst: 'Niet van toepassing.', exclusief: true },
   ] },
   { id: 'oefenen', titel: 'Oefenen', items: [
     { id: 'oefeningen_gemaakt', tekst: 'Ik heb oefeningen gemaakt.' },
     { id: 'oefeningen_herhaald', tekst: 'Ik heb oefeningen opnieuw gemaakt / herhaald.' },
     { id: 'extra_oefeningen', tekst: 'Ik heb extra oefeningen gemaakt (online of in het boek).' },
     { id: 'geen_oefeningen', tekst: 'Ik heb geen oefeningen gemaakt.' },
+    { id: 'nvt', tekst: 'Niet van toepassing.', exclusief: true },
   ] },
   { id: 'planning', titel: 'Planning', items: [
     { id: 'op_tijd', tekst: 'Ik ben op tijd begonnen met leren (enkele dagen op voorhand).' },
     { id: 'laat', tekst: 'Ik ben laat begonnen (de dag ervoor).' },
     { id: 'zelfde_dag', tekst: 'Ik ben pas op de dag zelf begonnen.' },
+    { id: 'nvt', tekst: 'Niet van toepassing.', exclusief: true },
   ] },
   { id: 'aandachtspunten', titel: 'Aandachtspunten', items: [
     { id: 'niet_voldoende', tekst: 'Ik heb niet (voldoende) geleerd.' },
@@ -2024,6 +2401,7 @@ function closeZelfevaluatieScreen() {
 }
 
 function submitAll() {
+  controleerWeinigToetsen();   // v144
   saveCurrentAnswer(getCurrentCode());
   _afgesloten = true; // Sprint 83: voorkomt een zinloze tabwissel-melding door exitFullscreen()
   updateFullscreenVergrendeling();
@@ -2129,6 +2507,40 @@ socket.on('quiz_submitted_ok', (data) => {
     waarschuwing.textContent = `⚠️ Let op: ${data.mislukteVragen.length} van je antwoorden kon(den) niet ` +
       'correct opgeslagen worden door een technisch probleem. Verwittig onmiddellijk je leerkracht.';
     document.getElementById('done-info')?.insertAdjacentElement('afterend', waarschuwing);
+  }
+});
+
+// v146: toets/taak zonder teller: enkel een deadline ("wordt automatisch ingediend op …") of helemaal niets.
+function formatIndienOp(ms) {
+  return new Date(ms).toLocaleString('nl-BE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(',', ' om');
+}
+function toonGeenTeller(modus, indienOp) {
+  const timerEl = document.getElementById('quiz-timer');
+  if (!timerEl) return;
+  if (!_noTimer) { timerEl.style.opacity = ''; return; }
+  if (modus === 'deadline' && indienOp) {
+    timerEl.textContent = '📤 ' + new Date(indienOp).toLocaleString('nl-BE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    timerEl.title = 'Wordt automatisch ingediend op ' + formatIndienOp(indienOp);
+    timerEl.style.opacity = '1';
+  } else {
+    timerEl.textContent = '∞';
+    timerEl.title = 'Geen tijdslimiet';
+    timerEl.style.opacity = '0.5';
+  }
+}
+// v146: de leerkracht paste de deadline aan tijdens de toets → nieuwe teller of nieuwe indientijd
+socket.on('quiz_tijd_wijziging', ({ timerSeconds, modus, indienOp, startedAt } = {}) => {
+  if (startedAt) _startedAt = startedAt;
+  _totalSeconds = timerSeconds || null;
+  _noTimer = !_totalSeconds;
+  if (_noTimer) { if (_timerInterval) clearInterval(_timerInterval); toonGeenTeller(modus, indienOp); }
+  else { const el = document.getElementById('quiz-timer'); if (el) el.style.opacity = ''; startTimer(); }
+  const b = document.getElementById('warning-banner');
+  if (b) {
+    b.textContent = _noTimer
+      ? (indienOp ? '⏰ De deadline is aangepast: nieuwe indientijd ' + formatIndienOp(indienOp) + '.' : '⏰ De deadline is aangepast.')
+      : '⏰ De deadline is aangepast: je tijd is bijgewerkt.';
+    b.classList.add('visible'); setTimeout(() => b.classList.remove('visible'), 15000);
   }
 });
 

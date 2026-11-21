@@ -1,6 +1,6 @@
 # PyCodeFlow — Volledig Testboek
 
-> **Versie:** v2026.2.51.142 · **Bijgewerkt:** 17 november 2026 (sectie 88 voegt de handmatige tests voor v124–v142 toe)
+> **Versie:** v2026.2.51.152 · **Bijgewerkt:** 20 november 2026 (sectie 88–96: handmatige tests voor v124–v150)
 > Volledig stappenplan voor alle functies, pagina's, layouts en PDF-exports.
 > Voer tests uit op: `https://app.pycodeflow.org` (productie) of `http://localhost:3000` (lokaal)
 
@@ -2896,7 +2896,7 @@ en herstart. Daarna:
 
 ## 88. v124–v142 — Handmatige tests voor de recente functies
 
-> Automatisch: `node --test tests/*.test.js` (692 tests bij v142) en de livetests in `web/tests/live/`.
+> Automatisch: `node --test tests/*.test.js` (773 tests bij v152) en de livetests in `web/tests/live/`.
 > Hieronder de dingen die je zelf op het scherm controleert.
 
 ### 88.1 Meerkeuze "gedeeld juist" en halve punten (v133)
@@ -2938,3 +2938,136 @@ en herstart. Daarna:
 - **▶ Uitvoeren bij nakijken** (v140): code draait, `input()` werkt, een tweede run binnen 3 s krijgt "wacht even".
 - **🐍 Vrij oefenen** (v141): opent in een nieuw tabblad onder je eigen naam; terugknop naar het sessieoverzicht.
 - **Inlogblokkade** (v124): na te veel mislukte pogingen blokkeert enkel dat account (niet het hele netwerk); ontgrendelen via *Toegang*.
+
+## 89. v143 — Tijdens de toets (handmatig)
+
+### 89.1 Toegang herstellen
+1. Start een toets (60 min, volledig scherm + tabwissel aan) met een testleerling; wissel van tabblad → automatisch ingediend.
+2. Voortgang-lijst → **🔓 Toegang herstellen**. ✅ De popup toont zijn eindtijd (start + 60 min) en de resterende tijd. Bevestig met 0 extra minuten.
+3. ✅ De leerling krijgt "terug opengezet", komt terug op dezelfde eindtijd (de tijd dat hij weg was is niet teruggegeven). Tabwissels blijven geregistreerd (Incidenten-kolom + logboek).
+4. Herhaal in de lastige toestanden: toets gestopt, deadline voorbij, leerling verwijderd uit de sessie, leerling nooit antwoorden opgeslagen, server herstart. ✅ Altijd mogelijk. Zonder timer krijgt hij minstens 15 minuten.
+5. Geef 10 extra minuten. ✅ Zijn eindtijd schuift precies 10 minuten op.
+
+### 89.2 Bewust bevestigde vragen
+1. Toets met *1 kans per vraag*: bevestig vraag 1 en 2 (vraag 2 leeg), blijf op vraag 3, laat de leerling uit het scherm gaan en herstel.
+2. ✅ Hij komt op vraag 3; vraag 1–2 zijn niet bereikbaar. Zonder *1 kans per vraag*: niets alleen-lezen, hij komt op de eerste onbeantwoorde vraag.
+
+### 89.3 Vergrendelscherm, start en dubbel tabblad
+- ✅ Start: de knop *Starten* werkt pas na het vinkje. Terugkeer uit een ander venster toont "Je hebt de toets verlaten"; de afwezigheid staat in het logboek (`weg_van_toets`).
+- ✅ Dezelfde toets in een tweede tabblad geeft "al open in een ander tabblad".
+
+### 89.4 Deadline aanpassen
+- Overzicht → lopende toets → pijltje → **Deadline aanpassen**: +30 min; ✅ het overzicht toont het nieuwe uur, het automatisch indienen gebruikt het. Vervroegen geeft een waarschuwing; een uur in het verleden wordt geweigerd; bij een gestopte toets krijg je een duidelijke melding.
+
+### 89.5 Enquête
+- ✅ Voorbereiding, Verwerking, Oefenen en Planning hebben elk "Niet van toepassing" (sluit de andere vinkjes uit en omgekeerd) en tellen mee in de samenvatting van de leerkracht.
+
+## 90. v144 — Fraude en inzicht (handmatig)
+
+### 90.1 Plakpogingen
+1. Start een toets (kopiëren/plakken geblokkeerd). Kopieer eerst tekst buiten de toets, plak met Ctrl+V in een open antwoord en in de code-editor, sleep tekst erin en probeer rechtsklik.
+2. ✅ Er verschijnt niets in het antwoord. Nakijken → die leerling → **🚨 Spiek-/fraudepogingen**: "Plakken — vraag X: N×", uitgeklapt met tijdstip, aantal tekens en de geplakte tekst (max. 500). Dezelfde poging binnen 3 s telt één keer.
+
+### 90.2 Tabdiagnose (Chromebook)
+1. Toets met tabwissel-detectie of volledig scherm. Druk op de zoek-/startknop (Meta), of beweeg de muis naar de onderkant/rechtsonder en klik buiten het venster.
+2. ✅ In het blok staat "Weg van de toets" met de oorzaak ("zoek-/startknop (Meta) ingedrukt", "de muis ging naar rechtsonder…" of "onbekende oorzaak") en na terugkeer de duur. Wordt de leerling automatisch ingediend, dan staat de regel er toch.
+
+### 90.3 Extra signalen
+- Typ een antwoord met alleen een klein beetje toetsen (bv. via een tekstuitbreiding) of laat code in één keer verschijnen: ✅ *Code in één keer* / *Weinig toetsaanslagen*. Druk F12 of Ctrl+Shift+I: ✅ *Verdachte sneltoets*. Verklein het venster tot de helft: ✅ *Venster plots kleiner*.
+
+### 90.4 Nakijken
+- ✅ 🚨 in de leerlingenlijst; chip "Zelf ingediend" of "Automatisch afgesloten: …"; gelijkenisrapport toont "plakken vraag X: N×".
+
+## 91. v145 — Live mini-kaartjes (handmatig)
+
+### 91.1 Overzicht met schermbeeld
+1. Maak een toets (Beveiliging → schermbeeld om de **10** s), laat 2 testleerlingen starten en typ wat.
+2. Klik op **Live**. ✅ Binnen ± 10 s verschijnt per leerling een klein beeld van zijn toetspagina; kaartje toont "Vraag x/y", voortgang, begin van het antwoord, "⌨ … geleden" en de aflopende tijd.
+3. Laat een leerling een ander tabblad openen. ✅ Rode rand en badge "🚪 weg uit de toets"; sorteren op *Status* zet hem bovenaan.
+
+### 91.2 Stoppen en wissen
+1. Sluit het live-venster. ✅ Binnen ± 15 s stopt de leerlingpagina met beelden maken (netwerkverkeer in de ontwikkelaarstools: geen `quiz_screenshot` meer).
+2. Open het overzicht opnieuw. ✅ Het oude beeld is weg; na het interval komt een nieuw beeld.
+3. Laat een leerling indienen. ✅ Zijn kaartje toont "✅ ingediend" zonder beeld.
+
+### 91.3 Interval per toets
+- Zet het interval op **0**: ✅ kaartjes tonen "schermbeeld staat uit" en leerlingen maken geen beeld. Controleer ook bewerken, dupliceren en het bevestigingsscherm (✅ de waarde blijft). Waarden 1–4 worden 5, boven 300 wordt 300.
+
+## 92. v146 — Timers en monitoring (handmatig)
+
+### 92.1 Duur en deadline
+1. Toets van 60 min met deadline over 40 min: start als leerling. ✅ Teller 40:00 op het scherm én in het live-overzicht ("⏱ 40:00").
+2. Zet de deadline over 90 min. ✅ Teller springt naar 60:00 en de leerling krijgt een melding. Vervroeg naar 10 min: ✅ 10:00 bij iedereen.
+3. Toets zonder duur, met deadline: ✅ geen teller; "📤 dd/mm uu:mm" op het scherm en op het kaartje. Toets zonder duur en zonder deadline: ✅ "∞".
+4. Toets met enkel duur: ✅ teller = duur.
+
+### 92.2 Herstellen met extra tijd
+1. Toegang herstellen bij een leerling die nog 25 min heeft, 10 extra minuten *bovenop zijn eindtijd*: ✅ 35 min. Bij een leerling wiens tijd om is, *vanaf nu*: ✅ precies X minuten.
+2. Extra tijd voorbij de deadline: ✅ hij wordt niet om de deadline ingediend maar pas op zijn eigen einde.
+
+### 92.3 Monitoring
+- Systeembeheer → Lopende sessies: ✅ echte status per sessie; gestopte/afgeronde toetsen staan niet in de standaardlijst; schakelaar toont ze wel; teller "x lopend van y in het geheugen".
+
+## 93. v147 — Link naar de leerlingen (handmatig)
+
+### 93.1 Leerkracht
+1. Klassessie: vul titel + URL (zonder https://) in en klik **↗ Open**. ✅ Nieuw tabblad met `https://…`.
+2. Typ `javascript:alert(1)` en klik **Naar leerlingen**. ✅ Melding, niets verstuurd.
+3. **+ Nieuwe link**, vul een tweede in, bladeren met Vorige/Volgende. ✅ Teller "2 / 2". **💾 Bewaar**, open de sessie op een andere pc. ✅ Links staan er nog.
+4. Volledig scherm: ✅ derde blok "Link" naast opdracht en voorbeelden, apart in te klappen.
+
+### 93.2 Leerling
+1. **Naar leerlingen**. ✅ Popup met titel, website en **Link openen ↗**; de leerkracht ziet "Bij de leerlingen zichtbaar: …".
+2. Klik op *Link openen*. ✅ Nieuw tabblad, popup weg en blijft weg.
+3. *Later* kiezen. ✅ Popup weg, knop "🔗 Link van de leerkracht" op de pagina.
+4. Leerling komt later binnen of herlaadt. ✅ Popup met de actieve link (tenzij hij ze al opende).
+5. Leerkracht klikt **🗑 bij leerlingen verwijderen**. ✅ Popup/knop weg bij iedereen.
+6. Wissel naar *Individueel*. ✅ Link weg bij de leerlingen; *Naar leerlingen* geeft een melding.
+
+## 94. v148 — Keuzevragen bij automatisch indienen (handmatig)
+Toets met enkel- en meerkeuzevragen, test elke indienvorm en kijk daarna na (resultaten/nakijken):
+1. **Tabwissel/volledig scherm verlaten** (drempel 1): klik een antwoord aan en verlaat meteen het scherm. ✅ De keuze staat bewaard en is gescoord, ook voor de vraag waarop je stond.
+2. **Timer** (min. 1 min): klik antwoorden aan en wacht tot de tijd om is. ✅ Keuzes bewaard, scores ingevuld.
+3. **Deadline** en **Stoppen** door de leerkracht: ✅ idem.
+4. Klik een antwoord aan en wissel meteen naar de volgende vraag en terug. ✅ Keuze blijft staan.
+
+### 94.5 Startscherm met regels en akkoord
+1. Open een **toets** als leerling. ✅ Badge TOETS, naam van de toets, regels volgens de instellingen, rode fraudewaarschuwing, knop grijs.
+2. Vink het akkoord aan. ✅ Knop wordt groen; zonder vinkje is klikken niet mogelijk.
+3. Open een **taak** (zonder timer, met deadline). ✅ Badge TAAK, knop "START TAAK", "Deadline: … (nog X)", geen volledig-scherm-regel als dat uitstaat, geen fraudewaarschuwing zonder tabwissel-detectie.
+4. Toets met duur 60 min en deadline over 40 min. ✅ "nog 40 minuten (deadline …)".
+5. Laat in het toetsprofiel van de leerling controleren (Fraudeblok): ✅ de startbevestiging is gelogd.
+
+## 95. v149 — Toegang herstellen vanuit het verbeterscherm (handmatig)
+Gebruik een afgesloten toets met minstens één leerling die al volledig verbeterd is.
+1. Open *Verbeteren* en kies de leerling. ✅ In de kop staat **🔓 Toegang herstellen**.
+2. Klik erop. ✅ Groene melding "Al verbeterd (x/y)"; vraag "Hoeveel tijd krijgt hij vanaf nu?"; knoppen 5/10/15/30 + eigen aantal; het voorbeeld toont het eindtijdstip; de knop noemt het aantal minuten.
+3. Kies 10 min en bevestig. ✅ Chip **🔓 heropend tot hh:mm** in de lijst en de kop; de leerling kan verder werken in zijn toets; je scores staan nog.
+4. Laat de leerling één antwoord wijzigen en indienen. ✅ Binnen ± 15 s verdwijnt de chip; enkel die vraag staat terug op "?" (Te verbeteren); de andere scores blijven.
+5. Herstel opnieuw maar laat de tijd verstrijken. ✅ Automatisch opnieuw ingediend, scores ongewijzigd, nergens een 0.
+6. Leerling met nog tijd over, kies korter dan zijn eigen eindtijd. ✅ Oranje melding: hij behoudt zijn eigen eindtijd.
+7. Controleer in het monitoringscherm dat 🔓 Toegang herstellen hetzelfde venster toont. ✅
+
+## 96. v150 — Heropenen en startknop (handmatig)
+1. Toets met timer van 10 min; laat een leerling indienen (of laat de tijd om zijn) en **stop** de toets. Kies *↻ Toets heropenen*, "open tot" over 1 uur, vink de leerling aan. ✅ Hij kan ruim 50 minuten werken, de teller loopt mee, geen "1 minuut".
+2. Doe hetzelfde met de knop **Heropenen** bij één leerling. ✅ Hetzelfde venster als "Toegang herstellen": jij kiest de tijd.
+3. Open als heropende leerling de toets-link. ✅ Regel "Heropend door je leerkracht … tot hh:mm"; na het vinkje wordt de knop **groen**.
+4. Open dezelfde link met een andere naam. ✅ Gestopte toets blijft dicht (knop blijft grijs).
+
+
+
+## 97. v151 — PyBlitz (handmatig)
+1. Menu **⚡ PyBlitz** → nieuwe PyBlitz met een tekstvraag, een codevraag, een foutmelding-vraag en een vraag met afbeelding. ✅ Opslaan lukt; afbeelding verschijnt; SVG wordt geweigerd.
+2. *Excel-sjabloon* downloaden, 2 rijen wijzigen, importeren. ✅ Voorbeeld met alle vragen; een fout in rij 3 geeft "Rij 3: …".
+3. Klasmodus-sessie, leerling ingelogd, klik **⚡ PyBlitz**. ✅ Lijst (of directe start als gekoppeld); leerling krijgt een popup (10 px marge), jij de beamer-weergave met code + QR.
+4. Gast op gsm: QR scannen, naam van een klaslid invoeren → ✅ geweigerd; "Noor" tweemaal → ✅ "Noor 2".
+5. Start, beantwoord, ⏸ pauze, *Toon antwoord*, doorloop tot het eindresultaat, klik *Eindresultaat sluiten*. ✅ Alle popups (leerlingen + gast) sluiten.
+6. Zet de sessie in individuele werkfase / maak een examensessie. ✅ Knop meldt dat het enkel in klasmodus kan.
+7. Herlaad de leerlingpagina midden in een vraag. ✅ Popup komt terug; gast: tabblad herladen → ✅ zelfde naam en score.
+
+
+## 98. v152 — PyBlitz: code in antwoorden + Uitproberen (handmatig)
+1. Maak een vraag met als antwoorden stukjes code van 2–3 regels (vinkje *code* of Enter in het vak). ✅ Inspringing blijft; op beamer, popup en gsm in lettertype met vaste breedte.
+2. Klik **▶ Uitproberen**. ✅ Splitscreen: links beamer, rechts gsm; je kan rechts antwoorden, links *Start*, *Toon antwoord*, *Volgende vraag*; de bots antwoorden mee.
+3. Klik bij vraag 3 op **▶ Vanaf hier**. ✅ De proef start bij vraag 3. Esc of *Sluiten* sluit; niets staat onder *Gespeelde spellen*.
+4. Probeer met een vraag zonder juist antwoord. ✅ Melding in plaats van de popup.

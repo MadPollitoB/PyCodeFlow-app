@@ -33,7 +33,7 @@ test('knoppen: actief gestart met klasbord → klasbord + live achter pijltje', 
   const r = { availability: 'open', klasbordActief: true };
   const k = kn('actief', r);
   assert.equal(k.primary, 'klasbord');
-  assert.ok(k.more.includes('live') && k.more.includes('voortgang') && k.more.includes('stoppen'));
+  assert.ok(k.more.includes('live') && k.more.includes('voortgang') && k.more.includes('stoppen') && k.more.includes('deadline'));
 });
 test('knoppen: taak zonder klasbord → live is hoofdknop', () => {
   assert.equal(kn('actief', { availability: 'open', klasbordActief: false }).primary, 'live');

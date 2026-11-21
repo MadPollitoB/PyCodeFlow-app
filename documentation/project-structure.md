@@ -77,6 +77,12 @@
 │   │   ├── placeholders.js        ← {{variabelen}}, voorwaarde, combinatiecontrole (v135/v137)
 │   │   ├── gelijkenis.js          ← Gelijkenisrapport per leerlingenpaar (v136)
 │   │   ├── moeilijkheid.js        ← Moeilijkheidsrapport per vraag en per set (v137)
+│   │   ├── pyblitz.js, pyblitz-spel.js, pyblitz-routes.js ← PyBlitz: logica, spelmotor, routes+sockets (v151)
+│   │   ├── link.js                ← Link naar de leerlingen: validatie/normalisatie (v147)
+│   │   ├── sessie-status.js       ← Echte sessiestatus voor monitoring (v146)
+│   │   ├── live-beeld.js          ← Live mini-kaartjes + beeld-validatie (v145)
+│   │   ├── fraude.js              ← Fraudeblok: groeperen + risico (v144)
+│   │   ├── herstel.js             ← Toegang herstellen + hervat-index (v143)
 │   │   ├── klasbord.js            ← Klasbord (beamerscherm) met resterende tijd (v99/v137)
 │   │   ├── overzicht-status.js    ← Status-gedreven toets-/taakoverzicht
 │   │   ├── auth.js, auth-limiet.js, intern-token.js ← Login, blokkades, intern token
@@ -85,7 +91,7 @@
 │   │   ├── training*.js           ← Trainingscenter (dagvraag, groei, hulp, kwaliteit, routes)
 │   │   └── validation.js, logger.js
 │   │
-│   ├── tests/                     ← `node --test tests/*.test.js` (692 tests bij v142)
+│   ├── tests/                     ← `node --test tests/*.test.js` (773 tests bij v152)
 │   │   ├── v126…v142.test.js      ← Per release: de regels uit changelog.md
 │   │   └── live/                  ← Tests tegen een draaiende server + databank
 │   │
@@ -140,12 +146,17 @@
 | `server.js` | `web/server.js` |
 | `app.js` | `web/public/app.js` |
 | `styles.css` | `web/public/styles.css` |
+| `tabdiagnose.js` | `web/public/tabdiagnose.js` (v144: diagnose weg-van-toets) |
 | `database.js` | `web/db/database.js` |
 | `app.py` | `runner/app.py` |
 | `teacher-sessions.html` | `web/public/teacher-sessions.html` |
 | `teacher-app.html` | `web/public/teacher-app.html` |
 | `teacher-login.html` | `web/public/teacher-login.html` |
 | `student-app.html` | `web/public/student-app.html` |
+| `pyblitz.html`, `pyblitz-bibliotheek.js` | `web/public/` (v151: bibliotheek/editor) |
+| `pyblitz-ui.js`, `pyblitz-overlay.js`, `pyblitz.css`, `play.html`, `play.js` | `web/public/` (v151: spel, popup, gast) |
+| `pyblitz-proef.js`, `pyblitz-proef.html`, `pyblitz-proef-frame.js` | `web/public/` (v152: Uitproberen/splitscreen) |
+| `vendor/qrcode-generator.js` | `web/public/vendor/` (v151: QR-code, MIT) |
 | `student-start.html` | `web/public/student-start.html` |
 | `free-editor.html` | `web/public/free-editor.html` |
 | `monitoring.html` | `web/public/monitoring.html` |
